@@ -2191,7 +2191,7 @@ def main():
 
     apply_global_styles()
 
-    st.markdown('<div class="main-title"><h1>🚀 Gestion de Projets IA</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title"><h1>🚀 Gestionnaire de Projets</h1></div>', unsafe_allow_html=True)
 
     if not st.session_state.welcome_seen:
         st.success("🎉 Bienvenue ! Explorez les fonctionnalités avec les données de démo.")
