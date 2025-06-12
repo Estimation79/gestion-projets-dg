@@ -498,6 +498,56 @@ def render_employe_form(emp_manager, employe_data=None):
     form_title = "➕ Ajouter un Nouvel Employé" if employe_data is None else f"✏️ Modifier {employe_data.get('prenom')} {employe_data.get('nom')}"
     
     with st.expander(form_title, expanded=True):
+        # GESTION DES COMPÉTENCES AVANT LE FORMULAIRE
+        st.markdown("##### 🎯 Gestion des Compétences")
+        
+        # Initialiser les compétences en session
+        if 'competences_form' not in st.session_state:
+            st.session_state.competences_form = employe_data.get('competences', []) if employe_data else []
+        
+        # Interface d'ajout de compétences HORS DU FORMULAIRE
+        col_comp1, col_comp2, col_comp3, col_comp4 = st.columns([3, 2, 1, 1])
+        with col_comp1:
+            nouvelle_comp = st.selectbox("Ajouter compétence:", [""] + COMPETENCES_DISPONIBLES, key="new_comp_select")
+        with col_comp2:
+            niveau_comp = st.selectbox("Niveau:", NIVEAUX_COMPETENCE, key="new_comp_level")
+        with col_comp3:
+            certifie_comp = st.checkbox("Certifié", key="new_comp_certified")
+        with col_comp4:
+            # UTILISER st.button() HORS DU FORMULAIRE
+            if st.button("➕ Ajouter", key="add_comp_btn"):
+                if nouvelle_comp:
+                    # Vérifier si la compétence n'existe pas déjà
+                    existing = next((comp for comp in st.session_state.competences_form if comp['nom'] == nouvelle_comp), None)
+                    if not existing:
+                        st.session_state.competences_form.append({
+                            'nom': nouvelle_comp,
+                            'niveau': niveau_comp,
+                            'certifie': certifie_comp
+                        })
+                        st.rerun()
+                    else:
+                        st.warning(f"La compétence '{nouvelle_comp}' existe déjà.")
+        
+        # Afficher les compétences actuelles
+        if st.session_state.competences_form:
+            st.markdown("**Compétences actuelles:**")
+            for i, comp in enumerate(st.session_state.competences_form):
+                col_c1, col_c2, col_c3, col_c4 = st.columns([3, 2, 1, 1])
+                with col_c1:
+                    st.text(comp['nom'])
+                with col_c2:
+                    st.text(comp['niveau'])
+                with col_c3:
+                    st.text("✅" if comp['certifie'] else "❌")
+                with col_c4:
+                    if st.button("🗑️", key=f"del_comp_{i}"):
+                        st.session_state.competences_form.pop(i)
+                        st.rerun()
+        
+        st.markdown("---")
+        
+        # FORMULAIRE PRINCIPAL (sans gestion des compétences)
         with st.form("emp_form", clear_on_submit=False):
             # Informations personnelles
             st.markdown("##### 👤 Informations Personnelles")
@@ -562,67 +612,27 @@ def render_employe_form(emp_manager, employe_data=None):
                     value=employe_data.get('charge_travail', 80) if employe_data else 80
                 )
             
-            # Compétences
-            st.markdown("##### 🎯 Compétences")
-            
-            # Initialiser les compétences en session
-            if 'competences_form' not in st.session_state:
-                st.session_state.competences_form = employe_data.get('competences', []) if employe_data else []
-            
-            # Ajouter une compétence
-            col_comp1, col_comp2, col_comp3, col_comp4 = st.columns([3, 2, 1, 1])
-            with col_comp1:
-                nouvelle_comp = st.selectbox("Ajouter compétence:", [""] + COMPETENCES_DISPONIBLES)
-            with col_comp2:
-                niveau_comp = st.selectbox("Niveau:", NIVEAUX_COMPETENCE)
-            with col_comp3:
-                certifie_comp = st.checkbox("Certifié")
-            with col_comp4:
-                if st.button("➕", key="add_comp_btn"):
-                    if nouvelle_comp:
-                        # Vérifier si la compétence n'existe pas déjà
-                        existing = next((comp for comp in st.session_state.competences_form if comp['nom'] == nouvelle_comp), None)
-                        if not existing:
-                            st.session_state.competences_form.append({
-                                'nom': nouvelle_comp,
-                                'niveau': niveau_comp,
-                                'certifie': certifie_comp
-                            })
-                            st.rerun()
-            
-            # Afficher les compétences actuelles
+            # Affichage des compétences dans le formulaire (lecture seule)
+            st.markdown("##### 📋 Compétences sélectionnées")
             if st.session_state.competences_form:
-                st.markdown("**Compétences actuelles:**")
-                for i, comp in enumerate(st.session_state.competences_form):
-                    col_c1, col_c2, col_c3, col_c4 = st.columns([3, 2, 1, 1])
-                    with col_c1:
-                        st.text(comp['nom'])
-                    with col_c2:
-                        st.text(comp['niveau'])
-                    with col_c3:
-                        st.text("✅" if comp['certifie'] else "❌")
-                    with col_c4:
-                        if st.button("🗑️", key=f"del_comp_{i}"):
-                            st.session_state.competences_form.pop(i)
-                            st.rerun()
+                comp_text = ", ".join([f"{comp['nom']} ({comp['niveau']})" for comp in st.session_state.competences_form])
+                st.text_area("Compétences:", value=comp_text, disabled=True)
+            else:
+                st.info("Aucune compétence ajoutée. Utilisez la section ci-dessus pour en ajouter.")
             
             # Notes
             notes = st.text_area("Notes", value=employe_data.get('notes', '') if employe_data else "")
             
             st.caption("* Champs obligatoires")
             
-            # Boutons
+            # Boutons du formulaire - UTILISER st.form_submit_button()
             col_submit, col_cancel = st.columns(2)
             with col_submit:
                 submitted = st.form_submit_button("💾 Enregistrer", use_container_width=True)
             with col_cancel:
-                if st.form_submit_button("❌ Annuler", use_container_width=True):
-                    if 'competences_form' in st.session_state:
-                        del st.session_state.competences_form
-                    st.session_state.emp_action = None
-                    st.session_state.emp_selected_id = None
-                    st.rerun()
+                cancelled = st.form_submit_button("❌ Annuler", use_container_width=True)
             
+            # TRAITEMENT DU FORMULAIRE
             if submitted:
                 if not prenom or not nom or not email or not poste:
                     st.error("Les champs marqués * sont obligatoires.")
@@ -646,19 +656,31 @@ def render_employe_form(emp_manager, employe_data=None):
                         'photo_url': photo_url
                     }
                     
-                    if employe_data:  # Modification
-                        emp_manager.modifier_employe(employe_data['id'], new_employe_data)
-                        st.success(f"Employé {prenom} {nom} mis à jour !")
-                    else:  # Création
-                        new_id = emp_manager.ajouter_employe(new_employe_data)
-                        st.success(f"Nouvel employé {prenom} {nom} ajouté (ID: {new_id}) !")
-                    
-                    # Nettoyage
-                    if 'competences_form' in st.session_state:
-                        del st.session_state.competences_form
-                    st.session_state.emp_action = None
-                    st.session_state.emp_selected_id = None
-                    st.rerun()
+                    try:
+                        if employe_data:  # Modification
+                            emp_manager.modifier_employe(employe_data['id'], new_employe_data)
+                            st.success(f"✅ Employé {prenom} {nom} mis à jour avec succès !")
+                        else:  # Création
+                            new_id = emp_manager.ajouter_employe(new_employe_data)
+                            st.success(f"✅ Nouvel employé {prenom} {nom} ajouté avec succès (ID: {new_id}) !")
+                        
+                        # Nettoyage
+                        if 'competences_form' in st.session_state:
+                            del st.session_state.competences_form
+                        st.session_state.emp_action = None
+                        st.session_state.emp_selected_id = None
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Erreur lors de la sauvegarde : {str(e)}")
+            
+            if cancelled:
+                # Nettoyage lors de l'annulation
+                if 'competences_form' in st.session_state:
+                    del st.session_state.competences_form
+                st.session_state.emp_action = None
+                st.session_state.emp_selected_id = None
+                st.rerun()
 
 def render_employe_details(emp_manager, projet_manager, employe_data):
     if not employe_data:
