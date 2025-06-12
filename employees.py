@@ -1,4 +1,4 @@
-# --- START OF FILE employees.py ---
+# -*- coding: utf-8 -*-
 
 import json
 import os
@@ -8,18 +8,97 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-# --- Constantes ---
-DEPARTEMENTS = ["DÉVELOPPEMENT", "DESIGN", "MARKETING", "COMMERCIAL", "RH", "FINANCE", "OPÉRATIONS", "DIRECTION"]
-STATUTS_EMPLOYE = ["ACTIF", "CONGÉ", "FORMATION", "MALADIE", "INACTIF"]
+# === CONSTANTES MÉTALLURGIE QUÉBEC ===
+
+# Départements spécifiques métallurgie mécano-soudé
+DEPARTEMENTS = [
+    "PRODUCTION",           # Soudeurs, journaliers, assemblage
+    "USINAGE",             # Sciage, pliage, poinçonnage, découpe
+    "INGÉNIERIE",          # Conception, dessin, calculs
+    "QUALITÉ",             # Contrôle, inspection, réception
+    "ADMINISTRATION",      # Bureau, comptabilité, RH
+    "COMMERCIAL",          # Ventes, estimation, développement
+    "DIRECTION"            # Supervision, contremaîtrise
+]
+
+# Statuts adaptés contexte québécois
+STATUTS_EMPLOYE = [
+    "ACTIF",               # Employé en service
+    "CONGÉ",               # Congé personnel/parental
+    "FORMATION",           # En formation/perfectionnement
+    "ARRÊT_TRAVAIL",       # Maladie/accident de travail
+    "INACTIF"              # Temporairement inactif
+]
+
+# Niveaux de compétence selon standards québécois
 NIVEAUX_COMPETENCE = ["DÉBUTANT", "INTERMÉDIAIRE", "AVANCÉ", "EXPERT"]
-TYPES_CONTRAT = ["CDI", "CDD", "FREELANCE", "STAGE", "ALTERNANCE"]
+
+# Types de contrat québécois
+TYPES_CONTRAT = [
+    "CDI",                 # Contrat à durée indéterminée
+    "CDD",                 # Contrat à durée déterminée  
+    "TEMPORAIRE",          # Travail temporaire/saisonnier
+    "STAGE",               # Stagiaire
+    "APPRENTISSAGE"        # Programme d'apprentissage
+]
+
+# Compétences spécifiques métallurgie mécano-soudé québécoise
 COMPETENCES_DISPONIBLES = [
-    "Python", "JavaScript", "React", "Vue.js", "Node.js", "Django", "Flask",
-    "UI/UX Design", "Photoshop", "Figma", "Adobe XD", "Illustrator",
-    "Marketing Digital", "SEO", "SEM", "Analytics", "Content Marketing",
-    "Vente", "Négociation", "Relation Client", "Présentation",
-    "Gestion Projet", "Scrum", "Agile", "Leadership", "Management",
-    "Comptabilité", "Finance", "Excel", "PowerBI", "Tableau"
+    # === SOUDAGE ET ASSEMBLAGE ===
+    "Soudage GMAW (MIG)", "Soudage GTAW (TIG)", "Soudage SMAW (Électrode)",
+    "Soudage SAW", "Soudage Flux-Core", "Lecture de plans de soudage",
+    "Certification CWB", "Soudage acier inoxydable", "Soudage aluminium",
+    "Position verticale", "Position plafond", "Assemblage soudé",
+    "Préparation joints", "Post-traitement soudure", "Réparation soudure",
+    
+    # === USINAGE ET FABRICATION ===
+    "Découpe plasma", "Découpe laser", "Oxycoupage", "Scie à ruban métal",
+    "Pliage tôle", "Poinçonnage", "Cisaillage", "Meulage",
+    "Usinage CNC", "Tour métaux", "Fraiseuse", "Perceuse à colonne",
+    "Lecture de plans mécaniques", "Mesure et vérification",
+    "Outils pneumatiques", "Outils hydrauliques", "Pont roulant",
+    "Manutention lourde", "Assemblage mécanique",
+    
+    # === QUALITÉ ET CONTRÔLE ===
+    "Contrôle dimensionnel", "Inspection visuelle soudure",
+    "Ressuage (PT)", "Magnétoscopie (MT)", "Radiographie (RT)",
+    "Ultrasons (UT)", "Métrologie", "Calibrage instruments",
+    "ISO 9001", "Contrôle réception", "Documentation qualité",
+    "Traçabilité matériaux", "Rapport d'inspection",
+    
+    # === CONCEPTION ET INGÉNIERIE ===
+    "AutoCAD", "SolidWorks", "Inventor", "Tekla Structures",
+    "SketchUp", "Calcul de structure", "Dessin technique",
+    "Cotation GD&T", "Normes CSA", "Code de soudage W59",
+    "Plans d'atelier", "Plans d'assemblage", "Nomenclatures",
+    "Estimation matériaux", "Analyse contraintes",
+    
+    # === GESTION ET COMMERCIAL ===
+    "Estimation projets", "ERP/MRP", "Gestion production",
+    "Planification atelier", "Ordonnancement", "Approvisionnement",
+    "Service client", "Négociation", "Soumission commerciale",
+    "Gestion équipe", "Formation employés", "Suivi budget",
+    "Analyse coûts", "Amélioration continue",
+    
+    # === ÉQUIPEMENTS SPÉCIALISÉS ===
+    "Presse plieuse CNC", "Poinçonneuse CNC", "Centre usinage",
+    "Robot de soudage", "Table plasma CNC", "Laser CO2",
+    "Machines conventionnelles", "Outillage spécialisé",
+    
+    # === MATÉRIAUX MÉTALLURGIE ===
+    "Acier doux", "Acier haute résistance", "Acier inoxydable",
+    "Aluminium", "Alliages spéciaux", "Fonte", "Tôlerie",
+    "Profilés structuraux", "Tubes et barres",
+    
+    # === SÉCURITÉ ET RÉGLEMENTATION QUÉBEC ===
+    "CNESST", "Cadenassage LOTO", "Espaces clos",
+    "Travail en hauteur", "SIMDUT 2015", "Premiers soins",
+    "Sécurité atelier", "Prévention accidents", "EPI",
+    "Manipulation matières dangereuses", "Protection incendie",
+    
+    # === LANGUES ET COMMUNICATION ===
+    "Français", "Anglais", "Espagnol", "Communication technique",
+    "Rédaction rapports", "Présentation client"
 ]
 
 class GestionnaireEmployes:
@@ -42,117 +121,424 @@ class GestionnaireEmployes:
                     self.employes = data.get('employes', [])
                     self.next_id = self._get_next_id(self.employes)
             else:
-                self._initialiser_donnees_demo_employes()
+                self._initialiser_donnees_employes_dg_inc()
         except Exception as e:
             if 'st' in globals():
                 st.error(f"Erreur lors du chargement des données employés: {e}")
-            self._initialiser_donnees_demo_employes()
+            self._initialiser_donnees_employes_dg_inc()
 
-    def _initialiser_donnees_demo_employes(self):
+    def _calculer_salaire_metallurgie(self, poste, experience_annees=5):
+        """Calcule le salaire selon les standards québécois métallurgie"""
+        salaires_base_qc = {
+            "Soudeur": 55000,
+            "Journalier": 45000, 
+            "Scieur": 50000,
+            "Plieur": 52000,
+            "Poinçonneuse": 50000,
+            "Dessinateur": 65000,
+            "Qualité/Réception": 55000,
+            "Contremaître/Superviseur": 75000,
+            "Estimateur et intégration ERP": 70000,
+            "Développement des affaires": 65000,
+            "Adjointe administrative": 45000,
+            "Marketing et web": 50000
+        }
+        base = salaires_base_qc.get(poste, 45000)
+        # Ajustement selon expérience (1.5% par année)
+        facteur_exp = 1 + (experience_annees * 0.015)
+        return int(base * facteur_exp)
+
+    def _get_competences_par_poste(self, poste):
+        """Retourne les compétences typiques selon le poste"""
+        competences_map = {
+            "Soudeur": [
+                {'nom': 'Soudage GMAW (MIG)', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Soudage GTAW (TIG)', 'niveau': 'INTERMÉDIAIRE', 'certifie': False},
+                {'nom': 'Lecture de plans de soudage', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Assemblage soudé', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'CNESST', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Journalier": [
+                {'nom': 'Assemblage mécanique', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Outils pneumatiques', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Pont roulant', 'niveau': 'INTERMÉDIAIRE', 'certifie': True},
+                {'nom': 'Manutention lourde', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'CNESST', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Scieur": [
+                {'nom': 'Scie à ruban métal', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Découpe plasma', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Lecture de plans mécaniques', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Mesure et vérification', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'CNESST', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Plieur": [
+                {'nom': 'Pliage tôle', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Presse plieuse CNC', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Lecture de plans mécaniques', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'CNESST', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Poinçonneuse": [
+                {'nom': 'Poinçonnage', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Poinçonneuse CNC', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Lecture de plans mécaniques', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'CNESST', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Dessinateur": [
+                {'nom': 'AutoCAD', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'SolidWorks', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Dessin technique', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Code de soudage W59', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Plans d\'atelier', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Anglais', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Qualité/Réception": [
+                {'nom': 'Contrôle dimensionnel', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Inspection visuelle soudure', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Métrologie', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Documentation qualité', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'CNESST', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Contremaître/Superviseur": [
+                {'nom': 'Gestion équipe', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Planification atelier', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Sécurité atelier', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'CNESST', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Lecture de plans mécaniques', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Anglais', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Estimateur et intégration ERP": [
+                {'nom': 'Estimation projets', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'ERP/MRP', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Analyse coûts', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Soumission commerciale', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'EXPERT', 'certifie': True}
+            ],
+            "Développement des affaires": [
+                {'nom': 'Service client', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Négociation', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Présentation client', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Anglais', 'niveau': 'AVANCÉ', 'certifie': True}
+            ],
+            "Adjointe administrative": [
+                {'nom': 'Gestion production', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Communication technique', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Rédaction rapports', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'EXPERT', 'certifie': True}
+            ],
+            "Marketing et web": [
+                {'nom': 'Communication technique', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Présentation client', 'niveau': 'AVANCÉ', 'certifie': True},
+                {'nom': 'Français', 'niveau': 'EXPERT', 'certifie': True},
+                {'nom': 'Anglais', 'niveau': 'AVANCÉ', 'certifie': True}
+            ]
+        }
+        return competences_map.get(poste, [
+            {'nom': 'CNESST', 'niveau': 'AVANCÉ', 'certifie': True},
+            {'nom': 'Français', 'niveau': 'AVANCÉ', 'certifie': True}
+        ])
+
+    def _initialiser_donnees_employes_dg_inc(self):
+        """Initialise avec les vrais employés de DG Inc."""
         now_iso = datetime.now().isoformat()
+        
+        # Données des 21 employés réels de DG Inc.
         self.employes = [
+            # === PRODUCTION (11 employés) ===
             {
-                'id': 1,
-                'prenom': 'Jean',
-                'nom': 'Dupont',
-                'email': 'jean.dupont@company.com',
-                'telephone': '0123456789',
-                'poste': 'Développeur Senior',
-                'departement': 'DÉVELOPPEMENT',
-                'statut': 'ACTIF',
-                'type_contrat': 'CDI',
-                'date_embauche': '2022-01-15',
-                'salaire': 55000,
-                'manager_id': None,
-                'competences': [
-                    {'nom': 'Python', 'niveau': 'EXPERT', 'certifie': True},
-                    {'nom': 'Django', 'niveau': 'AVANCÉ', 'certifie': False},
-                    {'nom': 'JavaScript', 'niveau': 'AVANCÉ', 'certifie': True}
-                ],
-                'projets_assignes': [1, 2],
-                'charge_travail': 85,  # Pourcentage
-                'notes': 'Excellent développeur avec forte expertise Python',
-                'photo_url': '',
-                'date_creation': now_iso,
-                'date_modification': now_iso
+                'id': 1, 'prenom': 'Alex', 'nom': 'Boucher Cloutier',
+                'email': 'alex.bouchercloutier@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Journalier', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2020-03-15',
+                'salaire': self._calculer_salaire_metallurgie('Journalier', 4),
+                'manager_id': 11,  # Martin Beauregard
+                'competences': self._get_competences_par_poste('Journalier'),
+                'projets_assignes': [], 'charge_travail': 85,
+                'notes': 'Employé polyvalent production - Badge ID: 566',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
             },
             {
-                'id': 2,
-                'prenom': 'Marie',
-                'nom': 'Martin',
-                'email': 'marie.martin@company.com',
-                'telephone': '0123456790',
-                'poste': 'Designer UX/UI',
-                'departement': 'DESIGN',
-                'statut': 'ACTIF',
-                'type_contrat': 'CDI',
-                'date_embauche': '2021-09-01',
-                'salaire': 48000,
-                'manager_id': None,
-                'competences': [
-                    {'nom': 'UI/UX Design', 'niveau': 'EXPERT', 'certifie': True},
-                    {'nom': 'Figma', 'niveau': 'EXPERT', 'certifie': True},
-                    {'nom': 'Adobe XD', 'niveau': 'AVANCÉ', 'certifie': False}
-                ],
-                'projets_assignes': [1, 3],
-                'charge_travail': 70,
-                'notes': 'Designer créative avec œil pour les détails',
-                'photo_url': '',
-                'date_creation': now_iso,
-                'date_modification': now_iso
+                'id': 2, 'prenom': 'François', 'nom': 'Lapointe',
+                'email': 'francois.lapointe@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Soudeur', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2018-06-01',
+                'salaire': self._calculer_salaire_metallurgie('Soudeur', 6),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Soudeur'),
+                'projets_assignes': [], 'charge_travail': 90,
+                'notes': 'Soudeur certifié MIG/TIG - Badge ID: 492',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
             },
             {
-                'id': 3,
-                'prenom': 'Pierre',
-                'nom': 'Durand',
-                'email': 'pierre.durand@company.com',
-                'telephone': '0123456791',
-                'poste': 'Chef de Projet',
-                'departement': 'OPÉRATIONS',
-                'statut': 'ACTIF',
-                'type_contrat': 'CDI',
-                'date_embauche': '2020-03-10',
-                'salaire': 62000,
-                'manager_id': None,
-                'competences': [
-                    {'nom': 'Gestion Projet', 'niveau': 'EXPERT', 'certifie': True},
-                    {'nom': 'Scrum', 'niveau': 'AVANCÉ', 'certifie': True},
-                    {'nom': 'Leadership', 'niveau': 'AVANCÉ', 'certifie': False}
-                ],
-                'projets_assignes': [1, 2, 3],
-                'charge_travail': 95,
-                'notes': 'Manager expérimenté, excellent leadership',
-                'photo_url': '',
-                'date_creation': now_iso,
-                'date_modification': now_iso
+                'id': 3, 'prenom': 'Andrew', 'nom': 'Jones',
+                'email': 'andrew.jones@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Scieur', 'departement': 'USINAGE',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2019-09-15',
+                'salaire': self._calculer_salaire_metallurgie('Scieur', 5),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Scieur'),
+                'projets_assignes': [], 'charge_travail': 88,
+                'notes': 'Spécialiste découpe et préparation - Badge ID: 375',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
             },
             {
-                'id': 4,
-                'prenom': 'Sophie',
-                'nom': 'Leroy',
-                'email': 'sophie.leroy@company.com',
-                'telephone': '0123456792',
-                'poste': 'Développeur Junior',
-                'departement': 'DÉVELOPPEMENT',
-                'statut': 'FORMATION',
-                'type_contrat': 'CDD',
-                'date_embauche': '2023-06-01',
-                'salaire': 35000,
-                'manager_id': 1,
-                'competences': [
-                    {'nom': 'JavaScript', 'niveau': 'INTERMÉDIAIRE', 'certifie': False},
-                    {'nom': 'React', 'niveau': 'DÉBUTANT', 'certifie': False},
-                    {'nom': 'Node.js', 'niveau': 'DÉBUTANT', 'certifie': False}
+                'id': 4, 'prenom': 'Denis', 'nom': 'Jetté',
+                'email': 'ingenierie@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Dessinateur', 'departement': 'INGÉNIERIE',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2015-01-20',
+                'salaire': self._calculer_salaire_metallurgie('Dessinateur', 9),
+                'manager_id': None,
+                'competences': self._get_competences_par_poste('Dessinateur'),
+                'projets_assignes': [], 'charge_travail': 95,
+                'notes': 'Dessinateur senior, expert AutoCAD - Badge ID: 434',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 5, 'prenom': 'Lucien', 'nom': 'Kock',
+                'email': 'lucien.kock@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Soudeur', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2017-11-01',
+                'salaire': self._calculer_salaire_metallurgie('Soudeur', 7),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Soudeur'),
+                'projets_assignes': [], 'charge_travail': 87,
+                'notes': 'Soudeur expérimenté, spécialiste TIG',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 6, 'prenom': 'Daniel', 'nom': 'Paquette',
+                'email': 'daniel.paquette@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Journalier', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2021-04-12',
+                'salaire': self._calculer_salaire_metallurgie('Journalier', 3),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Journalier'),
+                'projets_assignes': [], 'charge_travail': 82,
+                'notes': 'Journalier polyvalent assemblage',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 7, 'prenom': 'Denis', 'nom': 'Lacasse',
+                'email': 'denis.lacasse@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Plieur', 'departement': 'USINAGE',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2016-08-15',
+                'salaire': self._calculer_salaire_metallurgie('Plieur', 8),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Plieur'),
+                'projets_assignes': [], 'charge_travail': 90,
+                'notes': 'Expert pliage tôle, presse CNC',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 8, 'prenom': 'Maxime', 'nom': 'Gagné',
+                'email': 'maxime.gagne@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Soudeur', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2019-02-20',
+                'salaire': self._calculer_salaire_metallurgie('Soudeur', 5),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Soudeur'),
+                'projets_assignes': [], 'charge_travail': 89,
+                'notes': 'Soudeur certifié, formation continue',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 9, 'prenom': 'Nicolas', 'nom': 'Martin',
+                'email': 'nicolas.martin@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Poinçonneuse', 'departement': 'USINAGE',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2018-10-05',
+                'salaire': self._calculer_salaire_metallurgie('Poinçonneuse', 6),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Poinçonneuse'),
+                'projets_assignes': [], 'charge_travail': 86,
+                'notes': 'Opérateur poinçonneuse CNC certifié',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 10, 'prenom': 'Luis Waldo', 'nom': 'Pavez Gonzalez',
+                'email': 'luis.pavez@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Journalier', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2020-07-10',
+                'salaire': self._calculer_salaire_metallurgie('Journalier', 4),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Journalier') + [
+                    {'nom': 'Espagnol', 'niveau': 'EXPERT', 'certifie': True}
                 ],
-                'projets_assignes': [2],
-                'charge_travail': 60,
-                'notes': 'Junior prometteuse, en apprentissage rapide',
-                'photo_url': '',
-                'date_creation': now_iso,
-                'date_modification': now_iso
+                'projets_assignes': [], 'charge_travail': 84,
+                'notes': 'Trilingue (français/anglais/espagnol)',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            # === SUPERVISION ===
+            {
+                'id': 11, 'prenom': 'Martin', 'nom': 'Beauregard',
+                'email': 'mbeauregard@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Contremaître/Superviseur', 'departement': 'DIRECTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2012-05-01',
+                'salaire': self._calculer_salaire_metallurgie('Contremaître/Superviseur', 12),
+                'manager_id': None,
+                'competences': self._get_competences_par_poste('Contremaître/Superviseur'),
+                'projets_assignes': [], 'charge_travail': 100,
+                'notes': 'Contremaître principal, responsable production - Badge ID: 149',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            # === SUITE DES EMPLOYÉS ===
+            {
+                'id': 12, 'prenom': 'Williams Cédrick', 'nom': 'Kengne Tzokeu',
+                'email': 'williams.kengne@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Soudeur', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2021-01-15',
+                'salaire': self._calculer_salaire_metallurgie('Soudeur', 3),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Soudeur'),
+                'projets_assignes': [], 'charge_travail': 86,
+                'notes': 'Soudeur junior en formation avancée',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 13, 'prenom': 'Martin', 'nom': 'Leduc',
+                'email': 'martin.leduc@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Journalier', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2019-05-20',
+                'salaire': self._calculer_salaire_metallurgie('Journalier', 5),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Journalier'),
+                'projets_assignes': [], 'charge_travail': 88,
+                'notes': 'Journalier expérimenté, polyvalent',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 14, 'prenom': 'Roxanne', 'nom': 'Lanctôt',
+                'email': 'roxanne.lanctot@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Qualité/Réception', 'departement': 'QUALITÉ',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2017-09-01',
+                'salaire': self._calculer_salaire_metallurgie('Qualité/Réception', 7),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Qualité/Réception'),
+                'projets_assignes': [], 'charge_travail': 85,
+                'notes': 'Responsable qualité et réception matériaux',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 15, 'prenom': 'Samuel', 'nom': 'Turcotte',
+                'email': 'samuel.turcotte@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Journalier', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2022-03-10',
+                'salaire': self._calculer_salaire_metallurgie('Journalier', 2),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Journalier'),
+                'projets_assignes': [], 'charge_travail': 80,
+                'notes': 'Journalier récent, apprentissage rapide',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 16, 'prenom': 'Éric', 'nom': 'Brisebois',
+                'email': 'eric.brisebois@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Soudeur', 'departement': 'PRODUCTION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2016-04-15',
+                'salaire': self._calculer_salaire_metallurgie('Soudeur', 8),
+                'manager_id': 11,
+                'competences': self._get_competences_par_poste('Soudeur'),
+                'projets_assignes': [], 'charge_travail': 91,
+                'notes': 'Soudeur senior, mentor pour juniors',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            # === COMMERCIAL ET ESTIMATION ===
+            {
+                'id': 17, 'prenom': 'Jovick', 'nom': 'Desmarais',
+                'email': 'jovick.desmarais@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Développement des affaires', 'departement': 'COMMERCIAL',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2014-06-01',
+                'salaire': self._calculer_salaire_metallurgie('Développement des affaires', 10),
+                'manager_id': None,
+                'competences': self._get_competences_par_poste('Développement des affaires'),
+                'projets_assignes': [], 'charge_travail': 95,
+                'notes': 'Développement commercial et relations clients',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 18, 'prenom': 'Sylvain', 'nom': 'Leduc',
+                'email': 'sylvain.leduc@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Estimateur et intégration ERP', 'departement': 'COMMERCIAL',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2013-09-15',
+                'salaire': self._calculer_salaire_metallurgie('Estimateur et intégration ERP', 11),
+                'manager_id': None,
+                'competences': self._get_competences_par_poste('Estimateur et intégration ERP'),
+                'projets_assignes': [], 'charge_travail': 98,
+                'notes': 'Expert estimation et système ERP',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            # === ADMINISTRATION ===
+            {
+                'id': 19, 'prenom': 'Myriam', 'nom': 'Girouard',
+                'email': 'myriam.girouard@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Adjointe administrative', 'departement': 'ADMINISTRATION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2018-02-01',
+                'salaire': self._calculer_salaire_metallurgie('Adjointe administrative', 6),
+                'manager_id': None,
+                'competences': self._get_competences_par_poste('Adjointe administrative'),
+                'projets_assignes': [], 'charge_travail': 85,
+                'notes': 'Gestion administrative et coordination',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+            },
+            {
+                'id': 20, 'prenom': 'Cindy', 'nom': 'Julien',
+                'email': 'cindy.julien@dg-inc.qc.ca',
+                'telephone': '450-372-9630',
+                'poste': 'Marketing et web', 'departement': 'ADMINISTRATION',
+                'statut': 'ACTIF', 'type_contrat': 'CDI',
+                'date_embauche': '2020-11-10',
+                'salaire': self._calculer_salaire_metallurgie('Marketing et web', 4),
+                'manager_id': None,
+                'competences': self._get_competences_par_poste('Marketing et web'),
+                'projets_assignes': [], 'charge_travail': 80,
+                'notes': 'Responsable marketing digital et web',
+                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
             }
         ]
-        self.next_id = self._get_next_id(self.employes)
+        
+        self.next_id = len(self.employes) + 1
         self.sauvegarder_donnees_employes()
 
     def sauvegarder_donnees_employes(self):
@@ -160,7 +546,9 @@ class GestionnaireEmployes:
             data = {
                 'employes': self.employes,
                 'next_id': self.next_id,
-                'last_update': datetime.now().isoformat()
+                'last_update': datetime.now().isoformat(),
+                'entreprise': 'DG Inc. - Métallurgie Mécano-Soudé',
+                'location': 'Québec, Canada'
             }
             with open(self.data_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -211,8 +599,9 @@ class GestionnaireEmployes:
     def get_subordinates(self, manager_id):
         return [emp for emp in self.employes if emp.get('manager_id') == manager_id]
 
-    # --- Méthodes d'analyse ---
+    # --- Méthodes d'analyse adaptées Québec ---
     def get_statistiques_employes(self):
+        """Version adaptée des statistiques pour métallurgie québécoise"""
         if not self.employes:
             return {}
         
@@ -223,12 +612,19 @@ class GestionnaireEmployes:
             'par_type_contrat': {},
             'salaire_moyen': 0,
             'charge_moyenne': 0,
-            'competences_populaires': {}
+            'competences_populaires': {},
+            'certifications_cnesst': 0,
+            'langues_parlees': {},
+            'anciennete_moyenne': 0,
+            'soudeurs_certifies': 0,
+            'bilingues': 0
         }
         
         total_salaire = 0
         total_charge = 0
+        total_anciennete = 0
         toutes_competences = {}
+        langues = {}
         
         for emp in self.employes:
             # Départements
@@ -243,7 +639,7 @@ class GestionnaireEmployes:
             contrat = emp.get('type_contrat', 'N/A')
             stats['par_type_contrat'][contrat] = stats['par_type_contrat'].get(contrat, 0) + 1
             
-            # Salaires
+            # Salaires en CAD
             if emp.get('salaire'):
                 total_salaire += emp['salaire']
             
@@ -251,24 +647,92 @@ class GestionnaireEmployes:
             if emp.get('charge_travail'):
                 total_charge += emp['charge_travail']
             
-            # Compétences
-            for comp in emp.get('competences', []):
+            # Ancienneté
+            if emp.get('date_embauche'):
+                try:
+                    date_emb = datetime.strptime(emp['date_embauche'], '%Y-%m-%d')
+                    anciennete = (datetime.now() - date_emb).days / 365.25
+                    total_anciennete += anciennete
+                except:
+                    pass
+            
+            # Analyse des compétences
+            competences_emp = emp.get('competences', [])
+            has_francais = False
+            has_anglais = False
+            has_soudage = False
+            has_cnesst = False
+            
+            for comp in competences_emp:
                 nom_comp = comp.get('nom')
                 if nom_comp:
                     toutes_competences[nom_comp] = toutes_competences.get(nom_comp, 0) + 1
+                    
+                    # Vérifications spécifiques
+                    if 'CNESST' in nom_comp and comp.get('certifie'):
+                        has_cnesst = True
+                    if 'Soudage' in nom_comp:
+                        has_soudage = True
+                    if nom_comp == 'Français':
+                        has_francais = True
+                    if nom_comp == 'Anglais':
+                        has_anglais = True
+                    if nom_comp in ['Français', 'Anglais', 'Espagnol']:
+                        langues[nom_comp] = langues.get(nom_comp, 0) + 1
+            
+            # Compteurs spéciaux
+            if has_cnesst:
+                stats['certifications_cnesst'] += 1
+            if has_soudage:
+                stats['soudeurs_certifies'] += 1
+            if has_francais and has_anglais:
+                stats['bilingues'] += 1
         
-        stats['salaire_moyen'] = total_salaire / len(self.employes) if self.employes else 0
-        stats['charge_moyenne'] = total_charge / len(self.employes) if self.employes else 0
+        # Calculs des moyennes
+        if self.employes:
+            stats['salaire_moyen'] = total_salaire / len(self.employes)
+            stats['charge_moyenne'] = total_charge / len(self.employes)
+            stats['anciennete_moyenne'] = total_anciennete / len(self.employes)
         
-        # Top 5 compétences
-        stats['competences_populaires'] = dict(sorted(toutes_competences.items(), key=lambda x: x[1], reverse=True)[:5])
+        # Top 10 compétences
+        stats['competences_populaires'] = dict(
+            sorted(toutes_competences.items(), key=lambda x: x[1], reverse=True)[:10]
+        )
+        
+        # Langues
+        stats['langues_parlees'] = langues
         
         return stats
 
-# --- Fonctions d'affichage Streamlit ---
+    def generer_rapport_rh_metallurgie(self):
+        """Génère un rapport RH spécifique métallurgie"""
+        stats = self.get_statistiques_employes()
+        
+        rapport = {
+            'date_rapport': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'entreprise': 'DG Inc. - Métallurgie Mécano-Soudé',
+            'localisation': 'Québec, Canada',
+            'effectif_total': stats['total'],
+            'repartition_departements': stats['par_departement'],
+            'salaire_moyen_cad': f"{stats['salaire_moyen']:,.0f}$ CAD",
+            'anciennete_moyenne': f"{stats['anciennete_moyenne']:.1f} années",
+            'taux_certification_cnesst': f"{(stats['certifications_cnesst']/stats['total']*100):.1f}%",
+            'soudeurs_certifies': stats['soudeurs_certifies'],
+            'employes_bilingues': stats['bilingues'],
+            'competences_critiques': {
+                'soudage': len([e for e in self.employes if any('Soudage' in c.get('nom', '') for c in e.get('competences', []))]),
+                'lecture_plans': len([e for e in self.employes if any('plans' in c.get('nom', '').lower() for c in e.get('competences', []))]),
+                'cnesst': stats['certifications_cnesst'],
+                'pont_roulant': len([e for e in self.employes if any('Pont roulant' in c.get('nom', '') for c in e.get('competences', []))])
+            }
+        }
+        
+        return rapport
+
+# --- Fonctions d'affichage Streamlit adaptées ---
 
 def render_employes_liste_tab(emp_manager, projet_manager):
-    st.subheader("👥 Liste des Employés")
+    st.subheader("👥 Employés DG Inc. - Métallurgie")
     
     col_create, col_search = st.columns([1, 2])
     with col_create:
@@ -279,11 +743,15 @@ def render_employes_liste_tab(emp_manager, projet_manager):
     with col_search:
         search_term = st.text_input("Rechercher un employé...", key="emp_search")
     
-    # Filtres
+    # Filtres adaptés métallurgie
     with st.expander("🔍 Filtres avancés", expanded=False):
         fcol1, fcol2, fcol3 = st.columns(3)
         with fcol1:
-            filtre_dept = st.multiselect("Département:", ['Tous'] + DEPARTEMENTS, default=['Tous'])
+            filtre_dept = st.multiselect(
+                "Département:", 
+                ['Tous'] + ["PRODUCTION", "USINAGE", "INGÉNIERIE", "QUALITÉ", "COMMERCIAL", "ADMINISTRATION", "DIRECTION"], 
+                default=['Tous']
+            )
         with fcol2:
             filtre_statut = st.multiselect("Statut:", ['Tous'] + STATUTS_EMPLOYE, default=['Tous'])
         with fcol3:
@@ -312,30 +780,30 @@ def render_employes_liste_tab(emp_manager, projet_manager):
         employes_filtres = [emp for emp in employes_filtres if emp.get('type_contrat') in filtre_contrat]
     
     if employes_filtres:
-        # Affichage sous forme de tableau
+        # Affichage tableau adapté
         employes_data_display = []
         for emp in employes_filtres:
             manager = emp_manager.get_employe_by_id(emp.get('manager_id')) if emp.get('manager_id') else None
-            manager_nom = f"{manager.get('prenom', '')} {manager.get('nom', '')}" if manager else "N/A"
+            manager_nom = f"{manager.get('prenom', '')} {manager.get('nom', '')}" if manager else "Autonome"
             
             # Projets assignés
             projets_noms = []
-            for proj_id in emp.get('projets_assignes', []):
-                projet = next((p for p in projet_manager.projets if p.get('id') == proj_id), None)
-                if projet:
-                    projets_noms.append(projet.get('nom_projet', f'Projet #{proj_id}'))
+            if projet_manager and hasattr(projet_manager, 'projets'):
+                for proj_id in emp.get('projets_assignes', []):
+                    projet = next((p for p in projet_manager.projets if p.get('id') == proj_id), None)
+                    if projet:
+                        projets_noms.append(projet.get('nom_projet', f'Projet #{proj_id}'))
             
             employes_data_display.append({
                 "ID": emp.get('id'),
                 "Nom": f"{emp.get('prenom', '')} {emp.get('nom', '')}",
-                "Email": emp.get('email', ''),
                 "Poste": emp.get('poste', ''),
                 "Département": emp.get('departement', ''),
                 "Statut": emp.get('statut', ''),
-                "Type": emp.get('type_contrat', ''),
+                "Salaire CAD": f"{emp.get('salaire', 0):,}$",
                 "Manager": manager_nom,
                 "Charge": f"{emp.get('charge_travail', 0)}%",
-                "Projets": ", ".join(projets_noms) if projets_noms else "-"
+                "Email": emp.get('email', '')
             })
         
         st.dataframe(pd.DataFrame(employes_data_display), use_container_width=True)
@@ -344,7 +812,7 @@ def render_employes_liste_tab(emp_manager, projet_manager):
         st.markdown("---")
         st.markdown("### 🔧 Actions sur un employé")
         selected_emp_id = st.selectbox(
-            "Employé:",
+            "Sélectionner un employé:",
             options=[emp['id'] for emp in employes_filtres],
             format_func=lambda eid: next((f"#{eid} - {emp.get('prenom', '')} {emp.get('nom', '')}" for emp in employes_filtres if emp.get('id') == eid), ''),
             key="emp_action_select"
@@ -364,17 +832,17 @@ def render_employes_liste_tab(emp_manager, projet_manager):
                 if st.button("🗑️ Supprimer", key=f"emp_delete_{selected_emp_id}", use_container_width=True):
                     st.session_state.emp_confirm_delete_id = selected_emp_id
     else:
-        st.info("Aucun employé correspondant aux filtres." if search_term or 'Tous' not in (filtre_dept + filtre_statut + filtre_contrat) else "Aucun employé enregistré.")
+        st.info("Aucun employé correspondant aux filtres.")
     
     # Confirmation de suppression
     if 'emp_confirm_delete_id' in st.session_state and st.session_state.emp_confirm_delete_id:
         emp_to_delete = emp_manager.get_employe_by_id(st.session_state.emp_confirm_delete_id)
         if emp_to_delete:
-            st.warning(f"Êtes-vous sûr de vouloir supprimer {emp_to_delete.get('prenom')} {emp_to_delete.get('nom')} ? Cette action est irréversible.")
+            st.warning(f"⚠️ Supprimer {emp_to_delete.get('prenom')} {emp_to_delete.get('nom')} ? Action irréversible.")
             col_del1, col_del2 = st.columns(2)
             if col_del1.button("Oui, supprimer", type="primary", key="emp_confirm_delete_final"):
                 emp_manager.supprimer_employe(st.session_state.emp_confirm_delete_id)
-                st.success("Employé supprimé.")
+                st.success("✅ Employé supprimé.")
                 del st.session_state.emp_confirm_delete_id
                 st.rerun()
             if col_del2.button("Annuler", key="emp_cancel_delete_final"):
@@ -382,34 +850,58 @@ def render_employes_liste_tab(emp_manager, projet_manager):
                 st.rerun()
 
 def render_employes_dashboard_tab(emp_manager, projet_manager):
-    st.subheader("📊 Dashboard RH")
+    st.subheader("📊 Dashboard RH - DG Inc. Métallurgie")
     
     stats = emp_manager.get_statistiques_employes()
     if not stats:
         st.info("Aucune donnée d'employé disponible.")
         return
     
-    # Métriques principales
+    # Métriques principales adaptées Québec
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("👥 Total Employés", stats['total'])
     with col2:
-        st.metric("💰 Salaire Moyen", f"{stats['salaire_moyen']:,.0f}€")
+        st.metric("💰 Salaire Moyen", f"{stats['salaire_moyen']:,.0f}$ CAD")
     with col3:
-        st.metric("📊 Charge Moyenne", f"{stats['charge_moyenne']:.1f}%")
+        st.metric("🏗️ Certifiés CNESST", stats.get('certifications_cnesst', 0))
     with col4:
+        st.metric("🔧 Soudeurs", stats.get('soudeurs_certifies', 0))
+    
+    # Métriques secondaires
+    col5, col6, col7, col8 = st.columns(4)
+    with col5:
+        st.metric("📊 Charge Moyenne", f"{stats['charge_moyenne']:.1f}%")
+    with col6:
+        st.metric("📅 Ancienneté Moy.", f"{stats.get('anciennete_moyenne', 0):.1f} ans")
+    with col7:
+        st.metric("🌍 Bilingues", stats.get('bilingues', 0))
+    with col8:
         employes_surcharges = len([emp for emp in emp_manager.employes if emp.get('charge_travail', 0) > 90])
         st.metric("⚠️ Surchargés", employes_surcharges)
     
-    # Graphiques
+    # Graphiques adaptés métallurgie
     col_g1, col_g2 = st.columns(2)
     
     with col_g1:
         if stats['par_departement']:
+            # Couleurs spécifiques métallurgie
+            colors_dept = {
+                'PRODUCTION': '#ff6b35',
+                'USINAGE': '#004e89',
+                'INGÉNIERIE': '#9b59b6',
+                'QUALITÉ': '#2ecc71',
+                'COMMERCIAL': '#f39c12',
+                'ADMINISTRATION': '#95a5a6',
+                'DIRECTION': '#e74c3c'
+            }
+            
             fig_dept = px.pie(
                 values=list(stats['par_departement'].values()),
                 names=list(stats['par_departement'].keys()),
-                title="📊 Répartition par Département"
+                title="🏭 Répartition par Département",
+                color=list(stats['par_departement'].keys()),
+                color_discrete_map=colors_dept
             )
             fig_dept.update_layout(
                 plot_bgcolor='rgba(0,0,0,0)',
@@ -422,16 +914,16 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
     with col_g2:
         if stats['par_statut']:
             colors_statut = {
-                'ACTIF': '#10b981',
-                'CONGÉ': '#f59e0b', 
-                'FORMATION': '#3b82f6',
-                'MALADIE': '#ef4444',
-                'INACTIF': '#6b7280'
+                'ACTIF': '#2ecc71',
+                'CONGÉ': '#f39c12', 
+                'FORMATION': '#3498db',
+                'ARRÊT_TRAVAIL': '#e74c3c',
+                'INACTIF': '#95a5a6'
             }
             fig_statut = px.bar(
                 x=list(stats['par_statut'].keys()),
                 y=list(stats['par_statut'].values()),
-                title="📈 Répartition par Statut",
+                title="📈 Statut des Employés",
                 color=list(stats['par_statut'].keys()),
                 color_discrete_map=colors_statut
             )
@@ -444,18 +936,18 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
             )
             st.plotly_chart(fig_statut, use_container_width=True)
     
-    # Compétences populaires
+    # Compétences et langues
     if stats['competences_populaires']:
         st.markdown("---")
-        st.markdown("##### 🏆 Top Compétences")
-        comp_col1, comp_col2 = st.columns(2)
+        col_comp1, col_comp2 = st.columns(2)
         
-        with comp_col1:
+        with col_comp1:
+            st.markdown("##### 🎯 Top Compétences Métallurgie")
             fig_comp = px.bar(
                 x=list(stats['competences_populaires'].values()),
                 y=list(stats['competences_populaires'].keys()),
                 orientation='h',
-                title="🎯 Compétences les plus présentes"
+                title="🔧 Compétences les plus présentes"
             )
             fig_comp.update_layout(
                 plot_bgcolor='rgba(0,0,0,0)',
@@ -465,47 +957,60 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
             )
             st.plotly_chart(fig_comp, use_container_width=True)
         
-        with comp_col2:
-            # Charge de travail par employé
-            charges_data = []
-            for emp in emp_manager.employes:
-                if emp.get('statut') == 'ACTIF':
-                    charges_data.append({
-                        'Employé': f"{emp.get('prenom', '')} {emp.get('nom', '')}",
-                        'Charge': emp.get('charge_travail', 0),
-                        'Département': emp.get('departement', '')
-                    })
-            
-            if charges_data:
-                df_charges = pd.DataFrame(charges_data)
-                fig_charges = px.bar(
-                    df_charges,
-                    x='Employé',
-                    y='Charge',
-                    color='Département',
-                    title="📊 Charge de Travail par Employé"
+        with col_comp2:
+            st.markdown("##### 🌍 Langues Parlées")
+            if stats['langues_parlees']:
+                fig_langues = px.bar(
+                    x=list(stats['langues_parlees'].keys()),
+                    y=list(stats['langues_parlees'].values()),
+                    title="🗣️ Répartition des Langues",
+                    color=list(stats['langues_parlees'].keys()),
+                    color_discrete_map={'Français': '#0066cc', 'Anglais': '#cc0000', 'Espagnol': '#ffcc00'}
                 )
-                fig_charges.update_layout(
+                fig_langues.update_layout(
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(color='var(--text-color)'),
-                    title_x=0.5,
-                    xaxis={'tickangle': 45}
+                    showlegend=False,
+                    title_x=0.5
                 )
-                st.plotly_chart(fig_charges, use_container_width=True)
+                st.plotly_chart(fig_langues, use_container_width=True)
+            else:
+                st.info("Aucune donnée de langue disponible")
+    
+    # Rapport métallurgie
+    st.markdown("---")
+    if st.button("📋 Générer Rapport RH Métallurgie", use_container_width=True):
+        rapport = emp_manager.generer_rapport_rh_metallurgie()
+        
+        st.markdown("### 📊 Rapport RH - DG Inc. Métallurgie")
+        st.markdown(f"**Date:** {rapport['date_rapport']}")
+        st.markdown(f"**Entreprise:** {rapport['entreprise']}")
+        st.markdown(f"**Localisation:** {rapport['localisation']}")
+        
+        col_r1, col_r2, col_r3 = st.columns(3)
+        with col_r1:
+            st.markdown(f"**Effectif Total:** {rapport['effectif_total']}")
+            st.markdown(f"**Salaire Moyen:** {rapport['salaire_moyen_cad']}")
+        with col_r2:
+            st.markdown(f"**Ancienneté Moyenne:** {rapport['anciennete_moyenne']}")
+            st.markdown(f"**Taux CNESST:** {rapport['taux_certification_cnesst']}")
+        with col_r3:
+            st.markdown(f"**Soudeurs Certifiés:** {rapport['soudeurs_certifies']}")
+            st.markdown(f"**Employés Bilingues:** {rapport['employes_bilingues']}")
 
 def render_employe_form(emp_manager, employe_data=None):
     form_title = "➕ Ajouter un Nouvel Employé" if employe_data is None else f"✏️ Modifier {employe_data.get('prenom')} {employe_data.get('nom')}"
     
     with st.expander(form_title, expanded=True):
         # GESTION DES COMPÉTENCES AVANT LE FORMULAIRE
-        st.markdown("##### 🎯 Gestion des Compétences")
+        st.markdown("##### 🎯 Gestion des Compétences Métallurgie")
         
         # Initialiser les compétences en session
         if 'competences_form' not in st.session_state:
             st.session_state.competences_form = employe_data.get('competences', []) if employe_data else []
         
-        # Interface d'ajout de compétences HORS DU FORMULAIRE
+        # Interface d'ajout de compétences
         col_comp1, col_comp2, col_comp3, col_comp4 = st.columns([3, 2, 1, 1])
         with col_comp1:
             nouvelle_comp = st.selectbox("Ajouter compétence:", [""] + COMPETENCES_DISPONIBLES, key="new_comp_select")
@@ -514,10 +1019,8 @@ def render_employe_form(emp_manager, employe_data=None):
         with col_comp3:
             certifie_comp = st.checkbox("Certifié", key="new_comp_certified")
         with col_comp4:
-            # UTILISER st.button() HORS DU FORMULAIRE
             if st.button("➕ Ajouter", key="add_comp_btn"):
                 if nouvelle_comp:
-                    # Vérifier si la compétence n'existe pas déjà
                     existing = next((comp for comp in st.session_state.competences_form if comp['nom'] == nouvelle_comp), None)
                     if not existing:
                         st.session_state.competences_form.append({
@@ -547,7 +1050,7 @@ def render_employe_form(emp_manager, employe_data=None):
         
         st.markdown("---")
         
-        # FORMULAIRE PRINCIPAL (sans gestion des compétences)
+        # FORMULAIRE PRINCIPAL
         with st.form("emp_form", clear_on_submit=False):
             # Informations personnelles
             st.markdown("##### 👤 Informations Personnelles")
@@ -555,8 +1058,9 @@ def render_employe_form(emp_manager, employe_data=None):
             
             with col1:
                 prenom = st.text_input("Prénom *", value=employe_data.get('prenom', '') if employe_data else "")
-                email = st.text_input("Email *", value=employe_data.get('email', '') if employe_data else "")
-                telephone = st.text_input("Téléphone", value=employe_data.get('telephone', '') if employe_data else "")
+                email = st.text_input("Email *", value=employe_data.get('email', '') if employe_data else "", 
+                                    help="Format: prenom.nom@dg-inc.qc.ca")
+                telephone = st.text_input("Téléphone", value=employe_data.get('telephone', '450-372-9630') if employe_data else "450-372-9630")
             
             with col2:
                 nom = st.text_input("Nom *", value=employe_data.get('nom', '') if employe_data else "")
@@ -590,42 +1094,44 @@ def render_employe_form(emp_manager, employe_data=None):
                     value=datetime.strptime(employe_data.get('date_embauche'), '%Y-%m-%d').date() if employe_data and employe_data.get('date_embauche') else datetime.now().date()
                 )
                 salaire = st.number_input(
-                    "Salaire annuel (€)",
-                    min_value=0,
-                    value=employe_data.get('salaire', 30000) if employe_data else 30000,
-                    step=1000
+                    "Salaire annuel (CAD) *",
+                    min_value=30000,
+                    max_value=150000,
+                    value=employe_data.get('salaire', 45000) if employe_data else 45000,
+                    step=1000,
+                    help="Salaire en dollars canadiens"
                 )
                 
-                # Manager
-                managers_options = [("", "Aucun manager")] + [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')}") for emp in emp_manager.get_managers()]
-                current_manager_id = employe_data.get('manager_id') if employe_data else ""
+                # Manager - Martin Beauregard par défaut pour production
+                managers_options = [("", "Autonome")] + [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')}") for emp in emp_manager.get_managers()]
+                current_manager_id = employe_data.get('manager_id') if employe_data else (11 if departement in ['PRODUCTION', 'USINAGE', 'QUALITÉ'] else "")
                 manager_id = st.selectbox(
                     "Manager",
                     options=[mid for mid, _ in managers_options],
-                    format_func=lambda mid: next((name for id_m, name in managers_options if id_m == mid), "Aucun"),
+                    format_func=lambda mid: next((name for id_m, name in managers_options if id_m == mid), "Autonome"),
                     index=next((i for i, (mid, _) in enumerate(managers_options) if mid == current_manager_id), 0)
                 )
                 
                 charge_travail = st.slider(
                     "Charge de travail (%)",
                     0, 100,
-                    value=employe_data.get('charge_travail', 80) if employe_data else 80
+                    value=employe_data.get('charge_travail', 85) if employe_data else 85
                 )
             
-            # Affichage des compétences dans le formulaire (lecture seule)
+            # Compétences dans le formulaire (lecture seule)
             st.markdown("##### 📋 Compétences sélectionnées")
             if st.session_state.competences_form:
                 comp_text = ", ".join([f"{comp['nom']} ({comp['niveau']})" for comp in st.session_state.competences_form])
                 st.text_area("Compétences:", value=comp_text, disabled=True)
             else:
-                st.info("Aucune compétence ajoutée. Utilisez la section ci-dessus pour en ajouter.")
+                st.info("Aucune compétence ajoutée. Utilisez la section ci-dessus.")
             
             # Notes
             notes = st.text_area("Notes", value=employe_data.get('notes', '') if employe_data else "")
             
             st.caption("* Champs obligatoires")
             
-            # Boutons du formulaire - UTILISER st.form_submit_button()
+            # Boutons du formulaire
             col_submit, col_cancel = st.columns(2)
             with col_submit:
                 submitted = st.form_submit_button("💾 Enregistrer", use_container_width=True)
@@ -636,6 +1142,8 @@ def render_employe_form(emp_manager, employe_data=None):
             if submitted:
                 if not prenom or not nom or not email or not poste:
                     st.error("Les champs marqués * sont obligatoires.")
+                elif '@' not in email:
+                    st.error("Format d'email invalide.")
                 else:
                     new_employe_data = {
                         'prenom': prenom,
@@ -662,7 +1170,7 @@ def render_employe_form(emp_manager, employe_data=None):
                             st.success(f"✅ Employé {prenom} {nom} mis à jour avec succès !")
                         else:  # Création
                             new_id = emp_manager.ajouter_employe(new_employe_data)
-                            st.success(f"✅ Nouvel employé {prenom} {nom} ajouté avec succès (ID: {new_id}) !")
+                            st.success(f"✅ Nouvel employé {prenom} {nom} ajouté (ID: {new_id}) !")
                         
                         # Nettoyage
                         if 'competences_form' in st.session_state:
@@ -710,16 +1218,15 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
         st.markdown(f"""
         <div class='info-card'>
             <h4>💰 Informations Financières</h4>
-            <p><strong>Salaire:</strong> {employe_data.get('salaire', 0):,}€/an</p>
+            <p><strong>Salaire:</strong> {employe_data.get('salaire', 0):,}$ CAD/an</p>
             <p><strong>Charge travail:</strong> {employe_data.get('charge_travail', 0)}%</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # Manager
+        # Manager et hiérarchie
         manager = emp_manager.get_employe_by_id(employe_data.get('manager_id')) if employe_data.get('manager_id') else None
-        manager_nom = f"{manager.get('prenom', '')} {manager.get('nom', '')}" if manager else "Aucun"
+        manager_nom = f"{manager.get('prenom', '')} {manager.get('nom', '')}" if manager else "Autonome"
         
-        # Subordonnés
         subordinates = emp_manager.get_subordinates(employe_data['id'])
         
         st.markdown(f"""
@@ -730,29 +1237,47 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
         </div>
         """, unsafe_allow_html=True)
     
-    # Compétences
+    # Compétences métallurgie
     st.markdown("---")
-    st.markdown("##### 🎯 Compétences")
+    st.markdown("##### 🎯 Compétences Métallurgie")
     competences = employe_data.get('competences', [])
     if competences:
-        comp_cols = st.columns(min(3, len(competences)))
-        for i, comp in enumerate(competences):
-            col_idx = i % 3
-            with comp_cols[col_idx]:
-                certif_icon = "🏆" if comp.get('certifie') else "📚"
-                niveau_color = {
-                    'DÉBUTANT': '#f59e0b',
-                    'INTERMÉDIAIRE': '#3b82f6', 
-                    'AVANCÉ': '#10b981',
-                    'EXPERT': '#8b5cf6'
-                }.get(comp.get('niveau'), '#6b7280')
-                
-                st.markdown(f"""
-                <div class='info-card' style='border-left: 4px solid {niveau_color}; margin-bottom: 0.5rem;'>
-                    <h6 style='margin: 0 0 0.2rem 0;'>{certif_icon} {comp.get('nom', 'N/A')}</h6>
-                    <p style='margin: 0; font-size: 0.9em;'>{comp.get('niveau', 'N/A')}</p>
-                </div>
-                """, unsafe_allow_html=True)
+        # Grouper par catégorie
+        comp_soudage = [c for c in competences if 'soudage' in c.get('nom', '').lower() or 'mig' in c.get('nom', '').lower() or 'tig' in c.get('nom', '').lower()]
+        comp_usinage = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['découpe', 'pliage', 'scie', 'plasma', 'cnc'])]
+        comp_securite = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['cnesst', 'sécurité', 'loto'])]
+        comp_langues = [c for c in competences if c.get('nom') in ['Français', 'Anglais', 'Espagnol']]
+        comp_autres = [c for c in competences if c not in comp_soudage + comp_usinage + comp_securite + comp_langues]
+        
+        categories = [
+            ("🔥 Soudage", comp_soudage),
+            ("⚙️ Usinage", comp_usinage),
+            ("🦺 Sécurité", comp_securite),
+            ("🗣️ Langues", comp_langues),
+            ("🔧 Autres", comp_autres)
+        ]
+        
+        for cat_nom, cat_comps in categories:
+            if cat_comps:
+                st.markdown(f"**{cat_nom}**")
+                comp_cols = st.columns(min(3, len(cat_comps)))
+                for i, comp in enumerate(cat_comps):
+                    col_idx = i % 3
+                    with comp_cols[col_idx]:
+                        certif_icon = "🏆" if comp.get('certifie') else "📚"
+                        niveau_color = {
+                            'DÉBUTANT': '#f39c12',
+                            'INTERMÉDIAIRE': '#3498db', 
+                            'AVANCÉ': '#2ecc71',
+                            'EXPERT': '#9b59b6'
+                        }.get(comp.get('niveau'), '#95a5a6')
+                        
+                        st.markdown(f"""
+                        <div class='info-card' style='border-left: 4px solid {niveau_color}; margin-bottom: 0.5rem;'>
+                            <h6 style='margin: 0 0 0.2rem 0;'>{certif_icon} {comp.get('nom', 'N/A')}</h6>
+                            <p style='margin: 0; font-size: 0.9em;'>{comp.get('niveau', 'N/A')}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
     else:
         st.info("Aucune compétence renseignée.")
     
@@ -760,22 +1285,22 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
     st.markdown("---")
     st.markdown("##### 🚀 Projets Assignés")
     projets_assignes = employe_data.get('projets_assignes', [])
-    if projets_assignes:
+    if projets_assignes and projet_manager and hasattr(projet_manager, 'projets'):
         for proj_id in projets_assignes:
             projet = next((p for p in projet_manager.projets if p.get('id') == proj_id), None)
             if projet:
                 statut_color = {
-                    'À FAIRE': '#f59e0b',
-                    'EN COURS': '#3b82f6',
-                    'EN ATTENTE': '#ef4444', 
-                    'TERMINÉ': '#10b981',
-                    'LIVRAISON': '#8b5cf6'
-                }.get(projet.get('statut'), '#6b7280')
+                    'À FAIRE': '#f39c12',
+                    'EN COURS': '#3498db',
+                    'EN ATTENTE': '#e74c3c', 
+                    'TERMINÉ': '#2ecc71',
+                    'LIVRAISON': '#9b59b6'
+                }.get(projet.get('statut'), '#95a5a6')
                 
                 st.markdown(f"""
                 <div class='info-card' style='border-left: 4px solid {statut_color}; margin-bottom: 0.5rem;'>
                     <h6 style='margin: 0 0 0.2rem 0;'>#{projet.get('id')} - {projet.get('nom_projet', 'N/A')}</h6>
-                    <p style='margin: 0; font-size: 0.9em;'>📊 {projet.get('statut', 'N/A')} • 💰 {projet.get('prix_estime', 0)}€</p>
+                    <p style='margin: 0; font-size: 0.9em;'>📊 {projet.get('statut', 'N/A')} • 💰 {projet.get('prix_estime', 0):,}$ CAD</p>
                 </div>
                 """, unsafe_allow_html=True)
     else:
@@ -788,8 +1313,6 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
         st.markdown(f"<div class='info-card'><p>{employe_data.get('notes', '')}</p></div>", unsafe_allow_html=True)
     
     # Bouton retour
-    if st.button("Retour à la liste", key="back_to_emp_list"):
+    if st.button("⬅️ Retour à la liste", key="back_to_emp_list"):
         st.session_state.emp_action = None
         st.rerun()
-
-# --- END OF FILE employees.py ---
