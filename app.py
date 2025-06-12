@@ -824,12 +824,12 @@ def save_inventory_data(inventory_data_to_save):
         st.error(f"Erreur lors de la sauvegarde du fichier d'inventaire '{inventory_file}': {e}")
         return False
 
-# ----- Gestionnaire de Données (Projets) -----
+# ----- Gestionnaire de Données (Projets) MODIFIÉ POUR IDS 10000+ -----
 class GestionnaireProjetIA:
     def __init__(self):
         self.data_file = "projets_data.json"
         self.projets = []
-        self.next_id = 1
+        self.next_id = 10000  # MODIFIÉ : Commencer à 10000
         self.charger_projets()
 
     def charger_projets(self):
@@ -838,14 +838,19 @@ class GestionnaireProjetIA:
                 with open(self.data_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.projets = data.get('projets', [])
-                    self.next_id = data.get('next_id', len(self.projets) + 1 if self.projets else 1)
+                    # MODIFIÉ : Calculer le prochain ID en tenant compte du minimum 10000
+                    if self.projets:
+                        max_id = max(p.get('id', 10000) for p in self.projets)
+                        self.next_id = max(max_id + 1, 10000)
+                    else:
+                        self.next_id = 10000
             else:
                 self.projets = self.get_demo_data()
-                self.next_id = len(self.projets) + 1
+                self.next_id = 10003  # Après les 3 projets de démo (10000, 10001, 10002)
         except Exception as e:
             st.error(f"Erreur chargement projets: {e}")
             self.projets = self.get_demo_data()
-            self.next_id = len(self.projets) + 1
+            self.next_id = 10003
 
     def sauvegarder_projets(self):
         try:
@@ -856,11 +861,96 @@ class GestionnaireProjetIA:
             st.error(f"Erreur sauvegarde projets: {e}")
 
     def get_demo_data(self):
+        """MODIFIÉ : Données de démonstration avec IDs à partir de 10000"""
         now_iso = datetime.now().isoformat()
         return [
-            {'id': 1, 'nom_projet': 'Châssis Automobile', 'client_entreprise_id': 101, 'client_nom_cache': 'AutoTech Corp.', 'statut': 'EN COURS', 'priorite': 'ÉLEVÉ', 'tache': 'PRODUCTION', 'date_soumis': '2024-01-15', 'date_prevu': '2024-03-15', 'bd_ft_estime': '120', 'prix_estime': '35000', 'description': 'Châssis soudé pour véhicule électrique', 'sous_taches': [{'id': 1, 'nom': 'Programmation CNC', 'statut': 'TERMINÉ', 'date_debut': '2024-01-15', 'date_fin': '2024-01-20'}, {'id': 2, 'nom': 'Découpe laser', 'statut': 'EN COURS', 'date_debut': '2024-01-21', 'date_fin': '2024-02-05'}, {'id': 3, 'nom': 'Soudage robotisé', 'statut': 'À FAIRE', 'date_debut': '2024-02-06', 'date_fin': '2024-02-20'}], 'materiaux': [{'id': 1, 'code': 'ACR-001', 'designation': 'Acier haute résistance', 'quantite': 250, 'unite': 'kg', 'prix_unitaire': 8.5, 'fournisseur': 'Aciers DG'}, {'id': 2, 'code': 'SOD-001', 'designation': 'Fil de soudage GMAW', 'quantite': 15, 'unite': 'bobines', 'prix_unitaire': 125, 'fournisseur': 'Soudage Pro'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Programmation Bureau', 'temps_estime': 2.5, 'ressource': 'Programmeur CNC', 'statut': 'TERMINÉ', 'poste_travail': 'Programmation Bureau'}, {'id': 2, 'sequence': '20', 'description': 'Découpe laser des tôles', 'temps_estime': 4.2, 'ressource': 'Opérateur laser', 'statut': 'EN COURS', 'poste_travail': 'Laser CNC'}, {'id': 3, 'sequence': '30', 'description': 'Soudage robotisé GMAW', 'temps_estime': 8.5, 'ressource': 'Programmeur robot', 'statut': 'À FAIRE', 'poste_travail': 'Robot ABB GMAW'}], 'employes_assignes': [1, 2]},
-            {'id': 2, 'nom_projet': 'Structure Industrielle', 'client_entreprise_id': 102, 'client_nom_cache': 'BâtiTech Inc.', 'statut': 'À FAIRE', 'priorite': 'MOYEN', 'tache': 'ESTIMATION', 'date_soumis': '2024-02-01', 'date_prevu': '2024-05-01', 'bd_ft_estime': '180', 'prix_estime': '58000', 'description': 'Charpente métallique pour entrepôt industriel', 'sous_taches': [{'id': 1, 'nom': 'Étude structure', 'statut': 'À FAIRE', 'date_debut': '2024-02-15', 'date_fin': '2024-03-01'}, {'id': 2, 'nom': 'Découpe plasma', 'statut': 'À FAIRE', 'date_debut': '2024-03-02', 'date_fin': '2024-03-20'}, {'id': 3, 'nom': 'Assemblage lourd', 'statut': 'À FAIRE', 'date_debut': '2024-03-21', 'date_fin': '2024-04-15'}], 'materiaux': [{'id': 1, 'code': 'IPE-200', 'designation': 'Poutre IPE 200', 'quantite': 50, 'unite': 'ml', 'prix_unitaire': 45, 'fournisseur': 'Métal Québec'}, {'id': 2, 'code': 'HEA-160', 'designation': 'Poutre HEA 160', 'quantite': 30, 'unite': 'ml', 'prix_unitaire': 52, 'fournisseur': 'Métal Québec'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Étude et programmation', 'temps_estime': 4.0, 'ressource': 'Ingénieur', 'statut': 'À FAIRE', 'poste_travail': 'Programmation Bureau'}, {'id': 2, 'sequence': '20', 'description': 'Découpe plasma CNC', 'temps_estime': 6.8, 'ressource': 'Opérateur plasma', 'statut': 'À FAIRE', 'poste_travail': 'Plasma CNC'}, {'id': 3, 'sequence': '30', 'description': 'Assemblage structure', 'temps_estime': 12.5, 'ressource': 'Équipe assemblage', 'statut': 'À FAIRE', 'poste_travail': 'Assemblage Lourd'}], 'employes_assignes': [2, 3]},
-            {'id': 3, 'nom_projet': 'Pièce Aéronautique', 'client_entreprise_id': 103, 'client_nom_cache': 'AeroSpace Ltd', 'statut': 'TERMINÉ', 'priorite': 'ÉLEVÉ', 'tache': 'LIVRAISON', 'date_soumis': '2023-10-01', 'date_prevu': '2024-01-31', 'bd_ft_estime': '95', 'prix_estime': '75000', 'description': 'Composant haute précision pour train d\'atterrissage', 'sous_taches': [{'id': 1, 'nom': 'Usinage CNC', 'statut': 'TERMINÉ', 'date_debut': '2023-10-15', 'date_fin': '2023-11-15'}, {'id': 2, 'nom': 'Contrôle qualité', 'statut': 'TERMINÉ', 'date_debut': '2023-11-16', 'date_fin': '2023-11-30'}, {'id': 3, 'nom': 'Traitement surface', 'statut': 'TERMINÉ', 'date_debut': '2023-12-01', 'date_fin': '2023-12-15'}], 'materiaux': [{'id': 1, 'code': 'ALU-7075', 'designation': 'Aluminium 7075 T6', 'quantite': 25, 'unite': 'kg', 'prix_unitaire': 18.5, 'fournisseur': 'Alu Tech'}, {'id': 2, 'code': 'ANO-001', 'designation': 'Anodisation Type II', 'quantite': 1, 'unite': 'lot', 'prix_unitaire': 850, 'fournisseur': 'Surface Pro'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Usinage centre CNC', 'temps_estime': 8.2, 'ressource': 'Usineur CNC', 'statut': 'TERMINÉ', 'poste_travail': 'Centre d\'usinage'}, {'id': 2, 'sequence': '20', 'description': 'Contrôle métrologique', 'temps_estime': 2.5, 'ressource': 'Contrôleur', 'statut': 'TERMINÉ', 'poste_travail': 'Contrôle métrologique'}, {'id': 3, 'sequence': '30', 'description': 'Anodisation', 'temps_estime': 2.0, 'ressource': 'Technicien surface', 'statut': 'TERMINÉ', 'poste_travail': 'Anodisation'}], 'employes_assignes': [3, 4]}
+            {
+                'id': 10000,  # MODIFIÉ : ID commence à 10000
+                'nom_projet': 'Châssis Automobile', 
+                'client_entreprise_id': 101, 
+                'client_nom_cache': 'AutoTech Corp.', 
+                'statut': 'EN COURS', 
+                'priorite': 'ÉLEVÉ', 
+                'tache': 'PRODUCTION', 
+                'date_soumis': '2024-01-15', 
+                'date_prevu': '2024-03-15', 
+                'bd_ft_estime': '120', 
+                'prix_estime': '35000', 
+                'description': 'Châssis soudé pour véhicule électrique', 
+                'sous_taches': [
+                    {'id': 1, 'nom': 'Programmation CNC', 'statut': 'TERMINÉ', 'date_debut': '2024-01-15', 'date_fin': '2024-01-20'}, 
+                    {'id': 2, 'nom': 'Découpe laser', 'statut': 'EN COURS', 'date_debut': '2024-01-21', 'date_fin': '2024-02-05'}, 
+                    {'id': 3, 'nom': 'Soudage robotisé', 'statut': 'À FAIRE', 'date_debut': '2024-02-06', 'date_fin': '2024-02-20'}
+                ], 
+                'materiaux': [
+                    {'id': 1, 'code': 'ACR-001', 'designation': 'Acier haute résistance', 'quantite': 250, 'unite': 'kg', 'prix_unitaire': 8.5, 'fournisseur': 'Aciers DG'}, 
+                    {'id': 2, 'code': 'SOD-001', 'designation': 'Fil de soudage GMAW', 'quantite': 15, 'unite': 'bobines', 'prix_unitaire': 125, 'fournisseur': 'Soudage Pro'}
+                ], 
+                'operations': [
+                    {'id': 1, 'sequence': '10', 'description': 'Programmation Bureau', 'temps_estime': 2.5, 'ressource': 'Programmeur CNC', 'statut': 'TERMINÉ', 'poste_travail': 'Programmation Bureau'}, 
+                    {'id': 2, 'sequence': '20', 'description': 'Découpe laser des tôles', 'temps_estime': 4.2, 'ressource': 'Opérateur laser', 'statut': 'EN COURS', 'poste_travail': 'Laser CNC'}, 
+                    {'id': 3, 'sequence': '30', 'description': 'Soudage robotisé GMAW', 'temps_estime': 8.5, 'ressource': 'Programmeur robot', 'statut': 'À FAIRE', 'poste_travail': 'Robot ABB GMAW'}
+                ], 
+                'employes_assignes': [1, 2]
+            },
+            {
+                'id': 10001,  # MODIFIÉ : ID 10001
+                'nom_projet': 'Structure Industrielle', 
+                'client_entreprise_id': 102, 
+                'client_nom_cache': 'BâtiTech Inc.', 
+                'statut': 'À FAIRE', 
+                'priorite': 'MOYEN', 
+                'tache': 'ESTIMATION', 
+                'date_soumis': '2024-02-01', 
+                'date_prevu': '2024-05-01', 
+                'bd_ft_estime': '180', 
+                'prix_estime': '58000', 
+                'description': 'Charpente métallique pour entrepôt industriel', 
+                'sous_taches': [
+                    {'id': 1, 'nom': 'Étude structure', 'statut': 'À FAIRE', 'date_debut': '2024-02-15', 'date_fin': '2024-03-01'}, 
+                    {'id': 2, 'nom': 'Découpe plasma', 'statut': 'À FAIRE', 'date_debut': '2024-03-02', 'date_fin': '2024-03-20'}, 
+                    {'id': 3, 'nom': 'Assemblage lourd', 'statut': 'À FAIRE', 'date_debut': '2024-03-21', 'date_fin': '2024-04-15'}
+                ], 
+                'materiaux': [
+                    {'id': 1, 'code': 'IPE-200', 'designation': 'Poutre IPE 200', 'quantite': 50, 'unite': 'ml', 'prix_unitaire': 45, 'fournisseur': 'Métal Québec'}, 
+                    {'id': 2, 'code': 'HEA-160', 'designation': 'Poutre HEA 160', 'quantite': 30, 'unite': 'ml', 'prix_unitaire': 52, 'fournisseur': 'Métal Québec'}
+                ], 
+                'operations': [
+                    {'id': 1, 'sequence': '10', 'description': 'Étude et programmation', 'temps_estime': 4.0, 'ressource': 'Ingénieur', 'statut': 'À FAIRE', 'poste_travail': 'Programmation Bureau'}, 
+                    {'id': 2, 'sequence': '20', 'description': 'Découpe plasma CNC', 'temps_estime': 6.8, 'ressource': 'Opérateur plasma', 'statut': 'À FAIRE', 'poste_travail': 'Plasma CNC'}, 
+                    {'id': 3, 'sequence': '30', 'description': 'Assemblage structure', 'temps_estime': 12.5, 'ressource': 'Équipe assemblage', 'statut': 'À FAIRE', 'poste_travail': 'Assemblage Lourd'}
+                ], 
+                'employes_assignes': [2, 3]
+            },
+            {
+                'id': 10002,  # MODIFIÉ : ID 10002
+                'nom_projet': 'Pièce Aéronautique', 
+                'client_entreprise_id': 103, 
+                'client_nom_cache': 'AeroSpace Ltd', 
+                'statut': 'TERMINÉ', 
+                'priorite': 'ÉLEVÉ', 
+                'tache': 'LIVRAISON', 
+                'date_soumis': '2023-10-01', 
+                'date_prevu': '2024-01-31', 
+                'bd_ft_estime': '95', 
+                'prix_estime': '75000', 
+                'description': 'Composant haute précision pour train d\'atterrissage', 
+                'sous_taches': [
+                    {'id': 1, 'nom': 'Usinage CNC', 'statut': 'TERMINÉ', 'date_debut': '2023-10-15', 'date_fin': '2023-11-15'}, 
+                    {'id': 2, 'nom': 'Contrôle qualité', 'statut': 'TERMINÉ', 'date_debut': '2023-11-16', 'date_fin': '2023-11-30'}, 
+                    {'id': 3, 'nom': 'Traitement surface', 'statut': 'TERMINÉ', 'date_debut': '2023-12-01', 'date_fin': '2023-12-15'}
+                ], 
+                'materiaux': [
+                    {'id': 1, 'code': 'ALU-7075', 'designation': 'Aluminium 7075 T6', 'quantite': 25, 'unite': 'kg', 'prix_unitaire': 18.5, 'fournisseur': 'Alu Tech'}, 
+                    {'id': 2, 'code': 'ANO-001', 'designation': 'Anodisation Type II', 'quantite': 1, 'unite': 'lot', 'prix_unitaire': 850, 'fournisseur': 'Surface Pro'}
+                ], 
+                'operations': [
+                    {'id': 1, 'sequence': '10', 'description': 'Usinage centre CNC', 'temps_estime': 8.2, 'ressource': 'Usineur CNC', 'statut': 'TERMINÉ', 'poste_travail': 'Centre d\'usinage'}, 
+                    {'id': 2, 'sequence': '20', 'description': 'Contrôle métrologique', 'temps_estime': 2.5, 'ressource': 'Contrôleur', 'statut': 'TERMINÉ', 'poste_travail': 'Contrôle métrologique'}, 
+                    {'id': 3, 'sequence': '30', 'description': 'Anodisation', 'temps_estime': 2.0, 'ressource': 'Technicien surface', 'statut': 'TERMINÉ', 'poste_travail': 'Anodisation'}
+                ], 
+                'employes_assignes': [3, 4]
+            }
         ]
 
     def ajouter_projet(self, projet_data):
@@ -882,7 +972,26 @@ class GestionnaireProjetIA:
         self.projets = [p for p in self.projets if p['id'] != projet_id]
         self.sauvegarder_projets()
 
-# ----- Fonctions Utilitaires (Projets)-----
+# NOUVELLE FONCTION : Migration des IDs des projets existants
+def migrer_ids_projets():
+    """Migre tous les projets vers des IDs commençant à 10000"""
+    gestionnaire = st.session_state.gestionnaire
+    
+    # Trier les projets par ID pour maintenir l'ordre
+    projets_tries = sorted(gestionnaire.projets, key=lambda x: x.get('id', 0))
+    
+    # Réassigner les IDs
+    for i, projet in enumerate(projets_tries):
+        nouveau_id = 10000 + i
+        projet['id'] = nouveau_id
+    
+    # Mettre à jour le prochain ID
+    gestionnaire.next_id = 10000 + len(gestionnaire.projets)
+    gestionnaire.sauvegarder_projets()
+    
+    return len(projets_tries)
+
+# --- Fonctions Utilitaires (Projets)-----
 def format_currency(value):
     if value is None:
         return "$0.00"
@@ -1857,9 +1966,6 @@ def show_itineraire():
                 st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Toutes les autres fonctions d'affichage restent identiques (show_liste_projets, render_create_project_form, etc.)
-# Je vais juste mettre à jour les parties importantes pour la suite...
-
 def show_liste_projets():
     st.markdown("## 📋 Liste des Projets")
     gestionnaire = st.session_state.gestionnaire
@@ -1939,10 +2045,6 @@ def show_liste_projets():
     if st.session_state.get('show_delete_confirmation'):
         render_delete_confirmation(gestionnaire)
 
-# Les autres fonctions d'affichage restent identiques...
-# (render_create_project_form, render_edit_project_form, etc.)
-
-# Je vais inclure les fonctions essentielles pour le bon fonctionnement
 def render_create_project_form(gestionnaire, crm_manager):
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
@@ -2027,10 +2129,160 @@ def render_create_project_form(gestionnaire, crm_manager):
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Les autres fonctions d'affichage peuvent rester identiques
-# (render_edit_project_form, render_delete_confirmation, show_nomenclature, etc.)
+def render_edit_project_form(gestionnaire, crm_manager, project_data):
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown(f"### ✏️ Modifier Projet #{project_data.get('id')}")
+    with st.form("edit_form", clear_on_submit=True):
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            nom = st.text_input("Nom *:", value=project_data.get('nom_projet', ''))
+            liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in crm_manager.entreprises]
+            current_entreprise_id = project_data.get('client_entreprise_id', "")
+            selected_entreprise_id_form = st.selectbox(
+                "Client (Entreprise) *:",
+                options=[e_id for e_id, _ in liste_entreprises_crm_form],
+                index=next((i for i, (e_id, _) in enumerate(liste_entreprises_crm_form) if e_id == current_entreprise_id), 0),
+                format_func=lambda e_id: next((nom for id_e, nom in liste_entreprises_crm_form if id_e == e_id), "Sélectionner..."),
+                key="project_edit_client_select"
+            )
+            client_nom_direct_form = st.text_input("Ou nom client direct:", value=project_data.get('client', ''))
 
-# Je vais continuer avec les fonctions principales manquantes...
+            statuts = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"]
+            current_statut = project_data.get('statut', 'À FAIRE')
+            statut = st.selectbox("Statut:", statuts, index=statuts.index(current_statut) if current_statut in statuts else 0)
+            
+            priorites = ["BAS", "MOYEN", "ÉLEVÉ"]
+            current_priorite = project_data.get('priorite', 'MOYEN')
+            priorite = st.selectbox("Priorité:", priorites, index=priorites.index(current_priorite) if current_priorite in priorites else 1)
+        with fc2:
+            taches = ["ESTIMATION", "CONCEPTION", "DÉVELOPPEMENT", "TESTS", "DÉPLOIEMENT", "MAINTENANCE", "FORMATION"]
+            current_tache = project_data.get('tache', 'ESTIMATION')
+            tache = st.selectbox("Type:", taches, index=taches.index(current_tache) if current_tache in taches else 0)
+            
+            try:
+                d_debut = st.date_input("Début:", datetime.strptime(project_data.get('date_soumis', ''), '%Y-%m-%d').date())
+            except:
+                d_debut = st.date_input("Début:", datetime.now().date())
+            try:
+                d_fin = st.date_input("Fin Prévue:", datetime.strptime(project_data.get('date_prevu', ''), '%Y-%m-%d').date())
+            except:
+                d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
+            
+            bd_ft = st.number_input("BD-FT (h):", 0, value=int(project_data.get('bd_ft_estime', 0)), step=1)
+            try:
+                prix_val = float(str(project_data.get('prix_estime', '0')).replace(', '').replace(',', ''))
+            except:
+                prix_val = 0.0
+            prix = st.number_input("Prix ($):", 0.0, value=prix_val, step=100.0, format="%.2f")
+        desc = st.text_area("Description:", value=project_data.get('description', ''))
+        
+        # Assignation d'employés
+        if gestionnaire_employes.employes:
+            st.markdown("##### 👥 Assignation d'Employés")
+            employes_disponibles = [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')} ({emp.get('poste', '')})") for emp in gestionnaire_employes.employes if emp.get('statut') == 'ACTIF']
+            current_employes = project_data.get('employes_assignes', [])
+            employes_assignes = st.multiselect(
+                "Employés assignés:",
+                options=[emp_id for emp_id, _ in employes_disponibles],
+                default=[emp_id for emp_id in current_employes if emp_id in [e[0] for e in employes_disponibles]],
+                format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
+                key="project_edit_employes_assign"
+            )
+        
+        st.markdown("<small>* Obligatoire</small>", unsafe_allow_html=True)
+        s_btn, c_btn = st.columns(2)
+        with s_btn:
+            submit = st.form_submit_button("💾 Sauvegarder", use_container_width=True)
+        with c_btn:
+            cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
+        if submit:
+            if not nom or (not selected_entreprise_id_form and not client_nom_direct_form):
+                st.error("Nom du projet et Client obligatoires.")
+            elif d_fin < d_debut:
+                st.error("Date fin < date début.")
+            else:
+                client_nom_cache_val = ""
+                if selected_entreprise_id_form:
+                    entreprise_obj = crm_manager.get_entreprise_by_id(selected_entreprise_id_form)
+                    if entreprise_obj:
+                        client_nom_cache_val = entreprise_obj.get('nom', '')
+                elif client_nom_direct_form:
+                    client_nom_cache_val = client_nom_direct_form
+
+                update_data = {
+                    'nom_projet': nom,
+                    'client_entreprise_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
+                    'client_nom_cache': client_nom_cache_val,
+                    'client': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "",
+                    'statut': statut, 'priorite': priorite, 'tache': tache, 'date_soumis': d_debut.strftime('%Y-%m-%d'), 'date_prevu': d_fin.strftime('%Y-%m-%d'), 'bd_ft_estime': str(bd_ft), 'prix_estime': str(prix), 'description': desc,
+                    'employes_assignes': employes_assignes if 'employes_assignes' in locals() else []
+                }
+                
+                if gestionnaire.modifier_projet(project_data['id'], update_data):
+                    # Mettre à jour les assignations des employés
+                    if 'employes_assignes' in locals():
+                        # Supprimer l'ancien projet des anciens employés
+                        for emp_id in project_data.get('employes_assignes', []):
+                            if emp_id not in employes_assignes:
+                                employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                                if employe:
+                                    projets_existants = employe.get('projets_assignes', [])
+                                    if project_data['id'] in projets_existants:
+                                        projets_existants.remove(project_data['id'])
+                                        gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                        
+                        # Ajouter le projet aux nouveaux employés
+                        for emp_id in employes_assignes:
+                            if emp_id not in project_data.get('employes_assignes', []):
+                                employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                                if employe:
+                                    projets_existants = employe.get('projets_assignes', [])
+                                    if project_data['id'] not in projets_existants:
+                                        projets_existants.append(project_data['id'])
+                                        gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                    
+                    st.success(f"✅ Projet #{project_data['id']} modifié !")
+                    st.session_state.show_edit_project = False
+                    st.session_state.edit_project_data = None
+                    st.rerun()
+                else:
+                    st.error("Erreur lors de la modification.")
+        if cancel:
+            st.session_state.show_edit_project = False
+            st.session_state.edit_project_data = None
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def render_delete_confirmation(gestionnaire):
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("### 🗑️ Confirmation de Suppression")
+    project_id = st.session_state.delete_project_id
+    project = next((p for p in gestionnaire.projets if p.get('id') == project_id), None)
+    
+    if project:
+        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer le projet **#{project.get('id')} - {project.get('nom_projet', 'N/A')}** ?")
+        st.markdown("Cette action est **irréversible**.")
+        
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            if st.button("🗑️ Confirmer Suppression", use_container_width=True):
+                gestionnaire.supprimer_projet(project_id)
+                st.success(f"✅ Projet #{project_id} supprimé !")
+                st.session_state.show_delete_confirmation = False
+                st.session_state.delete_project_id = None
+                st.rerun()
+        with dcol2:
+            if st.button("❌ Annuler", use_container_width=True):
+                st.session_state.show_delete_confirmation = False
+                st.session_state.delete_project_id = None
+                st.rerun()
+    else:
+        st.error("Projet non trouvé.")
+        st.session_state.show_delete_confirmation = False
+        st.session_state.delete_project_id = None
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def show_nomenclature():
     st.markdown("## 📊 Nomenclature (BOM)")
@@ -2076,7 +2328,6 @@ def show_nomenclature():
             st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Les autres fonctions d'affichage restent identiques
 def show_gantt():
     st.markdown("## 📈 Diagramme de Gantt")
     gestionnaire = st.session_state.gestionnaire
@@ -2123,8 +2374,6 @@ def show_gantt():
         with gsc3:
             st.metric("🕐 Max Durée", f"{max(durees)} j")
     st.markdown("</div>", unsafe_allow_html=True)
-
-# Les autres fonctions restent identiques (show_calendrier, show_kanban, etc.)
 
 def show_calendrier():
     st.markdown("## 📅 Vue Calendrier")
@@ -2470,8 +2719,6 @@ def show_project_modal():
             st.session_state.show_project_modal = False
             st.rerun()
 
-# Les autres fonctions d'affichage pour l'inventaire, CRM et employés restent identiques...
-
 def show_inventory_management_page():
     st.markdown("## 📦 Gestion de l'Inventaire")
 
@@ -2686,7 +2933,7 @@ def update_sidebar_with_work_centers():
             st.sidebar.markdown("<p style='font-size:0.8em;text-align:center;color:var(--text-color);'>Postes par département</p>", unsafe_allow_html=True)
             st.sidebar.plotly_chart(fig_sidebar, use_container_width=True)
 
-# ----- Fonction Principale MISE À JOUR -----
+# ----- Fonction Principale MODIFIÉE POUR MIGRATION IDS -----
 def main():
     # Initialisation des gestionnaires
     if 'gestionnaire' not in st.session_state:
@@ -2706,6 +2953,14 @@ def main():
                 st.session_state.gestionnaire_postes
             )
             st.session_state.postes_integres = True
+
+    # NOUVEAU : Migration des IDs de projet au premier lancement
+    if 'ids_migres' not in st.session_state:
+        gestionnaire = st.session_state.gestionnaire
+        if gestionnaire.projets and any(p.get('id', 0) < 10000 for p in gestionnaire.projets):
+            nb_migres = migrer_ids_projets()
+            st.success(f"✅ {nb_migres} projet(s) migré(s) vers les nouveaux IDs (10000+)")
+            st.session_state.ids_migres = True
 
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
