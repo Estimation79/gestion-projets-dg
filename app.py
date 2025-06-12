@@ -27,6 +27,15 @@ from crm import (
     render_crm_interaction_details  # Décommenté
 )
 
+# Importations pour les Employés
+from employees import (
+    GestionnaireEmployes,
+    render_employes_liste_tab,
+    render_employes_dashboard_tab,
+    render_employe_form,
+    render_employe_details
+)
+
 
 # Configuration de la page
 st.set_page_config(
@@ -721,9 +730,9 @@ class GestionnaireProjetIA:
     def get_demo_data(self): # Les données de démo pour projets peuvent lier à des IDs de CRM de démo
         now_iso = datetime.now().isoformat()
         return [
-            {'id': 1, 'nom_projet': 'Site Web E-commerce', 'client_entreprise_id': 101, 'client_nom_cache': 'TechCorp Inc.', 'statut': 'EN COURS', 'priorite': 'ÉLEVÉ', 'tache': 'DÉVELOPPEMENT', 'date_soumis': '2024-01-15', 'date_prevu': '2024-03-15', 'bd_ft_estime': '120', 'prix_estime': '25000', 'description': 'Développement d\'une plateforme e-commerce complète avec paiement en ligne', 'sous_taches': [{'id': 1, 'nom': 'Design UI/UX', 'statut': 'TERMINÉ', 'date_debut': '2024-01-15', 'date_fin': '2024-01-30'}, {'id': 2, 'nom': 'Développement Frontend', 'statut': 'EN COURS', 'date_debut': '2024-02-01', 'date_fin': '2024-02-28'}, {'id': 3, 'nom': 'Intégration paiement', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-03-15'}], 'materiaux': [{'id': 1, 'code': 'LIC-001', 'designation': 'Licence SSL', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 150, 'fournisseur': 'SecureTech'}, {'id': 2, 'code': 'SRV-001', 'designation': 'Serveur Cloud', 'quantite': 12, 'unite': 'mois', 'prix_unitaire': 200, 'fournisseur': 'CloudProvider'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse des besoins', 'temps_estime': 16, 'ressource': 'Analyste', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Conception architecture', 'temps_estime': 24, 'ressource': 'Architecte', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Développement', 'temps_estime': 80, 'ressource': 'Développeurs', 'statut': 'EN COURS'}]},
-            {'id': 2, 'nom_projet': 'Application Mobile', 'client_entreprise_id': 102, 'client_nom_cache': 'StartupXYZ', 'statut': 'À FAIRE', 'priorite': 'MOYEN', 'tache': 'ESTIMATION', 'date_soumis': '2024-02-01', 'date_prevu': '2024-05-01', 'bd_ft_estime': '80', 'prix_estime': '18000', 'description': 'Application mobile native iOS et Android pour gestion de tâches', 'sous_taches': [{'id': 1, 'nom': 'Wireframes', 'statut': 'À FAIRE', 'date_debut': '2024-02-15', 'date_fin': '2024-02-28'}, {'id': 2, 'nom': 'Développement iOS', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}, {'id': 3, 'nom': 'Développement Android', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}], 'materiaux': [{'id': 1, 'code': 'DEV-IOS', 'designation': 'Licence développeur iOS', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 99, 'fournisseur': 'Apple'}, {'id': 2, 'code': 'DEV-AND', 'designation': 'Licence développeur Android', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 25, 'fournisseur': 'Google'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Spécifications techniques', 'temps_estime': 12, 'ressource': 'Analyste', 'statut': 'À FAIRE'}, {'id': 2, 'sequence': '20', 'description': 'Développement cross-platform', 'temps_estime': 60, 'ressource': 'Développeurs', 'statut': 'À FAIRE'}, {'id': 3, 'sequence': '30', 'description': 'Tests et déploiement', 'temps_estime': 8, 'ressource': 'Testeur', 'statut': 'À FAIRE'}]},
-            {'id': 3, 'nom_projet': 'Système CRM', 'client_entreprise_id': 103, 'client_nom_cache': 'MegaCorp Ltd', 'statut': 'TERMINÉ', 'priorite': 'ÉLEVÉ', 'tache': 'LIVRAISON', 'date_soumis': '2023-10-01', 'date_prevu': '2024-01-31', 'bd_ft_estime': '200', 'prix_estime': '45000', 'description': 'Système de gestion de relation client personnalisé avec intégrations', 'sous_taches': [{'id': 1, 'nom': 'Module contacts', 'statut': 'TERMINÉ', 'date_debut': '2023-10-15', 'date_fin': '2023-11-15'}, {'id': 2, 'nom': 'Module ventes', 'statut': 'TERMINÉ', 'date_debut': '2023-11-16', 'date_fin': '2023-12-15'}, {'id': 3, 'nom': 'Rapports et analytics', 'statut': 'TERMINÉ', 'date_debut': '2023-12-16', 'date_fin': '2024-01-31'}], 'materiaux': [{'id': 1, 'code': 'DB-001', 'designation': 'Base de données Enterprise', 'quantite': 1, 'unite': 'licence', 'prix_unitaire': 5000, 'fournisseur': 'DatabaseCorp'}, {'id': 2, 'code': 'INT-001', 'designation': 'API Intégrations', 'quantite': 5, 'unite': 'pcs', 'prix_unitaire': 200, 'fournisseur': 'IntegrationHub'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse détaillée', 'temps_estime': 40, 'ressource': 'Analyste Senior', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Développement modules', 'temps_estime': 120, 'ressource': 'Équipe Dev', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Tests et formation', 'temps_estime': 40, 'ressource': 'Consultant', 'statut': 'TERMINÉ'}]}
+            {'id': 1, 'nom_projet': 'Site Web E-commerce', 'client_entreprise_id': 101, 'client_nom_cache': 'TechCorp Inc.', 'statut': 'EN COURS', 'priorite': 'ÉLEVÉ', 'tache': 'DÉVELOPPEMENT', 'date_soumis': '2024-01-15', 'date_prevu': '2024-03-15', 'bd_ft_estime': '120', 'prix_estime': '25000', 'description': 'Développement d\'une plateforme e-commerce complète avec paiement en ligne', 'sous_taches': [{'id': 1, 'nom': 'Design UI/UX', 'statut': 'TERMINÉ', 'date_debut': '2024-01-15', 'date_fin': '2024-01-30'}, {'id': 2, 'nom': 'Développement Frontend', 'statut': 'EN COURS', 'date_debut': '2024-02-01', 'date_fin': '2024-02-28'}, {'id': 3, 'nom': 'Intégration paiement', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-03-15'}], 'materiaux': [{'id': 1, 'code': 'LIC-001', 'designation': 'Licence SSL', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 150, 'fournisseur': 'SecureTech'}, {'id': 2, 'code': 'SRV-001', 'designation': 'Serveur Cloud', 'quantite': 12, 'unite': 'mois', 'prix_unitaire': 200, 'fournisseur': 'CloudProvider'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse des besoins', 'temps_estime': 16, 'ressource': 'Analyste', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Conception architecture', 'temps_estime': 24, 'ressource': 'Architecte', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Développement', 'temps_estime': 80, 'ressource': 'Développeurs', 'statut': 'EN COURS'}], 'employes_assignes': [1, 2]},
+            {'id': 2, 'nom_projet': 'Application Mobile', 'client_entreprise_id': 102, 'client_nom_cache': 'StartupXYZ', 'statut': 'À FAIRE', 'priorite': 'MOYEN', 'tache': 'ESTIMATION', 'date_soumis': '2024-02-01', 'date_prevu': '2024-05-01', 'bd_ft_estime': '80', 'prix_estime': '18000', 'description': 'Application mobile native iOS et Android pour gestion de tâches', 'sous_taches': [{'id': 1, 'nom': 'Wireframes', 'statut': 'À FAIRE', 'date_debut': '2024-02-15', 'date_fin': '2024-02-28'}, {'id': 2, 'nom': 'Développement iOS', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}, {'id': 3, 'nom': 'Développement Android', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}], 'materiaux': [{'id': 1, 'code': 'DEV-IOS', 'designation': 'Licence développeur iOS', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 99, 'fournisseur': 'Apple'}, {'id': 2, 'code': 'DEV-AND', 'designation': 'Licence développeur Android', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 25, 'fournisseur': 'Google'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Spécifications techniques', 'temps_estime': 12, 'ressource': 'Analyste', 'statut': 'À FAIRE'}, {'id': 2, 'sequence': '20', 'description': 'Développement cross-platform', 'temps_estime': 60, 'ressource': 'Développeurs', 'statut': 'À FAIRE'}, {'id': 3, 'sequence': '30', 'description': 'Tests et déploiement', 'temps_estime': 8, 'ressource': 'Testeur', 'statut': 'À FAIRE'}], 'employes_assignes': [1, 4]},
+            {'id': 3, 'nom_projet': 'Système CRM', 'client_entreprise_id': 103, 'client_nom_cache': 'MegaCorp Ltd', 'statut': 'TERMINÉ', 'priorite': 'ÉLEVÉ', 'tache': 'LIVRAISON', 'date_soumis': '2023-10-01', 'date_prevu': '2024-01-31', 'bd_ft_estime': '200', 'prix_estime': '45000', 'description': 'Système de gestion de relation client personnalisé avec intégrations', 'sous_taches': [{'id': 1, 'nom': 'Module contacts', 'statut': 'TERMINÉ', 'date_debut': '2023-10-15', 'date_fin': '2023-11-15'}, {'id': 2, 'nom': 'Module ventes', 'statut': 'TERMINÉ', 'date_debut': '2023-11-16', 'date_fin': '2023-12-15'}, {'id': 3, 'nom': 'Rapports et analytics', 'statut': 'TERMINÉ', 'date_debut': '2023-12-16', 'date_fin': '2024-01-31'}], 'materiaux': [{'id': 1, 'code': 'DB-001', 'designation': 'Base de données Enterprise', 'quantite': 1, 'unite': 'licence', 'prix_unitaire': 5000, 'fournisseur': 'DatabaseCorp'}, {'id': 2, 'code': 'INT-001', 'designation': 'API Intégrations', 'quantite': 5, 'unite': 'pcs', 'prix_unitaire': 200, 'fournisseur': 'IntegrationHub'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse détaillée', 'temps_estime': 40, 'ressource': 'Analyste Senior', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Développement modules', 'temps_estime': 120, 'ressource': 'Équipe Dev', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Tests et formation', 'temps_estime': 40, 'ressource': 'Consultant', 'statut': 'TERMINÉ'}], 'employes_assignes': [2, 3]}
         ]
 
 
@@ -799,74 +808,98 @@ TEXT_COLOR_CHARTS = 'var(--text-color)'
 def show_dashboard():
     st.markdown("## 📊 Tableau de Bord")
     gestionnaire = st.session_state.gestionnaire
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    
     stats = get_project_statistics(gestionnaire)
-    if stats['total'] == 0:
-        st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🚀 Bienvenue !</h3><p>Créez votre premier projet ou explorez le CRM.</p></div>", unsafe_allow_html=True)
+    emp_stats = gestionnaire_employes.get_statistiques_employes()
+    
+    if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
+        st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🚀 Bienvenue !</h3><p>Créez votre premier projet, ajoutez des employés ou explorez le CRM.</p></div>", unsafe_allow_html=True)
         return
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("📊 Total Projets", stats['total'])
-    with c2:
-        st.metric("🚀 Projets Actifs", stats['projets_actifs'])
-    with c3:
-        st.metric("✅ Taux Completion", f"{stats['taux_completion']:.1f}%")
-    with c4:
-        st.metric("💰 CA Total", format_currency(stats['ca_total']))
+    # Métriques Projets
+    if stats['total'] > 0:
+        st.markdown("### 🚀 Aperçu Projets")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("📊 Total Projets", stats['total'])
+        with c2:
+            st.metric("🚀 Projets Actifs", stats['projets_actifs'])
+        with c3:
+            st.metric("✅ Taux Completion", f"{stats['taux_completion']:.1f}%")
+        with c4:
+            st.metric("💰 CA Total", format_currency(stats['ca_total']))
+
+    # Métriques RH
+    if emp_stats.get('total', 0) > 0:
+        st.markdown("### 👥 Aperçu Ressources Humaines")
+        emp_c1, emp_c2, emp_c3, emp_c4 = st.columns(4)
+        with emp_c1:
+            st.metric("👥 Total Employés", emp_stats['total'])
+        with emp_c2:
+            employes_actifs = len([emp for emp in gestionnaire_employes.employes if emp.get('statut') == 'ACTIF'])
+            st.metric("✅ Employés Actifs", employes_actifs)
+        with emp_c3:
+            st.metric("💰 Salaire Moyen", f"{emp_stats.get('salaire_moyen', 0):,.0f}€")
+        with emp_c4:
+            employes_surcharges = len([emp for emp in gestionnaire_employes.employes if emp.get('charge_travail', 0) > 90])
+            st.metric("⚠️ Surchargés", employes_surcharges)
+
     st.markdown("<br>", unsafe_allow_html=True)
 
-    gc1, gc2 = st.columns(2)
-    with gc1:
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-        if stats['par_statut']:
-            colors_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
-            fig = px.pie(values=list(stats['par_statut'].values()), names=list(stats['par_statut'].keys()), title="📈 Répartition par Statut", color_discrete_map=colors_statut)
-            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
-            st.plotly_chart(fig, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with gc2:
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-        if stats['par_priorite']:
-            colors_priorite = {'ÉLEVÉ': '#ef4444', 'MOYEN': '#f59e0b', 'BAS': '#10b981'}
-            fig = px.bar(x=list(stats['par_priorite'].keys()), y=list(stats['par_priorite'].values()), title="⭐ Répartition par Priorité", color=list(stats['par_priorite'].keys()), color_discrete_map=colors_priorite)
-            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
-            st.plotly_chart(fig, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    if stats['total'] > 0:
+        gc1, gc2 = st.columns(2)
+        with gc1:
+            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+            if stats['par_statut']:
+                colors_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
+                fig = px.pie(values=list(stats['par_statut'].values()), names=list(stats['par_statut'].keys()), title="📈 Répartition par Statut", color_discrete_map=colors_statut)
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with gc2:
+            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+            if stats['par_priorite']:
+                colors_priorite = {'ÉLEVÉ': '#ef4444', 'MOYEN': '#f59e0b', 'BAS': '#10b981'}
+                fig = px.bar(x=list(stats['par_priorite'].keys()), y=list(stats['par_priorite'].values()), title="⭐ Répartition par Priorité", color=list(stats['par_priorite'].keys()), color_discrete_map=colors_priorite)
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("### 🕒 Projets Récents")
-    projets_recents = sorted(gestionnaire.projets, key=lambda x: x.get('id', 0), reverse=True)[:5]
-    if not projets_recents:
-        st.info("Aucun projet récent.")
-    for p in projets_recents:
-        st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-        rc1, rc2, rc3, rc4 = st.columns([3, 2, 2, 1])
-        with rc1:
-            st.markdown(f"**#{p.get('id')} - {p.get('nom_projet', 'Sans nom')}**")
-            st.caption(f"📝 {p.get('description', 'N/A')[:100]}...")
-        with rc2:
-            client_display_name = p.get('client_nom_cache', 'N/A')
-            if client_display_name == 'N/A' and p.get('client_entreprise_id'):
-                crm_manager = st.session_state.gestionnaire_crm
-                entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
-                if entreprise:
-                    client_display_name = entreprise.get('nom', 'N/A')
-            elif client_display_name == 'N/A': # Fallback pour ancien format
-                client_display_name = p.get('client', 'N/A')
+        st.markdown("---")
+        st.markdown("### 🕒 Projets Récents")
+        projets_recents = sorted(gestionnaire.projets, key=lambda x: x.get('id', 0), reverse=True)[:5]
+        if not projets_recents:
+            st.info("Aucun projet récent.")
+        for p in projets_recents:
+            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+            rc1, rc2, rc3, rc4 = st.columns([3, 2, 2, 1])
+            with rc1:
+                st.markdown(f"**#{p.get('id')} - {p.get('nom_projet', 'Sans nom')}**")
+                st.caption(f"📝 {p.get('description', 'N/A')[:100]}...")
+            with rc2:
+                client_display_name = p.get('client_nom_cache', 'N/A')
+                if client_display_name == 'N/A' and p.get('client_entreprise_id'):
+                    crm_manager = st.session_state.gestionnaire_crm
+                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
+                    if entreprise:
+                        client_display_name = entreprise.get('nom', 'N/A')
+                elif client_display_name == 'N/A': # Fallback pour ancien format
+                    client_display_name = p.get('client', 'N/A')
 
-            st.markdown(f"👤 **{client_display_name}**")
-            st.caption(f"💰 {format_currency(p.get('prix_estime', 0))}")
-        with rc3:
-            statut, priorite = p.get('statut', 'N/A'), p.get('priorite', 'N/A')
-            statut_map = {'À FAIRE': '🟡', 'EN COURS': '🔵', 'EN ATTENTE': '🔴', 'TERMINÉ': '🟢', 'ANNULÉ': '⚫', 'LIVRAISON': '🟣'}
-            priorite_map = {'ÉLEVÉ': '🔴', 'MOYEN': '🟡', 'BAS': '🟢'}
-            st.markdown(f"{statut_map.get(statut, '⚪')} {statut}")
-            st.caption(f"{priorite_map.get(priorite, '⚪')} {priorite}")
-        with rc4:
-            if st.button("👁️", key=f"view_rec_{p.get('id')}", help="Voir détails"):
-                st.session_state.selected_project = p
-                st.session_state.show_project_modal = True
-        st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown(f"👤 **{client_display_name}**")
+                st.caption(f"💰 {format_currency(p.get('prix_estime', 0))}")
+            with rc3:
+                statut, priorite = p.get('statut', 'N/A'), p.get('priorite', 'N/A')
+                statut_map = {'À FAIRE': '🟡', 'EN COURS': '🔵', 'EN ATTENTE': '🔴', 'TERMINÉ': '🟢', 'ANNULÉ': '⚫', 'LIVRAISON': '🟣'}
+                priorite_map = {'ÉLEVÉ': '🔴', 'MOYEN': '🟡', 'BAS': '🟢'}
+                st.markdown(f"{statut_map.get(statut, '⚪')} {statut}")
+                st.caption(f"{priorite_map.get(priorite, '⚪')} {priorite}")
+            with rc4:
+                if st.button("👁️", key=f"view_rec_{p.get('id')}", help="Voir détails"):
+                    st.session_state.selected_project = p
+                    st.session_state.show_project_modal = True
+            st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
     st.markdown("## 📋 Liste des Projets")
@@ -948,6 +981,8 @@ def show_liste_projets():
         render_delete_confirmation(gestionnaire)
 
 def render_create_project_form(gestionnaire, crm_manager): # Ajout de crm_manager
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     st.markdown("### ➕ Créer Projet")
     with st.form("create_form", clear_on_submit=True):
@@ -972,6 +1007,18 @@ def render_create_project_form(gestionnaire, crm_manager): # Ajout de crm_manage
             bd_ft = st.number_input("BD-FT (h):", 0, value=40, step=1)
             prix = st.number_input("Prix ($):", 0.0, value=10000.0, step=100.0, format="%.2f")
         desc = st.text_area("Description:")
+        
+        # Assignation d'employés
+        if gestionnaire_employes.employes:
+            st.markdown("##### 👥 Assignation d'Employés")
+            employes_disponibles = [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')} ({emp.get('poste', '')})") for emp in gestionnaire_employes.employes if emp.get('statut') == 'ACTIF']
+            employes_assignes = st.multiselect(
+                "Employés assignés:",
+                options=[emp_id for emp_id, _ in employes_disponibles],
+                format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
+                key="project_create_employes_assign"
+            )
+        
         st.markdown("<small>* Obligatoire</small>", unsafe_allow_html=True)
         s_btn, c_btn = st.columns(2)
         with s_btn:
@@ -996,8 +1043,19 @@ def render_create_project_form(gestionnaire, crm_manager): # Ajout de crm_manage
                         'client_entreprise_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
                         'client_nom_cache': client_nom_cache_val, # Nom direct ou nom de l'entreprise CRM
                         'client': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "", # Ancien champ pour compatibilité ou si nom direct
-                        'statut': statut, 'priorite': priorite, 'tache': tache, 'date_soumis': d_debut.strftime('%Y-%m-%d'), 'date_prevu': d_fin.strftime('%Y-%m-%d'), 'bd_ft_estime': str(bd_ft), 'prix_estime': str(prix), 'description': desc or f"Projet {tache.lower()} pour {client_nom_cache_val}", 'sous_taches': [], 'materiaux': [], 'operations': []}
+                        'statut': statut, 'priorite': priorite, 'tache': tache, 'date_soumis': d_debut.strftime('%Y-%m-%d'), 'date_prevu': d_fin.strftime('%Y-%m-%d'), 'bd_ft_estime': str(bd_ft), 'prix_estime': str(prix), 'description': desc or f"Projet {tache.lower()} pour {client_nom_cache_val}", 'sous_taches': [], 'materiaux': [], 'operations': [], 'employes_assignes': employes_assignes if 'employes_assignes' in locals() else []}
                 pid = gestionnaire.ajouter_projet(data)
+                
+                # Mettre à jour les assignations des employés
+                if 'employes_assignes' in locals() and employes_assignes:
+                    for emp_id in employes_assignes:
+                        employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                        if employe:
+                            projets_existants = employe.get('projets_assignes', [])
+                            if pid not in projets_existants:
+                                projets_existants.append(pid)
+                                gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                
                 st.success(f"✅ Projet #{pid} créé !")
                 st.session_state.show_create_project = False
                 st.rerun()
@@ -1007,6 +1065,8 @@ def render_create_project_form(gestionnaire, crm_manager): # Ajout de crm_manage
     st.markdown("</div>", unsafe_allow_html=True)
 
 def render_edit_project_form(gestionnaire, crm_manager, data_in):
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     st.markdown(f"### ✏️ Modifier Projet #{data_in['id']}")
     
@@ -1147,6 +1207,19 @@ def render_edit_project_form(gestionnaire, crm_manager, data_in):
 
         desc = st.text_area("Description:", value=data_in.get('description', ''))
         
+        # Assignation d'employés
+        if gestionnaire_employes.employes:
+            st.markdown("##### 👥 Assignation d'Employés")
+            employes_disponibles = [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')} ({emp.get('poste', '')})") for emp in gestionnaire_employes.employes if emp.get('statut') == 'ACTIF']
+            current_employes_assignes = data_in.get('employes_assignes', [])
+            employes_assignes_edit = st.multiselect(
+                "Employés assignés:",
+                options=[emp_id for emp_id, _ in employes_disponibles],
+                default=current_employes_assignes,
+                format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
+                key="project_edit_employes_assign"
+            )
+        
         # Affichage informatif des sous-tâches dans le formulaire
         st.markdown("##### 📝 Sous-tâches à sauvegarder")
         if st.session_state.sous_taches_edit:
@@ -1198,11 +1271,30 @@ def render_edit_project_form(gestionnaire, crm_manager, data_in):
                     'bd_ft_estime': str(bd_ft),
                     'prix_estime': str(prix),
                     'description': desc,
-                    'sous_taches': st.session_state.sous_taches_edit
+                    'sous_taches': st.session_state.sous_taches_edit,
+                    'employes_assignes': employes_assignes_edit if 'employes_assignes_edit' in locals() else data_in.get('employes_assignes', [])
                 }
                 final_data = {**data_in, **updated}
                 
                 if gestionnaire.modifier_projet(data_in['id'], final_data):
+                    # Mettre à jour les assignations des employés
+                    if 'employes_assignes_edit' in locals():
+                        # Retirer ce projet des anciens employés
+                        for emp in gestionnaire_employes.employes:
+                            projets_emp = emp.get('projets_assignes', [])
+                            if data_in['id'] in projets_emp and emp['id'] not in employes_assignes_edit:
+                                projets_emp.remove(data_in['id'])
+                                gestionnaire_employes.modifier_employe(emp['id'], {'projets_assignes': projets_emp})
+                        
+                        # Ajouter ce projet aux nouveaux employés
+                        for emp_id in employes_assignes_edit:
+                            employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                            if employe:
+                                projets_existants = employe.get('projets_assignes', [])
+                                if data_in['id'] not in projets_existants:
+                                    projets_existants.append(data_in['id'])
+                                    gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                    
                     st.success(f"✅ Projet #{data_in['id']} modifié !")
                     # Nettoyage des variables de session
                     if 'sous_taches_edit' in st.session_state:
@@ -2002,31 +2094,69 @@ def show_crm_page():
     if action == "create_contact":
         render_crm_contact_form(gestionnaire_crm, contact_data=None)
     elif action == "edit_contact" and selected_id:
-        contact_data = crm_manager.get_contact_by_id(selected_id)
+        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
         render_crm_contact_form(gestionnaire_crm, contact_data=contact_data)
     elif action == "view_contact_details" and selected_id:
-        contact_data = crm_manager.get_contact_by_id(selected_id)
+        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
         render_crm_contact_details(gestionnaire_crm, gestionnaire_projets, contact_data)
 
     # ENTREPRISES - Section décommentée et activée
     elif action == "create_entreprise":
         render_crm_entreprise_form(gestionnaire_crm, entreprise_data=None)
     elif action == "edit_entreprise" and selected_id:
-        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
+        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
         render_crm_entreprise_form(gestionnaire_crm, entreprise_data=entreprise_data)
     elif action == "view_entreprise_details" and selected_id:
-        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
+        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
         render_crm_entreprise_details(gestionnaire_crm, gestionnaire_projets, entreprise_data)
 
     # INTERACTIONS - Section décommentée et activée
     elif action == "create_interaction":
         render_crm_interaction_form(gestionnaire_crm, interaction_data=None)
     elif action == "edit_interaction" and selected_id:
-        interaction_data = crm_manager.get_interaction_by_id(selected_id)
+        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
         render_crm_interaction_form(gestionnaire_crm, interaction_data=interaction_data)
     elif action == "view_interaction_details" and selected_id:
-        interaction_data = crm_manager.get_interaction_by_id(selected_id)
+        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
         render_crm_interaction_details(gestionnaire_crm, gestionnaire_projets, interaction_data)
+
+# NOUVELLE PAGE: Gestion des Employés
+def show_employees_page():
+    st.markdown("## 👥 Gestion des Employés")
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    gestionnaire_projets = st.session_state.gestionnaire
+    
+    # Initialiser les états de session pour les employés
+    if 'emp_action' not in st.session_state:
+        st.session_state.emp_action = None
+    if 'emp_selected_id' not in st.session_state:
+        st.session_state.emp_selected_id = None
+    if 'emp_confirm_delete_id' not in st.session_state:
+        st.session_state.emp_confirm_delete_id = None
+    
+    # Onglets de la page employés
+    tab_dashboard, tab_liste = st.tabs([
+        "📊 Dashboard RH", "👥 Liste Employés"
+    ])
+    
+    with tab_dashboard:
+        render_employes_dashboard_tab(gestionnaire_employes, gestionnaire_projets)
+    
+    with tab_liste:
+        render_employes_liste_tab(gestionnaire_employes, gestionnaire_projets)
+    
+    # Gestion des actions (formulaires, détails)
+    action = st.session_state.get('emp_action')
+    selected_id = st.session_state.get('emp_selected_id')
+    
+    if action == "create_employe":
+        render_employe_form(gestionnaire_employes, employe_data=None)
+    elif action == "edit_employe" and selected_id:
+        employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
+        render_employe_form(gestionnaire_employes, employe_data=employe_data)
+    elif action == "view_employe_details" and selected_id:
+        employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
+        render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
 
 # ----- Fonction Principale -----
 def main():
@@ -2034,6 +2164,8 @@ def main():
         st.session_state.gestionnaire = GestionnaireProjetIA()
     if 'gestionnaire_crm' not in st.session_state: # Initialisation du gestionnaire CRM
         st.session_state.gestionnaire_crm = GestionnaireCRM()
+    if 'gestionnaire_employes' not in st.session_state: # Initialisation du gestionnaire employés
+        st.session_state.gestionnaire_employes = GestionnaireEmployes()
 
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
@@ -2048,6 +2180,10 @@ def main():
         'crm_confirm_delete_contact_id': None,
         'crm_confirm_delete_entreprise_id': None,  # Ajouté pour les entreprises
         'crm_confirm_delete_interaction_id': None,  # Ajouté pour les interactions
+        'emp_action': None, # État pour les actions employés
+        'emp_selected_id': None, # ID de l'employé sélectionné
+        'emp_confirm_delete_id': None,
+        'competences_form': [],
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
@@ -2067,6 +2203,7 @@ def main():
         "🏠 Tableau de Bord": "dashboard",
         "📋 Liste des Projets": "liste",
         "🤝 CRM": "crm_page", # Page CRM activée
+        "👥 Employés": "employees_page", # Page Employés ajoutée
         "📦 Gestion Inventaire": "inventory_management",
         "📊 Nomenclature (BOM)": "bom",
         "🛠️ Itinéraire": "routing",
@@ -2127,6 +2264,22 @@ def main():
         st.sidebar.metric("CRM: Total Entreprises", len(crm_manager_sb.entreprises))
         # Pourrait ajouter un pie chart des types d'interaction ou statuts d'opportunités
 
+    # Statistiques Employés dans la sidebar
+    emp_manager_sb = st.session_state.gestionnaire_employes
+    if emp_manager_sb.employes:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Aperçu RH</h3>", unsafe_allow_html=True)
+        st.sidebar.metric("RH: Total Employés", len(emp_manager_sb.employes))
+        
+        # Employés actifs
+        employes_actifs = len([emp for emp in emp_manager_sb.employes if emp.get('statut') == 'ACTIF'])
+        st.sidebar.metric("RH: Employés Actifs", employes_actifs)
+        
+        # Employés surchargés (> 90%)
+        employes_surcharges = len([emp for emp in emp_manager_sb.employes if emp.get('charge_travail', 0) > 90])
+        if employes_surcharges > 0:
+            st.sidebar.metric("⚠️ RH: Surchargés", employes_surcharges)
+
     st.sidebar.markdown("---")
     st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🤗 Démo Constructo AI</p></div>", unsafe_allow_html=True)
 
@@ -2137,6 +2290,8 @@ def main():
         show_liste_projets()
     elif page_to_show_val == "crm_page":
         show_crm_page() # Appel de la page CRM activée
+    elif page_to_show_val == "employees_page":
+        show_employees_page() # Appel de la page Employés
     elif page_to_show_val == "inventory_management":
         show_inventory_management_page()
     elif page_to_show_val == "bom":
@@ -2166,3 +2321,5 @@ if __name__ == "__main__":
         st.info("Veuillez essayer de rafraîchir la page ou de redémarrer l'application.")
         import traceback
         st.code(traceback.format_exc())
+
+# --- END OF FILE app.py ---
