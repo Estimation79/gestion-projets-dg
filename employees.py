@@ -346,7 +346,7 @@ def render_employes_liste_tab(emp_manager, projet_manager):
         selected_emp_id = st.selectbox(
             "Employé:",
             options=[emp['id'] for emp in employes_filtres],
-            format_func=lambda eid: f"#{eid} - {next((f\"{emp.get('prenom', '')} {emp.get('nom', '')}\" for emp in employes_filtres if emp.get('id') == eid), '')}",
+            format_func=lambda eid: next((f"#{eid} - {emp.get('prenom', '')} {emp.get('nom', '')}" for emp in employes_filtres if emp.get('id') == eid), ''),
             key="emp_action_select"
         )
         
