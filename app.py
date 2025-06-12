@@ -10,6 +10,8 @@ import io
 import json
 import os
 import re
+import random
+import time
 from math import gcd
 from fractions import Fraction
 
@@ -20,11 +22,11 @@ from crm import (
     render_crm_entreprises_tab,
     render_crm_interactions_tab,
     render_crm_contact_form,
-    render_crm_entreprise_form,  # Décommenté
+    render_crm_entreprise_form,
     render_crm_contact_details,
-    render_crm_entreprise_details,  # Décommenté
-    render_crm_interaction_form,  # Décommenté
-    render_crm_interaction_details  # Décommenté
+    render_crm_entreprise_details,
+    render_crm_interaction_form,
+    render_crm_interaction_details
 )
 
 # Importations pour les Employés
@@ -36,6 +38,23 @@ from employees import (
     render_employe_details
 )
 
+# NOUVEAU : Importations pour les Postes de Travail DG Inc.
+from work_centers_integration import (
+    GestionnairePostes, 
+    WORK_CENTERS_DG_INC, 
+    CATEGORIES_POSTES_TRAVAIL,
+    integrer_postes_dans_projets,
+    generer_rapport_capacite_production
+)
+
+from work_centers_ui_integration import (
+    show_work_centers_page,
+    render_work_centers_overview,
+    render_operations_manager,
+    render_production_planning,
+    render_capacity_analysis,
+    update_projects_with_work_centers
+)
 
 # Configuration de la page
 st.set_page_config(
@@ -47,8 +66,8 @@ st.set_page_config(
 
 # --- Fonctions Utilitaires de Mesure (intégrées depuis inventory_app.py) ---
 UNITES_MESURE = ["IMPÉRIAL", "MÉTRIQUE"]
-TYPES_PRODUITS_INVENTAIRE = ["BOIS", "MÉTAL", "QUINCAILLERIE", "OUTILLAGE", "MATÉRIAUX", "ACCESSOIRES", "AUTRE"] # Renommé pour éviter conflit
-STATUTS_STOCK_INVENTAIRE = ["DISPONIBLE", "FAIBLE", "CRITIQUE", "EN COMMANDE", "ÉPUISÉ", "INDÉTERMINÉ"] # Renommé
+TYPES_PRODUITS_INVENTAIRE = ["BOIS", "MÉTAL", "QUINCAILLERIE", "OUTILLAGE", "MATÉRIAUX", "ACCESSOIRES", "AUTRE"]
+STATUTS_STOCK_INVENTAIRE = ["DISPONIBLE", "FAIBLE", "CRITIQUE", "EN COMMANDE", "ÉPUISÉ", "INDÉTERMINÉ"]
 
 def convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperiale_str_input):
     try:
@@ -199,8 +218,8 @@ def get_next_inventory_id(inventory_data):
             except ValueError:
                 continue
     return max_numeric_id + 1
-# --- Fin Fonctions Utilitaires de Mesure ---
 
+# --- Fin Fonctions Utilitaires de Mesure ---
 
 def load_css_file(css_file_path):
     try:
@@ -346,7 +365,6 @@ def apply_integrated_css():
     section[data-testid="stSidebar"] .stMetric > div:nth-child(2) > div { color:var(--primary-color-darker) !important; font-size: 1.5rem !important; } /* Valeur de la métrique */
     section[data-testid="stSidebar"] .stRadio > label p { color: var(--text-color) !important; } /* Texte des options Radio */
 
-
     /* Cartes et Conteneurs sur fond clair */
     .info-card, .nav-container, .section-card {
         background:var(--card-background) !important; /* Fond blanc pur pour les cartes */
@@ -369,7 +387,6 @@ def apply_integrated_css():
     div[data-testid="stMetric"]:hover { transform:translateY(-4px) !important; box-shadow:var(--box-shadow-blue) !important; }
     div[data-testid="stMetric"] > div:first-child > div { font-weight:600 !important; color:var(--primary-color) !important; }
     div[data-testid="stMetric"] > div:nth-child(2) > div { color:var(--text-color) !important; font-size: 1.75rem; } /* Valeur de la métrique plus grande */
-
 
     /* Tableaux */
     .dataframe {
@@ -517,7 +534,6 @@ def apply_integrated_css():
         transform: scale(1.02);
     }
 
-
     /* NOUVEAU: Styles pour le Calendrier type Google */
     .calendar-grid-container {
         border: 1px solid var(--border-color-blue);
@@ -617,7 +633,6 @@ def apply_integrated_css():
         color: #2F855A !important; /* Texte vert foncé */
     }
 
-
     /* Responsive Design (inchangé pour l'essentiel, mais les fonds clairs aident) */
     @media (max-width:768px) {
         .main-title { padding:15px !important; margin-bottom:15px !important; }
@@ -667,7 +682,6 @@ def get_inventory_data_app_data_path():
             st.warning(f"Impossible de créer/accéder au dossier de données standard. Utilisation du dossier local: {app_data}. Erreur: {e}")
     return app_data
 
-
 # NOUVELLE FONCTION pour charger les données d'inventaire
 def load_inventory_data():
     app_data_dir_inventory = get_inventory_data_app_data_path()
@@ -694,7 +708,6 @@ def save_inventory_data(inventory_data_to_save):
     except Exception as e:
         st.error(f"Erreur lors de la sauvegarde du fichier d'inventaire '{inventory_file}': {e}")
         return False
-
 
 # ----- Gestionnaire de Données (Projets) -----
 class GestionnaireProjetIA:
@@ -727,14 +740,13 @@ class GestionnaireProjetIA:
         except Exception as e:
             st.error(f"Erreur sauvegarde projets: {e}")
 
-    def get_demo_data(self): # Les données de démo pour projets peuvent lier à des IDs de CRM de démo
+    def get_demo_data(self):
         now_iso = datetime.now().isoformat()
         return [
             {'id': 1, 'nom_projet': 'Site Web E-commerce', 'client_entreprise_id': 101, 'client_nom_cache': 'TechCorp Inc.', 'statut': 'EN COURS', 'priorite': 'ÉLEVÉ', 'tache': 'DÉVELOPPEMENT', 'date_soumis': '2024-01-15', 'date_prevu': '2024-03-15', 'bd_ft_estime': '120', 'prix_estime': '25000', 'description': 'Développement d\'une plateforme e-commerce complète avec paiement en ligne', 'sous_taches': [{'id': 1, 'nom': 'Design UI/UX', 'statut': 'TERMINÉ', 'date_debut': '2024-01-15', 'date_fin': '2024-01-30'}, {'id': 2, 'nom': 'Développement Frontend', 'statut': 'EN COURS', 'date_debut': '2024-02-01', 'date_fin': '2024-02-28'}, {'id': 3, 'nom': 'Intégration paiement', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-03-15'}], 'materiaux': [{'id': 1, 'code': 'LIC-001', 'designation': 'Licence SSL', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 150, 'fournisseur': 'SecureTech'}, {'id': 2, 'code': 'SRV-001', 'designation': 'Serveur Cloud', 'quantite': 12, 'unite': 'mois', 'prix_unitaire': 200, 'fournisseur': 'CloudProvider'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse des besoins', 'temps_estime': 16, 'ressource': 'Analyste', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Conception architecture', 'temps_estime': 24, 'ressource': 'Architecte', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Développement', 'temps_estime': 80, 'ressource': 'Développeurs', 'statut': 'EN COURS'}], 'employes_assignes': [1, 2]},
             {'id': 2, 'nom_projet': 'Application Mobile', 'client_entreprise_id': 102, 'client_nom_cache': 'StartupXYZ', 'statut': 'À FAIRE', 'priorite': 'MOYEN', 'tache': 'ESTIMATION', 'date_soumis': '2024-02-01', 'date_prevu': '2024-05-01', 'bd_ft_estime': '80', 'prix_estime': '18000', 'description': 'Application mobile native iOS et Android pour gestion de tâches', 'sous_taches': [{'id': 1, 'nom': 'Wireframes', 'statut': 'À FAIRE', 'date_debut': '2024-02-15', 'date_fin': '2024-02-28'}, {'id': 2, 'nom': 'Développement iOS', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}, {'id': 3, 'nom': 'Développement Android', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}], 'materiaux': [{'id': 1, 'code': 'DEV-IOS', 'designation': 'Licence développeur iOS', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 99, 'fournisseur': 'Apple'}, {'id': 2, 'code': 'DEV-AND', 'designation': 'Licence développeur Android', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 25, 'fournisseur': 'Google'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Spécifications techniques', 'temps_estime': 12, 'ressource': 'Analyste', 'statut': 'À FAIRE'}, {'id': 2, 'sequence': '20', 'description': 'Développement cross-platform', 'temps_estime': 60, 'ressource': 'Développeurs', 'statut': 'À FAIRE'}, {'id': 3, 'sequence': '30', 'description': 'Tests et déploiement', 'temps_estime': 8, 'ressource': 'Testeur', 'statut': 'À FAIRE'}], 'employes_assignes': [1, 4]},
             {'id': 3, 'nom_projet': 'Système CRM', 'client_entreprise_id': 103, 'client_nom_cache': 'MegaCorp Ltd', 'statut': 'TERMINÉ', 'priorite': 'ÉLEVÉ', 'tache': 'LIVRAISON', 'date_soumis': '2023-10-01', 'date_prevu': '2024-01-31', 'bd_ft_estime': '200', 'prix_estime': '45000', 'description': 'Système de gestion de relation client personnalisé avec intégrations', 'sous_taches': [{'id': 1, 'nom': 'Module contacts', 'statut': 'TERMINÉ', 'date_debut': '2023-10-15', 'date_fin': '2023-11-15'}, {'id': 2, 'nom': 'Module ventes', 'statut': 'TERMINÉ', 'date_debut': '2023-11-16', 'date_fin': '2023-12-15'}, {'id': 3, 'nom': 'Rapports et analytics', 'statut': 'TERMINÉ', 'date_debut': '2023-12-16', 'date_fin': '2024-01-31'}], 'materiaux': [{'id': 1, 'code': 'DB-001', 'designation': 'Base de données Enterprise', 'quantite': 1, 'unite': 'licence', 'prix_unitaire': 5000, 'fournisseur': 'DatabaseCorp'}, {'id': 2, 'code': 'INT-001', 'designation': 'API Intégrations', 'quantite': 5, 'unite': 'pcs', 'prix_unitaire': 200, 'fournisseur': 'IntegrationHub'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse détaillée', 'temps_estime': 40, 'ressource': 'Analyste Senior', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Développement modules', 'temps_estime': 120, 'ressource': 'Équipe Dev', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Tests et formation', 'temps_estime': 40, 'ressource': 'Consultant', 'statut': 'TERMINÉ'}], 'employes_assignes': [2, 3]}
         ]
-
 
     def ajouter_projet(self, projet_data):
         projet_data['id'] = self.next_id
@@ -746,7 +758,6 @@ class GestionnaireProjetIA:
     def modifier_projet(self, projet_id, projet_data_update):
         for i, p in enumerate(self.projets):
             if p['id'] == projet_id:
-                # Fusionne les données existantes avec les nouvelles données
                 self.projets[i].update(projet_data_update)
                 self.sauvegarder_projets()
                 return True
@@ -809,11 +820,13 @@ def show_dashboard():
     st.markdown("## 📊 Tableau de Bord")
     gestionnaire = st.session_state.gestionnaire
     gestionnaire_employes = st.session_state.gestionnaire_employes
+    gestionnaire_postes = st.session_state.gestionnaire_postes  # NOUVEAU
     
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
+    postes_stats = gestionnaire_postes.get_statistiques_postes()  # NOUVEAU
     
-    if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
+    if stats['total'] == 0 and emp_stats.get('total', 0) == 0 and postes_stats.get('total_postes', 0) == 0:
         st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🚀 Bienvenue !</h3><p>Créez votre premier projet, ajoutez des employés ou explorez le CRM.</p></div>", unsafe_allow_html=True)
         return
 
@@ -844,6 +857,20 @@ def show_dashboard():
         with emp_c4:
             employes_surcharges = len([emp for emp in gestionnaire_employes.employes if emp.get('charge_travail', 0) > 90])
             st.metric("⚠️ Surchargés", employes_surcharges)
+
+    # NOUVEAU : Métriques postes de travail
+    if postes_stats.get('total_postes', 0) > 0:
+        st.markdown("### 🏭 Aperçu Production DG Inc.")
+        prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
+        with prod_c1:
+            st.metric("🏭 Total Postes", postes_stats['total_postes'])
+        with prod_c2:
+            st.metric("🤖 Robots ABB", postes_stats.get('postes_robotises', 0))
+        with prod_c3:
+            st.metric("💻 Postes CNC", postes_stats.get('postes_cnc', 0))
+        with prod_c4:
+            efficacite_globale = random.uniform(82, 87)  # Simulation temps réel
+            st.metric("⚡ Efficacité", f"{efficacite_globale:.1f}%")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -884,7 +911,7 @@ def show_dashboard():
                     entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
                     if entreprise:
                         client_display_name = entreprise.get('nom', 'N/A')
-                elif client_display_name == 'N/A': # Fallback pour ancien format
+                elif client_display_name == 'N/A':
                     client_display_name = p.get('client', 'N/A')
 
                 st.markdown(f"👤 **{client_display_name}**")
@@ -935,9 +962,9 @@ def show_liste_projets():
             terme = recherche.lower()
             projets_filtres = [p for p in projets_filtres if
                                terme in str(p.get('nom_projet', '')).lower() or
-                               terme in str(p.get('client_nom_cache', '')).lower() or # Rechercher dans le nom cache
-                               (p.get('client_entreprise_id') and crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')).get('nom', '').lower()) or # Rechercher dans le nom réel de l'entreprise
-                               terme in str(p.get('client', '')).lower() # Fallback ancien format
+                               terme in str(p.get('client_nom_cache', '')).lower() or
+                               (p.get('client_entreprise_id') and crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')).get('nom', '').lower()) or
+                               terme in str(p.get('client', '')).lower()
                               ]
 
         st.markdown(f"**{len(projets_filtres)} projet(s) trouvé(s)**")
@@ -949,7 +976,7 @@ def show_liste_projets():
                     entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
                     if entreprise:
                         client_display_name_df = entreprise.get('nom', 'N/A')
-                elif client_display_name_df == 'N/A': # Fallback pour ancien format
+                elif client_display_name_df == 'N/A':
                     client_display_name_df = p.get('client', 'N/A')
 
                 df_data.append({'🆔': p.get('id', '?'), '📋 Projet': p.get('nom_projet', 'N/A'), '👤 Client': client_display_name_df, '🚦 Statut': p.get('statut', 'N/A'), '⭐ Priorité': p.get('priorite', 'N/A'), '📅 Début': p.get('date_soumis', 'N/A'), '🏁 Fin': p.get('date_prevu', 'N/A'), '💰 Prix': format_currency(p.get('prix_estime', 0))})
@@ -980,7 +1007,7 @@ def show_liste_projets():
     if st.session_state.get('show_delete_confirmation'):
         render_delete_confirmation(gestionnaire)
 
-def render_create_project_form(gestionnaire, crm_manager): # Ajout de crm_manager
+def render_create_project_form(gestionnaire, crm_manager):
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -1041,8 +1068,8 @@ def render_create_project_form(gestionnaire, crm_manager): # Ajout de crm_manage
 
                 data = {'nom_projet': nom,
                         'client_entreprise_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
-                        'client_nom_cache': client_nom_cache_val, # Nom direct ou nom de l'entreprise CRM
-                        'client': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "", # Ancien champ pour compatibilité ou si nom direct
+                        'client_nom_cache': client_nom_cache_val,
+                        'client': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "",
                         'statut': statut, 'priorite': priorite, 'tache': tache, 'date_soumis': d_debut.strftime('%Y-%m-%d'), 'date_prevu': d_fin.strftime('%Y-%m-%d'), 'bd_ft_estime': str(bd_ft), 'prix_estime': str(prix), 'description': desc or f"Projet {tache.lower()} pour {client_nom_cache_val}", 'sous_taches': [], 'materiaux': [], 'operations': [], 'employes_assignes': employes_assignes if 'employes_assignes' in locals() else []}
                 pid = gestionnaire.ajouter_projet(data)
                 
@@ -1262,7 +1289,7 @@ def render_edit_project_form(gestionnaire, crm_manager, data_in):
                     'nom_projet': nom,
                     'client_entreprise_id': final_entreprise_id,
                     'client_nom_cache': client_nom_cache_val,
-                    'client': final_client_direct,  # Ancien format pour compatibilité
+                    'client': final_client_direct,
                     'statut': statut,
                     'priorite': priorite,
                     'tache': tache,
@@ -1386,18 +1413,64 @@ def show_nomenclature():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_itineraire():
+    """Version améliorée avec vrais postes de travail DG Inc."""
     st.markdown("## 🛠️ Itinéraire Fabrication")
     gestionnaire = st.session_state.gestionnaire
+    gestionnaire_postes = st.session_state.gestionnaire_postes  # NOUVEAU
+    
     if not gestionnaire.projets:
         st.warning("Aucun projet.")
         return
+    
     opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
     sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="iti_sel")
     proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
+    
     if not proj:
         st.error("Projet non trouvé.")
         return
+    
     st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
+
+    # NOUVEAU : Bouton de régénération de gamme avec postes DG Inc.
+    col_regen1, col_regen2 = st.columns([3, 1])
+    with col_regen2:
+        if st.button("🔄 Régénérer Gamme DG Inc.", help="Régénérer avec les vrais postes DG Inc."):
+            # Déterminer le type de produit selon le nom du projet
+            nom_projet = proj.get('nom_projet', '').lower()
+            if any(mot in nom_projet for mot in ['chassis', 'structure', 'assemblage', 'véhicule', 'auto']):
+                type_produit = "CHASSIS_SOUDE"
+                complexite = "COMPLEXE"
+            elif any(mot in nom_projet for mot in ['batiment', 'pont', 'charpente', 'poutre', 'structure']):
+                type_produit = "STRUCTURE_LOURDE"
+                complexite = "MOYEN"
+            elif any(mot in nom_projet for mot in ['precision', 'usinage', 'aéronautique', 'médical']):
+                type_produit = "PIECE_PRECISION"
+                complexite = "ÉLEVÉ"
+            else:
+                type_produit = "CHASSIS_SOUDE"  # Par défaut
+                complexite = "MOYEN"
+            
+            # Générer nouvelle gamme avec postes DG Inc.
+            gamme = gestionnaire_postes.generer_gamme_fabrication(type_produit, complexite)
+            
+            # Mettre à jour les opérations du projet
+            nouvelles_operations = []
+            for i, op in enumerate(gamme, 1):
+                nouvelles_operations.append({
+                    'id': i,
+                    'sequence': str(op['sequence']),
+                    'description': f"{op['poste']} - {proj.get('nom_projet', '')}",
+                    'temps_estime': op['temps_estime'],
+                    'ressource': op['employes_disponibles'][0] if op['employes_disponibles'] else 'À assigner',
+                    'statut': 'À FAIRE',
+                    'poste_travail': op['poste']  # NOUVEAU champ
+                })
+            
+            proj['operations'] = nouvelles_operations
+            gestionnaire.sauvegarder_projets()
+            st.success("✅ Gamme régénérée avec les postes DG Inc. !")
+            st.rerun()
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     operations = proj.get('operations', [])
@@ -1414,7 +1487,24 @@ def show_itineraire():
             st.metric("⏱️ Durée Totale", f"{total_time:.1f}h")
         with mc3:
             st.metric("📊 Progression", f"{progress:.1f}%")
-        data_iti = [{'🆔': op.get('id', '?'), '📊 Séq.': op.get('sequence', ''), '📋 Desc.': op.get('description', ''), '⏱️ Tps (h)': f"{(op.get('temps_estime', 0) or 0):.1f}", '👨‍🔧 Ress.': op.get('ressource', ''), '🚦 Statut': op.get('statut', 'À FAIRE')} for op in operations]
+        
+        # Tableau avec colonnes enrichies (poste de travail)
+        data_iti = []
+        for op in operations:
+            poste_travail = op.get('poste_travail', 'N/A')
+            if poste_travail == 'N/A':
+                poste_travail = "Poste générique"
+            
+            data_iti.append({
+                '🆔': op.get('id', '?'), 
+                '📊 Séq.': op.get('sequence', ''), 
+                '📋 Desc.': op.get('description', ''), 
+                '🏭 Poste': poste_travail,  # NOUVEAU
+                '⏱️ Tps (h)': f"{(op.get('temps_estime', 0) or 0):.1f}", 
+                '👨‍🔧 Ress.': op.get('ressource', ''), 
+                '🚦 Statut': op.get('statut', 'À FAIRE')
+            })
+        
         st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
         st.markdown("---")
         st.markdown("##### 📈 Analyse Opérations")
@@ -1444,7 +1534,7 @@ def show_itineraire():
 def show_gantt():
     st.markdown("## 📈 Diagramme de Gantt")
     gestionnaire = st.session_state.gestionnaire
-    crm_manager = st.session_state.gestionnaire_crm # Accès au CRM
+    crm_manager = st.session_state.gestionnaire_crm
     if not gestionnaire.projets:
         st.info("Aucun projet pour Gantt.")
         return
@@ -1460,7 +1550,7 @@ def show_gantt():
                     entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
                     if entreprise:
                         client_display_name_gantt = entreprise.get('nom', 'N/A')
-                elif client_display_name_gantt == 'N/A': # Fallback pour ancien format
+                elif client_display_name_gantt == 'N/A':
                     client_display_name_gantt = p.get('client', 'N/A')
 
                 gantt_data.append({'Projet': f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}", 'Début': s_date, 'Fin': e_date, 'Client': client_display_name_gantt, 'Statut': p.get('statut', 'N/A'), 'Priorité': p.get('priorite', 'N/A')})
@@ -1937,7 +2027,6 @@ def show_inventory_management_page():
                             st.success(f"{qty_std_qa} ajouté(s). N'oubliez pas de sauvegarder les modifications générales.")
                             st.rerun()
 
-
                 with col_stock2:
                     qty_to_remove_str = st.text_input("Retirer Stock (Imp.):", key=f"rem_qty_{selected_id_to_edit}")
                     if st.button("➖ Retirer", key=f"btn_rem_qty_{selected_id_to_edit}"):
@@ -1974,7 +2063,6 @@ def show_inventory_management_page():
                     else:
                         st.caption("Aucune réservation.")
 
-
                 submitted_edit = st.form_submit_button("💾 Enregistrer Modifications Générales")
                 if submitted_edit:
                     if not nom:
@@ -2001,7 +2089,6 @@ def show_inventory_management_page():
                                 st.error("Erreur lors de la sauvegarde des modifications.")
         else:
             st.info("Sélectionnez un article dans la liste ci-dessus pour le modifier.")
-
 
     if action_mode == "Voir Liste" or not inventory_data:
         st.subheader("📋 Liste des Articles en Inventaire")
@@ -2058,7 +2145,7 @@ def show_inventory_management_page():
 def show_crm_page():
     st.markdown("## 🤝 Gestion de la Relation Client (CRM)")
     gestionnaire_crm = st.session_state.gestionnaire_crm
-    gestionnaire_projets = st.session_state.gestionnaire # Pour lier projets et CRM
+    gestionnaire_projets = st.session_state.gestionnaire
 
     # Initialiser les états de session pour le CRM si ce n'est pas déjà fait
     if 'crm_action' not in st.session_state:
@@ -2067,7 +2154,6 @@ def show_crm_page():
         st.session_state.crm_selected_id = None
     if 'crm_confirm_delete_contact_id' not in st.session_state:
         st.session_state.crm_confirm_delete_contact_id = None
-    # Ajoutez d'autres états pour entreprises, interactions
     if 'crm_confirm_delete_entreprise_id' not in st.session_state:
         st.session_state.crm_confirm_delete_entreprise_id = None
     if 'crm_confirm_delete_interaction_id' not in st.session_state:
@@ -2100,7 +2186,7 @@ def show_crm_page():
         contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
         render_crm_contact_details(gestionnaire_crm, gestionnaire_projets, contact_data)
 
-    # ENTREPRISES - Section décommentée et activée
+    # ENTREPRISES
     elif action == "create_entreprise":
         render_crm_entreprise_form(gestionnaire_crm, entreprise_data=None)
     elif action == "edit_entreprise" and selected_id:
@@ -2110,7 +2196,7 @@ def show_crm_page():
         entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
         render_crm_entreprise_details(gestionnaire_crm, gestionnaire_projets, entreprise_data)
 
-    # INTERACTIONS - Section décommentée et activée
+    # INTERACTIONS
     elif action == "create_interaction":
         render_crm_interaction_form(gestionnaire_crm, interaction_data=None)
     elif action == "edit_interaction" and selected_id:
@@ -2158,14 +2244,218 @@ def show_employees_page():
         employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
         render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
 
+# ===== NOUVELLES PAGES POSTES DE TRAVAIL DG INC. =====
+
+def show_manufacturing_routes_page():
+    """Page dédiée aux gammes de fabrication DG Inc."""
+    st.markdown("## ⚙️ Gammes de Fabrication - DG Inc.")
+    
+    gestionnaire_postes = st.session_state.gestionnaire_postes
+    gestionnaire_projets = st.session_state.gestionnaire
+    
+    tab_generator, tab_templates, tab_optimization = st.tabs([
+        "🔧 Générateur", "📋 Modèles", "🎯 Optimisation"
+    ])
+    
+    with tab_generator:
+        render_operations_manager(gestionnaire_postes)
+    
+    with tab_templates:
+        render_gammes_templates(gestionnaire_postes)
+    
+    with tab_optimization:
+        render_route_optimization(gestionnaire_postes, gestionnaire_projets)
+
+def show_capacity_analysis_page():
+    """Page d'analyse de capacité de production DG Inc."""
+    st.markdown("## 📈 Analyse de Capacité - DG Inc.")
+    
+    gestionnaire_postes = st.session_state.gestionnaire_postes
+    
+    # Rapport de capacité en temps réel
+    rapport = generer_rapport_capacite_production()
+    
+    # Métriques principales
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🤖 Robots ABB", rapport['capacites']['postes_robotises'])
+    with col2:
+        st.metric("💻 Postes CNC", rapport['capacites']['postes_cnc'])
+    with col3:
+        st.metric("🔥 Postes Soudage", rapport['capacites']['postes_soudage'])
+    with col4:
+        st.metric("✨ Postes Finition", rapport['capacites']['postes_finition'])
+    
+    # Affichage détaillé
+    render_capacity_analysis(gestionnaire_postes)
+
+def render_gammes_templates(gestionnaire_postes):
+    """Templates de gammes prédéfinies DG Inc."""
+    st.subheader("📋 Modèles de Gammes Prédéfinis")
+    
+    templates = {
+        "🚗 Châssis Automobile": {
+            "type": "CHASSIS_SOUDE",
+            "description": "Châssis soudé pour véhicule léger",
+            "operations": 12,
+            "temps_total": "47.3h",
+            "postes_cles": ["Laser CNC", "Plieuse CNC", "Robot ABB GMAW", "Peinture poudre"]
+        },
+        "🏗️ Structure Bâtiment": {
+            "type": "STRUCTURE_LOURDE", 
+            "description": "Charpente métallique industrielle",
+            "operations": 15,
+            "temps_total": "78.5h",
+            "postes_cles": ["Plasma CNC", "Oxycoupage", "Soudage SAW", "Galvanisation"]
+        },
+        "⚙️ Pièce Aéronautique": {
+            "type": "PIECE_PRECISION",
+            "description": "Composant haute précision",
+            "operations": 18,
+            "temps_total": "92.1h", 
+            "postes_cles": ["Usinage CNC", "Robot ABB GTAW", "Anodisation", "Tests non destructifs"]
+        }
+    }
+    
+    for nom_template, infos in templates.items():
+        with st.expander(f"{nom_template} - {infos['temps_total']}", expanded=False):
+            col_t1, col_t2 = st.columns(2)
+            
+            with col_t1:
+                st.markdown(f"**Description:** {infos['description']}")
+                st.markdown(f"**Nombre d'opérations:** {infos['operations']}")
+                st.markdown(f"**Temps total estimé:** {infos['temps_total']}")
+            
+            with col_t2:
+                st.markdown("**Postes clés utilisés:**")
+                for poste in infos['postes_cles']:
+                    st.markdown(f"- {poste}")
+                
+                if st.button(f"Appliquer ce modèle", key=f"apply_{infos['type']}"):
+                    gamme = gestionnaire_postes.generer_gamme_fabrication(infos['type'], "MOYEN")
+                    st.session_state.gamme_generated = gamme
+                    st.success(f"Modèle {nom_template} appliqué !")
+
+def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
+    """Optimisation des gammes et séquencement DG Inc."""
+    st.subheader("🎯 Optimisation des Gammes")
+    
+    # Simulation d'optimisation
+    st.markdown("### 🔄 Optimisation Automatique")
+    
+    if st.button("🚀 Lancer Optimisation Globale", use_container_width=True):
+        with st.spinner("Optimisation en cours..."):
+            # Simulation d'optimisation
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Étapes d'optimisation simulées
+            etapes = [
+                "Analyse charge actuelle par poste...",
+                "Identification des goulots d'étranglement...", 
+                "Calcul des alternatives de routage...",
+                "Optimisation utilisation robots ABB...",
+                "Équilibrage des charges par département...",
+                "Génération des recommandations..."
+            ]
+            
+            resultats_optim = {
+                'temps_economise': 0,
+                'cout_reduit': 0,
+                'utilisation_amelioree': {},
+                'recommandations': []
+            }
+            
+            for i, etape in enumerate(etapes):
+                status_text.text(etape)
+                time.sleep(0.8)
+                progress_bar.progress((i + 1) / len(etapes))
+                
+                # Simulation de résultats
+                resultats_optim['temps_economise'] += random.uniform(2.5, 8.3)
+                resultats_optim['cout_reduit'] += random.uniform(150, 450)
+            
+            # Résultats d'optimisation
+            st.success("✅ Optimisation terminée !")
+            
+            col_r1, col_r2, col_r3 = st.columns(3)
+            with col_r1:
+                st.metric("⏱️ Temps Économisé", f"{resultats_optim['temps_economise']:.1f}h")
+            with col_r2:
+                st.metric("💰 Coût Réduit", f"{resultats_optim['cout_reduit']:.0f}$ CAD")
+            with col_r3:
+                efficacite = random.uniform(12, 18)
+                st.metric("📈 Efficacité", f"+{efficacite:.1f}%")
+            
+            # Recommandations détaillées
+            st.markdown("### 💡 Recommandations d'Optimisation")
+            recommandations = [
+                "🤖 Programmer Robot ABB GMAW en priorité pour pièces répétitives",
+                "⚡ Grouper les découpes laser par épaisseur de matériau",
+                "🔄 Alterner soudage manuel/robot selon complexité géométrique",
+                "📊 Former Nicolas Martin sur Plieuse CNC haute précision",
+                "⏰ Décaler finition peinture sur équipe de soir"
+            ]
+            
+            for recommandation in recommandations:
+                st.markdown(f"- {recommandation}")
+
+# ===== FONCTIONS DE SUPPORT SIDEBAR =====
+
+def update_sidebar_with_work_centers():
+    """Ajoute les statistiques des postes de travail dans la sidebar"""
+    gestionnaire_postes = st.session_state.gestionnaire_postes
+    stats_postes = gestionnaire_postes.get_statistiques_postes()
+    
+    if stats_postes['total_postes'] > 0:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Aperçu Production</h3>", unsafe_allow_html=True)
+        st.sidebar.metric("Production: Postes Actifs", stats_postes['total_postes'])
+        st.sidebar.metric("Production: CNC/Robots", stats_postes['postes_cnc'] + stats_postes['postes_robotises'])
+        
+        # Graphique simple de répartition
+        if stats_postes['par_departement']:
+            dept_data = list(stats_postes['par_departement'].items())
+            dept_names = [d[0][:4] for d in dept_data]  # Abréger pour sidebar
+            dept_values = [d[1] for d in dept_data]
+            
+            fig_sidebar = px.bar(
+                x=dept_names,
+                y=dept_values,
+                color=dept_names,
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            fig_sidebar.update_layout(
+                height=150, 
+                margin=dict(l=0, r=0, t=10, b=0),
+                plot_bgcolor='rgba(0,0,0,0)', 
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='var(--text-color)', size=8), 
+                showlegend=False
+            )
+            st.sidebar.markdown("<p style='font-size:0.8em;text-align:center;color:var(--text-color);'>Postes par département</p>", unsafe_allow_html=True)
+            st.sidebar.plotly_chart(fig_sidebar, use_container_width=True)
+
 # ----- Fonction Principale -----
 def main():
+    # Initialisation des gestionnaires
     if 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetIA()
-    if 'gestionnaire_crm' not in st.session_state: # Initialisation du gestionnaire CRM
+    if 'gestionnaire_crm' not in st.session_state:
         st.session_state.gestionnaire_crm = GestionnaireCRM()
-    if 'gestionnaire_employes' not in st.session_state: # Initialisation du gestionnaire employés
+    if 'gestionnaire_employes' not in st.session_state:
         st.session_state.gestionnaire_employes = GestionnaireEmployes()
+
+    # NOUVEAU : Gestionnaire des postes de travail DG Inc.
+    if 'gestionnaire_postes' not in st.session_state:
+        st.session_state.gestionnaire_postes = GestionnairePostes()
+        # Intégrer les postes dans les projets existants au premier lancement
+        if not hasattr(st.session_state, 'postes_integres'):
+            st.session_state.gestionnaire = integrer_postes_dans_projets(
+                st.session_state.gestionnaire, 
+                st.session_state.gestionnaire_postes
+            )
+            st.session_state.postes_integres = True
 
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
@@ -2175,13 +2465,13 @@ def main():
         'welcome_seen': False,
         'inventory_data': load_inventory_data(),
         'inv_action_mode': "Voir Liste",
-        'crm_action': None, # État pour les actions CRM
-        'crm_selected_id': None, # ID de l'entité CRM sélectionnée
+        'crm_action': None,
+        'crm_selected_id': None,
         'crm_confirm_delete_contact_id': None,
-        'crm_confirm_delete_entreprise_id': None,  # Ajouté pour les entreprises
-        'crm_confirm_delete_interaction_id': None,  # Ajouté pour les interactions
-        'emp_action': None, # État pour les actions employés
-        'emp_selected_id': None, # ID de l'employé sélectionné
+        'crm_confirm_delete_entreprise_id': None,
+        'crm_confirm_delete_interaction_id': None,
+        'emp_action': None,
+        'emp_selected_id': None,
         'emp_confirm_delete_id': None,
         'competences_form': [],
     }
@@ -2191,19 +2481,23 @@ def main():
 
     apply_global_styles()
 
-    st.markdown('<div class="main-title"><h1>🚀 Gestionnaire de Projets</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title"><h1>🚀 Gestionnaire de Projets IA - DG Inc.</h1></div>', unsafe_allow_html=True)
 
     if not st.session_state.welcome_seen:
-        st.success("🎉 Bienvenue ! Explorez les fonctionnalités avec les données de démo.")
+        st.success("🎉 Bienvenue ! Explorez les fonctionnalités avec les données de démo et les 61 postes de travail DG Inc.")
         st.session_state.welcome_seen = True
 
     st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧭 Navigation</h3>", unsafe_allow_html=True)
 
+    # Menu de navigation avec nouvelles pages postes de travail
     pages = {
         "🏠 Tableau de Bord": "dashboard",
         "📋 Liste des Projets": "liste",
-        "🤝 CRM": "crm_page", # Page CRM activée
-        "👥 Employés": "employees_page", # Page Employés ajoutée
+        "🤝 CRM": "crm_page",
+        "👥 Employés": "employees_page",
+        "🏭 Postes de Travail": "work_centers_page",        # NOUVEAU
+        "⚙️ Gammes Fabrication": "manufacturing_routes",    # NOUVEAU
+        "📈 Capacité Production": "capacity_analysis",      # NOUVEAU
         "📦 Gestion Inventaire": "inventory_management",
         "📊 Nomenclature (BOM)": "bom",
         "🛠️ Itinéraire": "routing",
@@ -2211,6 +2505,7 @@ def main():
         "📅 Calendrier": "calendrier",
         "🔄 Kanban": "kanban",
     }
+    
     sel_page_key = st.sidebar.radio("Menu Principal:", list(pages.keys()), key="main_nav_radio")
     page_to_show_val = pages[sel_page_key]
 
@@ -2223,14 +2518,10 @@ def main():
             key="inv_action_mode_selector",
             index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.inv_action_mode)
         )
-    elif page_to_show_val == "crm_page": # Options spécifiques pour la page CRM
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Actions CRM</h4>", unsafe_allow_html=True)
-        # Pour l'instant, les actions sont dans les onglets de la page CRM.
-        pass
 
     st.sidebar.markdown("---")
 
+    # Métriques sidebar existantes
     current_inventory_data = st.session_state.inventory_data
     if current_inventory_data:
         st.sidebar.metric("Inventaire: Total Articles", len(current_inventory_data))
@@ -2262,7 +2553,6 @@ def main():
         st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Aperçu CRM</h3>", unsafe_allow_html=True)
         st.sidebar.metric("CRM: Total Contacts", len(crm_manager_sb.contacts))
         st.sidebar.metric("CRM: Total Entreprises", len(crm_manager_sb.entreprises))
-        # Pourrait ajouter un pie chart des types d'interaction ou statuts d'opportunités
 
     # Statistiques Employés dans la sidebar
     emp_manager_sb = st.session_state.gestionnaire_employes
@@ -2280,8 +2570,11 @@ def main():
         if employes_surcharges > 0:
             st.sidebar.metric("⚠️ RH: Surchargés", employes_surcharges)
 
+    # NOUVEAU : Statistiques postes de travail dans la sidebar
+    update_sidebar_with_work_centers()
+
     st.sidebar.markdown("---")
-    st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🤗 Démo Constructo AI</p></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🏭 ERP DG Inc. • Démo Industrie 4.0</p></div>", unsafe_allow_html=True)
 
     # Affichage de la page principale
     if page_to_show_val == "dashboard":
@@ -2289,9 +2582,15 @@ def main():
     elif page_to_show_val == "liste":
         show_liste_projets()
     elif page_to_show_val == "crm_page":
-        show_crm_page() # Appel de la page CRM activée
+        show_crm_page()
     elif page_to_show_val == "employees_page":
-        show_employees_page() # Appel de la page Employés
+        show_employees_page()
+    elif page_to_show_val == "work_centers_page":           # NOUVEAU
+        show_work_centers_page()
+    elif page_to_show_val == "manufacturing_routes":       # NOUVEAU
+        show_manufacturing_routes_page()
+    elif page_to_show_val == "capacity_analysis":          # NOUVEAU
+        show_capacity_analysis_page()
     elif page_to_show_val == "inventory_management":
         show_inventory_management_page()
     elif page_to_show_val == "bom":
@@ -2310,7 +2609,7 @@ def main():
 
 def show_footer():
     st.markdown("---")
-    st.markdown("<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>🚀 Gestion Projets IA, CRM & Inventaire • Démo</p><p>Streamlit & Plotly</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>🏭 ERP DG Inc. • Gestion Projets IA, CRM & Inventaire • 61 Postes de Travail</p><p>Streamlit & Plotly • Industrie 4.0</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
