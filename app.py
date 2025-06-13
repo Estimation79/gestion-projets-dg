@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE COMPLÈTE ---
 
 import streamlit as st
 import pandas as pd
@@ -17,7 +17,7 @@ from fractions import Fraction
 # NOUVELLE ARCHITECTURE : Import SQLite Database
 from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
 
-# Importations pour le CRM (avec toutes les fonctions décommentées)
+# Importations pour le CRM (avec toutes les fonctions décommentées) - CORRIGÉ
 from crm import (
     GestionnaireCRM,
     render_crm_contacts_tab,
@@ -31,13 +31,17 @@ from crm import (
     render_crm_interaction_details
 )
 
-# Importations pour les Employés
+# Importations pour les Employés - CORRIGÉ COMPLET
 from employees import (
     GestionnaireEmployes,
     render_employes_liste_tab,
     render_employes_dashboard_tab,
     render_employe_form,
-    render_employe_details
+    render_employe_details,
+    show_employees_page as real_show_employees_page,
+    DEPARTEMENTS,
+    STATUTS_EMPLOYE,
+    COMPETENCES_DISPONIBLES
 )
 
 # Importation du module postes de travail
@@ -1359,10 +1363,85 @@ def show_inventory_management_page():
                 st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire SQLite est vide.")
 
 def show_crm_page():
+    """Page CRM complète avec onglets et fonctionnalités - CORRIGÉE"""
     st.markdown("## 🤝 Gestion de la Relation Client (CRM) - SQLite")
+    
+    # Récupérer les gestionnaires
+    crm_manager = st.session_state.gestionnaire_crm
+    projet_manager = st.session_state.gestionnaire
+    
+    # Initialiser le CRM avec la base SQLite si pas déjà fait
+    if not crm_manager.use_sqlite:
+        crm_manager.db = st.session_state.erp_db
+        crm_manager.use_sqlite = True
+        crm_manager._init_demo_data_if_empty()
+    
+    # Vérifier données en base
+    total_companies = st.session_state.erp_db.get_table_count('companies')
+    total_contacts = st.session_state.erp_db.get_table_count('contacts')
+    st.info(f"🗄️ Base SQLite CRM : {total_companies} entreprises • {total_contacts} contacts")
+    
+    # Interface avec onglets
+    tab1, tab2, tab3 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions"])
+    
+    with tab1:
+        render_crm_contacts_tab(crm_manager, projet_manager)
+    
+    with tab2:
+        render_crm_entreprises_tab(crm_manager, projet_manager)
+    
+    with tab3:
+        render_crm_interactions_tab(crm_manager)
+    
+    # Gestion des actions CRM (formulaires, détails, etc.)
+    action = st.session_state.get('crm_action')
+    selected_id = st.session_state.get('crm_selected_id')
+    
+    if action == "create_contact":
+        render_crm_contact_form(crm_manager)
+    
+    elif action == "edit_contact" and selected_id:
+        contact_data = crm_manager.get_contact_by_id(selected_id)
+        render_crm_contact_form(crm_manager, contact_data)
+    
+    elif action == "view_contact_details" and selected_id:
+        contact_data = crm_manager.get_contact_by_id(selected_id)
+        render_crm_contact_details(crm_manager, projet_manager, contact_data)
+    
+    elif action == "create_entreprise":
+        render_crm_entreprise_form(crm_manager)
+    
+    elif action == "edit_entreprise" and selected_id:
+        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_form(crm_manager, entreprise_data)
+    
+    elif action == "view_entreprise_details" and selected_id:
+        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_details(crm_manager, projet_manager, entreprise_data)
+    
+    elif action == "create_interaction":
+        render_crm_interaction_form(crm_manager)
+    
+    elif action == "edit_interaction" and selected_id:
+        interaction_data = crm_manager.get_interaction_by_id(selected_id)
+        render_crm_interaction_form(crm_manager, interaction_data)
+    
+    elif action == "view_interaction_details" and selected_id:
+        interaction_data = crm_manager.get_interaction_by_id(selected_id)
+        render_crm_interaction_details(crm_manager, projet_manager, interaction_data)
 
 def show_employees_page():
-    st.markdown("## 👥 Gestion des Employés - SQLite")
+    """Redirection vers la vraie page employés - CORRIGÉE"""
+    # Vérifier que le gestionnaire utilise SQLite
+    if hasattr(st.session_state, 'gestionnaire_employes'):
+        emp_manager = st.session_state.gestionnaire_employes
+        if hasattr(emp_manager, 'db') and emp_manager.db is None:
+            # Connecter à SQLite si pas déjà fait
+            emp_manager.db = st.session_state.erp_db
+            emp_manager._load_employes_from_db()
+    
+    # Appeler la vraie fonction depuis employees.py
+    real_show_employees_page()
 
 # ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE -----
 def main():
@@ -1378,11 +1457,18 @@ def main():
     if 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
     
-    # Les autres gestionnaires restent inchangés pour l'instant
+    # Gestionnaire CRM - CORRECTION SQLite  
     if 'gestionnaire_crm' not in st.session_state:
-        st.session_state.gestionnaire_crm = GestionnaireCRM()
+        st.session_state.gestionnaire_crm = GestionnaireCRM(st.session_state.erp_db)
+    
+    # Gestionnaire employés - CORRECTION SQLite
     if 'gestionnaire_employes' not in st.session_state:
-        st.session_state.gestionnaire_employes = GestionnaireEmployes()
+        st.session_state.gestionnaire_employes = GestionnaireEmployes(st.session_state.erp_db)
+        
+        # Vérifier si les employés sont initialisés
+        emp_count = st.session_state.erp_db.get_table_count('employees')
+        if emp_count == 0:
+            st.info("🏭 Initialisation des 21 employés DG Inc...")
     
     # Gestionnaire des postes de travail
     if 'gestionnaire_postes' not in st.session_state:
@@ -1415,6 +1501,13 @@ def main():
                 st.session_state.timetracker_init_sync_done = True
         except Exception:
             pass  # Silencieux si erreur d'initialisation TimeTracker
+
+    # DEBUG - Forcer initialisation si nécessaire
+    if st.session_state.erp_db.get_table_count('companies') == 0:
+        st.session_state.gestionnaire_crm._create_demo_data_sqlite()
+        
+    if st.session_state.erp_db.get_table_count('employees') == 0:
+        st.session_state.gestionnaire_employes._initialiser_donnees_employes_dg_inc()
 
     # Initialisation des variables de session (inchangées)
     session_defs = {
@@ -1592,4 +1685,4 @@ if __name__ == "__main__":
         import traceback
         st.code(traceback.format_exc())
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE COMPLÈTE ---
