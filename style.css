@@ -1,6 +1,6 @@
-/* Style CSS Desmarai Gagné pour le Gestionnaire de Projets IA */
+/* Style CSS Unifié - ERP Production DG Inc. - Desmarai Gagné */
 
-/* --- Variables CSS Desmarai Gagné --- */
+/* --- Variables CSS Desmarai Gagné Complètes --- */
 :root {
     /* Couleurs principales Desmarai Gagné */
     --primary-color: #00A971; 
@@ -92,13 +92,25 @@ body {
 
 /* --- Animations --- */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { 
+        opacity: 0; 
+        transform: translateY(10px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
 }
 
 @keyframes slideIn {
-    from { transform: translateX(-20px); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
+    from { 
+        transform: translateX(-20px); 
+        opacity: 0; 
+    }
+    to { 
+        transform: translateX(0); 
+        opacity: 1; 
+    }
 }
 
 @keyframes pulse-lustrous {
@@ -126,9 +138,15 @@ body {
 }
 
 @keyframes header-shine {
-    0% { left: -100%; }
-    50% { left: -100%; }
-    100% { left: 100%; }
+    0% { 
+        left: -100%; 
+    }
+    50% { 
+        left: -100%; 
+    }
+    100% { 
+        left: 100%; 
+    }
 }
 
 /* --- Titre principal avec style Desmarai Gagné --- */
@@ -245,7 +263,7 @@ body {
 }
 
 .project-header h2::before {
-    content: "📁 " !important;
+    content: "🏭 " !important;
     margin-right: 12px !important;
     font-size: 1.4rem !important;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1)) !important;
@@ -327,6 +345,30 @@ body {
 }
 
 /* --- Boutons spécialisés avec couleurs Desmarai Gagné --- */
+.stButton > button:has(span:contains("🤖")) {
+    background: linear-gradient(145deg,
+        rgba(255, 255, 255, 0.4) 0%,
+        #8b5cf6 20%,
+        #7c3aed 80%,
+        rgba(0, 0, 0, 0.2) 100%) !important;
+}
+
+.stButton > button:has(span:contains("⚙️")) {
+    background: linear-gradient(145deg,
+        rgba(255, 255, 255, 0.4) 0%,
+        #f59e0b 20%,
+        #d97706 80%,
+        rgba(0, 0, 0, 0.2) 100%) !important;
+}
+
+.stButton > button:has(span:contains("🏭")) {
+    background: linear-gradient(145deg,
+        rgba(255, 255, 255, 0.4) 0%,
+        #10b981 20%,
+        #059669 80%,
+        rgba(0, 0, 0, 0.2) 100%) !important;
+}
+
 .stButton > button:has(span:contains("➕")) {
     background: linear-gradient(145deg,
         rgba(255, 255, 255, 0.4) 0%,
@@ -389,7 +431,9 @@ section[data-testid="stSidebar"] .stRadio > label p {
 }
 
 /* --- Cartes et conteneurs avec style Desmarai Gagné --- */
-.info-card, .nav-container, .section-card {
+.info-card, 
+.nav-container, 
+.section-card {
     background: var(--card-background) !important;
     padding: 1.5rem !important;
     border-radius: var(--border-radius-lg) !important;
@@ -399,20 +443,26 @@ section[data-testid="stSidebar"] .stRadio > label p {
     transition: all 0.3s ease !important;
 }
 
-.info-card:hover, .section-card:hover { 
+.info-card:hover, 
+.section-card:hover { 
     transform: translateY(-4px) !important; 
     box-shadow: var(--box-shadow-green) !important; 
 }
 
-.info-card h4, .section-card h4, .info-card h5, .section-card h5 { 
+.info-card h4, 
+.section-card h4, 
+.info-card h5, 
+.section-card h5 { 
     color: var(--primary-color-darker) !important; 
 }
 
-.info-card p, .section-card p { 
+.info-card p, 
+.section-card p { 
     color: var(--text-color) !important; 
 }
 
-.info-card small, .section-card small { 
+.info-card small, 
+.section-card small { 
     color: var(--text-color-light) !important; 
 }
 
@@ -473,7 +523,7 @@ div[data-testid="stMetric"] > div:nth-child(2) > div {
 /* --- Onglets --- */
 div[data-testid="stTabs"] > div[data-baseweb="tab-list"] {
     gap: 0.25rem !important; 
-    background: var(--secondary-gradient) !important;
+    background: var(--secondary-background-color) !important;
     padding: 0.5rem !important; 
     border-radius: var(--border-radius-lg) !important;
     border-bottom: 1px solid var(--border-color-green) !important; 
@@ -527,7 +577,7 @@ div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 {
     flex-direction: row;
     gap: 15px;
     padding: 15px;
-    background-color: var(--secondary-gradient);
+    background-color: var(--secondary-background-color);
     border-radius: 12px;
     overflow-x: auto;
     overflow-y: hidden;
@@ -594,6 +644,35 @@ div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 {
     margin-bottom: 3px;
 }
 
+.kanban-drag-indicator {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--button-color);
+    color: white;
+    padding: 12px 20px;
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--box-shadow-black);
+    z-index: 1000;
+    animation: fadeIn 0.3s ease-out;
+    font-weight: 500;
+}
+
+.stButton > button.drop-target-button {
+    background: #DCFCE7 !important;
+    color: #166534 !important;
+    border: 2px dashed #166534 !important;
+    width: 100%;
+    margin-bottom: 1rem;
+    font-weight: 600 !important;
+}
+
+.stButton > button.drop-target-button:hover {
+    background: #BBF7D0 !important;
+    transform: scale(1.02);
+}
+
 /* --- Calendrier avec style Desmarai Gagné --- */
 .calendar-grid-container {
     border: 1px solid var(--border-color-green);
@@ -634,9 +713,17 @@ div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 {
     flex-direction: column;
 }
 
-.calendar-day-cell:nth-child(7n) { border-right: none; }
-.calendar-day-cell.other-month { background-color: var(--secondary-gradient); }
-.calendar-day-cell.other-month .day-number { color: var(--text-color-muted); }
+.calendar-day-cell:nth-child(7n) { 
+    border-right: none; 
+}
+
+.calendar-day-cell.other-month { 
+    background-color: var(--secondary-background-color); 
+}
+
+.calendar-day-cell.other-month .day-number { 
+    color: var(--text-color-muted); 
+}
 
 .day-number {
     font-weight: 500;
@@ -666,8 +753,14 @@ div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 {
     scrollbar-color: var(--primary-color-light) var(--border-color-light);
 }
 
-.calendar-events-container::-webkit-scrollbar { width: 5px; }
-.calendar-events-container::-webkit-scrollbar-track { background: transparent; }
+.calendar-events-container::-webkit-scrollbar { 
+    width: 5px; 
+}
+
+.calendar-events-container::-webkit-scrollbar-track { 
+    background: transparent; 
+}
+
 .calendar-events-container::-webkit-scrollbar-thumb { 
     background-color: var(--primary-color-light); 
     border-radius: 10px; 
@@ -686,38 +779,83 @@ div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 {
     transition: opacity 0.2s;
 }
 
-.calendar-event-item:hover { opacity: 0.8; }
-.event-type-debut { background-color: #00A971; }
-.event-type-fin { background-color: #22c55e; }
-
-/* --- Boutons spéciaux Kanban --- */
-.stButton > button.drop-target-button {
-    background: #DCFCE7 !important;
-    color: #166534 !important;
-    border: 2px dashed #166534 !important;
-    width: 100%;
-    margin-bottom: 1rem;
-    font-weight: 600 !important;
+.calendar-event-item:hover { 
+    opacity: 0.8; 
 }
 
-.stButton > button.drop-target-button:hover {
-    background: #BBF7D0 !important;
-    transform: scale(1.02);
+.event-type-debut { 
+    background-color: #00A971; 
 }
 
-.kanban-drag-indicator {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: var(--button-color);
-    color: white;
-    padding: 12px 20px;
-    border-radius: var(--border-radius-lg);
-    box-shadow: var(--box-shadow-black);
-    z-index: 1000;
-    animation: fadeIn 0.3s ease-out;
-    font-weight: 500;
+.event-type-fin { 
+    background-color: #22c55e; 
+}
+
+/* --- Styles spécifiques pour les postes de travail --- */
+.work-center-card { 
+    background: var(--card-background); 
+    border-radius: var(--border-radius-lg); 
+    padding: 1.2rem; 
+    margin-bottom: 1rem; 
+    box-shadow: var(--box-shadow-md); 
+    border-left: 4px solid var(--primary-color); 
+    transition: all 0.3s ease; 
+}
+
+.work-center-card:hover { 
+    transform: translateY(-2px); 
+    box-shadow: var(--box-shadow-green); 
+    border-left-color: var(--primary-color-darker); 
+}
+
+.work-center-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    margin-bottom: 0.8rem; 
+}
+
+.work-center-title { 
+    font-weight: 700; 
+    font-size: 1.1rem; 
+    color: var(--primary-color-darker); 
+    margin: 0; 
+}
+
+.work-center-badge { 
+    background: var(--primary-color-lighter); 
+    color: var(--primary-color-darker); 
+    padding: 0.2rem 0.6rem; 
+    border-radius: var(--border-radius-sm); 
+    font-size: 0.8rem; 
+    font-weight: 600; 
+}
+
+.work-center-info { 
+    display: grid; 
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); 
+    gap: 0.8rem; 
+    margin-top: 0.8rem; 
+}
+
+.work-center-stat { 
+    text-align: center; 
+    padding: 0.5rem; 
+    background: var(--secondary-background-color); 
+    border-radius: var(--border-radius-sm); 
+}
+
+.work-center-stat-value { 
+    font-weight: 700; 
+    font-size: 1.2rem; 
+    color: var(--primary-color-darker); 
+    margin-bottom: 0.2rem; 
+}
+
+.work-center-stat-label { 
+    font-size: 0.8rem; 
+    color: var(--text-color-muted); 
+    margin: 0; 
 }
 
 /* --- Alerts avec style Desmarai Gagné --- */
@@ -754,7 +892,9 @@ div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 {
         font-size: 1.8rem !important;
     }
     
-    .info-card, .nav-container, .section-card {
+    .info-card, 
+    .nav-container, 
+    .section-card {
         padding: 1rem !important;
         margin-bottom: 1rem !important;
     }
@@ -768,11 +908,13 @@ div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 {
         font-size: 1.4rem !important;
     }
     
-    .main-title::before, .project-header::before {
+    .main-title::before, 
+    .project-header::before {
         animation-duration: 10s !important;
     }
     
-    .main-title:hover, .project-header:hover {
+    .main-title:hover, 
+    .project-header:hover {
         transform: translateY(-1px) !important;
     }
     
