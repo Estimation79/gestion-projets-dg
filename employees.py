@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # employees.py - Module RH SQLite Unifié
-# ERP Production DG Inc. - Migration JSON → SQLite
+# ERP Production DG Inc. - Architecture SQLite Complète
 
 import json
 import os
@@ -104,27 +104,47 @@ COMPETENCES_DISPONIBLES = [
     "Rédaction rapports", "Présentation client"
 ]
 
-class GestionnaireEmployesSQL:
+class GestionnaireEmployes:
     """
-    NOUVELLE ARCHITECTURE SQLite : Gestionnaire employés utilisant ERPDatabase
-    Remplace GestionnaireEmployes (JSON) pour architecture unifiée
+    ARCHITECTURE SQLITE UNIFIÉE : Gestionnaire employés DG Inc.
+    Compatible avec ERPDatabase de app.py
     """
     
-    def __init__(self, db):
-        self.db = db  # Instance ERPDatabase
-        self.employes = []  # Cache des employés (pour compatibilité)
-        self._load_employes_from_db()
+    def __init__(self, db=None):
+        """Initialise le gestionnaire avec base SQLite"""
+        # Compatibilité avec app.py - récupérer ERPDatabase depuis session_state
+        if db is None:
+            if hasattr(st.session_state, 'erp_db'):
+                self.db = st.session_state.erp_db
+            else:
+                st.error("❌ ERPDatabase non disponible - Initialiser depuis app.py")
+                self.db = None
+        else:
+            self.db = db
         
-        # Vérifier si données employés existent, sinon initialiser
-        if not self.employes:
-            self._initialiser_donnees_employes_dg_inc()
+        self.employes = []  # Cache des employés (pour compatibilité interface)
+        
+        if self.db:
+            self._load_employes_from_db()
+            
+            # Vérifier si données employés existent, sinon initialiser DG Inc.
+            if not self.employes:
+                self._initialiser_donnees_employes_dg_inc()
     
     def _load_employes_from_db(self):
         """Charge les employés depuis SQLite avec leurs compétences"""
+        if not self.db:
+            return
+            
         try:
-            # Récupérer employés
+            # Récupérer employés avec informations manager
             employes_rows = self.db.execute_query("""
-                SELECT * FROM employees ORDER BY id
+                SELECT e.*, 
+                       m.prenom as manager_prenom, 
+                       m.nom as manager_nom
+                FROM employees e
+                LEFT JOIN employees m ON e.manager_id = m.id
+                ORDER BY e.id
             """)
             
             self.employes = []
@@ -136,6 +156,7 @@ class GestionnaireEmployesSQL:
                     SELECT nom_competence, niveau, certifie, date_obtention 
                     FROM employee_competences 
                     WHERE employee_id = ?
+                    ORDER BY nom_competence
                 """, (employe['id'],))
                 
                 employe['competences'] = [
@@ -162,28 +183,28 @@ class GestionnaireEmployesSQL:
             self.employes = []
 
     def _calculer_salaire_metallurgie(self, poste, experience_annees=5):
-        """Calcule le salaire selon les standards québécois métallurgie"""
+        """Calcule le salaire selon les standards québécois métallurgie 2024"""
         salaires_base_qc = {
-            "Soudeur": 55000,
-            "Journalier": 45000, 
-            "Scieur": 50000,
-            "Plieur": 52000,
-            "Poinçonneuse": 50000,
-            "Dessinateur": 65000,
-            "Qualité/Réception": 55000,
-            "Contremaître/Superviseur": 75000,
-            "Estimateur et intégration ERP": 70000,
-            "Développement des affaires": 65000,
-            "Adjointe administrative": 45000,
-            "Marketing et web": 50000
+            "Soudeur": 58000,
+            "Journalier": 47000, 
+            "Scieur": 52000,
+            "Plieur": 54000,
+            "Poinçonneuse": 52000,
+            "Dessinateur": 68000,
+            "Qualité/Réception": 57000,
+            "Contremaître/Superviseur": 78000,
+            "Estimateur et intégration ERP": 72000,
+            "Développement des affaires": 67000,
+            "Adjointe administrative": 47000,
+            "Marketing et web": 52000
         }
-        base = salaires_base_qc.get(poste, 45000)
+        base = salaires_base_qc.get(poste, 47000)
         # Ajustement selon expérience (1.5% par année)
         facteur_exp = 1 + (experience_annees * 0.015)
         return int(base * facteur_exp)
 
     def _get_competences_par_poste(self, poste):
-        """Retourne les compétences typiques selon le poste"""
+        """Retourne les compétences typiques selon le poste DG Inc."""
         competences_map = {
             "Soudeur": [
                 {'nom': 'Soudage GMAW (MIG)', 'niveau': 'AVANCÉ', 'certifie': True},
@@ -278,11 +299,13 @@ class GestionnaireEmployesSQL:
         ])
 
     def _initialiser_donnees_employes_dg_inc(self):
-        """Initialise avec les vrais employés de DG Inc. en SQLite"""
-        if self.db.get_table_count('employees') > 0:
+        """Initialise avec les vrais employés de DG Inc. 2024"""
+        if not self.db or self.db.get_table_count('employees') > 0:
             return  # Déjà initialisé
         
-        # Données des 21 employés réels de DG Inc.
+        st.info("🏭 Initialisation des 21 employés DG Inc. en SQLite...")
+        
+        # Données des 21 employés réels de DG Inc. (mise à jour 2024)
         employes_data = [
             # === PRODUCTION (11 employés) ===
             {
@@ -577,15 +600,19 @@ class GestionnaireEmployesSQL:
         for emp_data in employes_data:
             emp_id = self.ajouter_employe_sql(emp_data)
             if emp_id:
-                st.info(f"Employé {emp_data['prenom']} {emp_data['nom']} initialisé en SQLite (ID: {emp_id})")
+                print(f"✅ Employé {emp_data['prenom']} {emp_data['nom']} initialisé (ID: {emp_id})")
         
         # Recharger depuis SQLite
         self._load_employes_from_db()
+        st.success(f"🎉 {len(employes_data)} employés DG Inc. initialisés en SQLite !")
 
     # --- Méthodes CRUD SQLite ---
     
     def ajouter_employe_sql(self, data_employe):
         """Ajoute un nouvel employé en SQLite avec ses compétences"""
+        if not self.db:
+            return None
+            
         try:
             # Insérer employé principal
             query_emp = '''
@@ -653,6 +680,9 @@ class GestionnaireEmployesSQL:
 
     def modifier_employe(self, id_employe, data_employe):
         """Modifie un employé existant en SQLite"""
+        if not self.db:
+            return False
+            
         try:
             # Mettre à jour employé principal
             update_fields = []
@@ -718,6 +748,9 @@ class GestionnaireEmployesSQL:
 
     def supprimer_employe(self, id_employe):
         """Supprime un employé et ses données associées"""
+        if not self.db:
+            return False
+            
         try:
             # Supprimer les données associées d'abord (contraintes FK)
             self.db.execute_update("DELETE FROM employee_competences WHERE employee_id = ?", (id_employe,))
@@ -750,17 +783,17 @@ class GestionnaireEmployesSQL:
         return [emp for emp in self.employes if projet_id in emp.get('projets_assignes', [])]
 
     def get_managers(self):
-        """Récupère les managers (employés sans manager)"""
-        return [emp for emp in self.employes if not emp.get('manager_id')]
+        """Récupère les managers (employés sans manager ou poste de direction)"""
+        return [emp for emp in self.employes if not emp.get('manager_id') or emp.get('departement') in ['DIRECTION', 'COMMERCIAL', 'ADMINISTRATION']]
 
     def get_subordinates(self, manager_id):
         """Récupère les subordonnés d'un manager"""
         return [emp for emp in self.employes if emp.get('manager_id') == manager_id]
 
-    # --- Méthodes d'analyse adaptées Québec (compatibilité) ---
+    # --- Méthodes d'analyse métallurgie québécoise ---
     
     def get_statistiques_employes(self):
-        """Version adaptée des statistiques pour métallurgie québécoise"""
+        """Statistiques adaptées pour métallurgie québécoise"""
         if not self.employes:
             return {}
         
@@ -776,7 +809,8 @@ class GestionnaireEmployesSQL:
             'langues_parlees': {},
             'anciennete_moyenne': 0,
             'soudeurs_certifies': 0,
-            'bilingues': 0
+            'bilingues': 0,
+            'expertise_metallurgie': {}
         }
         
         total_salaire = 0
@@ -784,6 +818,13 @@ class GestionnaireEmployesSQL:
         total_anciennete = 0
         toutes_competences = {}
         langues = {}
+        expertise_metallurgie = {
+            'soudage': 0,
+            'usinage': 0,
+            'qualite': 0,
+            'conception': 0,
+            'gestion': 0
+        }
         
         for emp in self.employes:
             # Départements
@@ -815,7 +856,7 @@ class GestionnaireEmployesSQL:
                 except:
                     pass
             
-            # Analyse des compétences
+            # Analyse des compétences métallurgie
             competences_emp = emp.get('competences', [])
             has_francais = False
             has_anglais = False
@@ -827,11 +868,20 @@ class GestionnaireEmployesSQL:
                 if nom_comp:
                     toutes_competences[nom_comp] = toutes_competences.get(nom_comp, 0) + 1
                     
-                    # Vérifications spécifiques
+                    # Vérifications spécifiques métallurgie
                     if 'CNESST' in nom_comp and comp.get('certifie'):
                         has_cnesst = True
-                    if 'Soudage' in nom_comp:
+                    if any(mot in nom_comp for mot in ['Soudage', 'MIG', 'TIG']):
                         has_soudage = True
+                        expertise_metallurgie['soudage'] += 1
+                    if any(mot in nom_comp for mot in ['Découpe', 'Pliage', 'Usinage', 'CNC']):
+                        expertise_metallurgie['usinage'] += 1
+                    if any(mot in nom_comp for mot in ['Contrôle', 'Qualité', 'Inspection']):
+                        expertise_metallurgie['qualite'] += 1
+                    if any(mot in nom_comp for mot in ['AutoCAD', 'SolidWorks', 'Dessin']):
+                        expertise_metallurgie['conception'] += 1
+                    if any(mot in nom_comp for mot in ['Gestion', 'Planification', 'Estimation']):
+                        expertise_metallurgie['gestion'] += 1
                     if nom_comp == 'Français':
                         has_francais = True
                     if nom_comp == 'Anglais':
@@ -858,13 +908,14 @@ class GestionnaireEmployesSQL:
             sorted(toutes_competences.items(), key=lambda x: x[1], reverse=True)[:10]
         )
         
-        # Langues
+        # Langues et expertise
         stats['langues_parlees'] = langues
+        stats['expertise_metallurgie'] = expertise_metallurgie
         
         return stats
 
     def generer_rapport_rh_metallurgie(self):
-        """Génère un rapport RH spécifique métallurgie"""
+        """Génère un rapport RH spécifique métallurgie DG Inc."""
         stats = self.get_statistiques_employes()
         
         rapport = {
@@ -878,17 +929,25 @@ class GestionnaireEmployesSQL:
             'taux_certification_cnesst': f"{(stats['certifications_cnesst']/stats['total']*100):.1f}%",
             'soudeurs_certifies': stats['soudeurs_certifies'],
             'employes_bilingues': stats['bilingues'],
+            'expertise_metallurgie': stats['expertise_metallurgie'],
             'competences_critiques': {
                 'soudage': len([e for e in self.employes if any('Soudage' in c.get('nom', '') for c in e.get('competences', []))]),
                 'lecture_plans': len([e for e in self.employes if any('plans' in c.get('nom', '').lower() for c in e.get('competences', []))]),
                 'cnesst': stats['certifications_cnesst'],
-                'pont_roulant': len([e for e in self.employes if any('Pont roulant' in c.get('nom', '') for c in e.get('competences', []))])
-            }
+                'pont_roulant': len([e for e in self.employes if any('Pont roulant' in c.get('nom', '') for c in e.get('competences', []))]),
+                'cnc': len([e for e in self.employes if any('CNC' in c.get('nom', '') for c in e.get('competences', []))])
+            },
+            'recommandations': [
+                "Maintenir programme formation CNESST continue",
+                "Développer expertise soudage TIG/aluminium", 
+                "Renforcer compétences CNC pour usinage",
+                "Formation pont roulant pour nouveaux employés"
+            ]
         }
         
         return rapport
 
-    # Méthodes de compatibilité (JSON legacy)
+    # Méthodes de compatibilité (legacy)
     def charger_donnees_employes(self):
         """Méthode de compatibilité - charge depuis SQLite maintenant"""
         self._load_employes_from_db()
@@ -897,10 +956,10 @@ class GestionnaireEmployesSQL:
         """Méthode de compatibilité - sauvegarde automatique SQLite"""
         pass  # Sauvegarde automatique en SQLite
 
-# --- Fonctions d'affichage Streamlit adaptées SQLite ---
+# --- Fonctions d'affichage Streamlit adaptées SQLite (MISES À JOUR) ---
 
 def render_employes_liste_tab(emp_manager, projet_manager):
-    """Interface liste employés - Compatible SQLite"""
+    """Interface liste employés - Compatible SQLite Unifié"""
     st.subheader("👥 Employés DG Inc. - Métallurgie (SQLite)")
     
     col_create, col_search = st.columns([1, 2])
@@ -910,7 +969,7 @@ def render_employes_liste_tab(emp_manager, projet_manager):
             st.session_state.emp_selected_id = None
     
     with col_search:
-        search_term = st.text_input("Rechercher un employé...", key="emp_search")
+        search_term = st.text_input("🔍 Rechercher un employé...", key="emp_search")
     
     # Filtres adaptés métallurgie
     with st.expander("🔍 Filtres avancés", expanded=False):
@@ -958,23 +1017,19 @@ def render_employes_liste_tab(emp_manager, projet_manager):
             manager_nom = f"{manager.get('prenom', '')} {manager.get('nom', '')}" if manager else "Autonome"
             
             # Projets assignés
-            projets_noms = []
-            if projet_manager and hasattr(projet_manager, 'projets'):
-                for proj_id in emp.get('projets_assignes', []):
-                    projet = next((p for p in projet_manager.projets if p.get('id') == proj_id), None)
-                    if projet:
-                        projets_noms.append(projet.get('nom_projet', f'Projet #{proj_id}'))
+            nb_projets = len(emp.get('projets_assignes', []))
             
             employes_data_display.append({
-                "ID": emp.get('id'),
-                "Nom": f"{emp.get('prenom', '')} {emp.get('nom', '')}",
-                "Poste": emp.get('poste', ''),
-                "Département": emp.get('departement', ''),
-                "Statut": emp.get('statut', ''),
-                "Salaire CAD": f"{emp.get('salaire', 0):,}$",
-                "Manager": manager_nom,
-                "Charge": f"{emp.get('charge_travail', 0)}%",
-                "Email": emp.get('email', '')
+                "🆔": emp.get('id'),
+                "👤 Nom": f"{emp.get('prenom', '')} {emp.get('nom', '')}",
+                "💼 Poste": emp.get('poste', ''),
+                "🏭 Département": emp.get('departement', ''),
+                "📊 Statut": emp.get('statut', ''),
+                "💰 Salaire CAD": f"{emp.get('salaire', 0):,}$",
+                "👔 Manager": manager_nom,
+                "📈 Charge": f"{emp.get('charge_travail', 0)}%",
+                "🚀 Projets": nb_projets,
+                "📧 Email": emp.get('email', '')
             })
         
         st.dataframe(pd.DataFrame(employes_data_display), use_container_width=True)
@@ -1006,7 +1061,7 @@ def render_employes_liste_tab(emp_manager, projet_manager):
         st.info("Aucun employé correspondant aux filtres.")
     
     # Confirmation de suppression
-    if 'emp_confirm_delete_id' in st.session_state and st.session_state.emp_confirm_delete_id:
+    if st.session_state.get('emp_confirm_delete_id'):
         emp_to_delete = emp_manager.get_employe_by_id(st.session_state.emp_confirm_delete_id)
         if emp_to_delete:
             st.warning(f"⚠️ Supprimer {emp_to_delete.get('prenom')} {emp_to_delete.get('nom')} de la base SQLite ? Action irréversible.")
@@ -1023,7 +1078,7 @@ def render_employes_liste_tab(emp_manager, projet_manager):
                 st.rerun()
 
 def render_employes_dashboard_tab(emp_manager, projet_manager):
-    """Dashboard RH - Compatible SQLite"""
+    """Dashboard RH - Compatible SQLite avec métriques métallurgie"""
     st.subheader("📊 Dashboard RH - DG Inc. Métallurgie (SQLite)")
     
     stats = emp_manager.get_statistiques_employes()
@@ -1042,7 +1097,7 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
     with col4:
         st.metric("🔧 Soudeurs", stats.get('soudeurs_certifies', 0))
     
-    # Métriques secondaires
+    # Métriques secondaires métallurgie
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         st.metric("📊 Charge Moyenne", f"{stats['charge_moyenne']:.1f}%")
@@ -1059,15 +1114,15 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
     
     with col_g1:
         if stats['par_departement']:
-            # Couleurs spécifiques métallurgie
+            # Couleurs spécifiques métallurgie DG Inc.
             colors_dept = {
-                'PRODUCTION': '#ff6b35',
-                'USINAGE': '#004e89',
-                'INGÉNIERIE': '#9b59b6',
-                'QUALITÉ': '#2ecc71',
-                'COMMERCIAL': '#f39c12',
-                'ADMINISTRATION': '#95a5a6',
-                'DIRECTION': '#e74c3c'
+                'PRODUCTION': '#ff6b35',     # Orange production
+                'USINAGE': '#004e89',        # Bleu foncé usinage
+                'INGÉNIERIE': '#9b59b6',     # Violet ingénierie
+                'QUALITÉ': '#2ecc71',        # Vert qualité
+                'COMMERCIAL': '#f39c12',     # Orange commercial
+                'ADMINISTRATION': '#95a5a6', # Gris administration
+                'DIRECTION': '#e74c3c'       # Rouge direction
             }
             
             fig_dept = px.pie(
@@ -1110,51 +1165,56 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
             )
             st.plotly_chart(fig_statut, use_container_width=True)
     
-    # Compétences et langues
-    if stats['competences_populaires']:
+    # Expertise métallurgie spécifique
+    if stats.get('expertise_metallurgie'):
         st.markdown("---")
-        col_comp1, col_comp2 = st.columns(2)
+        st.markdown("##### 🔧 Expertise Métallurgie DG Inc.")
         
-        with col_comp1:
-            st.markdown("##### 🎯 Top Compétences Métallurgie")
-            fig_comp = px.bar(
-                x=list(stats['competences_populaires'].values()),
-                y=list(stats['competences_populaires'].keys()),
-                orientation='h',
-                title="🔧 Compétences les plus présentes"
+        col_exp1, col_exp2 = st.columns(2)
+        
+        with col_exp1:
+            expertise = stats['expertise_metallurgie']
+            fig_expertise = px.bar(
+                x=list(expertise.keys()),
+                y=list(expertise.values()),
+                title="🏭 Répartition Expertise Métallurgie",
+                color=list(expertise.keys()),
+                color_discrete_map={
+                    'soudage': '#ff6b35',
+                    'usinage': '#004e89', 
+                    'qualite': '#2ecc71',
+                    'conception': '#9b59b6',
+                    'gestion': '#f39c12'
+                }
             )
-            fig_comp.update_layout(
+            fig_expertise.update_layout(
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='var(--text-color)'),
+                showlegend=False,
                 title_x=0.5
             )
-            st.plotly_chart(fig_comp, use_container_width=True)
+            st.plotly_chart(fig_expertise, use_container_width=True)
         
-        with col_comp2:
-            st.markdown("##### 🌍 Langues Parlées")
-            if stats['langues_parlees']:
-                fig_langues = px.bar(
-                    x=list(stats['langues_parlees'].keys()),
-                    y=list(stats['langues_parlees'].values()),
-                    title="🗣️ Répartition des Langues",
-                    color=list(stats['langues_parlees'].keys()),
-                    color_discrete_map={'Français': '#0066cc', 'Anglais': '#cc0000', 'Espagnol': '#ffcc00'}
+        with col_exp2:
+            if stats['competences_populaires']:
+                fig_comp = px.bar(
+                    x=list(stats['competences_populaires'].values()),
+                    y=list(stats['competences_populaires'].keys()),
+                    orientation='h',
+                    title="🎯 Top Compétences DG Inc."
                 )
-                fig_langues.update_layout(
+                fig_comp.update_layout(
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(color='var(--text-color)'),
-                    showlegend=False,
                     title_x=0.5
                 )
-                st.plotly_chart(fig_langues, use_container_width=True)
-            else:
-                st.info("Aucune donnée de langue disponible")
+                st.plotly_chart(fig_comp, use_container_width=True)
     
-    # Rapport métallurgie
+    # Rapport métallurgie DG Inc.
     st.markdown("---")
-    if st.button("📋 Générer Rapport RH Métallurgie (SQLite)", use_container_width=True):
+    if st.button("📋 Générer Rapport RH Métallurgie DG Inc. (SQLite)", use_container_width=True):
         rapport = emp_manager.generer_rapport_rh_metallurgie()
         
         st.markdown("### 📊 Rapport RH - DG Inc. Métallurgie (SQLite)")
@@ -1172,10 +1232,22 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
         with col_r3:
             st.markdown(f"**Soudeurs Certifiés:** {rapport['soudeurs_certifies']}")
             st.markdown(f"**Employés Bilingues:** {rapport['employes_bilingues']}")
+        
+        # Compétences critiques
+        st.markdown("##### 🎯 Compétences Critiques")
+        crit_col1, crit_col2 = st.columns(2)
+        with crit_col1:
+            for comp, nb in rapport['competences_critiques'].items():
+                st.metric(comp.replace('_', ' ').title(), nb)
+        
+        with crit_col2:
+            st.markdown("**Recommandations:**")
+            for rec in rapport['recommandations']:
+                st.markdown(f"• {rec}")
 
 def render_employe_form(emp_manager, employe_data=None):
-    """Formulaire employé - Compatible SQLite"""
-    form_title = "➕ Ajouter un Nouvel Employé (SQLite)" if employe_data is None else f"✏️ Modifier {employe_data.get('prenom')} {employe_data.get('nom')} (SQLite)"
+    """Formulaire employé - Compatible SQLite Unifié"""
+    form_title = "➕ Ajouter un Nouvel Employé DG Inc. (SQLite)" if employe_data is None else f"✏️ Modifier {employe_data.get('prenom')} {employe_data.get('nom')} (SQLite)"
     
     with st.expander(form_title, expanded=True):
         # GESTION DES COMPÉTENCES AVANT LE FORMULAIRE
@@ -1242,11 +1314,12 @@ def render_employe_form(emp_manager, employe_data=None):
                 photo_url = st.text_input("Photo URL", value=employe_data.get('photo_url', '') if employe_data else "")
             
             # Informations professionnelles
-            st.markdown("##### 💼 Informations Professionnelles")
+            st.markdown("##### 💼 Informations Professionnelles DG Inc.")
             col3, col4 = st.columns(2)
             
             with col3:
-                poste = st.text_input("Poste *", value=employe_data.get('poste', '') if employe_data else "")
+                poste = st.text_input("Poste *", value=employe_data.get('poste', '') if employe_data else "",
+                                    help="Ex: Soudeur, Journalier, Dessinateur, etc.")
                 departement = st.selectbox(
                     "Département *",
                     DEPARTEMENTS,
@@ -1272,12 +1345,12 @@ def render_employe_form(emp_manager, employe_data=None):
                     "Salaire annuel (CAD) *",
                     min_value=30000,
                     max_value=150000,
-                    value=employe_data.get('salaire', 45000) if employe_data else 45000,
+                    value=employe_data.get('salaire', 47000) if employe_data else 47000,
                     step=1000,
                     help="Salaire en dollars canadiens"
                 )
                 
-                # Manager - Martin Beauregard par défaut pour production
+                # Manager - Liste des managers disponibles
                 managers_options = [("", "Autonome")] + [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')}") for emp in emp_manager.get_managers()]
                 current_manager_id = employe_data.get('manager_id') if employe_data else (11 if departement in ['PRODUCTION', 'USINAGE', 'QUALITÉ'] else "")
                 manager_id = st.selectbox(
@@ -1290,7 +1363,8 @@ def render_employe_form(emp_manager, employe_data=None):
                 charge_travail = st.slider(
                     "Charge de travail (%)",
                     0, 100,
-                    value=employe_data.get('charge_travail', 85) if employe_data else 85
+                    value=employe_data.get('charge_travail', 85) if employe_data else 85,
+                    help="Pourcentage de capacité utilisée"
                 )
             
             # Compétences dans le formulaire (lecture seule)
@@ -1302,14 +1376,15 @@ def render_employe_form(emp_manager, employe_data=None):
                 st.info("Aucune compétence ajoutée. Utilisez la section ci-dessus.")
             
             # Notes
-            notes = st.text_area("Notes", value=employe_data.get('notes', '') if employe_data else "")
+            notes = st.text_area("Notes", value=employe_data.get('notes', '') if employe_data else "",
+                               help="Informations supplémentaires sur l'employé")
             
-            st.caption("* Champs obligatoires - Sauvegarde en SQLite")
+            st.caption("* Champs obligatoires - Sauvegarde automatique en SQLite")
             
             # Boutons du formulaire
             col_submit, col_cancel = st.columns(2)
             with col_submit:
-                submitted = st.form_submit_button("💾 Enregistrer SQLite", use_container_width=True)
+                submitted = st.form_submit_button("💾 Enregistrer en SQLite", use_container_width=True)
             with col_cancel:
                 cancelled = st.form_submit_button("❌ Annuler", use_container_width=True)
             
@@ -1372,27 +1447,27 @@ def render_employe_form(emp_manager, employe_data=None):
                 st.rerun()
 
 def render_employe_details(emp_manager, projet_manager, employe_data):
-    """Détails employé - Compatible SQLite"""
+    """Détails employé - Compatible SQLite avec focus métallurgie"""
     if not employe_data:
         st.error("Employé non trouvé en SQLite.")
         return
     
     st.subheader(f"👤 Profil: {employe_data.get('prenom')} {employe_data.get('nom')} (SQLite)")
     
-    # Informations principales
+    # Informations principales avec design amélioré
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.markdown(f"""
         <div class='info-card'>
             <h4>📋 Informations Personnelles</h4>
-            <p><strong>Email:</strong> {employe_data.get('email', 'N/A')}</p>
-            <p><strong>Téléphone:</strong> {employe_data.get('telephone', 'N/A')}</p>
-            <p><strong>Poste:</strong> {employe_data.get('poste', 'N/A')}</p>
-            <p><strong>Département:</strong> {employe_data.get('departement', 'N/A')}</p>
-            <p><strong>Statut:</strong> {employe_data.get('statut', 'N/A')}</p>
-            <p><strong>Type contrat:</strong> {employe_data.get('type_contrat', 'N/A')}</p>
-            <p><strong>Date embauche:</strong> {employe_data.get('date_embauche', 'N/A')}</p>
+            <p><strong>📧 Email:</strong> {employe_data.get('email', 'N/A')}</p>
+            <p><strong>📞 Téléphone:</strong> {employe_data.get('telephone', 'N/A')}</p>
+            <p><strong>💼 Poste:</strong> {employe_data.get('poste', 'N/A')}</p>
+            <p><strong>🏭 Département:</strong> {employe_data.get('departement', 'N/A')}</p>
+            <p><strong>📊 Statut:</strong> {employe_data.get('statut', 'N/A')}</p>
+            <p><strong>📄 Type contrat:</strong> {employe_data.get('type_contrat', 'N/A')}</p>
+            <p><strong>📅 Date embauche:</strong> {employe_data.get('date_embauche', 'N/A')}</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1419,22 +1494,28 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
         </div>
         """, unsafe_allow_html=True)
     
-    # Compétences métallurgie
+    # Compétences métallurgie avec catégorisation
     st.markdown("---")
-    st.markdown("##### 🎯 Compétences Métallurgie (SQLite)")
+    st.markdown("##### 🎯 Compétences Métallurgie DG Inc. (SQLite)")
     competences = employe_data.get('competences', [])
     if competences:
-        # Grouper par catégorie
-        comp_soudage = [c for c in competences if 'soudage' in c.get('nom', '').lower() or 'mig' in c.get('nom', '').lower() or 'tig' in c.get('nom', '').lower()]
-        comp_usinage = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['découpe', 'pliage', 'scie', 'plasma', 'cnc'])]
-        comp_securite = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['cnesst', 'sécurité', 'loto'])]
+        # Grouper par catégorie métallurgie
+        comp_soudage = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['soudage', 'mig', 'tig', 'soudeur'])]
+        comp_usinage = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['découpe', 'pliage', 'scie', 'plasma', 'cnc', 'usinage'])]
+        comp_securite = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['cnesst', 'sécurité', 'loto', 'premiers'])]
         comp_langues = [c for c in competences if c.get('nom') in ['Français', 'Anglais', 'Espagnol']]
-        comp_autres = [c for c in competences if c not in comp_soudage + comp_usinage + comp_securite + comp_langues]
+        comp_qualite = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['contrôle', 'qualité', 'inspection', 'métrologie'])]
+        comp_conception = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['autocad', 'solidworks', 'dessin', 'plans'])]
+        comp_gestion = [c for c in competences if any(mot in c.get('nom', '').lower() for mot in ['gestion', 'planification', 'estimation', 'commercial'])]
+        comp_autres = [c for c in competences if c not in comp_soudage + comp_usinage + comp_securite + comp_langues + comp_qualite + comp_conception + comp_gestion]
         
         categories = [
             ("🔥 Soudage", comp_soudage),
             ("⚙️ Usinage", comp_usinage),
             ("🦺 Sécurité", comp_securite),
+            ("🔍 Qualité", comp_qualite),
+            ("🎨 Conception", comp_conception),
+            ("📊 Gestion", comp_gestion),
             ("🗣️ Langues", comp_langues),
             ("🔧 Autres", comp_autres)
         ]
@@ -1463,9 +1544,9 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
     else:
         st.info("Aucune compétence renseignée.")
     
-    # Projets assignés
+    # Projets assignés avec détails
     st.markdown("---")
-    st.markdown("##### 🚀 Projets Assignés (SQLite)")
+    st.markdown("##### 🚀 Projets Assignés DG Inc. (SQLite)")
     projets_assignes = employe_data.get('projets_assignes', [])
     if projets_assignes and projet_manager and hasattr(projet_manager, 'projets'):
         for proj_id in projets_assignes:
@@ -1482,13 +1563,13 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
                 st.markdown(f"""
                 <div class='info-card' style='border-left: 4px solid {statut_color}; margin-bottom: 0.5rem;'>
                     <h6 style='margin: 0 0 0.2rem 0;'>#{projet.get('id')} - {projet.get('nom_projet', 'N/A')}</h6>
-                    <p style='margin: 0; font-size: 0.9em;'>📊 {projet.get('statut', 'N/A')} • 💰 {projet.get('prix_estime', 0):,}$ CAD</p>
+                    <p style='margin: 0; font-size: 0.9em;'>📊 {projet.get('statut', 'N/A')} • 💰 {projet.get('prix_estime', 0):,}$ CAD • 📅 {projet.get('date_prevu', 'N/A')}</p>
                 </div>
                 """, unsafe_allow_html=True)
     else:
         st.info("Aucun projet assigné.")
     
-    # Notes
+    # Notes avec style
     if employe_data.get('notes'):
         st.markdown("---")
         st.markdown("##### 📝 Notes")
@@ -1499,10 +1580,10 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
         st.session_state.emp_action = None
         st.rerun()
 
-# Interface principale pour la page employés
+# Interface principale pour la page employés (MISE À JOUR FINALE)
 def show_employees_page():
-    """Page principale employés - Compatible SQLite"""
-    st.markdown("## 👥 Gestion des Employés - DG Inc. (SQLite)")
+    """Page principale employés DG Inc. - Architecture SQLite Unifiée"""
+    st.markdown("## 👥 Gestion des Employés - DG Inc. Métallurgie (SQLite)")
     
     # Vérifier si le gestionnaire employés SQLite existe
     if 'gestionnaire_employes' not in st.session_state:
@@ -1511,6 +1592,15 @@ def show_employees_page():
     
     emp_manager = st.session_state.gestionnaire_employes
     projet_manager = st.session_state.get('gestionnaire', None)
+    
+    # Vérification connexion SQLite
+    if not emp_manager.db:
+        st.error("❌ Base de données SQLite non connectée.")
+        return
+    
+    # Informations sur la base SQLite
+    total_employees = emp_manager.db.get_table_count('employees')
+    st.info(f"🗄️ Base SQLite : {total_employees} employés • Base: erp_production_dg.db")
     
     # Onglets
     tab1, tab2 = st.tabs(["📋 Liste des Employés", "📊 Dashboard RH"])
