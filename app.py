@@ -51,10 +51,9 @@ from postes_travail import (
     update_sidebar_with_work_centers
 )
 
-# INTÉGRATION TIMETRACKER : Importation des modules TimeTracker
+# INTÉGRATION TIMETRACKER : Importation du module TimeTracker unifié
 try:
-    from timetracker import show_timetracker_interface
-    from database_sync import DatabaseSync, show_sync_interface
+    from timetracker import show_timetracker_interface, TimeTrackerERP
     TIMETRACKER_AVAILABLE = True
 except ImportError as e:
     TIMETRACKER_AVAILABLE = False
@@ -678,25 +677,21 @@ def show_dashboard():
             st.metric("⚡ Efficacité", f"{efficacite_globale:.1f}%")
 
     # INTÉGRATION TIMETRACKER : Métriques temps et revenus
-    if TIMETRACKER_AVAILABLE:
+    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
         try:
-            # Initialiser le gestionnaire de sync s'il n'existe pas
-            if 'database_sync' not in st.session_state:
-                st.session_state.database_sync = DatabaseSync()
-            
-            timetracker_stats = st.session_state.database_sync.get_sync_statistics()
-            if timetracker_stats['employees'] > 0 or timetracker_stats['time_entries'] > 0:
+            timetracker_stats = st.session_state.timetracker_erp.get_timetracker_statistics()
+            if timetracker_stats.get('total_employees', 0) > 0 or timetracker_stats.get('total_entries_today', 0) > 0:
                 st.markdown("### ⏱️ Aperçu TimeTracker DG")
                 tt_c1, tt_c2, tt_c3, tt_c4 = st.columns(4)
                 with tt_c1:
-                    st.metric("👥 Employés Sync", timetracker_stats['employees'])
+                    st.metric("👥 Employés ERP", timetracker_stats.get('total_employees', 0))
                 with tt_c2:
-                    st.metric("⏱️ Entrées Temps", timetracker_stats['time_entries'])
+                    st.metric("🟢 Pointages Actifs", timetracker_stats.get('active_entries', 0))
                 with tt_c3:
-                    st.metric("🔧 Tâches Actives", timetracker_stats['tasks'])
+                    st.metric("📊 Heures Jour", f"{timetracker_stats.get('total_hours_today', 0):.1f}h")
                 with tt_c4:
-                    revenue_display = f"{timetracker_stats['total_revenue']:,.0f}$ CAD" if timetracker_stats['total_revenue'] > 0 else "0$ CAD"
-                    st.metric("💰 Revenus Temps", revenue_display)
+                    revenue_display = f"{timetracker_stats.get('total_revenue_today', 0):,.0f}$ CAD"
+                    st.metric("💰 Revenus Jour", revenue_display)
         except Exception as e:
             st.warning(f"TimeTracker stats non disponibles: {str(e)}")
     
@@ -2044,26 +2039,12 @@ def main():
             )
             st.session_state.postes_integres = True
 
-    # INTÉGRATION TIMETRACKER : Gestionnaire de synchronisation
-    if TIMETRACKER_AVAILABLE and 'database_sync' not in st.session_state:
+    # INTÉGRATION TIMETRACKER : Gestionnaire unifié
+    if TIMETRACKER_AVAILABLE and 'timetracker_erp' not in st.session_state:
         try:
-            st.session_state.database_sync = DatabaseSync()
-            # Vérifier si une synchronisation initiale est nécessaire
-            if not hasattr(st.session_state, 'timetracker_init_sync_done'):
-                stats = st.session_state.database_sync.get_sync_statistics()
-                if stats['projects'] == 0 and len(st.session_state.gestionnaire.projets) > 0:
-                    # Synchronisation silencieuse au premier lancement
-                    try:
-                        st.session_state.database_sync.full_sync(
-                            st.session_state.gestionnaire,
-                            st.session_state.gestionnaire_employes,
-                            st.session_state.gestionnaire_postes
-                        )
-                    except Exception:
-                        pass  # Silencieux si erreur
-                st.session_state.timetracker_init_sync_done = True
-        except Exception:
-            pass  # Silencieux si erreur d'initialisation TimeTracker
+            st.session_state.timetracker_erp = TimeTrackerERP(st.session_state.erp_db)
+        except Exception as e:
+            print(f"Erreur initialisation TimeTracker: {e}")
 
     # Initialisation des variables de session (inchangées)
     session_defs = {
@@ -2081,8 +2062,7 @@ def main():
         # INTÉGRATION TIMETRACKER : Variables de session
         'timetracker_employee_id': None, 'timetracker_project_id': None,
         'timetracker_task_id': None, 'timetracker_is_clocked_in': False,
-        'timetracker_current_entry_id': None, 'timetracker_view_mode': 'employee',
-        'timetracker_show_sync': False, 'timetracker_selected_employee': None
+        'timetracker_current_entry_id': None, 'timetracker_view_mode': 'employee'
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
@@ -2159,29 +2139,21 @@ def main():
     # Statistiques des postes de travail dans la sidebar
     update_sidebar_with_work_centers()
 
-    # INTÉGRATION TIMETRACKER : Statistiques dans la sidebar (inchangé)
-    if TIMETRACKER_AVAILABLE:
+    # INTÉGRATION TIMETRACKER : Statistiques dans la sidebar
+    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
         try:
-            if 'database_sync' not in st.session_state:
-                st.session_state.database_sync = DatabaseSync()
-            
-            tt_stats = st.session_state.database_sync.get_sync_statistics()
-            if tt_stats['employees'] > 0 or tt_stats['projects'] > 0:
+            tt_stats = st.session_state.timetracker_erp.get_timetracker_statistics()
+            if tt_stats.get('total_employees', 0) > 0 or tt_stats.get('active_entries', 0) > 0:
                 st.sidebar.markdown("---")
-                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️ Aperçu TimeTracker</h3>", unsafe_allow_html=True)
-                st.sidebar.metric("TimeTracker: Employés", tt_stats['employees'])
-                st.sidebar.metric("TimeTracker: Projets Sync", tt_stats['projects'])
-                if tt_stats['time_entries'] > 0:
-                    st.sidebar.metric("TimeTracker: Pointages", tt_stats['time_entries'])
-                if tt_stats['total_revenue'] > 0:
-                    st.sidebar.metric("TimeTracker: Revenus", f"{tt_stats['total_revenue']:,.0f}$")
-                
-                # Afficher le statut de la dernière synchronisation
-                if tt_stats['last_sync']:
-                    last_sync_date = tt_stats['last_sync'][:10]  # Juste la date
-                    st.sidebar.info(f"🔄 Dernière sync: {last_sync_date}")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️ TimeTracker ERP</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("👥 Employés", tt_stats.get('total_employees', 0))
+                st.sidebar.metric("🟢 Pointages Actifs", tt_stats.get('active_entries', 0))
+                if tt_stats.get('total_hours_today', 0) > 0:
+                    st.sidebar.metric("⏱️ Heures Jour", f"{tt_stats.get('total_hours_today', 0):.1f}h")
+                if tt_stats.get('total_revenue_today', 0) > 0:
+                    st.sidebar.metric("💰 Revenus Jour", f"{tt_stats.get('total_revenue_today', 0):,.0f}$")
         except Exception:
-            pass  # Silencieux si TimeTracker pas encore configuré
+            pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🏭 ERP Production DG Inc.<br/>🗄️ Architecture SQLite Unifiée</p></div>", unsafe_allow_html=True)
