@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# employees.py - Module RH SQLite Unifié
+# ERP Production DG Inc. - Migration JSON → SQLite
 
 import json
 import os
@@ -7,6 +9,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+from typing import Dict, List, Optional, Any
 
 # === CONSTANTES MÉTALLURGIE QUÉBEC ===
 
@@ -101,31 +104,62 @@ COMPETENCES_DISPONIBLES = [
     "Rédaction rapports", "Présentation client"
 ]
 
-class GestionnaireEmployes:
-    def __init__(self, data_dir="."):
-        self.data_file = os.path.join(data_dir, "employees_data.json")
-        self.employes = []
-        self.next_id = 1
-        self.charger_donnees_employes()
-
-    def _get_next_id(self, entity_list):
-        if not entity_list:
-            return 1
-        return max(item.get('id', 0) for item in entity_list) + 1
-
-    def charger_donnees_employes(self):
-        try:
-            if os.path.exists(self.data_file):
-                with open(self.data_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.employes = data.get('employes', [])
-                    self.next_id = self._get_next_id(self.employes)
-            else:
-                self._initialiser_donnees_employes_dg_inc()
-        except Exception as e:
-            if 'st' in globals():
-                st.error(f"Erreur lors du chargement des données employés: {e}")
+class GestionnaireEmployesSQL:
+    """
+    NOUVELLE ARCHITECTURE SQLite : Gestionnaire employés utilisant ERPDatabase
+    Remplace GestionnaireEmployes (JSON) pour architecture unifiée
+    """
+    
+    def __init__(self, db):
+        self.db = db  # Instance ERPDatabase
+        self.employes = []  # Cache des employés (pour compatibilité)
+        self._load_employes_from_db()
+        
+        # Vérifier si données employés existent, sinon initialiser
+        if not self.employes:
             self._initialiser_donnees_employes_dg_inc()
+    
+    def _load_employes_from_db(self):
+        """Charge les employés depuis SQLite avec leurs compétences"""
+        try:
+            # Récupérer employés
+            employes_rows = self.db.execute_query("""
+                SELECT * FROM employees ORDER BY id
+            """)
+            
+            self.employes = []
+            for emp_row in employes_rows:
+                employe = dict(emp_row)
+                
+                # Récupérer compétences de l'employé
+                competences_rows = self.db.execute_query("""
+                    SELECT nom_competence, niveau, certifie, date_obtention 
+                    FROM employee_competences 
+                    WHERE employee_id = ?
+                """, (employe['id'],))
+                
+                employe['competences'] = [
+                    {
+                        'nom': row['nom_competence'],
+                        'niveau': row['niveau'],
+                        'certifie': bool(row['certifie']),
+                        'date_obtention': row['date_obtention']
+                    }
+                    for row in competences_rows
+                ]
+                
+                # Récupérer projets assignés
+                projets_rows = self.db.execute_query("""
+                    SELECT project_id FROM project_assignments WHERE employee_id = ?
+                """, (employe['id'],))
+                
+                employe['projets_assignes'] = [row['project_id'] for row in projets_rows]
+                
+                self.employes.append(employe)
+                
+        except Exception as e:
+            st.error(f"Erreur chargement employés SQLite: {e}")
+            self.employes = []
 
     def _calculer_salaire_metallurgie(self, poste, experience_annees=5):
         """Calcule le salaire selon les standards québécois métallurgie"""
@@ -244,11 +278,12 @@ class GestionnaireEmployes:
         ])
 
     def _initialiser_donnees_employes_dg_inc(self):
-        """Initialise avec les vrais employés de DG Inc."""
-        now_iso = datetime.now().isoformat()
+        """Initialise avec les vrais employés de DG Inc. en SQLite"""
+        if self.db.get_table_count('employees') > 0:
+            return  # Déjà initialisé
         
         # Données des 21 employés réels de DG Inc.
-        self.employes = [
+        employes_data = [
             # === PRODUCTION (11 employés) ===
             {
                 'id': 1, 'prenom': 'Alex', 'nom': 'Boucher Cloutier',
@@ -262,7 +297,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Journalier'),
                 'projets_assignes': [], 'charge_travail': 85,
                 'notes': 'Employé polyvalent production - Badge ID: 566',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 2, 'prenom': 'François', 'nom': 'Lapointe',
@@ -276,7 +311,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Soudeur'),
                 'projets_assignes': [], 'charge_travail': 90,
                 'notes': 'Soudeur certifié MIG/TIG - Badge ID: 492',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 3, 'prenom': 'Andrew', 'nom': 'Jones',
@@ -290,7 +325,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Scieur'),
                 'projets_assignes': [], 'charge_travail': 88,
                 'notes': 'Spécialiste découpe et préparation - Badge ID: 375',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 4, 'prenom': 'Denis', 'nom': 'Jetté',
@@ -304,7 +339,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Dessinateur'),
                 'projets_assignes': [], 'charge_travail': 95,
                 'notes': 'Dessinateur senior, expert AutoCAD - Badge ID: 434',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 5, 'prenom': 'Lucien', 'nom': 'Kock',
@@ -318,7 +353,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Soudeur'),
                 'projets_assignes': [], 'charge_travail': 87,
                 'notes': 'Soudeur expérimenté, spécialiste TIG',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 6, 'prenom': 'Daniel', 'nom': 'Paquette',
@@ -332,7 +367,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Journalier'),
                 'projets_assignes': [], 'charge_travail': 82,
                 'notes': 'Journalier polyvalent assemblage',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 7, 'prenom': 'Denis', 'nom': 'Lacasse',
@@ -346,7 +381,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Plieur'),
                 'projets_assignes': [], 'charge_travail': 90,
                 'notes': 'Expert pliage tôle, presse CNC',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 8, 'prenom': 'Maxime', 'nom': 'Gagné',
@@ -360,7 +395,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Soudeur'),
                 'projets_assignes': [], 'charge_travail': 89,
                 'notes': 'Soudeur certifié, formation continue',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 9, 'prenom': 'Nicolas', 'nom': 'Martin',
@@ -374,7 +409,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Poinçonneuse'),
                 'projets_assignes': [], 'charge_travail': 86,
                 'notes': 'Opérateur poinçonneuse CNC certifié',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 10, 'prenom': 'Luis Waldo', 'nom': 'Pavez Gonzalez',
@@ -390,7 +425,7 @@ class GestionnaireEmployes:
                 ],
                 'projets_assignes': [], 'charge_travail': 84,
                 'notes': 'Trilingue (français/anglais/espagnol)',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             # === SUPERVISION ===
             {
@@ -405,7 +440,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Contremaître/Superviseur'),
                 'projets_assignes': [], 'charge_travail': 100,
                 'notes': 'Contremaître principal, responsable production - Badge ID: 149',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             # === SUITE DES EMPLOYÉS ===
             {
@@ -420,7 +455,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Soudeur'),
                 'projets_assignes': [], 'charge_travail': 86,
                 'notes': 'Soudeur junior en formation avancée',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 13, 'prenom': 'Martin', 'nom': 'Leduc',
@@ -434,7 +469,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Journalier'),
                 'projets_assignes': [], 'charge_travail': 88,
                 'notes': 'Journalier expérimenté, polyvalent',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 14, 'prenom': 'Roxanne', 'nom': 'Lanctôt',
@@ -448,7 +483,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Qualité/Réception'),
                 'projets_assignes': [], 'charge_travail': 85,
                 'notes': 'Responsable qualité et réception matériaux',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 15, 'prenom': 'Samuel', 'nom': 'Turcotte',
@@ -462,7 +497,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Journalier'),
                 'projets_assignes': [], 'charge_travail': 80,
                 'notes': 'Journalier récent, apprentissage rapide',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 16, 'prenom': 'Éric', 'nom': 'Brisebois',
@@ -476,7 +511,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Soudeur'),
                 'projets_assignes': [], 'charge_travail': 91,
                 'notes': 'Soudeur senior, mentor pour juniors',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             # === COMMERCIAL ET ESTIMATION ===
             {
@@ -491,7 +526,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Développement des affaires'),
                 'projets_assignes': [], 'charge_travail': 95,
                 'notes': 'Développement commercial et relations clients',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 18, 'prenom': 'Sylvain', 'nom': 'Leduc',
@@ -505,7 +540,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Estimateur et intégration ERP'),
                 'projets_assignes': [], 'charge_travail': 98,
                 'notes': 'Expert estimation et système ERP',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             # === ADMINISTRATION ===
             {
@@ -520,7 +555,7 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Adjointe administrative'),
                 'projets_assignes': [], 'charge_travail': 85,
                 'notes': 'Gestion administrative et coordination',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             },
             {
                 'id': 20, 'prenom': 'Cindy', 'nom': 'Julien',
@@ -534,72 +569,196 @@ class GestionnaireEmployes:
                 'competences': self._get_competences_par_poste('Marketing et web'),
                 'projets_assignes': [], 'charge_travail': 80,
                 'notes': 'Responsable marketing digital et web',
-                'photo_url': '', 'date_creation': now_iso, 'date_modification': now_iso
+                'photo_url': ''
             }
         ]
         
-        self.next_id = len(self.employes) + 1
-        self.sauvegarder_donnees_employes()
+        # Insérer chaque employé en SQLite
+        for emp_data in employes_data:
+            emp_id = self.ajouter_employe_sql(emp_data)
+            if emp_id:
+                st.info(f"Employé {emp_data['prenom']} {emp_data['nom']} initialisé en SQLite (ID: {emp_id})")
+        
+        # Recharger depuis SQLite
+        self._load_employes_from_db()
 
-    def sauvegarder_donnees_employes(self):
+    # --- Méthodes CRUD SQLite ---
+    
+    def ajouter_employe_sql(self, data_employe):
+        """Ajoute un nouvel employé en SQLite avec ses compétences"""
         try:
-            data = {
-                'employes': self.employes,
-                'next_id': self.next_id,
-                'last_update': datetime.now().isoformat(),
-                'entreprise': 'DG Inc. - Métallurgie Mécano-Soudé',
-                'location': 'Québec, Canada'
-            }
-            with open(self.data_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            # Insérer employé principal
+            query_emp = '''
+                INSERT INTO employees 
+                (id, prenom, nom, email, telephone, poste, departement, statut, 
+                 type_contrat, date_embauche, salaire, manager_id, charge_travail, 
+                 notes, photo_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            emp_id = self.db.execute_insert(query_emp, (
+                data_employe.get('id'),
+                data_employe['prenom'],
+                data_employe['nom'],
+                data_employe.get('email'),
+                data_employe.get('telephone'),
+                data_employe.get('poste'),
+                data_employe.get('departement'),
+                data_employe.get('statut', 'ACTIF'),
+                data_employe.get('type_contrat', 'CDI'),
+                data_employe.get('date_embauche'),
+                data_employe.get('salaire'),
+                data_employe.get('manager_id'),
+                data_employe.get('charge_travail', 80),
+                data_employe.get('notes'),
+                data_employe.get('photo_url')
+            ))
+            
+            # Insérer compétences
+            competences = data_employe.get('competences', [])
+            for comp in competences:
+                self.db.execute_insert('''
+                    INSERT INTO employee_competences 
+                    (employee_id, nom_competence, niveau, certifie, date_obtention)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    emp_id,
+                    comp.get('nom'),
+                    comp.get('niveau'),
+                    comp.get('certifie', False),
+                    comp.get('date_obtention')
+                ))
+            
+            # Insérer assignations projets
+            projets_assignes = data_employe.get('projets_assignes', [])
+            for proj_id in projets_assignes:
+                self.db.execute_insert('''
+                    INSERT OR IGNORE INTO project_assignments 
+                    (project_id, employee_id, role_projet)
+                    VALUES (?, ?, ?)
+                ''', (proj_id, emp_id, 'Membre équipe'))
+            
+            return emp_id
+            
         except Exception as e:
-            if 'st' in globals():
-                st.error(f"Erreur lors de la sauvegarde des données employés: {e}")
+            st.error(f"Erreur ajout employé SQLite: {e}")
+            return None
 
-    # --- Méthodes CRUD ---
     def ajouter_employe(self, data_employe):
-        data_employe['id'] = self.next_id
-        data_employe['date_creation'] = datetime.now().isoformat()
-        data_employe['date_modification'] = datetime.now().isoformat()
-        self.employes.append(data_employe)
-        self.next_id += 1
-        self.sauvegarder_donnees_employes()
-        return data_employe['id']
+        """Interface de compatibilité pour ajouter employé"""
+        emp_id = self.ajouter_employe_sql(data_employe)
+        if emp_id:
+            self._load_employes_from_db()  # Recharger cache
+        return emp_id
 
     def modifier_employe(self, id_employe, data_employe):
-        for i, emp in enumerate(self.employes):
-            if emp['id'] == id_employe:
-                updated_employe = {**emp, **data_employe, 'date_modification': datetime.now().isoformat()}
-                self.employes[i] = updated_employe
-                self.sauvegarder_donnees_employes()
-                return True
-        return False
+        """Modifie un employé existant en SQLite"""
+        try:
+            # Mettre à jour employé principal
+            update_fields = []
+            params = []
+            
+            fields_map = {
+                'prenom': 'prenom', 'nom': 'nom', 'email': 'email',
+                'telephone': 'telephone', 'poste': 'poste', 'departement': 'departement',
+                'statut': 'statut', 'type_contrat': 'type_contrat',
+                'date_embauche': 'date_embauche', 'salaire': 'salaire',
+                'manager_id': 'manager_id', 'charge_travail': 'charge_travail',
+                'notes': 'notes', 'photo_url': 'photo_url'
+            }
+            
+            for field, col in fields_map.items():
+                if field in data_employe:
+                    update_fields.append(f"{col} = ?")
+                    params.append(data_employe[field])
+            
+            if update_fields:
+                query = f"UPDATE employees SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                params.append(id_employe)
+                self.db.execute_update(query, tuple(params))
+            
+            # Mettre à jour compétences si fournies
+            if 'competences' in data_employe:
+                # Supprimer anciennes compétences
+                self.db.execute_update("DELETE FROM employee_competences WHERE employee_id = ?", (id_employe,))
+                
+                # Ajouter nouvelles compétences
+                for comp in data_employe['competences']:
+                    self.db.execute_insert('''
+                        INSERT INTO employee_competences 
+                        (employee_id, nom_competence, niveau, certifie, date_obtention)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        id_employe,
+                        comp.get('nom'),
+                        comp.get('niveau'),
+                        comp.get('certifie', False),
+                        comp.get('date_obtention')
+                    ))
+            
+            # Mettre à jour assignations projets si fournies
+            if 'projets_assignes' in data_employe:
+                # Supprimer anciennes assignations
+                self.db.execute_update("DELETE FROM project_assignments WHERE employee_id = ?", (id_employe,))
+                
+                # Ajouter nouvelles assignations
+                for proj_id in data_employe['projets_assignes']:
+                    self.db.execute_insert('''
+                        INSERT OR IGNORE INTO project_assignments 
+                        (project_id, employee_id, role_projet)
+                        VALUES (?, ?, ?)
+                    ''', (proj_id, id_employe, 'Membre équipe'))
+            
+            self._load_employes_from_db()  # Recharger cache
+            return True
+            
+        except Exception as e:
+            st.error(f"Erreur modification employé SQLite: {e}")
+            return False
 
     def supprimer_employe(self, id_employe):
-        self.employes = [emp for emp in self.employes if emp['id'] != id_employe]
-        # Mettre à jour les références manager_id
-        for emp in self.employes:
-            if emp.get('manager_id') == id_employe:
-                emp['manager_id'] = None
-        self.sauvegarder_donnees_employes()
-        return True
+        """Supprime un employé et ses données associées"""
+        try:
+            # Supprimer les données associées d'abord (contraintes FK)
+            self.db.execute_update("DELETE FROM employee_competences WHERE employee_id = ?", (id_employe,))
+            self.db.execute_update("DELETE FROM project_assignments WHERE employee_id = ?", (id_employe,))
+            self.db.execute_update("DELETE FROM time_entries WHERE employee_id = ?", (id_employe,))
+            
+            # Mettre à jour les références manager_id
+            self.db.execute_update("UPDATE employees SET manager_id = NULL WHERE manager_id = ?", (id_employe,))
+            
+            # Supprimer l'employé
+            self.db.execute_update("DELETE FROM employees WHERE id = ?", (id_employe,))
+            
+            self._load_employes_from_db()  # Recharger cache
+            return True
+            
+        except Exception as e:
+            st.error(f"Erreur suppression employé SQLite: {e}")
+            return False
 
     def get_employe_by_id(self, id_employe):
+        """Récupère un employé par ID (depuis cache)"""
         return next((emp for emp in self.employes if emp.get('id') == id_employe), None)
 
     def get_employes_by_departement(self, departement):
+        """Récupère employés par département"""
         return [emp for emp in self.employes if emp.get('departement') == departement]
 
     def get_employes_by_projet(self, projet_id):
+        """Récupère employés assignés à un projet"""
         return [emp for emp in self.employes if projet_id in emp.get('projets_assignes', [])]
 
     def get_managers(self):
+        """Récupère les managers (employés sans manager)"""
         return [emp for emp in self.employes if not emp.get('manager_id')]
 
     def get_subordinates(self, manager_id):
+        """Récupère les subordonnés d'un manager"""
         return [emp for emp in self.employes if emp.get('manager_id') == manager_id]
 
-    # --- Méthodes d'analyse adaptées Québec ---
+    # --- Méthodes d'analyse adaptées Québec (compatibilité) ---
+    
     def get_statistiques_employes(self):
         """Version adaptée des statistiques pour métallurgie québécoise"""
         if not self.employes:
@@ -729,10 +888,20 @@ class GestionnaireEmployes:
         
         return rapport
 
-# --- Fonctions d'affichage Streamlit adaptées ---
+    # Méthodes de compatibilité (JSON legacy)
+    def charger_donnees_employes(self):
+        """Méthode de compatibilité - charge depuis SQLite maintenant"""
+        self._load_employes_from_db()
+    
+    def sauvegarder_donnees_employes(self):
+        """Méthode de compatibilité - sauvegarde automatique SQLite"""
+        pass  # Sauvegarde automatique en SQLite
+
+# --- Fonctions d'affichage Streamlit adaptées SQLite ---
 
 def render_employes_liste_tab(emp_manager, projet_manager):
-    st.subheader("👥 Employés DG Inc. - Métallurgie")
+    """Interface liste employés - Compatible SQLite"""
+    st.subheader("👥 Employés DG Inc. - Métallurgie (SQLite)")
     
     col_create, col_search = st.columns([1, 2])
     with col_create:
@@ -749,7 +918,7 @@ def render_employes_liste_tab(emp_manager, projet_manager):
         with fcol1:
             filtre_dept = st.multiselect(
                 "Département:", 
-                ['Tous'] + ["PRODUCTION", "USINAGE", "INGÉNIERIE", "QUALITÉ", "COMMERCIAL", "ADMINISTRATION", "DIRECTION"], 
+                ['Tous'] + DEPARTEMENTS, 
                 default=['Tous']
             )
         with fcol2:
@@ -780,6 +949,8 @@ def render_employes_liste_tab(emp_manager, projet_manager):
         employes_filtres = [emp for emp in employes_filtres if emp.get('type_contrat') in filtre_contrat]
     
     if employes_filtres:
+        st.success(f"📊 {len(employes_filtres)} employé(s) trouvé(s) en base SQLite")
+        
         # Affichage tableau adapté
         employes_data_display = []
         for emp in employes_filtres:
@@ -838,23 +1009,26 @@ def render_employes_liste_tab(emp_manager, projet_manager):
     if 'emp_confirm_delete_id' in st.session_state and st.session_state.emp_confirm_delete_id:
         emp_to_delete = emp_manager.get_employe_by_id(st.session_state.emp_confirm_delete_id)
         if emp_to_delete:
-            st.warning(f"⚠️ Supprimer {emp_to_delete.get('prenom')} {emp_to_delete.get('nom')} ? Action irréversible.")
+            st.warning(f"⚠️ Supprimer {emp_to_delete.get('prenom')} {emp_to_delete.get('nom')} de la base SQLite ? Action irréversible.")
             col_del1, col_del2 = st.columns(2)
-            if col_del1.button("Oui, supprimer", type="primary", key="emp_confirm_delete_final"):
-                emp_manager.supprimer_employe(st.session_state.emp_confirm_delete_id)
-                st.success("✅ Employé supprimé.")
-                del st.session_state.emp_confirm_delete_id
-                st.rerun()
+            if col_del1.button("Oui, supprimer SQLite", type="primary", key="emp_confirm_delete_final"):
+                if emp_manager.supprimer_employe(st.session_state.emp_confirm_delete_id):
+                    st.success("✅ Employé supprimé de SQLite.")
+                    del st.session_state.emp_confirm_delete_id
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur suppression SQLite.")
             if col_del2.button("Annuler", key="emp_cancel_delete_final"):
                 del st.session_state.emp_confirm_delete_id
                 st.rerun()
 
 def render_employes_dashboard_tab(emp_manager, projet_manager):
-    st.subheader("📊 Dashboard RH - DG Inc. Métallurgie")
+    """Dashboard RH - Compatible SQLite"""
+    st.subheader("📊 Dashboard RH - DG Inc. Métallurgie (SQLite)")
     
     stats = emp_manager.get_statistiques_employes()
     if not stats:
-        st.info("Aucune donnée d'employé disponible.")
+        st.info("Aucune donnée d'employé disponible en SQLite.")
         return
     
     # Métriques principales adaptées Québec
@@ -899,7 +1073,7 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
             fig_dept = px.pie(
                 values=list(stats['par_departement'].values()),
                 names=list(stats['par_departement'].keys()),
-                title="🏭 Répartition par Département",
+                title="🏭 Répartition par Département (SQLite)",
                 color=list(stats['par_departement'].keys()),
                 color_discrete_map=colors_dept
             )
@@ -923,7 +1097,7 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
             fig_statut = px.bar(
                 x=list(stats['par_statut'].keys()),
                 y=list(stats['par_statut'].values()),
-                title="📈 Statut des Employés",
+                title="📈 Statut des Employés (SQLite)",
                 color=list(stats['par_statut'].keys()),
                 color_discrete_map=colors_statut
             )
@@ -980,10 +1154,10 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
     
     # Rapport métallurgie
     st.markdown("---")
-    if st.button("📋 Générer Rapport RH Métallurgie", use_container_width=True):
+    if st.button("📋 Générer Rapport RH Métallurgie (SQLite)", use_container_width=True):
         rapport = emp_manager.generer_rapport_rh_metallurgie()
         
-        st.markdown("### 📊 Rapport RH - DG Inc. Métallurgie")
+        st.markdown("### 📊 Rapport RH - DG Inc. Métallurgie (SQLite)")
         st.markdown(f"**Date:** {rapport['date_rapport']}")
         st.markdown(f"**Entreprise:** {rapport['entreprise']}")
         st.markdown(f"**Localisation:** {rapport['localisation']}")
@@ -1000,7 +1174,8 @@ def render_employes_dashboard_tab(emp_manager, projet_manager):
             st.markdown(f"**Employés Bilingues:** {rapport['employes_bilingues']}")
 
 def render_employe_form(emp_manager, employe_data=None):
-    form_title = "➕ Ajouter un Nouvel Employé" if employe_data is None else f"✏️ Modifier {employe_data.get('prenom')} {employe_data.get('nom')}"
+    """Formulaire employé - Compatible SQLite"""
+    form_title = "➕ Ajouter un Nouvel Employé (SQLite)" if employe_data is None else f"✏️ Modifier {employe_data.get('prenom')} {employe_data.get('nom')} (SQLite)"
     
     with st.expander(form_title, expanded=True):
         # GESTION DES COMPÉTENCES AVANT LE FORMULAIRE
@@ -1129,12 +1304,12 @@ def render_employe_form(emp_manager, employe_data=None):
             # Notes
             notes = st.text_area("Notes", value=employe_data.get('notes', '') if employe_data else "")
             
-            st.caption("* Champs obligatoires")
+            st.caption("* Champs obligatoires - Sauvegarde en SQLite")
             
             # Boutons du formulaire
             col_submit, col_cancel = st.columns(2)
             with col_submit:
-                submitted = st.form_submit_button("💾 Enregistrer", use_container_width=True)
+                submitted = st.form_submit_button("💾 Enregistrer SQLite", use_container_width=True)
             with col_cancel:
                 cancelled = st.form_submit_button("❌ Annuler", use_container_width=True)
             
@@ -1166,11 +1341,17 @@ def render_employe_form(emp_manager, employe_data=None):
                     
                     try:
                         if employe_data:  # Modification
-                            emp_manager.modifier_employe(employe_data['id'], new_employe_data)
-                            st.success(f"✅ Employé {prenom} {nom} mis à jour avec succès !")
+                            success = emp_manager.modifier_employe(employe_data['id'], new_employe_data)
+                            if success:
+                                st.success(f"✅ Employé {prenom} {nom} mis à jour en SQLite !")
+                            else:
+                                st.error("❌ Erreur modification SQLite.")
                         else:  # Création
                             new_id = emp_manager.ajouter_employe(new_employe_data)
-                            st.success(f"✅ Nouvel employé {prenom} {nom} ajouté (ID: {new_id}) !")
+                            if new_id:
+                                st.success(f"✅ Nouvel employé {prenom} {nom} ajouté en SQLite (ID: {new_id}) !")
+                            else:
+                                st.error("❌ Erreur création SQLite.")
                         
                         # Nettoyage
                         if 'competences_form' in st.session_state:
@@ -1180,7 +1361,7 @@ def render_employe_form(emp_manager, employe_data=None):
                         st.rerun()
                         
                     except Exception as e:
-                        st.error(f"Erreur lors de la sauvegarde : {str(e)}")
+                        st.error(f"Erreur lors de la sauvegarde SQLite : {str(e)}")
             
             if cancelled:
                 # Nettoyage lors de l'annulation
@@ -1191,11 +1372,12 @@ def render_employe_form(emp_manager, employe_data=None):
                 st.rerun()
 
 def render_employe_details(emp_manager, projet_manager, employe_data):
+    """Détails employé - Compatible SQLite"""
     if not employe_data:
-        st.error("Employé non trouvé.")
+        st.error("Employé non trouvé en SQLite.")
         return
     
-    st.subheader(f"👤 Profil: {employe_data.get('prenom')} {employe_data.get('nom')}")
+    st.subheader(f"👤 Profil: {employe_data.get('prenom')} {employe_data.get('nom')} (SQLite)")
     
     # Informations principales
     col1, col2 = st.columns([2, 1])
@@ -1239,7 +1421,7 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
     
     # Compétences métallurgie
     st.markdown("---")
-    st.markdown("##### 🎯 Compétences Métallurgie")
+    st.markdown("##### 🎯 Compétences Métallurgie (SQLite)")
     competences = employe_data.get('competences', [])
     if competences:
         # Grouper par catégorie
@@ -1283,7 +1465,7 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
     
     # Projets assignés
     st.markdown("---")
-    st.markdown("##### 🚀 Projets Assignés")
+    st.markdown("##### 🚀 Projets Assignés (SQLite)")
     projets_assignes = employe_data.get('projets_assignes', [])
     if projets_assignes and projet_manager and hasattr(projet_manager, 'projets'):
         for proj_id in projets_assignes:
@@ -1316,3 +1498,35 @@ def render_employe_details(emp_manager, projet_manager, employe_data):
     if st.button("⬅️ Retour à la liste", key="back_to_emp_list"):
         st.session_state.emp_action = None
         st.rerun()
+
+# Interface principale pour la page employés
+def show_employees_page():
+    """Page principale employés - Compatible SQLite"""
+    st.markdown("## 👥 Gestion des Employés - DG Inc. (SQLite)")
+    
+    # Vérifier si le gestionnaire employés SQLite existe
+    if 'gestionnaire_employes' not in st.session_state:
+        st.error("❌ Gestionnaire employés non initialisé.")
+        return
+    
+    emp_manager = st.session_state.gestionnaire_employes
+    projet_manager = st.session_state.get('gestionnaire', None)
+    
+    # Onglets
+    tab1, tab2 = st.tabs(["📋 Liste des Employés", "📊 Dashboard RH"])
+    
+    with tab1:
+        render_employes_liste_tab(emp_manager, projet_manager)
+    
+    with tab2:
+        render_employes_dashboard_tab(emp_manager, projet_manager)
+    
+    # Gestion des actions
+    if st.session_state.get('emp_action') == "create_employe":
+        render_employe_form(emp_manager)
+    elif st.session_state.get('emp_action') == "edit_employe" and st.session_state.get('emp_selected_id'):
+        employe_data = emp_manager.get_employe_by_id(st.session_state.emp_selected_id)
+        render_employe_form(emp_manager, employe_data)
+    elif st.session_state.get('emp_action') == "view_employe_details" and st.session_state.get('emp_selected_id'):
+        employe_data = emp_manager.get_employe_by_id(st.session_state.emp_selected_id)
+        render_employe_details(emp_manager, projet_manager, employe_data)
