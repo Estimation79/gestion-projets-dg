@@ -72,15 +72,36 @@ def check_prerequisites() -> bool:
     except ImportError:
         issues.append("❌ Module postes_travail.py manquant")
     
-    # Vérifier espace disque
-    free_space = os.statvfs('.').f_frsize * os.statvfs('.').f_availif hasattr(os, 'statvfs') else float('inf')
-    if free_space < 100 * 1024 * 1024:  # 100MB minimum
-        issues.append("❌ Espace disque insuffisant (minimum 100MB)")
+    # Vérifier espace disque (CORRECTION SYNTAXE)
+    try:
+        if hasattr(os, 'statvfs'):
+            # Linux/Mac
+            stat = os.statvfs('.')
+            free_space = stat.f_frsize * stat.f_avail
+        else:
+            # Windows - utiliser shutil
+            import shutil
+            free_space = shutil.disk_usage('.').free
+        
+        if free_space < 100 * 1024 * 1024:  # 100MB minimum
+            issues.append("❌ Espace disque insuffisant (minimum 100MB)")
+        else:
+            logger.info(f"✅ Espace disque disponible: {free_space / (1024*1024):.1f} MB")
+    except Exception as e:
+        logger.warning(f"⚠️ Impossible de vérifier l'espace disque: {e}")
     
     if issues:
         logger.error("🚨 Prérequis non satisfaits:")
         for issue in issues:
             logger.error(f"  {issue}")
+        
+        # Proposer solutions
+        print(f"\n🔧 SOLUTIONS PROPOSÉES:")
+        if any("manquant" in issue for issue in issues):
+            print("   📄 Fichiers JSON manquants → Exécuter: python test_migration.py")
+        if any("postes_travail" in issue for issue in issues):
+            print("   🏭 Module postes_travail → Vérifier présence du fichier postes_travail.py")
+        
         return False
     
     logger.info("✅ Tous les prérequis satisfaits")
@@ -150,6 +171,8 @@ def run_interactive_migration():
     # Vérification prérequis
     if not check_prerequisites():
         print("\n❌ Migration impossible - Prérequis non satisfaits")
+        print("\n🔧 Pour résoudre rapidement:")
+        print("   python test_migration.py  # Crée les fichiers JSON manquants")
         return False
     
     # Affichage du plan
@@ -225,7 +248,7 @@ def execute_migration() -> bool:
         
         # Tests d'intégrité
         integrity_checks = validation_results['integrity_checks']
-        integrity_ok = all(integrity_checks.values())
+        integrity_ok = all(integrity_checks.values()) if integrity_checks else True
         
         if integrity_ok:
             print("✅ Intégrité des données validée")
@@ -238,9 +261,12 @@ def execute_migration() -> bool:
         # Test performance
         print(f"\n⚡ TEST PERFORMANCE:")
         print("-" * 40)
-        perf_results = run_performance_test(db)
-        for test_name, time_taken in perf_results.items():
-            print(f"🕒 {test_name:20} - {time_taken:.4f}s")
+        try:
+            perf_results = run_performance_test(db)
+            for test_name, time_taken in perf_results.items():
+                print(f"🕒 {test_name:20} - {time_taken:.4f}s")
+        except Exception as e:
+            print(f"⚠️ Tests performance échoués: {e}")
         
         # Résumé final
         end_time = datetime.now()
@@ -251,7 +277,9 @@ def execute_migration() -> bool:
         print("="*60)
         print(f"🕒 Durée totale:        {duration}")
         print(f"📊 Total migré:         {total_migrated} enregistrements")
-        print(f"📁 Taille base finale:  {validation_results['schema_info']['file_size_mb']} MB")
+        
+        if 'schema_info' in validation_results:
+            print(f"📁 Taille base finale:  {validation_results['schema_info']['file_size_mb']} MB")
         
         if failed_modules:
             print(f"⚠️  Modules échoués:      {', '.join(failed_modules)}")
@@ -260,25 +288,37 @@ def execute_migration() -> bool:
         if results.get('success') and integrity_ok and not failed_modules:
             print("\n🎉 MIGRATION RÉUSSIE!")
             print("✅ Votre ERP est maintenant unifié sur SQLite")
-            print("🚀 Prêt pour la Phase 2 du développement")
+            print("🚀 Architecture unifiée complétée avec succès")
             
             # Instructions suite
             print(f"\n📝 PROCHAINES ÉTAPES:")
-            print("1. Modifier app.py pour utiliser ERPDatabase")
-            print("2. Adapter les modules CRM, employees, etc.")
-            print("3. Tester interface Streamlit complète")
-            print("4. Supprimer database_sync.py devenu obsolète")
+            print("1. ✅ Architecture SQLite créée et validée")
+            print("2. 🚀 Interface Streamlit prête : streamlit run app.py")
+            print("3. 📤 Commit & push vers GitHub pour déploiement")
+            print("4. 🌐 Render.com redéploiera automatiquement")
+            
+            # Commandes rapides
+            print(f"\n⚡ COMMANDES RAPIDES:")
+            print("git add erp_production_dg.db *.json")
+            print("git commit -m 'feat: Migration SQLite - Architecture unifiée'")
+            print("git push origin main")
             
             return True
         else:
             print("\n⚠️  MIGRATION PARTIELLEMENT RÉUSSIE")
             print("🔧 Vérifier les logs pour résoudre les problèmes")
+            print("📄 Consultez migration.log pour détails complets")
             return False
     
     except Exception as e:
         logger.error(f"❌ Erreur critique migration: {e}")
         print(f"\n💥 ERREUR CRITIQUE: {e}")
         print("🔧 Consultez migration.log pour détails")
+        
+        # Aide au debugging
+        import traceback
+        logger.error(f"Traceback complet: {traceback.format_exc()}")
+        
         return False
 
 def run_automated_migration():
@@ -288,9 +328,24 @@ def run_automated_migration():
     
     if not check_prerequisites():
         logger.error("❌ Prérequis non satisfaits")
+        print("\n🔧 Pour créer les fichiers manquants automatiquement:")
+        print("   python test_migration.py")
         return False
     
     return execute_migration()
+
+def create_missing_files():
+    """Crée automatiquement les fichiers JSON manquants"""
+    print("🔧 Création automatique des fichiers JSON manquants...")
+    
+    try:
+        from test_migration import create_sample_json_files
+        create_sample_json_files()
+        print("✅ Fichiers JSON créés avec succès!")
+        return True
+    except Exception as e:
+        print(f"❌ Erreur création fichiers: {e}")
+        return False
 
 def main():
     """Point d'entrée principal"""
@@ -303,6 +358,7 @@ Exemples d'utilisation:
   python run_migration.py --auto             # Mode automatique
   python run_migration.py --check-only       # Vérification uniquement
   python run_migration.py --plan             # Afficher plan seulement
+  python run_migration.py --create-files     # Créer fichiers JSON manquants
         """
     )
     
@@ -312,6 +368,8 @@ Exemples d'utilisation:
                        help='Vérifier prérequis uniquement')
     parser.add_argument('--plan', action='store_true',
                        help='Afficher plan de migration uniquement')
+    parser.add_argument('--create-files', action='store_true',
+                       help='Créer fichiers JSON manquants automatiquement')
     
     args = parser.parse_args()
     
@@ -319,6 +377,11 @@ Exemples d'utilisation:
         print_banner()
         display_migration_plan()
         return
+    
+    if args.create_files:
+        print_banner()
+        success = create_missing_files()
+        sys.exit(0 if success else 1)
     
     if args.check_only:
         print_banner()
