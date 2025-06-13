@@ -1,7 +1,6 @@
-# --- START OF FILE timetracker.py ---
+# --- START OF FILE timetracker.py - VERSION SQLITE UNIFIÉE ERP ---
 
 import streamlit as st
-import sqlite3
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -10,207 +9,173 @@ import hashlib
 import json
 from typing import Dict, List, Optional, Tuple
 import logging
+from erp_database import ERPDatabase
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class TimeTrackerDB:
+class TimeTrackerERP:
     """
-    Gestionnaire de base de données TimeTracker intégré à l'ERP DG Inc.
-    Compatible avec la synchronisation ERP via database_sync.py
+    TimeTracker intégré à l'ERP Production DG Inc.
+    Utilise la base SQLite unifiée via ERPDatabase
     """
     
-    def __init__(self, db_path: str = "timetracker.db"):
-        self.db_path = db_path
-        self.init_database()
-    
-    def init_database(self):
-        """Initialise la base de données TimeTracker (compatible avec database_sync.py)"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            
-            # Tables créées par database_sync.py - on s'assure qu'elles existent
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS employees (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    employee_code TEXT UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    password_hash TEXT,
-                    role TEXT DEFAULT 'employee',
-                    is_active INTEGER DEFAULT 1,
-                    email TEXT,
-                    poste TEXT,
-                    salaire REAL,
-                    date_embauche TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    erp_sync_id INTEGER,
-                    last_sync TIMESTAMP
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS projects (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_code TEXT UNIQUE NOT NULL,
-                    project_name TEXT NOT NULL,
-                    client_name TEXT,
-                    requires_task_selection INTEGER DEFAULT 1,
-                    erp_project_id INTEGER,
-                    status TEXT DEFAULT 'À FAIRE',
-                    start_date TEXT,
-                    end_date TEXT,
-                    estimated_price REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_sync TIMESTAMP
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS project_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_id INTEGER,
-                    task_code TEXT NOT NULL,
-                    task_name TEXT NOT NULL,
-                    task_category TEXT,
-                    hourly_rate REAL DEFAULT 95.0,
-                    estimated_hours REAL DEFAULT 0,
-                    erp_poste_id TEXT,
-                    sequence_number INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (project_id) REFERENCES projects (id)
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS time_entries (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    employee_id INTEGER,
-                    project_id INTEGER,
-                    task_id INTEGER,
-                    punch_in TIMESTAMP,
-                    punch_out TIMESTAMP,
-                    notes TEXT,
-                    total_hours REAL,
-                    hourly_rate REAL,
-                    total_cost REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (employee_id) REFERENCES employees (id),
-                    FOREIGN KEY (project_id) REFERENCES projects (id),
-                    FOREIGN KEY (task_id) REFERENCES project_tasks (id)
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS employee_task_assignments (
-                    employee_id INTEGER,
-                    project_id INTEGER,
-                    task_id INTEGER,
-                    skill_level TEXT DEFAULT 'INTERMÉDIAIRE',
-                    hourly_rate_override REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (employee_id, project_id, task_id),
-                    FOREIGN KEY (employee_id) REFERENCES employees (id),
-                    FOREIGN KEY (project_id) REFERENCES projects (id),
-                    FOREIGN KEY (task_id) REFERENCES project_tasks (id)
-                )
-            ''')
-            
-            conn.commit()
+    def __init__(self, erp_db: ERPDatabase):
+        self.db = erp_db
+        logger.info("TimeTracker ERP initialisé avec base SQLite unifiée")
     
     def get_all_employees(self) -> List[Dict]:
-        """Récupère tous les employés actifs"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM employees 
-                WHERE is_active = 1 
-                ORDER BY name
+        """Récupère tous les employés actifs depuis la base ERP"""
+        try:
+            rows = self.db.execute_query('''
+                SELECT id, prenom, nom, email, telephone, poste, departement, statut, salaire
+                FROM employees 
+                WHERE statut = 'ACTIF' 
+                ORDER BY prenom, nom
             ''')
-            return [dict(row) for row in cursor.fetchall()]
+            
+            employees = []
+            for row in rows:
+                emp = dict(row)
+                emp['name'] = f"{emp['prenom']} {emp['nom']}"
+                emp['employee_code'] = f"EMP{emp['id']:03d}"
+                employees.append(emp)
+            
+            return employees
+        except Exception as e:
+            logger.error(f"Erreur récupération employés: {e}")
+            return []
     
     def get_employee_by_id(self, employee_id: int) -> Optional[Dict]:
-        """Récupère un employé par son ID"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM employees WHERE id = ?', (employee_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        """Récupère un employé par son ID depuis la base ERP"""
+        try:
+            rows = self.db.execute_query('''
+                SELECT id, prenom, nom, email, telephone, poste, departement, statut, salaire
+                FROM employees 
+                WHERE id = ? AND statut = 'ACTIF'
+            ''', (employee_id,))
+            
+            if rows:
+                emp = dict(rows[0])
+                emp['name'] = f"{emp['prenom']} {emp['nom']}"
+                emp['employee_code'] = f"EMP{emp['id']:03d}"
+                return emp
+            return None
+        except Exception as e:
+            logger.error(f"Erreur récupération employé {employee_id}: {e}")
+            return None
     
     def get_active_projects(self) -> List[Dict]:
-        """Récupère tous les projets actifs"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM projects 
-                WHERE status IN ('À FAIRE', 'EN COURS') 
-                ORDER BY project_name
+        """Récupère tous les projets actifs depuis la base ERP"""
+        try:
+            rows = self.db.execute_query('''
+                SELECT p.id, p.nom_projet, p.client_nom_cache, p.statut, p.prix_estime,
+                       c.nom as company_name
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.statut IN ('À FAIRE', 'EN COURS') 
+                ORDER BY p.nom_projet
             ''')
-            return [dict(row) for row in cursor.fetchall()]
+            
+            projects = []
+            for row in rows:
+                proj = dict(row)
+                proj['project_name'] = proj['nom_projet']
+                proj['client_name'] = proj['client_nom_cache'] or proj.get('company_name', 'Client Inconnu')
+                proj['project_code'] = f"PROJ{proj['id']:04d}"
+                projects.append(proj)
+            
+            return projects
+        except Exception as e:
+            logger.error(f"Erreur récupération projets: {e}")
+            return []
     
-    def get_project_tasks(self, project_id: int) -> List[Dict]:
-        """Récupère les tâches d'un projet"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM project_tasks 
-                WHERE project_id = ? 
-                ORDER BY sequence_number, task_name
+    def get_project_operations(self, project_id: int) -> List[Dict]:
+        """Récupère les opérations d'un projet (utilisées comme tâches)"""
+        try:
+            rows = self.db.execute_query('''
+                SELECT o.id, o.description, o.temps_estime, o.poste_travail,
+                       wc.nom as work_center_name, wc.cout_horaire
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE o.project_id = ? 
+                ORDER BY o.sequence_number, o.description
             ''', (project_id,))
-            return [dict(row) for row in cursor.fetchall()]
+            
+            operations = []
+            for row in rows:
+                op = dict(row)
+                op['task_name'] = op['description'] or f"Opération {op['id']}"
+                op['task_code'] = f"OP{op['id']:03d}"
+                op['hourly_rate'] = op['cout_horaire'] or 95.0  # Taux par défaut
+                op['estimated_hours'] = op['temps_estime'] or 0
+                operations.append(op)
+            
+            return operations
+        except Exception as e:
+            logger.error(f"Erreur récupération opérations projet {project_id}: {e}")
+            return []
     
     def get_employee_current_entry(self, employee_id: int) -> Optional[Dict]:
         """Vérifie si l'employé a une entrée en cours (pas de punch_out)"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT te.*, p.project_name, pt.task_name 
+        try:
+            rows = self.db.execute_query('''
+                SELECT te.*, p.nom_projet as project_name, o.description as task_name
                 FROM time_entries te
                 JOIN projects p ON te.project_id = p.id
-                JOIN project_tasks pt ON te.task_id = pt.id
+                LEFT JOIN operations o ON te.operation_id = o.id
                 WHERE te.employee_id = ? AND te.punch_out IS NULL
                 ORDER BY te.punch_in DESC
                 LIMIT 1
             ''', (employee_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-    
-    def punch_in(self, employee_id: int, project_id: int, task_id: int, notes: str = "") -> int:
-        """Enregistre un punch in"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
             
+            if rows:
+                entry = dict(rows[0])
+                entry['task_name'] = entry['task_name'] or 'Tâche générale'
+                return entry
+            return None
+        except Exception as e:
+            logger.error(f"Erreur récupération entrée courante employé {employee_id}: {e}")
+            return None
+    
+    def punch_in(self, employee_id: int, project_id: int, operation_id: int = None, notes: str = "") -> int:
+        """Enregistre un punch in dans la base ERP unifiée"""
+        try:
             # Vérifier s'il n'y a pas déjà un punch in actif
             current_entry = self.get_employee_current_entry(employee_id)
             if current_entry:
                 raise ValueError("L'employé a déjà un pointage actif")
             
-            # Obtenir le taux horaire de la tâche
-            cursor.execute('SELECT hourly_rate FROM project_tasks WHERE id = ?', (task_id,))
-            task_rate_result = cursor.fetchone()
-            task_rate = task_rate_result[0] if task_rate_result else 95.0
+            # Obtenir le taux horaire de l'opération ou utiliser le taux par défaut
+            hourly_rate = 95.0  # Taux par défaut
+            if operation_id:
+                rate_rows = self.db.execute_query('''
+                    SELECT wc.cout_horaire 
+                    FROM operations o
+                    JOIN work_centers wc ON o.work_center_id = wc.id
+                    WHERE o.id = ?
+                ''', (operation_id,))
+                if rate_rows:
+                    hourly_rate = rate_rows[0]['cout_horaire']
             
-            # Créer l'entrée
-            cursor.execute('''
+            # Créer l'entrée de temps
+            entry_id = self.db.execute_insert('''
                 INSERT INTO time_entries 
-                (employee_id, project_id, task_id, punch_in, notes, hourly_rate)
+                (employee_id, project_id, operation_id, punch_in, notes, hourly_rate)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (employee_id, project_id, task_id, datetime.now().isoformat(), notes, task_rate))
+            ''', (employee_id, project_id, operation_id, datetime.now().isoformat(), notes, hourly_rate))
             
-            entry_id = cursor.lastrowid
-            conn.commit()
+            logger.info(f"Punch in créé - Employé: {employee_id}, Projet: {project_id}, Entry: {entry_id}")
             return entry_id
+            
+        except Exception as e:
+            logger.error(f"Erreur punch in: {e}")
+            raise
     
     def punch_out(self, employee_id: int, notes: str = "") -> bool:
-        """Enregistre un punch out"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            
+        """Enregistre un punch out dans la base ERP unifiée"""
+        try:
             # Trouver l'entrée active
             current_entry = self.get_employee_current_entry(employee_id)
             if not current_entry:
@@ -223,68 +188,79 @@ class TimeTrackerDB:
             total_cost = total_hours * current_entry['hourly_rate']
             
             # Mettre à jour l'entrée
-            cursor.execute('''
+            self.db.execute_update('''
                 UPDATE time_entries 
                 SET punch_out = ?, total_hours = ?, total_cost = ?, notes = ?
                 WHERE id = ?
             ''', (punch_out_time.isoformat(), total_hours, total_cost, notes, current_entry['id']))
             
-            conn.commit()
+            logger.info(f"Punch out complété - Entry: {current_entry['id']}, Heures: {total_hours:.2f}")
             return True
+            
+        except Exception as e:
+            logger.error(f"Erreur punch out: {e}")
+            raise
     
     def get_employee_time_entries(self, employee_id: int, limit: int = 50) -> List[Dict]:
         """Récupère les dernières entrées d'un employé"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT te.*, p.project_name, pt.task_name
+        try:
+            rows = self.db.execute_query('''
+                SELECT te.*, p.nom_projet as project_name, o.description as task_name
                 FROM time_entries te
                 JOIN projects p ON te.project_id = p.id
-                JOIN project_tasks pt ON te.task_id = pt.id
+                LEFT JOIN operations o ON te.operation_id = o.id
                 WHERE te.employee_id = ?
                 ORDER BY te.punch_in DESC
                 LIMIT ?
             ''', (employee_id, limit))
-            return [dict(row) for row in cursor.fetchall()]
+            
+            entries = []
+            for row in rows:
+                entry = dict(row)
+                entry['task_name'] = entry['task_name'] or 'Tâche générale'
+                entries.append(entry)
+            
+            return entries
+        except Exception as e:
+            logger.error(f"Erreur récupération historique employé {employee_id}: {e}")
+            return []
     
     def get_daily_summary(self, date_str: str = None) -> List[Dict]:
         """Récupère le résumé quotidien des pointages"""
         if not date_str:
             date_str = datetime.now().strftime('%Y-%m-%d')
         
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('''
+        try:
+            rows = self.db.execute_query('''
                 SELECT 
-                    e.name as employee_name,
-                    p.project_name,
-                    pt.task_name,
+                    e.prenom || ' ' || e.nom as employee_name,
+                    p.nom_projet as project_name,
+                    COALESCE(o.description, 'Tâche générale') as task_name,
                     COALESCE(SUM(te.total_hours), 0.0) as total_hours,
                     COALESCE(SUM(te.total_cost), 0.0) as total_cost,
                     COUNT(te.id) as entries_count
                 FROM time_entries te
                 JOIN employees e ON te.employee_id = e.id
                 JOIN projects p ON te.project_id = p.id
-                JOIN project_tasks pt ON te.task_id = pt.id
+                LEFT JOIN operations o ON te.operation_id = o.id
                 WHERE DATE(te.punch_in) = ? AND te.total_cost IS NOT NULL
-                GROUP BY e.id, p.id, pt.id
-                ORDER BY e.name, p.project_name
+                GROUP BY e.id, p.id, o.id
+                ORDER BY e.prenom, e.nom, p.nom_projet
             ''', (date_str,))
-            return [dict(row) for row in cursor.fetchall()]
+            
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur résumé quotidien {date_str}: {e}")
+            return []
     
     def get_project_revenue_summary(self, project_id: int = None) -> List[Dict]:
         """Résumé des revenus par projet"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
+        try:
             if project_id:
-                cursor.execute('''
+                query = '''
                     SELECT 
-                        p.project_name,
-                        p.client_name,
+                        p.nom_projet as project_name,
+                        p.client_nom_cache as client_name,
                         COALESCE(SUM(te.total_hours), 0.0) as total_hours,
                         COALESCE(SUM(te.total_cost), 0.0) as total_revenue,
                         COUNT(DISTINCT te.employee_id) as employees_count,
@@ -293,12 +269,13 @@ class TimeTrackerDB:
                     JOIN projects p ON te.project_id = p.id
                     WHERE p.id = ? AND te.total_cost IS NOT NULL
                     GROUP BY p.id
-                ''', (project_id,))
+                '''
+                params = (project_id,)
             else:
-                cursor.execute('''
+                query = '''
                     SELECT 
-                        p.project_name,
-                        p.client_name,
+                        p.nom_projet as project_name,
+                        p.client_nom_cache as client_name,
                         COALESCE(SUM(te.total_hours), 0.0) as total_hours,
                         COALESCE(SUM(te.total_cost), 0.0) as total_revenue,
                         COUNT(DISTINCT te.employee_id) as employees_count,
@@ -308,70 +285,129 @@ class TimeTrackerDB:
                     WHERE te.total_cost IS NOT NULL
                     GROUP BY p.id
                     ORDER BY total_revenue DESC
-                ''')
+                '''
+                params = None
             
-            return [dict(row) for row in cursor.fetchall()]
+            rows = self.db.execute_query(query, params)
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Erreur résumé revenus: {e}")
+            return []
+    
+    def get_timetracker_statistics(self) -> Dict:
+        """Statistiques globales TimeTracker"""
+        try:
+            stats = {
+                'total_employees': 0,
+                'active_entries': 0,
+                'total_revenue_today': 0.0,
+                'total_hours_today': 0.0
+            }
+            
+            # Employés actifs
+            emp_result = self.db.execute_query("SELECT COUNT(*) as count FROM employees WHERE statut = 'ACTIF'")
+            if emp_result:
+                stats['total_employees'] = emp_result[0]['count']
+            
+            # Pointages actifs
+            active_result = self.db.execute_query("SELECT COUNT(*) as count FROM time_entries WHERE punch_out IS NULL")
+            if active_result:
+                stats['active_entries'] = active_result[0]['count']
+            
+            # Revenus et heures du jour
+            today = datetime.now().strftime('%Y-%m-%d')
+            daily_result = self.db.execute_query('''
+                SELECT 
+                    COALESCE(SUM(total_hours), 0.0) as hours,
+                    COALESCE(SUM(total_cost), 0.0) as revenue
+                FROM time_entries 
+                WHERE DATE(punch_in) = ? AND total_cost IS NOT NULL
+            ''', (today,))
+            
+            if daily_result:
+                stats['total_hours_today'] = daily_result[0]['hours']
+                stats['total_revenue_today'] = daily_result[0]['revenue']
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur statistiques TimeTracker: {e}")
+            return {}
 
 
 def show_timetracker_interface():
     """
     Interface principale TimeTracker intégrée dans l'ERP DG Inc.
-    Utilise l'authentification ERP unifiée et le style harmonisé
+    Utilise la base SQLite unifiée
     """
     
-    # Vérifier l'authentification ERP (session unifiée)
-    if not hasattr(st.session_state, 'gestionnaire'):
+    # Vérifier l'accès à la base ERP
+    if 'erp_db' not in st.session_state:
         st.error("❌ Accès TimeTracker nécessite une session ERP active")
+        st.info("Veuillez redémarrer l'application ERP.")
         return
     
-    # Initialiser le gestionnaire TimeTracker
-    if 'timetracker_db' not in st.session_state:
-        st.session_state.timetracker_db = TimeTrackerDB()
+    # Initialiser le TimeTracker ERP unifié
+    if 'timetracker_erp' not in st.session_state:
+        st.session_state.timetracker_erp = TimeTrackerERP(st.session_state.erp_db)
     
-    db = st.session_state.timetracker_db
+    tt = st.session_state.timetracker_erp
     
     # En-tête TimeTracker avec style ERP harmonisé
     st.markdown("""
-    <div class='project-header'>
-        <h2>⏱️ TimeTracker Pro Desmarais & Gagné</h2>
+    <div class='project-header' style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;'>
+        <h2 style='margin: 0; text-align: center;'>⏱️ TimeTracker Pro - ERP Production DG Inc.</h2>
+        <p style='margin: 5px 0 0 0; text-align: center; opacity: 0.9;'>🗄️ Architecture SQLite Unifiée</p>
     </div>
     """, unsafe_allow_html=True)
     
+    # Statistiques en temps réel
+    stats = tt.get_timetracker_statistics()
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("👥 Employés ERP", stats.get('total_employees', 0))
+    with col2:
+        st.metric("🟢 Pointages Actifs", stats.get('active_entries', 0))
+    with col3:
+        st.metric("⏱️ Heures Aujourd'hui", f"{stats.get('total_hours_today', 0):.1f}h")
+    with col4:
+        st.metric("💰 Revenus Aujourd'hui", f"{stats.get('total_revenue_today', 0):.0f}$ CAD")
+    
     # Navigation TimeTracker
-    tab_pointage, tab_admin, tab_analytics, tab_sync = st.tabs([
-        "🕐 Pointage", "⚙️ Administration", "📊 Analytics", "🔄 Synchronisation"
+    tab_pointage, tab_analytics, tab_admin = st.tabs([
+        "🕐 Pointage Employés", "📊 Analytics & Rapports", "⚙️ Administration"
     ])
     
     with tab_pointage:
-        show_employee_timetracking_interface(db)
-    
-    with tab_admin:
-        show_admin_interface(db)
+        show_employee_timetracking_interface(tt)
     
     with tab_analytics:
-        show_analytics_interface(db)
+        show_analytics_interface(tt)
     
-    with tab_sync:
-        show_sync_management_interface()
+    with tab_admin:
+        show_admin_interface(tt)
 
 
-def show_employee_timetracking_interface(db: TimeTrackerDB):
+def show_employee_timetracking_interface(tt: TimeTrackerERP):
     """Interface de pointage pour employés"""
     
-    st.markdown("### 👤 Interface Employé - Pointage")
+    st.markdown("### 👤 Interface de Pointage")
     
-    # Sélection de l'employé (simplifié car authentification ERP)
-    employees = db.get_all_employees()
+    # Récupération des employés depuis l'ERP
+    employees = tt.get_all_employees()
     
     if not employees:
-        st.warning("⚠️ Aucun employé synchronisé. Veuillez lancer une synchronisation ERP.")
+        st.warning("⚠️ Aucun employé actif trouvé dans l'ERP.")
+        st.info("Veuillez ajouter des employés dans le module RH de l'ERP.")
         return
     
-    # Sélecteur d'employé (en attendant l'auth complète)
-    employee_options = {emp['id']: f"{emp['name']} ({emp['poste']})" for emp in employees}
+    # Sélecteur d'employé
+    employee_options = {emp['id']: f"{emp['name']} - {emp['poste']}" for emp in employees}
     
     selected_employee_id = st.selectbox(
-        "Sélectionner l'employé:",
+        "👤 Sélectionner l'employé:",
         options=list(employee_options.keys()),
         format_func=lambda x: employee_options[x],
         key="timetracker_employee_selector"
@@ -380,8 +416,8 @@ def show_employee_timetracking_interface(db: TimeTrackerDB):
     if not selected_employee_id:
         return
     
-    employee = db.get_employee_by_id(selected_employee_id)
-    current_entry = db.get_employee_current_entry(selected_employee_id)
+    employee = tt.get_employee_by_id(selected_employee_id)
+    current_entry = tt.get_employee_current_entry(selected_employee_id)
     
     # Interface de pointage
     col1, col2 = st.columns(2)
@@ -390,9 +426,10 @@ def show_employee_timetracking_interface(db: TimeTrackerDB):
         st.markdown(f"""
         <div class='info-card'>
             <h4>👤 {employee['name']}</h4>
-            <p><strong>📧 Email:</strong> {employee.get('email', 'N/A')}</p>
             <p><strong>💼 Poste:</strong> {employee.get('poste', 'N/A')}</p>
-            <p><strong>🆔 Code:</strong> {employee['employee_code']}</p>
+            <p><strong>🏢 Département:</strong> {employee.get('departement', 'N/A')}</p>
+            <p><strong>📧 Email:</strong> {employee.get('email', 'N/A')}</p>
+            <p><strong>🆔 Code ERP:</strong> {employee['employee_code']}</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -402,35 +439,45 @@ def show_employee_timetracking_interface(db: TimeTrackerDB):
             punch_in_time = datetime.fromisoformat(current_entry['punch_in'])
             elapsed = datetime.now() - punch_in_time
             elapsed_hours = elapsed.total_seconds() / 3600
+            estimated_cost = elapsed_hours * current_entry['hourly_rate']
             
             st.markdown(f"""
-            <div class='info-card' style='border-left: 4px solid #10b981;'>
-                <h4>🟢 POINTÉ</h4>
+            <div class='info-card' style='border-left: 4px solid #10b981; background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);'>
+                <h4>🟢 POINTÉ ACTUELLEMENT</h4>
                 <p><strong>📋 Projet:</strong> {current_entry['project_name']}</p>
                 <p><strong>🔧 Tâche:</strong> {current_entry['task_name']}</p>
-                <p><strong>🕐 Début:</strong> {punch_in_time.strftime('%H:%M')}</p>
+                <p><strong>🕐 Début:</strong> {punch_in_time.strftime('%H:%M:%S')}</p>
                 <p><strong>⏱️ Durée:</strong> {elapsed_hours:.2f}h</p>
-                <p><strong>💰 Coût estimé:</strong> {elapsed_hours * current_entry['hourly_rate']:.2f}$ CAD</p>
+                <p><strong>💰 Coût estimé:</strong> {estimated_cost:.2f}$ CAD</p>
+                <p><strong>💵 Taux:</strong> {current_entry['hourly_rate']:.2f}$/h</p>
             </div>
             """, unsafe_allow_html=True)
             
             # Formulaire punch out
+            st.markdown("#### 🔴 Terminer le pointage")
             with st.form("punch_out_form"):
-                notes_out = st.text_area("📝 Notes (optionnel):", placeholder="Travail effectué...")
-                if st.form_submit_button("🔴 PUNCH OUT", use_container_width=True):
-                    try:
-                        db.punch_out(selected_employee_id, notes_out)
-                        st.success(f"✅ Punch out enregistré ! Durée: {elapsed_hours:.2f}h")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erreur punch out: {str(e)}")
+                notes_out = st.text_area("📝 Notes de fin (optionnel):", 
+                                       placeholder="Travail accompli, difficultés rencontrées...")
+                
+                punch_out_col1, punch_out_col2 = st.columns(2)
+                with punch_out_col1:
+                    if st.form_submit_button("🔴 PUNCH OUT", use_container_width=True):
+                        try:
+                            tt.punch_out(selected_employee_id, notes_out)
+                            st.success(f"✅ Punch out enregistré ! Durée totale: {elapsed_hours:.2f}h - Coût: {estimated_cost:.2f}$ CAD")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erreur punch out: {str(e)}")
+                with punch_out_col2:
+                    if st.form_submit_button("⏸️ Pause", use_container_width=True):
+                        st.info("Fonctionnalité pause en développement")
         
         else:
             # Employé non pointé - interface punch in
             st.markdown("""
-            <div class='info-card' style='border-left: 4px solid #f59e0b;'>
-                <h4>🟡 NON POINTÉ</h4>
-                <p>Sélectionnez un projet et une tâche pour commencer</p>
+            <div class='info-card' style='border-left: 4px solid #f59e0b; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);'>
+                <h4>🟡 PRÊT À POINTER</h4>
+                <p>Sélectionnez un projet et une tâche pour commencer le pointage</p>
             </div>
             """, unsafe_allow_html=True)
     
@@ -439,54 +486,60 @@ def show_employee_timetracking_interface(db: TimeTrackerDB):
         st.markdown("---")
         st.markdown("#### 📋 Nouveau Pointage")
         
-        projects = db.get_active_projects()
+        projects = tt.get_active_projects()
         if not projects:
-            st.warning("Aucun projet actif disponible.")
+            st.warning("❌ Aucun projet actif disponible dans l'ERP.")
+            st.info("Veuillez créer des projets dans le module Projets de l'ERP.")
             return
         
         with st.form("punch_in_form"):
             # Sélection du projet
             project_options = {p['id']: f"{p['project_name']} ({p['client_name']})" for p in projects}
             selected_project_id = st.selectbox(
-                "Projet:",
+                "📋 Projet:",
                 options=list(project_options.keys()),
                 format_func=lambda x: project_options[x]
             )
             
-            # Sélection de la tâche
+            # Sélection de l'opération/tâche
+            selected_operation_id = None
             if selected_project_id:
-                tasks = db.get_project_tasks(selected_project_id)
-                if tasks:
-                    task_options = {t['id']: f"{t['task_name']} ({t['hourly_rate']}$/h)" for t in tasks}
-                    selected_task_id = st.selectbox(
-                        "Tâche:",
-                        options=list(task_options.keys()),
-                        format_func=lambda x: task_options[x]
+                operations = tt.get_project_operations(selected_project_id)
+                if operations:
+                    operation_options = {op['id']: f"{op['task_name']} ({op['hourly_rate']:.0f}$/h)" for op in operations}
+                    selected_operation_id = st.selectbox(
+                        "🔧 Opération/Tâche:",
+                        options=[None] + list(operation_options.keys()),
+                        format_func=lambda x: "Tâche générale (95$/h)" if x is None else operation_options[x]
                     )
                 else:
-                    st.warning("Aucune tâche disponible pour ce projet.")
-                    selected_task_id = None
-            else:
-                selected_task_id = None
+                    st.info("Aucune opération définie pour ce projet. Pointage général disponible.")
             
-            notes_in = st.text_area("📝 Notes (optionnel):", placeholder="Description du travail à effectuer...")
+            notes_in = st.text_area("📝 Notes de début (optionnel):", 
+                                  placeholder="Objectifs, plan de travail...")
             
-            if st.form_submit_button("🟢 PUNCH IN", use_container_width=True):
-                if selected_project_id and selected_task_id:
-                    try:
-                        entry_id = db.punch_in(selected_employee_id, selected_project_id, selected_task_id, notes_in)
-                        st.success(f"✅ Punch in enregistré ! ID: {entry_id}")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erreur punch in: {str(e)}")
-                else:
-                    st.error("Veuillez sélectionner un projet et une tâche.")
+            punch_in_col1, punch_in_col2 = st.columns(2)
+            with punch_in_col1:
+                if st.form_submit_button("🟢 PUNCH IN", use_container_width=True):
+                    if selected_project_id:
+                        try:
+                            entry_id = tt.punch_in(selected_employee_id, selected_project_id, selected_operation_id, notes_in)
+                            st.success(f"✅ Punch in enregistré ! ID: {entry_id}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erreur punch in: {str(e)}")
+                    else:
+                        st.error("Veuillez sélectionner un projet.")
+            
+            with punch_in_col2:
+                if st.form_submit_button("📋 Voir Projets", use_container_width=True):
+                    st.info("Redirection vers module Projets ERP...")
     
     # Historique récent
     st.markdown("---")
     st.markdown("#### 📊 Historique Récent")
     
-    recent_entries = db.get_employee_time_entries(selected_employee_id, 10)
+    recent_entries = tt.get_employee_time_entries(selected_employee_id, 10)
     if recent_entries:
         df_history = []
         for entry in recent_entries:
@@ -497,13 +550,13 @@ def show_employee_timetracking_interface(db: TimeTrackerDB):
             
             if entry['punch_out']:
                 punch_out = datetime.fromisoformat(entry['punch_out'])
-                punch_out_str = punch_out.strftime('%H:%M')
+                punch_out_str = punch_out.strftime('%H:%M:%S')
                 duration_str = f"{entry['total_hours']:.2f}h"
                 cost_str = f"{entry['total_cost']:.2f}$ CAD"
             
             df_history.append({
                 '📅 Date': punch_in.strftime('%Y-%m-%d'),
-                '🕐 Début': punch_in.strftime('%H:%M'),
+                '🕐 Début': punch_in.strftime('%H:%M:%S'),
                 '🕑 Fin': punch_out_str,
                 '📋 Projet': entry['project_name'],
                 '🔧 Tâche': entry['task_name'],
@@ -516,103 +569,204 @@ def show_employee_timetracking_interface(db: TimeTrackerDB):
         st.info("Aucun historique de pointage.")
 
 
-def show_admin_interface(db: TimeTrackerDB):
+def show_analytics_interface(tt: TimeTrackerERP):
+    """Interface d'analytics TimeTracker"""
+    
+    st.markdown("### 📊 Analytics & Rapports")
+    
+    # Période d'analyse
+    col_period1, col_period2 = st.columns(2)
+    with col_period1:
+        start_date = st.date_input("📅 Date début:", datetime.now().date() - timedelta(days=30))
+    with col_period2:
+        end_date = st.date_input("📅 Date fin:", datetime.now().date())
+    
+    # Revenus par projet
+    st.markdown("#### 💰 Revenus par Projet (Base ERP)")
+    project_revenues = tt.get_project_revenue_summary()
+    
+    if project_revenues:
+        # Validation et nettoyage des données
+        valid_revenues = []
+        total_revenue_global = 0
+        total_hours_global = 0
+        
+        for rev in project_revenues:
+            try:
+                revenue = float(rev.get('total_revenue', 0) or 0)
+                hours = float(rev.get('total_hours', 0) or 0)
+                
+                if revenue > 0:
+                    valid_revenues.append({
+                        'project_name': rev.get('project_name', 'Projet Inconnu'),
+                        'total_revenue': revenue,
+                        'total_hours': hours
+                    })
+                    total_revenue_global += revenue
+                    total_hours_global += hours
+            except (ValueError, TypeError):
+                continue
+        
+        if valid_revenues:
+            # Graphique en secteurs
+            fig_pie = px.pie(
+                values=[rev['total_revenue'] for rev in valid_revenues],
+                names=[rev['project_name'] for rev in valid_revenues],
+                title="🥧 Répartition des Revenus TimeTracker par Projet ERP"
+            )
+            fig_pie.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='var(--text-color)'),
+                title_x=0.5
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+            # Graphique en barres
+            fig_bar = px.bar(
+                x=[rev['project_name'] for rev in valid_revenues],
+                y=[rev['total_revenue'] for rev in valid_revenues],
+                title="📊 Revenus TimeTracker par Projet",
+                labels={'x': 'Projets ERP', 'y': 'Revenus (CAD)'}
+            )
+            fig_bar.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='var(--text-color)'),
+                title_x=0.5
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+        
+        # Tableau détaillé
+        df_revenues = []
+        for rev in project_revenues:
+            try:
+                revenue = float(rev.get('total_revenue', 0) or 0)
+                hours = float(rev.get('total_hours', 0) or 0)
+                
+                df_revenues.append({
+                    '📋 Projet ERP': rev.get('project_name', 'N/A'),
+                    '👤 Client': rev.get('client_name', 'N/A'),
+                    '⏱️ Heures': f"{hours:.1f}h",
+                    '💰 Revenus': f"{revenue:.2f}$ CAD",
+                    '👥 Employés': rev.get('employees_count', 0),
+                    '📊 Pointages': rev.get('entries_count', 0),
+                    '💵 Taux Moy.': f"{(revenue/hours):.2f}$/h" if hours > 0 else "N/A"
+                })
+            except (ValueError, TypeError):
+                continue
+        
+        if df_revenues:
+            st.dataframe(pd.DataFrame(df_revenues), use_container_width=True)
+            
+            # Métriques globales
+            avg_hourly_rate = total_revenue_global / total_hours_global if total_hours_global > 0 else 0
+            
+            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+            with metrics_col1:
+                st.metric("💰 Revenus Total TimeTracker", f"{total_revenue_global:.2f}$ CAD")
+            with metrics_col2:
+                st.metric("⏱️ Heures Total", f"{total_hours_global:.1f}h")
+            with metrics_col3:
+                st.metric("💵 Taux Horaire Moyen", f"{avg_hourly_rate:.2f}$/h")
+        
+    else:
+        st.info("Aucune donnée de revenus TimeTracker disponible.")
+        st.markdown("💡 **Conseil**: Effectuez des pointages pour générer des données d'analyse.")
+
+
+def show_admin_interface(tt: TimeTrackerERP):
     """Interface d'administration TimeTracker"""
     
-    st.markdown("### ⚙️ Administration TimeTracker")
+    st.markdown("### ⚙️ Administration TimeTracker ERP")
     
-    # Vue d'ensemble
-    employees = db.get_all_employees()
-    projects = db.get_active_projects()
+    # Vue d'ensemble avec données ERP
+    employees = tt.get_all_employees()
+    projects = tt.get_active_projects()
     
-    # Métriques
+    # Métriques d'administration
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("👥 Employés", len(employees))
+        st.metric("👥 Employés ERP", len(employees))
     with col2:
         st.metric("📋 Projets Actifs", len(projects))
     with col3:
         # Employés actuellement pointés
         currently_working = 0
         for emp in employees:
-            if db.get_employee_current_entry(emp['id']):
+            if tt.get_employee_current_entry(emp['id']):
                 currently_working += 1
-        st.metric("🟢 En Activité", currently_working)
+        st.metric("🟢 En Pointage", currently_working)
     with col4:
-        # 🔧 CORRECTION - Revenus du jour avec gestion robuste des valeurs None
-        today_summary = db.get_daily_summary()
-        today_revenue = 0.0
-        for entry in today_summary:
-            cost = entry.get('total_cost')
-            if cost is not None and cost != '':
-                try:
-                    today_revenue += float(cost)
-                except (ValueError, TypeError):
-                    continue  # Ignorer les valeurs invalides
-        
+        # Revenus du jour
+        today_summary = tt.get_daily_summary()
+        today_revenue = sum(float(entry.get('total_cost', 0) or 0) for entry in today_summary)
         st.metric("💰 Revenus Jour", f"{today_revenue:.0f}$ CAD")
     
     # Onglets d'administration
     admin_tab1, admin_tab2, admin_tab3 = st.tabs([
-        "👥 Employés", "📋 Projets", "📊 Résumé Quotidien"
+        "👥 Employés ERP", "📋 Projets ERP", "📊 Résumé Quotidien"
     ])
     
     with admin_tab1:
-        st.markdown("#### 👥 Gestion des Employés")
+        st.markdown("#### 👥 Gestion des Employés (Synchronisé ERP)")
         
         if employees:
             df_employees = []
             for emp in employees:
-                current_entry = db.get_employee_current_entry(emp['id'])
+                current_entry = tt.get_employee_current_entry(emp['id'])
                 status = "🟢 Pointé" if current_entry else "🟡 Libre"
                 current_task = ""
                 if current_entry:
                     current_task = f"{current_entry['project_name']} - {current_entry['task_name']}"
                 
                 df_employees.append({
-                    '🆔 ID': emp['id'],
+                    '🆔 ID ERP': emp['id'],
                     '👤 Nom': emp['name'],
                     '💼 Poste': emp.get('poste', 'N/A'),
+                    '🏢 Département': emp.get('departement', 'N/A'),
                     '📧 Email': emp.get('email', 'N/A'),
                     '🚦 Statut': status,
                     '🔧 Tâche Actuelle': current_task or 'Aucune'
                 })
             
             st.dataframe(pd.DataFrame(df_employees), use_container_width=True)
+            st.info("ℹ️ Données synchronisées automatiquement depuis le module RH ERP")
         else:
-            st.info("Aucun employé synchronisé.")
+            st.warning("Aucun employé actif dans l'ERP.")
     
     with admin_tab2:
-        st.markdown("#### 📋 Gestion des Projets")
+        st.markdown("#### 📋 Gestion des Projets (Synchronisé ERP)")
         
         if projects:
             df_projects = []
             for proj in projects:
-                tasks = db.get_project_tasks(proj['id'])
-                revenue_summary = db.get_project_revenue_summary(proj['id'])
+                operations = tt.get_project_operations(proj['id'])
+                revenue_summary = tt.get_project_revenue_summary(proj['id'])
                 total_revenue = revenue_summary[0]['total_revenue'] if revenue_summary else 0
                 
                 df_projects.append({
-                    '🆔 ID': proj['id'],
+                    '🆔 ID ERP': proj['id'],
                     '📋 Nom': proj['project_name'],
                     '👤 Client': proj.get('client_name', 'N/A'),
-                    '🚦 Statut': proj['status'],
-                    '🔧 Tâches': len(tasks),
-                    '💰 Revenus': f"{total_revenue:.2f}$ CAD"
+                    '🚦 Statut': proj['statut'],
+                    '🔧 Opérations': len(operations),
+                    '💰 Revenus TimeTracker': f"{total_revenue:.2f}$ CAD"
                 })
             
             st.dataframe(pd.DataFrame(df_projects), use_container_width=True)
+            st.info("ℹ️ Données synchronisées automatiquement depuis le module Projets ERP")
         else:
-            st.info("Aucun projet actif.")
+            st.warning("Aucun projet actif dans l'ERP.")
     
     with admin_tab3:
-        st.markdown("#### 📊 Résumé Quotidien")
+        st.markdown("#### 📊 Résumé Quotidien TimeTracker")
         
         # Sélecteur de date
         selected_date = st.date_input("📅 Date:", datetime.now().date())
         date_str = selected_date.strftime('%Y-%m-%d')
         
-        daily_summary = db.get_daily_summary(date_str)
+        daily_summary = tt.get_daily_summary(date_str)
         
         if daily_summary:
             df_daily = []
@@ -627,7 +781,7 @@ def show_admin_interface(db: TimeTrackerDB):
                 
                 df_daily.append({
                     '👤 Employé': entry['employee_name'],
-                    '📋 Projet': entry['project_name'],
+                    '📋 Projet ERP': entry['project_name'],
                     '🔧 Tâche': entry['task_name'],
                     '⏱️ Heures': f"{hours:.2f}h",
                     '💰 Revenus': f"{cost:.2f}$ CAD",
@@ -635,130 +789,28 @@ def show_admin_interface(db: TimeTrackerDB):
                 })
             
             # Métriques du jour
-            day_col1, day_col2 = st.columns(2)
+            day_col1, day_col2, day_col3 = st.columns(3)
             with day_col1:
                 st.metric("⏱️ Total Heures", f"{total_hours:.1f}h")
             with day_col2:
                 st.metric("💰 Total Revenus", f"{total_revenue:.2f}$ CAD")
+            with day_col3:
+                avg_rate = total_revenue / total_hours if total_hours > 0 else 0
+                st.metric("💵 Taux Moyen", f"{avg_rate:.2f}$/h")
             
             st.dataframe(pd.DataFrame(df_daily), use_container_width=True)
         else:
-            st.info(f"Aucune activité enregistrée pour le {date_str}")
+            st.info(f"Aucune activité TimeTracker enregistrée pour le {date_str}")
+            st.markdown("💡 **Conseil**: Les employés doivent effectuer des pointages pour générer des données.")
 
 
-def show_analytics_interface(db: TimeTrackerDB):
-    """Interface d'analytics TimeTracker"""
-    
-    st.markdown("### 📊 Analytics & Rapports")
-    
-    # Période d'analyse
-    col_period1, col_period2 = st.columns(2)
-    with col_period1:
-        start_date = st.date_input("📅 Date début:", datetime.now().date() - timedelta(days=30))
-    with col_period2:
-        end_date = st.date_input("📅 Date fin:", datetime.now().date())
-    
-    # Revenus par projet
-    st.markdown("#### 💰 Revenus par Projet")
-    project_revenues = db.get_project_revenue_summary()
-    
-    if project_revenues:
-        # 🔧 CORRECTION - Validation des données pour graphiques
-        valid_revenues = []
-        for rev in project_revenues:
-            total_revenue = rev.get('total_revenue', 0)
-            if total_revenue is not None and total_revenue > 0:
-                try:
-                    valid_revenues.append({
-                        'project_name': rev.get('project_name', 'Projet Inconnu'),
-                        'total_revenue': float(total_revenue)
-                    })
-                except (ValueError, TypeError):
-                    continue
-        
-        if valid_revenues:
-            # Graphique en secteurs avec données validées
-            fig_pie = px.pie(
-                values=[rev['total_revenue'] for rev in valid_revenues],
-                names=[rev['project_name'] for rev in valid_revenues],
-                title="Répartition des Revenus par Projet"
-            )
-            fig_pie.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='var(--text-color)'),
-                title_x=0.5
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-        else:
-            st.info("Aucune donnée de revenus valide pour le graphique.")
-        
-        # Tableau détaillé avec gestion d'erreurs
-        df_revenues = []
-        total_revenue_calc = 0
-        total_hours_calc = 0
-        
-        for rev in project_revenues:
-            try:
-                revenue = float(rev.get('total_revenue', 0) or 0)
-                hours = float(rev.get('total_hours', 0) or 0)
-                
-                total_revenue_calc += revenue
-                total_hours_calc += hours
-                
-                df_revenues.append({
-                    '📋 Projet': rev.get('project_name', 'N/A'),
-                    '👤 Client': rev.get('client_name', 'N/A'),
-                    '⏱️ Heures': f"{hours:.1f}h",
-                    '💰 Revenus': f"{revenue:.2f}$ CAD",
-                    '👥 Employés': rev.get('employees_count', 0),
-                    '📊 Pointages': rev.get('entries_count', 0)
-                })
-            except (ValueError, TypeError) as e:
-                st.warning(f"Données invalides ignorées pour le projet: {rev.get('project_name', 'Inconnu')}")
-                continue
-        
-        if df_revenues:
-            st.dataframe(pd.DataFrame(df_revenues), use_container_width=True)
-            
-            # Métriques globales avec protection d'erreur
-            avg_hourly_rate = total_revenue_calc / total_hours_calc if total_hours_calc > 0 else 0
-            
-            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
-            with metrics_col1:
-                st.metric("💰 Revenus Total", f"{total_revenue_calc:.2f}$ CAD")
-            with metrics_col2:
-                st.metric("⏱️ Heures Total", f"{total_hours_calc:.1f}h")
-            with metrics_col3:
-                st.metric("💵 Taux Moyen", f"{avg_hourly_rate:.2f}$/h")
-        else:
-            st.warning("Aucune donnée de revenus valide trouvée.")
-    else:
-        st.info("Aucune donnée de revenus disponible.")
-
-
-def show_sync_management_interface():
-    """Interface de gestion de la synchronisation"""
-    
-    st.markdown("### 🔄 Gestion de la Synchronisation")
-    
-    try:
-        from database_sync import show_sync_interface
-        show_sync_interface()
-    except ImportError:
-        st.error("❌ Module database_sync non disponible")
-        st.info("Veuillez créer le fichier database_sync.py pour activer la synchronisation")
-
-
-# Fonction utilitaire pour l'authentification (simplifiée pour l'intégration ERP)
+# Fonctions utilitaires (conservées pour compatibilité)
 def hash_password(password: str) -> str:
     """Hash un mot de passe avec SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
-
 
 def verify_password(password: str, hashed: str) -> bool:
     """Vérifie un mot de passe contre son hash"""
     return hash_password(password) == hashed
 
-
-# --- END OF FILE timetracker.py ---
+# --- END OF FILE timetracker.py - VERSION SQLITE UNIFIÉE ERP ---
