@@ -192,7 +192,8 @@ class TimeTrackerDB:
             
             # Obtenir le taux horaire de la tâche
             cursor.execute('SELECT hourly_rate FROM project_tasks WHERE id = ?', (task_id,))
-            task_rate = cursor.fetchone()[0]
+            task_rate_result = cursor.fetchone()
+            task_rate = task_rate_result[0] if task_rate_result else 95.0
             
             # Créer l'entrée
             cursor.execute('''
@@ -260,14 +261,14 @@ class TimeTrackerDB:
                     e.name as employee_name,
                     p.project_name,
                     pt.task_name,
-                    SUM(te.total_hours) as total_hours,
-                    SUM(te.total_cost) as total_cost,
+                    COALESCE(SUM(te.total_hours), 0.0) as total_hours,
+                    COALESCE(SUM(te.total_cost), 0.0) as total_cost,
                     COUNT(te.id) as entries_count
                 FROM time_entries te
                 JOIN employees e ON te.employee_id = e.id
                 JOIN projects p ON te.project_id = p.id
                 JOIN project_tasks pt ON te.task_id = pt.id
-                WHERE DATE(te.punch_in) = ?
+                WHERE DATE(te.punch_in) = ? AND te.total_cost IS NOT NULL
                 GROUP BY e.id, p.id, pt.id
                 ORDER BY e.name, p.project_name
             ''', (date_str,))
@@ -284,8 +285,8 @@ class TimeTrackerDB:
                     SELECT 
                         p.project_name,
                         p.client_name,
-                        SUM(te.total_hours) as total_hours,
-                        SUM(te.total_cost) as total_revenue,
+                        COALESCE(SUM(te.total_hours), 0.0) as total_hours,
+                        COALESCE(SUM(te.total_cost), 0.0) as total_revenue,
                         COUNT(DISTINCT te.employee_id) as employees_count,
                         COUNT(te.id) as entries_count
                     FROM time_entries te
@@ -298,8 +299,8 @@ class TimeTrackerDB:
                     SELECT 
                         p.project_name,
                         p.client_name,
-                        SUM(te.total_hours) as total_hours,
-                        SUM(te.total_cost) as total_revenue,
+                        COALESCE(SUM(te.total_hours), 0.0) as total_hours,
+                        COALESCE(SUM(te.total_cost), 0.0) as total_revenue,
                         COUNT(DISTINCT te.employee_id) as employees_count,
                         COUNT(te.id) as entries_count
                     FROM time_entries te
@@ -538,9 +539,17 @@ def show_admin_interface(db: TimeTrackerDB):
                 currently_working += 1
         st.metric("🟢 En Activité", currently_working)
     with col4:
-        # Revenus du jour
+        # 🔧 CORRECTION - Revenus du jour avec gestion robuste des valeurs None
         today_summary = db.get_daily_summary()
-        today_revenue = sum(entry.get('total_cost', 0) for entry in today_summary)
+        today_revenue = 0.0
+        for entry in today_summary:
+            cost = entry.get('total_cost')
+            if cost is not None and cost != '':
+                try:
+                    today_revenue += float(cost)
+                except (ValueError, TypeError):
+                    continue  # Ignorer les valeurs invalides
+        
         st.metric("💰 Revenus Jour", f"{today_revenue:.0f}$ CAD")
     
     # Onglets d'administration
@@ -654,47 +663,76 @@ def show_analytics_interface(db: TimeTrackerDB):
     project_revenues = db.get_project_revenue_summary()
     
     if project_revenues:
-        # Graphique en secteurs
-        fig_pie = px.pie(
-            values=[rev['total_revenue'] for rev in project_revenues],
-            names=[rev['project_name'] for rev in project_revenues],
-            title="Répartition des Revenus par Projet"
-        )
-        fig_pie.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='var(--text-color)'),
-            title_x=0.5
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
+        # 🔧 CORRECTION - Validation des données pour graphiques
+        valid_revenues = []
+        for rev in project_revenues:
+            total_revenue = rev.get('total_revenue', 0)
+            if total_revenue is not None and total_revenue > 0:
+                try:
+                    valid_revenues.append({
+                        'project_name': rev.get('project_name', 'Projet Inconnu'),
+                        'total_revenue': float(total_revenue)
+                    })
+                except (ValueError, TypeError):
+                    continue
         
-        # Tableau détaillé
-        df_revenues = pd.DataFrame([
-            {
-                '📋 Projet': rev['project_name'],
-                '👤 Client': rev['client_name'],
-                '⏱️ Heures': f"{rev['total_hours']:.1f}h",
-                '💰 Revenus': f"{rev['total_revenue']:.2f}$ CAD",
-                '👥 Employés': rev['employees_count'],
-                '📊 Pointages': rev['entries_count']
-            }
-            for rev in project_revenues
-        ])
-        st.dataframe(df_revenues, use_container_width=True)
+        if valid_revenues:
+            # Graphique en secteurs avec données validées
+            fig_pie = px.pie(
+                values=[rev['total_revenue'] for rev in valid_revenues],
+                names=[rev['project_name'] for rev in valid_revenues],
+                title="Répartition des Revenus par Projet"
+            )
+            fig_pie.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='var(--text-color)'),
+                title_x=0.5
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("Aucune donnée de revenus valide pour le graphique.")
         
-        # Métriques globales
-        total_revenue = sum(rev['total_revenue'] for rev in project_revenues)
-        total_hours = sum(rev['total_hours'] for rev in project_revenues)
-        avg_hourly_rate = total_revenue / total_hours if total_hours > 0 else 0
+        # Tableau détaillé avec gestion d'erreurs
+        df_revenues = []
+        total_revenue_calc = 0
+        total_hours_calc = 0
         
-        metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
-        with metrics_col1:
-            st.metric("💰 Revenus Total", f"{total_revenue:.2f}$ CAD")
-        with metrics_col2:
-            st.metric("⏱️ Heures Total", f"{total_hours:.1f}h")
-        with metrics_col3:
-            st.metric("💵 Taux Moyen", f"{avg_hourly_rate:.2f}$/h")
-    
+        for rev in project_revenues:
+            try:
+                revenue = float(rev.get('total_revenue', 0) or 0)
+                hours = float(rev.get('total_hours', 0) or 0)
+                
+                total_revenue_calc += revenue
+                total_hours_calc += hours
+                
+                df_revenues.append({
+                    '📋 Projet': rev.get('project_name', 'N/A'),
+                    '👤 Client': rev.get('client_name', 'N/A'),
+                    '⏱️ Heures': f"{hours:.1f}h",
+                    '💰 Revenus': f"{revenue:.2f}$ CAD",
+                    '👥 Employés': rev.get('employees_count', 0),
+                    '📊 Pointages': rev.get('entries_count', 0)
+                })
+            except (ValueError, TypeError) as e:
+                st.warning(f"Données invalides ignorées pour le projet: {rev.get('project_name', 'Inconnu')}")
+                continue
+        
+        if df_revenues:
+            st.dataframe(pd.DataFrame(df_revenues), use_container_width=True)
+            
+            # Métriques globales avec protection d'erreur
+            avg_hourly_rate = total_revenue_calc / total_hours_calc if total_hours_calc > 0 else 0
+            
+            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+            with metrics_col1:
+                st.metric("💰 Revenus Total", f"{total_revenue_calc:.2f}$ CAD")
+            with metrics_col2:
+                st.metric("⏱️ Heures Total", f"{total_hours_calc:.1f}h")
+            with metrics_col3:
+                st.metric("💵 Taux Moyen", f"{avg_hourly_rate:.2f}$/h")
+        else:
+            st.warning("Aucune donnée de revenus valide trouvée.")
     else:
         st.info("Aucune donnée de revenus disponible.")
 
