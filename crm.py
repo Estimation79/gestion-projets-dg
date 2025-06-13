@@ -1,90 +1,793 @@
-# --- START OF FILE crm.py ---
+# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE ---
+# CRM Module pour ERP Production DG Inc. - Architecture SQLite
 
 import json
 import os
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
+from typing import Dict, List, Optional, Any
 
-# --- Constantes (si nécessaire) ---
+# --- Constantes ---
 TYPES_INTERACTION = ["Email", "Appel", "Réunion", "Note", "Autre"]
 STATUTS_OPPORTUNITE = ["Prospection", "Qualification", "Proposition", "Négociation", "Gagné", "Perdu"]
 
 class GestionnaireCRM:
-    def __init__(self, data_dir="."): # data_dir permet de spécifier où sauvegarder
-        self.data_file = os.path.join(data_dir, "crm_data.json")
-        self.contacts = []
-        self.entreprises = []
-        self.interactions = []
-        # self.opportunites = [] # Pour une future extension
-        self.next_contact_id = 1
-        self.next_entreprise_id = 1
-        self.next_interaction_id = 1
-        # self.next_opportunite_id = 1
-        self.charger_donnees_crm()
+    """
+    NOUVELLE ARCHITECTURE : Gestionnaire CRM utilisant SQLite au lieu de JSON
+    Compatible avec ERPDatabase pour une architecture unifiée
+    """
+    
+    def __init__(self, db=None):
+        """
+        Initialise le gestionnaire CRM avec base SQLite
+        
+        Args:
+            db: Instance de ERPDatabase, si None utilise l'ancienne méthode JSON (rétrocompatibilité)
+        """
+        self.db = db
+        self.use_sqlite = db is not None
+        
+        if not self.use_sqlite:
+            # Mode rétrocompatibilité JSON (conservé temporairement)
+            self.data_file = "crm_data.json"
+            self.contacts = []
+            self.entreprises = []
+            self.interactions = []
+            self.next_contact_id = 1
+            self.next_entreprise_id = 1
+            self.next_interaction_id = 1
+            self.charger_donnees_crm()
+        else:
+            # Mode SQLite unifié
+            self._init_demo_data_if_empty()
+    
+    def _init_demo_data_if_empty(self):
+        """Initialise des données démo si les tables SQLite sont vides"""
+        if not self.use_sqlite:
+            return
+            
+        try:
+            # Vérifier si des données existent déjà
+            companies = self.db.execute_query("SELECT COUNT(*) as count FROM companies")
+            contacts = self.db.execute_query("SELECT COUNT(*) as count FROM contacts")
+            
+            if companies[0]['count'] == 0 and contacts[0]['count'] == 0:
+                self._create_demo_data_sqlite()
+        except Exception as e:
+            st.error(f"Erreur initialisation données démo CRM: {e}")
+    
+    def _create_demo_data_sqlite(self):
+        """Crée des données de démonstration en SQLite"""
+        if not self.use_sqlite:
+            return
+            
+        try:
+            now_iso = datetime.now().isoformat()
+            
+            # Créer entreprises de démonstration
+            entreprises_demo = [
+                {
+                    'id': 101,
+                    'nom': 'TechCorp Inc.',
+                    'secteur': 'Technologie',
+                    'adresse': '1 Rue de la Paix, Paris',
+                    'site_web': 'techcorp.com',
+                    'notes': 'Client pour le projet E-commerce. Actif.'
+                },
+                {
+                    'id': 102,
+                    'nom': 'StartupXYZ',
+                    'secteur': 'Logiciel',
+                    'adresse': 'Silicon Valley',
+                    'site_web': 'startup.xyz',
+                    'notes': 'Client pour l\'app mobile. En phase de développement.'
+                },
+                {
+                    'id': 103,
+                    'nom': 'MegaCorp Ltd',
+                    'secteur': 'Finance',
+                    'adresse': 'La Défense, Paris',
+                    'site_web': 'megacorp.com',
+                    'notes': 'Projet CRM terminé. Potentiel pour maintenance.'
+                }
+            ]
+            
+            for entreprise in entreprises_demo:
+                self.db.execute_update('''
+                    INSERT OR REPLACE INTO companies 
+                    (id, nom, secteur, adresse, site_web, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    entreprise['id'],
+                    entreprise['nom'],
+                    entreprise['secteur'],
+                    entreprise['adresse'],
+                    entreprise['site_web'],
+                    entreprise['notes'],
+                    now_iso,
+                    now_iso
+                ))
+            
+            # Créer contacts de démonstration
+            contacts_demo = [
+                {
+                    'id': 1,
+                    'prenom': 'Alice',
+                    'nom_famille': 'Martin',
+                    'email': 'alice@techcorp.com',
+                    'telephone': '0102030405',
+                    'company_id': 101,
+                    'role_poste': 'Responsable Marketing',
+                    'notes': 'Contact principal pour le projet E-commerce.'
+                },
+                {
+                    'id': 2,
+                    'prenom': 'Bob',
+                    'nom_famille': 'Durand',
+                    'email': 'bob@startupxyz.com',
+                    'telephone': '0607080910',
+                    'company_id': 102,
+                    'role_poste': 'CTO',
+                    'notes': 'Décideur technique pour l\'application mobile.'
+                },
+                {
+                    'id': 3,
+                    'prenom': 'Claire',
+                    'nom_famille': 'Leroy',
+                    'email': 'claire.leroy@megacorp.com',
+                    'telephone': '0708091011',
+                    'company_id': 103,
+                    'role_poste': 'Chef de projet CRM',
+                    'notes': 'Très organisée, demande des rapports réguliers.'
+                }
+            ]
+            
+            for contact in contacts_demo:
+                self.db.execute_update('''
+                    INSERT OR REPLACE INTO contacts 
+                    (id, prenom, nom_famille, email, telephone, company_id, role_poste, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    contact['id'],
+                    contact['prenom'],
+                    contact['nom_famille'],
+                    contact['email'],
+                    contact['telephone'],
+                    contact['company_id'],
+                    contact['role_poste'],
+                    contact['notes'],
+                    now_iso,
+                    now_iso
+                ))
+            
+            # Mettre à jour les contact_principal_id des entreprises
+            self.db.execute_update("UPDATE companies SET contact_principal_id = 1 WHERE id = 101")
+            self.db.execute_update("UPDATE companies SET contact_principal_id = 2 WHERE id = 102")
+            self.db.execute_update("UPDATE companies SET contact_principal_id = 3 WHERE id = 103")
+            
+            # Créer interactions de démonstration
+            interactions_demo = [
+                {
+                    'id': 1001,
+                    'contact_id': 1,
+                    'company_id': 101,
+                    'type_interaction': 'Réunion',
+                    'date_interaction': (datetime.now() - timedelta(days=10)).isoformat(),
+                    'resume': 'Kick-off projet E-commerce',
+                    'details': 'Discussion des objectifs et du calendrier.',
+                    'resultat': 'Positif',
+                    'suivi_prevu': (datetime.now() - timedelta(days=3)).date().isoformat()
+                },
+                {
+                    'id': 1002,
+                    'contact_id': 2,
+                    'company_id': 102,
+                    'type_interaction': 'Appel',
+                    'date_interaction': (datetime.now() - timedelta(days=5)).isoformat(),
+                    'resume': 'Point technique app mobile',
+                    'details': 'Questions sur l\'API backend.',
+                    'resultat': 'En cours',
+                    'suivi_prevu': datetime.now().date().isoformat()
+                }
+            ]
+            
+            for interaction in interactions_demo:
+                self.db.execute_update('''
+                    INSERT OR REPLACE INTO interactions 
+                    (id, contact_id, company_id, type_interaction, date_interaction, resume, details, resultat, suivi_prevu, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    interaction['id'],
+                    interaction['contact_id'],
+                    interaction['company_id'],
+                    interaction['type_interaction'],
+                    interaction['date_interaction'],
+                    interaction['resume'],
+                    interaction['details'],
+                    interaction['resultat'],
+                    interaction['suivi_prevu'],
+                    now_iso
+                ))
+            
+            st.info("✅ Données de démonstration CRM créées en SQLite")
+            
+        except Exception as e:
+            st.error(f"Erreur création données démo CRM: {e}")
 
-    def _get_next_id(self, entity_list):
-        if not entity_list:
-            return 1
-        return max(item.get('id', 0) for item in entity_list) + 1
+    # --- Propriétés de compatibilité (pour l'interface existante) ---
+    @property
+    def contacts(self):
+        """Propriété pour maintenir compatibilité avec l'interface existante"""
+        if self.use_sqlite:
+            return self.get_all_contacts()
+        else:
+            return getattr(self, '_contacts', [])
+    
+    @contacts.setter
+    def contacts(self, value):
+        if not self.use_sqlite:
+            self._contacts = value
+    
+    @property
+    def entreprises(self):
+        """Propriété pour maintenir compatibilité avec l'interface existante"""
+        if self.use_sqlite:
+            return self.get_all_companies()
+        else:
+            return getattr(self, '_entreprises', [])
+    
+    @entreprises.setter
+    def entreprises(self, value):
+        if not self.use_sqlite:
+            self._entreprises = value
+    
+    @property
+    def interactions(self):
+        """Propriété pour maintenir compatibilité avec l'interface existante"""
+        if self.use_sqlite:
+            return self.get_all_interactions()
+        else:
+            return getattr(self, '_interactions', [])
+    
+    @interactions.setter
+    def interactions(self, value):
+        if not self.use_sqlite:
+            self._interactions = value
 
+    # --- Méthodes SQLite pour Companies (Entreprises) ---
+    def get_all_companies(self):
+        """Récupère toutes les entreprises depuis SQLite"""
+        if not self.use_sqlite:
+            return getattr(self, '_entreprises', [])
+        
+        try:
+            rows = self.db.execute_query('''
+                SELECT c.*, co.prenom as contact_prenom, co.nom_famille as contact_nom
+                FROM companies c
+                LEFT JOIN contacts co ON c.contact_principal_id = co.id
+                ORDER BY c.nom
+            ''')
+            
+            companies = []
+            for row in rows:
+                company = dict(row)
+                # Mapping pour compatibilité interface
+                company['id'] = company['id']
+                companies.append(company)
+            
+            return companies
+        except Exception as e:
+            st.error(f"Erreur récupération entreprises: {e}")
+            return []
+    
+    def ajouter_entreprise(self, data_entreprise):
+        """Ajoute une nouvelle entreprise en SQLite"""
+        if not self.use_sqlite:
+            return self._ajouter_entreprise_json(data_entreprise)
+        
+        try:
+            now_iso = datetime.now().isoformat()
+            
+            query = '''
+                INSERT INTO companies 
+                (nom, secteur, adresse, site_web, contact_principal_id, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            company_id = self.db.execute_insert(query, (
+                data_entreprise.get('nom'),
+                data_entreprise.get('secteur'),
+                data_entreprise.get('adresse'),
+                data_entreprise.get('site_web'),
+                data_entreprise.get('contact_principal_id'),
+                data_entreprise.get('notes'),
+                now_iso,
+                now_iso
+            ))
+            
+            return company_id
+            
+        except Exception as e:
+            st.error(f"Erreur ajout entreprise: {e}")
+            return None
+    
+    def modifier_entreprise(self, id_entreprise, data_entreprise):
+        """Modifie une entreprise existante en SQLite"""
+        if not self.use_sqlite:
+            return self._modifier_entreprise_json(id_entreprise, data_entreprise)
+        
+        try:
+            now_iso = datetime.now().isoformat()
+            
+            # Construire la requête dynamiquement selon les champs fournis
+            update_fields = []
+            params = []
+            
+            field_mapping = {
+                'nom': 'nom',
+                'secteur': 'secteur', 
+                'adresse': 'adresse',
+                'site_web': 'site_web',
+                'contact_principal_id': 'contact_principal_id',
+                'notes': 'notes'
+            }
+            
+            for field, db_field in field_mapping.items():
+                if field in data_entreprise:
+                    update_fields.append(f"{db_field} = ?")
+                    params.append(data_entreprise[field])
+            
+            if update_fields:
+                update_fields.append("updated_at = ?")
+                params.append(now_iso)
+                params.append(id_entreprise)
+                
+                query = f"UPDATE companies SET {', '.join(update_fields)} WHERE id = ?"
+                rows_affected = self.db.execute_update(query, tuple(params))
+                return rows_affected > 0
+            
+            return False
+            
+        except Exception as e:
+            st.error(f"Erreur modification entreprise: {e}")
+            return False
+    
+    def supprimer_entreprise(self, id_entreprise):
+        """Supprime une entreprise et ses données associées"""
+        if not self.use_sqlite:
+            return self._supprimer_entreprise_json(id_entreprise)
+        
+        try:
+            # Supprimer en cascade
+            self.db.execute_update("UPDATE contacts SET company_id = NULL WHERE company_id = ?", (id_entreprise,))
+            self.db.execute_update("DELETE FROM interactions WHERE company_id = ?", (id_entreprise,))
+            rows_affected = self.db.execute_update("DELETE FROM companies WHERE id = ?", (id_entreprise,))
+            return rows_affected > 0
+            
+        except Exception as e:
+            st.error(f"Erreur suppression entreprise: {e}")
+            return False
+    
+    def get_entreprise_by_id(self, id_entreprise):
+        """Récupère une entreprise par son ID"""
+        if not self.use_sqlite:
+            return next((e for e in getattr(self, '_entreprises', []) if e.get('id') == id_entreprise), None)
+        
+        try:
+            rows = self.db.execute_query("SELECT * FROM companies WHERE id = ?", (id_entreprise,))
+            return dict(rows[0]) if rows else None
+        except Exception as e:
+            st.error(f"Erreur récupération entreprise {id_entreprise}: {e}")
+            return None
+
+    # --- Méthodes SQLite pour Contacts ---
+    def get_all_contacts(self):
+        """Récupère tous les contacts depuis SQLite"""
+        if not self.use_sqlite:
+            return getattr(self, '_contacts', [])
+        
+        try:
+            rows = self.db.execute_query('''
+                SELECT c.*, co.nom as company_nom
+                FROM contacts c
+                LEFT JOIN companies co ON c.company_id = co.id
+                ORDER BY c.nom_famille, c.prenom
+            ''')
+            
+            contacts = []
+            for row in rows:
+                contact = dict(row)
+                # Mapping pour compatibilité interface existante
+                contact['entreprise_id'] = contact['company_id']  # Compatibilité
+                contact['role'] = contact['role_poste']  # Compatibilité
+                contacts.append(contact)
+            
+            return contacts
+        except Exception as e:
+            st.error(f"Erreur récupération contacts: {e}")
+            return []
+    
+    def ajouter_contact(self, data_contact):
+        """Ajoute un nouveau contact en SQLite"""
+        if not self.use_sqlite:
+            return self._ajouter_contact_json(data_contact)
+        
+        try:
+            now_iso = datetime.now().isoformat()
+            
+            query = '''
+                INSERT INTO contacts 
+                (prenom, nom_famille, email, telephone, company_id, role_poste, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            # Mapping des champs pour compatibilité
+            company_id = data_contact.get('entreprise_id') or data_contact.get('company_id')
+            role_poste = data_contact.get('role') or data_contact.get('role_poste')
+            
+            contact_id = self.db.execute_insert(query, (
+                data_contact.get('prenom'),
+                data_contact.get('nom_famille'),
+                data_contact.get('email'),
+                data_contact.get('telephone'),
+                company_id,
+                role_poste,
+                data_contact.get('notes'),
+                now_iso,
+                now_iso
+            ))
+            
+            return contact_id
+            
+        except Exception as e:
+            st.error(f"Erreur ajout contact: {e}")
+            return None
+    
+    def modifier_contact(self, id_contact, data_contact):
+        """Modifie un contact existant en SQLite"""
+        if not self.use_sqlite:
+            return self._modifier_contact_json(id_contact, data_contact)
+        
+        try:
+            now_iso = datetime.now().isoformat()
+            
+            # Construire la requête dynamiquement
+            update_fields = []
+            params = []
+            
+            field_mapping = {
+                'prenom': 'prenom',
+                'nom_famille': 'nom_famille',
+                'email': 'email',
+                'telephone': 'telephone',
+                'entreprise_id': 'company_id',
+                'company_id': 'company_id',
+                'role': 'role_poste',
+                'role_poste': 'role_poste',
+                'notes': 'notes'
+            }
+            
+            for field, db_field in field_mapping.items():
+                if field in data_contact:
+                    update_fields.append(f"{db_field} = ?")
+                    params.append(data_contact[field])
+            
+            if update_fields:
+                update_fields.append("updated_at = ?")
+                params.append(now_iso)
+                params.append(id_contact)
+                
+                query = f"UPDATE contacts SET {', '.join(update_fields)} WHERE id = ?"
+                rows_affected = self.db.execute_update(query, tuple(params))
+                return rows_affected > 0
+            
+            return False
+            
+        except Exception as e:
+            st.error(f"Erreur modification contact: {e}")
+            return False
+    
+    def supprimer_contact(self, id_contact):
+        """Supprime un contact et ses données associées"""
+        if not self.use_sqlite:
+            return self._supprimer_contact_json(id_contact)
+        
+        try:
+            # Supprimer en cascade
+            self.db.execute_update("DELETE FROM interactions WHERE contact_id = ?", (id_contact,))
+            self.db.execute_update("UPDATE companies SET contact_principal_id = NULL WHERE contact_principal_id = ?", (id_contact,))
+            rows_affected = self.db.execute_update("DELETE FROM contacts WHERE id = ?", (id_contact,))
+            return rows_affected > 0
+            
+        except Exception as e:
+            st.error(f"Erreur suppression contact: {e}")
+            return False
+    
+    def get_contact_by_id(self, id_contact):
+        """Récupère un contact par son ID"""
+        if not self.use_sqlite:
+            return next((c for c in getattr(self, '_contacts', []) if c.get('id') == id_contact), None)
+        
+        try:
+            rows = self.db.execute_query("SELECT * FROM contacts WHERE id = ?", (id_contact,))
+            if rows:
+                contact = dict(rows[0])
+                # Mapping pour compatibilité
+                contact['entreprise_id'] = contact['company_id']
+                contact['role'] = contact['role_poste']
+                return contact
+            return None
+        except Exception as e:
+            st.error(f"Erreur récupération contact {id_contact}: {e}")
+            return None
+    
+    def get_contacts_by_entreprise_id(self, id_entreprise):
+        """Récupère tous les contacts d'une entreprise"""
+        if not self.use_sqlite:
+            return [c for c in getattr(self, '_contacts', []) if c.get('entreprise_id') == id_entreprise]
+        
+        try:
+            rows = self.db.execute_query("SELECT * FROM contacts WHERE company_id = ?", (id_entreprise,))
+            contacts = []
+            for row in rows:
+                contact = dict(row)
+                contact['entreprise_id'] = contact['company_id']
+                contact['role'] = contact['role_poste']
+                contacts.append(contact)
+            return contacts
+        except Exception as e:
+            st.error(f"Erreur récupération contacts entreprise {id_entreprise}: {e}")
+            return []
+
+    # --- Méthodes SQLite pour Interactions ---
+    def get_all_interactions(self):
+        """Récupère toutes les interactions depuis SQLite"""
+        if not self.use_sqlite:
+            return getattr(self, '_interactions', [])
+        
+        try:
+            rows = self.db.execute_query('''
+                SELECT i.*, 
+                       c.prenom || ' ' || c.nom_famille as contact_nom,
+                       co.nom as company_nom
+                FROM interactions i
+                LEFT JOIN contacts c ON i.contact_id = c.id
+                LEFT JOIN companies co ON i.company_id = co.id
+                ORDER BY i.date_interaction DESC
+            ''')
+            
+            interactions = []
+            for row in rows:
+                interaction = dict(row)
+                # Mapping pour compatibilité
+                interaction['entreprise_id'] = interaction['company_id']
+                interaction['type'] = interaction['type_interaction']
+                interactions.append(interaction)
+            
+            return interactions
+        except Exception as e:
+            st.error(f"Erreur récupération interactions: {e}")
+            return []
+    
+    def ajouter_interaction(self, data_interaction):
+        """Ajoute une nouvelle interaction en SQLite"""
+        if not self.use_sqlite:
+            return self._ajouter_interaction_json(data_interaction)
+        
+        try:
+            now_iso = datetime.now().isoformat()
+            
+            query = '''
+                INSERT INTO interactions 
+                (contact_id, company_id, type_interaction, date_interaction, resume, details, resultat, suivi_prevu, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            # Mapping des champs pour compatibilité
+            company_id = data_interaction.get('entreprise_id') or data_interaction.get('company_id')
+            type_interaction = data_interaction.get('type') or data_interaction.get('type_interaction')
+            
+            interaction_id = self.db.execute_insert(query, (
+                data_interaction.get('contact_id'),
+                company_id,
+                type_interaction,
+                data_interaction.get('date_interaction'),
+                data_interaction.get('resume'),
+                data_interaction.get('details'),
+                data_interaction.get('resultat'),
+                data_interaction.get('suivi_prevu'),
+                now_iso
+            ))
+            
+            return interaction_id
+            
+        except Exception as e:
+            st.error(f"Erreur ajout interaction: {e}")
+            return None
+    
+    def modifier_interaction(self, id_interaction, data_interaction):
+        """Modifie une interaction existante en SQLite"""
+        if not self.use_sqlite:
+            return self._modifier_interaction_json(id_interaction, data_interaction)
+        
+        try:
+            # Construire la requête dynamiquement
+            update_fields = []
+            params = []
+            
+            field_mapping = {
+                'contact_id': 'contact_id',
+                'entreprise_id': 'company_id',
+                'company_id': 'company_id',
+                'type': 'type_interaction',
+                'type_interaction': 'type_interaction',
+                'date_interaction': 'date_interaction',
+                'resume': 'resume',
+                'details': 'details',
+                'resultat': 'resultat',
+                'suivi_prevu': 'suivi_prevu'
+            }
+            
+            for field, db_field in field_mapping.items():
+                if field in data_interaction:
+                    update_fields.append(f"{db_field} = ?")
+                    params.append(data_interaction[field])
+            
+            if update_fields:
+                params.append(id_interaction)
+                query = f"UPDATE interactions SET {', '.join(update_fields)} WHERE id = ?"
+                rows_affected = self.db.execute_update(query, tuple(params))
+                return rows_affected > 0
+            
+            return False
+            
+        except Exception as e:
+            st.error(f"Erreur modification interaction: {e}")
+            return False
+    
+    def supprimer_interaction(self, id_interaction):
+        """Supprime une interaction"""
+        if not self.use_sqlite:
+            return self._supprimer_interaction_json(id_interaction)
+        
+        try:
+            rows_affected = self.db.execute_update("DELETE FROM interactions WHERE id = ?", (id_interaction,))
+            return rows_affected > 0
+        except Exception as e:
+            st.error(f"Erreur suppression interaction: {e}")
+            return False
+    
+    def get_interaction_by_id(self, id_interaction):
+        """Récupère une interaction par son ID"""
+        if not self.use_sqlite:
+            return next((i for i in getattr(self, '_interactions', []) if i.get('id') == id_interaction), None)
+        
+        try:
+            rows = self.db.execute_query("SELECT * FROM interactions WHERE id = ?", (id_interaction,))
+            if rows:
+                interaction = dict(rows[0])
+                # Mapping pour compatibilité
+                interaction['entreprise_id'] = interaction['company_id']
+                interaction['type'] = interaction['type_interaction']
+                return interaction
+            return None
+        except Exception as e:
+            st.error(f"Erreur récupération interaction {id_interaction}: {e}")
+            return None
+    
+    def get_interactions_for_contact(self, id_contact):
+        """Récupère toutes les interactions d'un contact"""
+        if not self.use_sqlite:
+            return sorted([i for i in getattr(self, '_interactions', []) if i.get('contact_id') == id_contact], 
+                         key=lambda x: x.get('date_interaction'), reverse=True)
+        
+        try:
+            rows = self.db.execute_query(
+                "SELECT * FROM interactions WHERE contact_id = ? ORDER BY date_interaction DESC", 
+                (id_contact,)
+            )
+            interactions = []
+            for row in rows:
+                interaction = dict(row)
+                interaction['entreprise_id'] = interaction['company_id']
+                interaction['type'] = interaction['type_interaction']
+                interactions.append(interaction)
+            return interactions
+        except Exception as e:
+            st.error(f"Erreur récupération interactions contact {id_contact}: {e}")
+            return []
+    
+    def get_interactions_for_entreprise(self, id_entreprise):
+        """Récupère toutes les interactions d'une entreprise"""
+        if not self.use_sqlite:
+            return sorted([i for i in getattr(self, '_interactions', []) if i.get('entreprise_id') == id_entreprise], 
+                         key=lambda x: x.get('date_interaction'), reverse=True)
+        
+        try:
+            rows = self.db.execute_query(
+                "SELECT * FROM interactions WHERE company_id = ? ORDER BY date_interaction DESC", 
+                (id_entreprise,)
+            )
+            interactions = []
+            for row in rows:
+                interaction = dict(row)
+                interaction['entreprise_id'] = interaction['company_id']
+                interaction['type'] = interaction['type_interaction']
+                interactions.append(interaction)
+            return interactions
+        except Exception as e:
+            st.error(f"Erreur récupération interactions entreprise {id_entreprise}: {e}")
+            return []
+
+    # --- Méthodes JSON (Rétrocompatibilité) ---
     def charger_donnees_crm(self):
+        """Charge les données CRM depuis JSON (rétrocompatibilité)"""
+        if self.use_sqlite:
+            return
+        
         try:
             if os.path.exists(self.data_file):
                 with open(self.data_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.contacts = data.get('contacts', [])
-                    self.entreprises = data.get('entreprises', [])
-                    self.interactions = data.get('interactions', [])
-                    # self.opportunites = data.get('opportunites', [])
-
-                    # Recalculer next_id pour être sûr, au cas où le fichier serait modifié manuellement
-                    self.next_contact_id = self._get_next_id(self.contacts)
-                    self.next_entreprise_id = self._get_next_id(self.entreprises)
-                    self.next_interaction_id = self._get_next_id(self.interactions)
-                    # self.next_opportunite_id = self._get_next_id(self.opportunites)
+                    self._contacts = data.get('contacts', [])
+                    self._entreprises = data.get('entreprises', [])
+                    self._interactions = data.get('interactions', [])
+                    
+                    self.next_contact_id = self._get_next_id(self._contacts)
+                    self.next_entreprise_id = self._get_next_id(self._entreprises)
+                    self.next_interaction_id = self._get_next_id(self._interactions)
             else:
                 self._initialiser_donnees_demo_crm()
         except Exception as e:
-            # Utiliser st.error si c'est dans un contexte Streamlit, sinon print
-            if 'st' in globals(): # Vérifie si Streamlit est importé et utilisable
+            if 'st' in globals():
                 st.error(f"Erreur critique lors du chargement des données CRM: {e}. Initialisation avec données de démo.")
-            else:
-                print(f"ERREUR CRM: Erreur critique lors du chargement des données CRM: {e}. Initialisation avec données de démo.")
             self._initialiser_donnees_demo_crm()
 
+    def _get_next_id(self, entity_list):
+        """Utilitaire pour calculer le prochain ID"""
+        if not entity_list:
+            return 1
+        return max(item.get('id', 0) for item in entity_list) + 1
+
     def _initialiser_donnees_demo_crm(self):
+        """Initialise des données de démonstration JSON"""
+        if self.use_sqlite:
+            return
+        
         now_iso = datetime.now().isoformat()
-        self.contacts = [
+        self._contacts = [
             {'id':1, 'prenom':'Alice', 'nom_famille':'Martin', 'email':'alice@techcorp.com', 'telephone':'0102030405', 'entreprise_id':101, 'role':'Responsable Marketing', 'notes':'Contact principal pour le projet E-commerce.', 'date_creation': now_iso, 'date_modification': now_iso},
             {'id':2, 'prenom':'Bob', 'nom_famille':'Durand', 'email':'bob@startupxyz.com', 'telephone':'0607080910', 'entreprise_id':102, 'role':'CTO', 'notes':'Décideur technique pour l\'application mobile.', 'date_creation': now_iso, 'date_modification': now_iso},
             {'id':3, 'prenom':'Claire', 'nom_famille':'Leroy', 'email':'claire.leroy@megacorp.com', 'telephone':'0708091011', 'entreprise_id':103, 'role':'Chef de projet CRM', 'notes':'Très organisée, demande des rapports réguliers.', 'date_creation': now_iso, 'date_modification': now_iso}
         ]
-        self.entreprises = [
+        self._entreprises = [
             {'id':101, 'nom':'TechCorp Inc.', 'secteur':'Technologie', 'adresse':'1 Rue de la Paix, Paris', 'site_web':'techcorp.com', 'contact_principal_id':1, 'notes':'Client pour le projet E-commerce. Actif.', 'date_creation': now_iso, 'date_modification': now_iso},
             {'id':102, 'nom':'StartupXYZ', 'secteur':'Logiciel', 'adresse':'Silicon Valley', 'site_web':'startup.xyz', 'contact_principal_id':2, 'notes':'Client pour l\'app mobile. En phase de développement.', 'date_creation': now_iso, 'date_modification': now_iso},
             {'id':103, 'nom':'MegaCorp Ltd', 'secteur':'Finance', 'adresse':'La Défense, Paris', 'site_web':'megacorp.com', 'contact_principal_id':3, 'notes':'Projet CRM terminé. Potentiel pour maintenance.', 'date_creation': now_iso, 'date_modification': now_iso}
         ]
-        self.interactions = [
+        self._interactions = [
             {'id':1001, 'contact_id':1, 'entreprise_id':101, 'type':'Réunion', 'date_interaction': (datetime.now() - timedelta(days=10)).isoformat(), 'resume':'Kick-off projet E-commerce', 'details': 'Discussion des objectifs et du calendrier.', 'resultat':'Positif', 'suivi_prevu': (datetime.now() - timedelta(days=3)).isoformat()},
             {'id':1002, 'contact_id':2, 'entreprise_id':102, 'type':'Appel', 'date_interaction': (datetime.now() - timedelta(days=5)).isoformat(), 'resume':'Point technique app mobile', 'details': 'Questions sur l\'API backend.', 'resultat':'En cours', 'suivi_prevu': datetime.now().isoformat()}
         ]
-        self.next_contact_id = self._get_next_id(self.contacts)
-        self.next_entreprise_id = self._get_next_id(self.entreprises)
-        self.next_interaction_id = self._get_next_id(self.interactions)
+        self.next_contact_id = self._get_next_id(self._contacts)
+        self.next_entreprise_id = self._get_next_id(self._entreprises)
+        self.next_interaction_id = self._get_next_id(self._interactions)
         self.sauvegarder_donnees_crm()
 
     def sauvegarder_donnees_crm(self):
+        """Sauvegarde les données CRM en JSON (rétrocompatibilité)"""
+        if self.use_sqlite:
+            return  # Pas de sauvegarde nécessaire avec SQLite
+        
         try:
             data = {
-                'contacts': self.contacts,
-                'entreprises': self.entreprises,
-                'interactions': self.interactions,
-                # 'opportunites': self.opportunites,
+                'contacts': self._contacts,
+                'entreprises': self._entreprises,
+                'interactions': self._interactions,
                 'next_contact_id': self.next_contact_id,
                 'next_entreprise_id': self.next_entreprise_id,
                 'next_interaction_id': self.next_interaction_id,
-                # 'next_opportunite_id': self.next_opportunite_id,
                 'last_update': datetime.now().isoformat()
             }
             with open(self.data_file, 'w', encoding='utf-8') as f:
@@ -92,119 +795,89 @@ class GestionnaireCRM:
         except Exception as e:
             if 'st' in globals():
                 st.error(f"Erreur critique lors de la sauvegarde des données CRM: {e}")
-            else:
-                print(f"ERREUR CRM: Erreur critique lors de la sauvegarde des données CRM: {e}")
 
-    # --- Méthodes CRUD pour Contacts ---
-    def ajouter_contact(self, data_contact):
+    # Méthodes JSON (implémentation simplifiée pour rétrocompatibilité)
+    def _ajouter_contact_json(self, data_contact):
         data_contact['id'] = self.next_contact_id
         data_contact['date_creation'] = datetime.now().isoformat()
         data_contact['date_modification'] = datetime.now().isoformat()
-        self.contacts.append(data_contact)
+        self._contacts.append(data_contact)
         self.next_contact_id += 1
         self.sauvegarder_donnees_crm()
         return data_contact['id']
 
-    def modifier_contact(self, id_contact, data_contact):
-        for i, c in enumerate(self.contacts):
+    def _modifier_contact_json(self, id_contact, data_contact):
+        for i, c in enumerate(self._contacts):
             if c['id'] == id_contact:
                 updated_contact = {**c, **data_contact, 'date_modification': datetime.now().isoformat()}
-                self.contacts[i] = updated_contact
+                self._contacts[i] = updated_contact
                 self.sauvegarder_donnees_crm()
                 return True
         return False
 
-    def supprimer_contact(self, id_contact):
-        contact_a_supprimer = self.get_contact_by_id(id_contact)
-        if not contact_a_supprimer:
-            return False
-
-        self.contacts = [c for c in self.contacts if c['id'] != id_contact]
-        self.interactions = [i for i in self.interactions if i.get('contact_id') != id_contact]
-        for entreprise in self.entreprises:
+    def _supprimer_contact_json(self, id_contact):
+        self._contacts = [c for c in self._contacts if c['id'] != id_contact]
+        self._interactions = [i for i in self._interactions if i.get('contact_id') != id_contact]
+        for entreprise in self._entreprises:
             if entreprise.get('contact_principal_id') == id_contact:
                 entreprise['contact_principal_id'] = None
         self.sauvegarder_donnees_crm()
         return True
 
-    def get_contact_by_id(self, id_contact):
-        return next((c for c in self.contacts if c.get('id') == id_contact), None)
-
-    def get_contacts_by_entreprise_id(self, id_entreprise):
-        return [c for c in self.contacts if c.get('entreprise_id') == id_entreprise]
-
-    # --- Méthodes CRUD pour Entreprises ---
-    def ajouter_entreprise(self, data_entreprise):
+    def _ajouter_entreprise_json(self, data_entreprise):
         data_entreprise['id'] = self.next_entreprise_id
         data_entreprise['date_creation'] = datetime.now().isoformat()
         data_entreprise['date_modification'] = datetime.now().isoformat()
-        self.entreprises.append(data_entreprise)
+        self._entreprises.append(data_entreprise)
         self.next_entreprise_id += 1
         self.sauvegarder_donnees_crm()
         return data_entreprise['id']
 
-    def modifier_entreprise(self, id_entreprise, data_entreprise):
-        for i, e in enumerate(self.entreprises):
+    def _modifier_entreprise_json(self, id_entreprise, data_entreprise):
+        for i, e in enumerate(self._entreprises):
             if e['id'] == id_entreprise:
                 updated_entreprise = {**e, **data_entreprise, 'date_modification': datetime.now().isoformat()}
-                self.entreprises[i] = updated_entreprise
+                self._entreprises[i] = updated_entreprise
                 self.sauvegarder_donnees_crm()
                 return True
         return False
 
-    def supprimer_entreprise(self, id_entreprise):
-        entreprise_a_supprimer = self.get_entreprise_by_id(id_entreprise)
-        if not entreprise_a_supprimer:
-            return False
-
-        self.entreprises = [e for e in self.entreprises if e['id'] != id_entreprise]
-        for contact in self.contacts:
+    def _supprimer_entreprise_json(self, id_entreprise):
+        self._entreprises = [e for e in self._entreprises if e['id'] != id_entreprise]
+        for contact in self._contacts:
             if contact.get('entreprise_id') == id_entreprise:
                 contact['entreprise_id'] = None
-        self.interactions = [i for i in self.interactions if not (i.get('entreprise_id') == id_entreprise and i.get('contact_id') is None)]
+        self._interactions = [i for i in self._interactions if not (i.get('entreprise_id') == id_entreprise and i.get('contact_id') is None)]
         self.sauvegarder_donnees_crm()
         return True
 
-    def get_entreprise_by_id(self, id_entreprise):
-        return next((e for e in self.entreprises if e.get('id') == id_entreprise), None)
-
-    # --- Méthodes CRUD pour Interactions ---
-    def ajouter_interaction(self, data_interaction):
+    def _ajouter_interaction_json(self, data_interaction):
         data_interaction['id'] = self.next_interaction_id
         if 'date_interaction' not in data_interaction:
             data_interaction['date_interaction'] = datetime.now().isoformat()
-        self.interactions.append(data_interaction)
+        self._interactions.append(data_interaction)
         self.next_interaction_id += 1
         self.sauvegarder_donnees_crm()
         return data_interaction['id']
 
-    def modifier_interaction(self, id_interaction, data_interaction):
-        for i, inter in enumerate(self.interactions):
+    def _modifier_interaction_json(self, id_interaction, data_interaction):
+        for i, inter in enumerate(self._interactions):
             if inter['id'] == id_interaction:
                 updated_interaction = {**inter, **data_interaction}
-                self.interactions[i] = updated_interaction
+                self._interactions[i] = updated_interaction
                 self.sauvegarder_donnees_crm()
                 return True
         return False
 
-    def supprimer_interaction(self, id_interaction):
-        self.interactions = [i for i in self.interactions if i.get('id') != id_interaction]
+    def _supprimer_interaction_json(self, id_interaction):
+        self._interactions = [i for i in self._interactions if i.get('id') != id_interaction]
         self.sauvegarder_donnees_crm()
         return True
 
-    def get_interaction_by_id(self, id_interaction):
-        return next((i for i in self.interactions if i.get('id') == id_interaction), None)
-
-    def get_interactions_for_contact(self, id_contact):
-        return sorted([i for i in self.interactions if i.get('contact_id') == id_contact], key=lambda x: x.get('date_interaction'), reverse=True)
-
-    def get_interactions_for_entreprise(self, id_entreprise):
-        return sorted([i for i in self.interactions if i.get('entreprise_id') == id_entreprise], key=lambda x: x.get('date_interaction'), reverse=True)
-
-# --- Fonctions d'affichage Streamlit spécifiques au CRM ---
+# --- Fonctions d'affichage Streamlit (INCHANGÉES - Interface préservée) ---
 
 def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
-    st.subheader("👤 Liste des Contacts")
+    st.subheader("👤 Liste des Contacts (SQLite)")
 
     col_create_contact, col_search_contact = st.columns([1, 2])
     with col_create_contact:
@@ -223,15 +896,25 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
             term in c.get('prenom', '').lower() or
             term in c.get('nom_famille', '').lower() or
             term in c.get('email', '').lower() or
-            (crm_manager.get_entreprise_by_id(c.get('entreprise_id')) and term in crm_manager.get_entreprise_by_id(c.get('entreprise_id')).get('nom','').lower())
+            (crm_manager.get_entreprise_by_id(c.get('entreprise_id') or c.get('company_id')) and 
+             term in crm_manager.get_entreprise_by_id(c.get('entreprise_id') or c.get('company_id')).get('nom','').lower())
         ]
 
     if filtered_contacts:
         contacts_data_display = []
         for contact in filtered_contacts:
-            entreprise = crm_manager.get_entreprise_by_id(contact.get('entreprise_id'))
+            entreprise_id = contact.get('entreprise_id') or contact.get('company_id')
+            entreprise = crm_manager.get_entreprise_by_id(entreprise_id)
             nom_entreprise = entreprise['nom'] if entreprise else "N/A"
-            projets_lies = [p['nom_projet'] for p in projet_manager.projets if p.get('client_contact_id') == contact.get('id') or (p.get('client_entreprise_id') == contact.get('entreprise_id') and contact.get('entreprise_id') is not None) ]
+            
+            # Recherche des projets liés - adaptation pour SQLite
+            projets_lies = []
+            if hasattr(projet_manager, 'projets'):
+                projets_lies = [p['nom_projet'] for p in projet_manager.projets 
+                              if p.get('client_contact_id') == contact.get('id') or 
+                              (p.get('client_entreprise_id') == entreprise_id and entreprise_id is not None) or
+                              (p.get('client_company_id') == entreprise_id and entreprise_id is not None)]
+            
             contacts_data_display.append({
                 "ID": contact.get('id'),
                 "Prénom": contact.get('prenom'),
@@ -239,7 +922,7 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
                 "Email": contact.get('email'),
                 "Téléphone": contact.get('telephone'),
                 "Entreprise": nom_entreprise,
-                "Rôle": contact.get('role'),
+                "Rôle": contact.get('role') or contact.get('role_poste'),
                 "Projets Liés": ", ".join(projets_lies) if projets_lies else "-"
             })
         st.dataframe(pd.DataFrame(contacts_data_display), use_container_width=True)
@@ -269,8 +952,7 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
     else:
         st.info("Aucun contact correspondant aux filtres." if search_contact_term else "Aucun contact enregistré.")
 
-    # La gestion des formulaires et détails se fait dans app.py via st.session_state.crm_action
-
+    # Gestion des confirmations de suppression
     if 'crm_confirm_delete_contact_id' in st.session_state and st.session_state.crm_confirm_delete_contact_id:
         contact_to_delete = crm_manager.get_contact_by_id(st.session_state.crm_confirm_delete_contact_id)
         if contact_to_delete:
@@ -278,7 +960,7 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
             col_del_confirm, col_del_cancel = st.columns(2)
             if col_del_confirm.button("Oui, supprimer ce contact", type="primary", key="crm_confirm_delete_contact_btn_final"):
                 crm_manager.supprimer_contact(st.session_state.crm_confirm_delete_contact_id)
-                st.success("Contact supprimé.")
+                st.success("Contact supprimé de SQLite.")
                 del st.session_state.crm_confirm_delete_contact_id
                 st.rerun()
             if col_del_cancel.button("Annuler la suppression", key="crm_cancel_delete_contact_btn_final"):
@@ -286,16 +968,18 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
                 st.rerun()
 
 def render_crm_contact_form(crm_manager: GestionnaireCRM, contact_data=None):
-    form_title = "➕ Ajouter un Nouveau Contact" if contact_data is None else f"✏️ Modifier le Contact #{contact_data.get('id')}"
-    # Utilisation d'un expander pour le formulaire pour économiser de la place
+    form_title = "➕ Ajouter un Nouveau Contact (SQLite)" if contact_data is None else f"✏️ Modifier le Contact #{contact_data.get('id')} (SQLite)"
+    
     with st.expander(form_title, expanded=True):
-        with st.form(key="crm_contact_form_in_expander", clear_on_submit=False): # clear_on_submit=False pour garder les valeurs en cas d'erreur
+        with st.form(key="crm_contact_form_in_expander", clear_on_submit=False):
             c1, c2 = st.columns(2)
             with c1:
                 prenom = st.text_input("Prénom *", value=contact_data.get('prenom', '') if contact_data else "")
                 email = st.text_input("Email", value=contact_data.get('email', '') if contact_data else "")
+                
+                # Sélection d'entreprise - compatible SQLite
                 entreprise_id_options = [("", "Aucune")] + [(e['id'], e['nom']) for e in crm_manager.entreprises]
-                current_entreprise_id = contact_data.get('entreprise_id') if contact_data else ""
+                current_entreprise_id = contact_data.get('entreprise_id') or contact_data.get('company_id') if contact_data else ""
                 entreprise_id = st.selectbox(
                     "Entreprise",
                     options=[opt_id for opt_id, _ in entreprise_id_options],
@@ -307,14 +991,14 @@ def render_crm_contact_form(crm_manager: GestionnaireCRM, contact_data=None):
             with c2:
                 nom_famille = st.text_input("Nom de famille *", value=contact_data.get('nom_famille', '') if contact_data else "")
                 telephone = st.text_input("Téléphone", value=contact_data.get('telephone', '') if contact_data else "")
-                role = st.text_input("Rôle/Fonction", value=contact_data.get('role', '') if contact_data else "")
+                role = st.text_input("Rôle/Fonction", value=(contact_data.get('role') or contact_data.get('role_poste', '')) if contact_data else "")
 
             notes = st.text_area("Notes", value=contact_data.get('notes', '') if contact_data else "", key="contact_form_notes")
             st.caption("* Champs obligatoires")
 
             col_submit, col_cancel_form = st.columns(2)
             with col_submit:
-                submitted = st.form_submit_button("💾 Enregistrer", use_container_width=True)
+                submitted = st.form_submit_button("💾 Enregistrer SQLite", use_container_width=True)
             with col_cancel_form:
                 if st.form_submit_button("❌ Annuler", use_container_width=True):
                     st.session_state.crm_action = None
@@ -331,15 +1015,22 @@ def render_crm_contact_form(crm_manager: GestionnaireCRM, contact_data=None):
                         'email': email,
                         'telephone': telephone,
                         'entreprise_id': entreprise_id if entreprise_id else None,
+                        'company_id': entreprise_id if entreprise_id else None,  # Compatibilité SQLite
                         'role': role,
+                        'role_poste': role,  # Compatibilité SQLite
                         'notes': notes
                     }
-                    if contact_data: # Modification
-                        crm_manager.modifier_contact(contact_data['id'], new_contact_data)
-                        st.success(f"Contact #{contact_data['id']} mis à jour !")
-                    else: # Création
+                    if contact_data:  # Modification
+                        if crm_manager.modifier_contact(contact_data['id'], new_contact_data):
+                            st.success(f"Contact #{contact_data['id']} mis à jour en SQLite !")
+                        else:
+                            st.error("Erreur lors de la modification SQLite.")
+                    else:  # Création
                         new_id = crm_manager.ajouter_contact(new_contact_data)
-                        st.success(f"Nouveau contact #{new_id} ajouté !")
+                        if new_id:
+                            st.success(f"Nouveau contact #{new_id} ajouté en SQLite !")
+                        else:
+                            st.error("Erreur lors de la création SQLite.")
 
                     st.session_state.crm_action = None
                     st.session_state.crm_selected_id = None
@@ -350,9 +1041,10 @@ def render_crm_contact_details(crm_manager: GestionnaireCRM, projet_manager, con
         st.error("Contact non trouvé.")
         return
 
-    st.subheader(f"👤 Détails du Contact: {contact_data.get('prenom')} {contact_data.get('nom_famille')}")
+    st.subheader(f"👤 Détails du Contact: {contact_data.get('prenom')} {contact_data.get('nom_famille')} (SQLite)")
 
-    entreprise = crm_manager.get_entreprise_by_id(contact_data.get('entreprise_id'))
+    entreprise_id = contact_data.get('entreprise_id') or contact_data.get('company_id')
+    entreprise = crm_manager.get_entreprise_by_id(entreprise_id)
     nom_entreprise_detail = entreprise['nom'] if entreprise else "N/A"
 
     c1, c2 = st.columns(2)
@@ -362,41 +1054,47 @@ def render_crm_contact_details(crm_manager: GestionnaireCRM, projet_manager, con
         st.write(f"**Entreprise:** {nom_entreprise_detail}")
     with c2:
         st.write(f"**Téléphone:** {contact_data.get('telephone', 'N/A')}")
-        st.write(f"**Rôle:** {contact_data.get('role', 'N/A')}")
+        st.write(f"**Rôle:** {contact_data.get('role') or contact_data.get('role_poste', 'N/A')}")
 
     st.markdown("**Notes:**")
     st.text_area("contact_detail_notes_display", value=contact_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
 
     st.markdown("---")
-    st.markdown("#### 💬 Interactions Récentes")
+    st.markdown("#### 💬 Interactions Récentes (SQLite)")
     interactions_contact = crm_manager.get_interactions_for_contact(contact_data['id'])
     if interactions_contact:
         for inter in interactions_contact[:5]:
-            st.markdown(f"<div class='info-card' style='border-left: 3px solid var(--primary-color-light);'><b>{inter.get('type')}</b> - {datetime.fromisoformat(inter.get('date_interaction')).strftime('%d/%m/%Y %H:%M')}<br>{inter.get('resume', '')}</div>", unsafe_allow_html=True)
+            type_display = inter.get('type') or inter.get('type_interaction', 'N/A')
+            st.markdown(f"<div class='info-card' style='border-left: 3px solid var(--primary-color-light);'><b>{type_display}</b> - {datetime.fromisoformat(inter.get('date_interaction')).strftime('%d/%m/%Y %H:%M')}<br>{inter.get('resume', '')}</div>", unsafe_allow_html=True)
     else:
         st.caption("Aucune interaction enregistrée pour ce contact.")
 
     st.markdown("---")
-    st.markdown("#### 🚀 Projets Liés")
-    projets_lies_contact = [p for p in projet_manager.projets if p.get('client_contact_id') == contact_data.get('id') or (p.get('client_entreprise_id') == contact_data.get('entreprise_id') and contact_data.get('entreprise_id') is not None)]
-    if projets_lies_contact:
-        for proj in projets_lies_contact:
-            link_text = f"Projet #{proj.get('id')}: {proj.get('nom_projet')} ({proj.get('statut')})"
-            # Solution alternative (plus sûre que onClick JS direct pour Streamlit)
-            if st.button(link_text, key=f"goto_project_from_crm_{proj.get('id')}"):
-                st.session_state.page_to_show_val = "liste" # Nom de la clé pour la page liste de projets
-                st.session_state.view_project_id_from_crm = proj.get('id') # État pour pré-sélectionner le projet
-                st.rerun()
-            st.markdown("---", unsafe_allow_html=True) # Séparateur visuel
+    st.markdown("#### 🚀 Projets Liés (SQLite)")
+    if hasattr(projet_manager, 'projets'):
+        projets_lies_contact = [p for p in projet_manager.projets 
+                              if p.get('client_contact_id') == contact_data.get('id') or 
+                              (p.get('client_entreprise_id') == entreprise_id and entreprise_id is not None) or
+                              (p.get('client_company_id') == entreprise_id and entreprise_id is not None)]
+        if projets_lies_contact:
+            for proj in projets_lies_contact:
+                link_text = f"Projet #{proj.get('id')}: {proj.get('nom_projet')} ({proj.get('statut')})"
+                if st.button(link_text, key=f"goto_project_from_crm_{proj.get('id')}"):
+                    st.session_state.page_to_show_val = "liste"
+                    st.session_state.view_project_id_from_crm = proj.get('id')
+                    st.rerun()
+                st.markdown("---", unsafe_allow_html=True)
+        else:
+            st.caption("Aucun projet directement lié à ce contact.")
     else:
-        st.caption("Aucun projet directement lié à ce contact.")
+        st.caption("Gestionnaire de projets non disponible.")
 
     if st.button("Retour à la liste des contacts", key="back_to_contacts_list_from_details_crm"):
         st.session_state.crm_action = None
         st.rerun()
 
 def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
-    st.subheader("🏢 Liste des Entreprises")
+    st.subheader("🏢 Liste des Entreprises (SQLite)")
 
     col_create_entreprise, col_search_entreprise = st.columns([1, 2])
     with col_create_entreprise:
@@ -422,7 +1120,13 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
         for entreprise_item in filtered_entreprises:
             contact_principal = crm_manager.get_contact_by_id(entreprise_item.get('contact_principal_id'))
             nom_contact_principal = f"{contact_principal.get('prenom','')} {contact_principal.get('nom_famille','')}" if contact_principal else "N/A"
-            projets_lies_entreprise = [p['nom_projet'] for p in projet_manager.projets if p.get('client_entreprise_id') == entreprise_item.get('id')]
+            
+            # Recherche des projets liés - adaptation pour SQLite
+            projets_lies_entreprise = []
+            if hasattr(projet_manager, 'projets'):
+                projets_lies_entreprise = [p['nom_projet'] for p in projet_manager.projets 
+                                         if p.get('client_entreprise_id') == entreprise_item.get('id') or
+                                         p.get('client_company_id') == entreprise_item.get('id')]
 
             entreprises_data_display.append({
                 "ID": entreprise_item.get('id'),
@@ -465,8 +1169,10 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
             st.warning(f"Êtes-vous sûr de vouloir supprimer l'entreprise {entreprise_to_delete.get('nom')} ? Cette action est irréversible.")
             col_del_confirm, col_del_cancel = st.columns(2)
             if col_del_confirm.button("Oui, supprimer cette entreprise", type="primary", key="crm_confirm_delete_entreprise_btn_final"):
-                crm_manager.supprimer_entreprise(st.session_state.crm_confirm_delete_entreprise_id)
-                st.success("Entreprise supprimée.")
+                if crm_manager.supprimer_entreprise(st.session_state.crm_confirm_delete_entreprise_id):
+                    st.success("Entreprise supprimée de SQLite.")
+                else:
+                    st.error("Erreur lors de la suppression SQLite.")
                 del st.session_state.crm_confirm_delete_entreprise_id
                 st.rerun()
             if col_del_cancel.button("Annuler la suppression", key="crm_cancel_delete_entreprise_btn_final"):
@@ -474,7 +1180,7 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
                 st.rerun()
 
 def render_crm_entreprise_form(crm_manager: GestionnaireCRM, entreprise_data=None):
-    form_title_e = "➕ Ajouter une Nouvelle Entreprise" if entreprise_data is None else f"✏️ Modifier l'Entreprise #{entreprise_data.get('id')}"
+    form_title_e = "➕ Ajouter une Nouvelle Entreprise (SQLite)" if entreprise_data is None else f"✏️ Modifier l'Entreprise #{entreprise_data.get('id')} (SQLite)"
     with st.expander(form_title_e, expanded=True):
         with st.form(key="crm_entreprise_form_in_expander", clear_on_submit=False):
             nom_e = st.text_input("Nom de l'entreprise *", value=entreprise_data.get('nom', '') if entreprise_data else "")
@@ -496,7 +1202,7 @@ def render_crm_entreprise_form(crm_manager: GestionnaireCRM, entreprise_data=Non
 
             col_submit_e, col_cancel_e_form = st.columns(2)
             with col_submit_e:
-                submitted_e = st.form_submit_button("💾 Enregistrer Entreprise", use_container_width=True)
+                submitted_e = st.form_submit_button("💾 Enregistrer Entreprise SQLite", use_container_width=True)
             with col_cancel_e_form:
                 if st.form_submit_button("❌ Annuler", use_container_width=True):
                     st.session_state.crm_action = None
@@ -513,11 +1219,16 @@ def render_crm_entreprise_form(crm_manager: GestionnaireCRM, entreprise_data=Non
                         'notes': notes_e
                     }
                     if entreprise_data:
-                        crm_manager.modifier_entreprise(entreprise_data['id'], new_entreprise_data)
-                        st.success(f"Entreprise #{entreprise_data['id']} mise à jour !")
+                        if crm_manager.modifier_entreprise(entreprise_data['id'], new_entreprise_data):
+                            st.success(f"Entreprise #{entreprise_data['id']} mise à jour en SQLite !")
+                        else:
+                            st.error("Erreur lors de la modification SQLite.")
                     else:
                         new_id_e = crm_manager.ajouter_entreprise(new_entreprise_data)
-                        st.success(f"Nouvelle entreprise #{new_id_e} ajoutée !")
+                        if new_id_e:
+                            st.success(f"Nouvelle entreprise #{new_id_e} ajoutée en SQLite !")
+                        else:
+                            st.error("Erreur lors de la création SQLite.")
                     st.session_state.crm_action = None
                     st.session_state.crm_selected_id = None
                     st.rerun()
@@ -527,7 +1238,7 @@ def render_crm_entreprise_details(crm_manager: GestionnaireCRM, projet_manager, 
         st.error("Entreprise non trouvée.")
         return
 
-    st.subheader(f"🏢 Détails de l'Entreprise: {entreprise_data.get('nom')}")
+    st.subheader(f"🏢 Détails de l'Entreprise: {entreprise_data.get('nom')} (SQLite)")
 
     contact_principal = crm_manager.get_contact_by_id(entreprise_data.get('contact_principal_id'))
     nom_contact_principal = f"{contact_principal.get('prenom','')} {contact_principal.get('nom_famille','')}" if contact_principal else "N/A"
@@ -545,34 +1256,40 @@ def render_crm_entreprise_details(crm_manager: GestionnaireCRM, projet_manager, 
     st.text_area("entreprise_detail_notes_display", value=entreprise_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
 
     st.markdown("---")
-    st.markdown("#### 👥 Contacts de cette entreprise")
+    st.markdown("#### 👥 Contacts de cette entreprise (SQLite)")
     contacts_entreprise = crm_manager.get_contacts_by_entreprise_id(entreprise_data['id'])
     if contacts_entreprise:
         for contact in contacts_entreprise:
-            st.markdown(f"<div class='info-card' style='border-left: 3px solid var(--primary-color-light);'><b>{contact.get('prenom')} {contact.get('nom_famille')}</b> - {contact.get('role', 'N/A')}<br>{contact.get('email', '')}</div>", unsafe_allow_html=True)
+            role_display = contact.get('role') or contact.get('role_poste', 'N/A')
+            st.markdown(f"<div class='info-card' style='border-left: 3px solid var(--primary-color-light);'><b>{contact.get('prenom')} {contact.get('nom_famille')}</b> - {role_display}<br>{contact.get('email', '')}</div>", unsafe_allow_html=True)
     else:
         st.caption("Aucun contact enregistré pour cette entreprise.")
 
     st.markdown("---")
-    st.markdown("#### 🚀 Projets Liés")
-    projets_lies_entreprise = [p for p in projet_manager.projets if p.get('client_entreprise_id') == entreprise_data.get('id')]
-    if projets_lies_entreprise:
-        for proj in projets_lies_entreprise:
-            link_text = f"Projet #{proj.get('id')}: {proj.get('nom_projet')} ({proj.get('statut')})"
-            if st.button(link_text, key=f"goto_project_from_crm_entreprise_{proj.get('id')}"):
-                st.session_state.page_to_show_val = "liste"
-                st.session_state.view_project_id_from_crm = proj.get('id')
-                st.rerun()
-            st.markdown("---", unsafe_allow_html=True)
+    st.markdown("#### 🚀 Projets Liés (SQLite)")
+    if hasattr(projet_manager, 'projets'):
+        projets_lies_entreprise = [p for p in projet_manager.projets 
+                                 if p.get('client_entreprise_id') == entreprise_data.get('id') or
+                                 p.get('client_company_id') == entreprise_data.get('id')]
+        if projets_lies_entreprise:
+            for proj in projets_lies_entreprise:
+                link_text = f"Projet #{proj.get('id')}: {proj.get('nom_projet')} ({proj.get('statut')})"
+                if st.button(link_text, key=f"goto_project_from_crm_entreprise_{proj.get('id')}"):
+                    st.session_state.page_to_show_val = "liste"
+                    st.session_state.view_project_id_from_crm = proj.get('id')
+                    st.rerun()
+                st.markdown("---", unsafe_allow_html=True)
+        else:
+            st.caption("Aucun projet directement lié à cette entreprise.")
     else:
-        st.caption("Aucun projet directement lié à cette entreprise.")
+        st.caption("Gestionnaire de projets non disponible.")
 
     if st.button("Retour à la liste des entreprises", key="back_to_entreprises_list_from_details_crm"):
         st.session_state.crm_action = None
         st.rerun()
 
 def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
-    st.subheader("💬 Journal des Interactions")
+    st.subheader("💬 Journal des Interactions (SQLite)")
     
     col_create_interaction, col_search_interaction = st.columns([1, 2])
     with col_create_interaction:
@@ -589,7 +1306,7 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
         filtered_interactions = [
             i for i in filtered_interactions if
             term_i in i.get('resume', '').lower() or
-            term_i in i.get('type', '').lower() or
+            term_i in (i.get('type') or i.get('type_interaction', '')).lower() or
             term_i in i.get('details', '').lower()
         ]
 
@@ -597,7 +1314,8 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
         interactions_data_display = []
         for interaction in filtered_interactions:
             contact = crm_manager.get_contact_by_id(interaction.get('contact_id'))
-            entreprise = crm_manager.get_entreprise_by_id(interaction.get('entreprise_id'))
+            entreprise_id = interaction.get('entreprise_id') or interaction.get('company_id')
+            entreprise = crm_manager.get_entreprise_by_id(entreprise_id)
             nom_contact = f"{contact.get('prenom','')} {contact.get('nom_famille','')}" if contact else "N/A"
             nom_entreprise = entreprise.get('nom', 'N/A') if entreprise else "N/A"
             
@@ -606,9 +1324,11 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
             except:
                 date_formatted = interaction.get('date_interaction', 'N/A')
 
+            type_display = interaction.get('type') or interaction.get('type_interaction', 'N/A')
+
             interactions_data_display.append({
                 "ID": interaction.get('id'),
-                "Type": interaction.get('type'),
+                "Type": type_display,
                 "Date": date_formatted,
                 "Contact": nom_contact,
                 "Entreprise": nom_entreprise,
@@ -623,7 +1343,7 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
         selected_interaction_id_action = st.selectbox(
             "Interaction:",
             options=[i['id'] for i in filtered_interactions],
-            format_func=lambda iid: f"#{iid} - {next((i.get('type', '') + ': ' + i.get('resume', '') for i in filtered_interactions if i.get('id') == iid), '')}",
+            format_func=lambda iid: f"#{iid} - {next(((i.get('type') or i.get('type_interaction', '')) + ': ' + i.get('resume', '') for i in filtered_interactions if i.get('id') == iid), '')}",
             key="crm_interaction_action_select"
         )
 
@@ -647,11 +1367,14 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
     if 'crm_confirm_delete_interaction_id' in st.session_state and st.session_state.crm_confirm_delete_interaction_id:
         interaction_to_delete = crm_manager.get_interaction_by_id(st.session_state.crm_confirm_delete_interaction_id)
         if interaction_to_delete:
-            st.warning(f"Êtes-vous sûr de vouloir supprimer l'interaction #{interaction_to_delete.get('id')} ({interaction_to_delete.get('type')}: {interaction_to_delete.get('resume')}) ? Cette action est irréversible.")
+            type_display = interaction_to_delete.get('type') or interaction_to_delete.get('type_interaction', 'N/A')
+            st.warning(f"Êtes-vous sûr de vouloir supprimer l'interaction #{interaction_to_delete.get('id')} ({type_display}: {interaction_to_delete.get('resume')}) ? Cette action est irréversible.")
             col_del_confirm, col_del_cancel = st.columns(2)
             if col_del_confirm.button("Oui, supprimer cette interaction", type="primary", key="crm_confirm_delete_interaction_btn_final"):
-                crm_manager.supprimer_interaction(st.session_state.crm_confirm_delete_interaction_id)
-                st.success("Interaction supprimée.")
+                if crm_manager.supprimer_interaction(st.session_state.crm_confirm_delete_interaction_id):
+                    st.success("Interaction supprimée de SQLite.")
+                else:
+                    st.error("Erreur lors de la suppression SQLite.")
                 del st.session_state.crm_confirm_delete_interaction_id
                 st.rerun()
             if col_del_cancel.button("Annuler la suppression", key="crm_cancel_delete_interaction_btn_final"):
@@ -659,16 +1382,17 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
                 st.rerun()
 
 def render_crm_interaction_form(crm_manager: GestionnaireCRM, interaction_data=None):
-    form_title_i = "➕ Ajouter une Nouvelle Interaction" if interaction_data is None else f"✏️ Modifier l'Interaction #{interaction_data.get('id')}"
+    form_title_i = "➕ Ajouter une Nouvelle Interaction (SQLite)" if interaction_data is None else f"✏️ Modifier l'Interaction #{interaction_data.get('id')} (SQLite)"
     with st.expander(form_title_i, expanded=True):
         with st.form(key="crm_interaction_form_in_expander", clear_on_submit=False):
             col1, col2 = st.columns(2)
             
             with col1:
+                type_value = interaction_data.get('type') or interaction_data.get('type_interaction') if interaction_data else None
                 type_interaction = st.selectbox(
                     "Type d'interaction *",
                     TYPES_INTERACTION,
-                    index=TYPES_INTERACTION.index(interaction_data.get('type')) if interaction_data and interaction_data.get('type') in TYPES_INTERACTION else 0
+                    index=TYPES_INTERACTION.index(type_value) if type_value and type_value in TYPES_INTERACTION else 0
                 )
                 
                 # Sélection du contact
@@ -684,7 +1408,7 @@ def render_crm_interaction_form(crm_manager: GestionnaireCRM, interaction_data=N
                 
                 # Sélection de l'entreprise
                 entreprise_options = [("", "Aucune")] + [(e['id'], e['nom']) for e in crm_manager.entreprises]
-                current_entreprise_id = interaction_data.get('entreprise_id') if interaction_data else ""
+                current_entreprise_id = interaction_data.get('entreprise_id') or interaction_data.get('company_id') if interaction_data else ""
                 entreprise_id = st.selectbox(
                     "Entreprise",
                     options=[opt_id for opt_id, _ in entreprise_options],
@@ -730,7 +1454,7 @@ def render_crm_interaction_form(crm_manager: GestionnaireCRM, interaction_data=N
 
             col_submit_i, col_cancel_i_form = st.columns(2)
             with col_submit_i:
-                submitted_i = st.form_submit_button("💾 Enregistrer Interaction", use_container_width=True)
+                submitted_i = st.form_submit_button("💾 Enregistrer Interaction SQLite", use_container_width=True)
             with col_cancel_i_form:
                 if st.form_submit_button("❌ Annuler", use_container_width=True):
                     st.session_state.crm_action = None
@@ -748,8 +1472,10 @@ def render_crm_interaction_form(crm_manager: GestionnaireCRM, interaction_data=N
                     
                     new_interaction_data = {
                         'type': type_interaction,
+                        'type_interaction': type_interaction,  # Compatibilité SQLite
                         'contact_id': contact_id if contact_id else None,
                         'entreprise_id': entreprise_id if entreprise_id else None,
+                        'company_id': entreprise_id if entreprise_id else None,  # Compatibilité SQLite
                         'date_interaction': datetime_interaction.isoformat(),
                         'resume': resume,
                         'details': details,
@@ -758,11 +1484,16 @@ def render_crm_interaction_form(crm_manager: GestionnaireCRM, interaction_data=N
                     }
                     
                     if interaction_data:
-                        crm_manager.modifier_interaction(interaction_data['id'], new_interaction_data)
-                        st.success(f"Interaction #{interaction_data['id']} mise à jour !")
+                        if crm_manager.modifier_interaction(interaction_data['id'], new_interaction_data):
+                            st.success(f"Interaction #{interaction_data['id']} mise à jour en SQLite !")
+                        else:
+                            st.error("Erreur lors de la modification SQLite.")
                     else:
                         new_id_i = crm_manager.ajouter_interaction(new_interaction_data)
-                        st.success(f"Nouvelle interaction #{new_id_i} ajoutée !")
+                        if new_id_i:
+                            st.success(f"Nouvelle interaction #{new_id_i} ajoutée en SQLite !")
+                        else:
+                            st.error("Erreur lors de la création SQLite.")
                     
                     st.session_state.crm_action = None
                     st.session_state.crm_selected_id = None
@@ -773,10 +1504,11 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
         st.error("Interaction non trouvée.")
         return
 
-    st.subheader(f"💬 Détails de l'Interaction #{interaction_data.get('id')}")
+    st.subheader(f"💬 Détails de l'Interaction #{interaction_data.get('id')} (SQLite)")
 
     contact = crm_manager.get_contact_by_id(interaction_data.get('contact_id'))
-    entreprise = crm_manager.get_entreprise_by_id(interaction_data.get('entreprise_id'))
+    entreprise_id = interaction_data.get('entreprise_id') or interaction_data.get('company_id')
+    entreprise = crm_manager.get_entreprise_by_id(entreprise_id)
     nom_contact = f"{contact.get('prenom','')} {contact.get('nom_famille','')}" if contact else "N/A"
     nom_entreprise = entreprise.get('nom', 'N/A') if entreprise else "N/A"
 
@@ -790,10 +1522,12 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
     except:
         suivi_formatted = interaction_data.get('suivi_prevu', 'N/A')
 
+    type_display = interaction_data.get('type') or interaction_data.get('type_interaction', 'N/A')
+
     c1, c2 = st.columns(2)
     with c1:
         st.info(f"**ID:** {interaction_data.get('id')}")
-        st.write(f"**Type:** {interaction_data.get('type', 'N/A')}")
+        st.write(f"**Type:** {type_display}")
         st.write(f"**Date:** {date_formatted}")
         st.write(f"**Contact:** {nom_contact}")
     with c2:
@@ -811,4 +1545,4 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
         st.session_state.crm_action = None
         st.rerun()
 
-# --- END OF FILE crm.py ---
+# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE ---
