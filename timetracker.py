@@ -1,4 +1,4 @@
-# --- START OF FILE timetracker.py - VERSION SQLITE UNIFIÉE ERP ---
+# --- START OF FILE timetracker.py - VERSION FINALE ERP UNIFIÉE ---
 
 import streamlit as st
 import pandas as pd
@@ -376,8 +376,8 @@ def show_timetracker_interface():
         st.metric("💰 Revenus Aujourd'hui", f"{stats.get('total_revenue_today', 0):.0f}$ CAD")
     
     # Navigation TimeTracker
-    tab_pointage, tab_analytics, tab_admin = st.tabs([
-        "🕐 Pointage Employés", "📊 Analytics & Rapports", "⚙️ Administration"
+    tab_pointage, tab_analytics, tab_admin, tab_system = st.tabs([
+        "🕐 Pointage Employés", "📊 Analytics & Rapports", "⚙️ Administration", "ℹ️ Système"
     ])
     
     with tab_pointage:
@@ -388,6 +388,9 @@ def show_timetracker_interface():
     
     with tab_admin:
         show_admin_interface(tt)
+    
+    with tab_system:
+        show_system_interface()
 
 
 def show_employee_timetracking_interface(tt: TimeTrackerERP):
@@ -804,13 +807,72 @@ def show_admin_interface(tt: TimeTrackerERP):
             st.markdown("💡 **Conseil**: Les employés doivent effectuer des pointages pour générer des données.")
 
 
+def show_system_interface():
+    """Interface d'information système (remplace la synchronisation)"""
+    
+    st.markdown("### ℹ️ Informations Système ERP")
+    
+    st.success("""
+    🎉 **Architecture SQLite Unifiée Active !**
+    
+    Plus besoin de synchronisation - toutes les données TimeTracker sont directement 
+    intégrées dans la base ERP unifiée `erp_production_dg.db`.
+    """)
+    
+    # Informations sur la base unifiée
+    if 'erp_db' in st.session_state:
+        db_info = st.session_state.erp_db.get_schema_info()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("📊 Base ERP", f"{db_info['file_size_mb']} MB")
+            st.metric("👥 Employés", db_info['tables'].get('employees', 0))
+            st.metric("📋 Projets", db_info['tables'].get('projects', 0))
+        with col2:
+            st.metric("⏱️ Pointages", db_info['tables'].get('time_entries', 0))
+            st.metric("🔧 Opérations", db_info['tables'].get('operations', 0))
+            st.metric("🏢 Entreprises", db_info['tables'].get('companies', 0))
+        
+        # Validation de l'intégrité
+        st.markdown("#### 🔍 Validation de l'Intégrité")
+        
+        if st.button("🔍 Vérifier Intégrité Base", use_container_width=True):
+            with st.spinner("Validation en cours..."):
+                integrity = st.session_state.erp_db.validate_integrity()
+                
+                if 'error' not in integrity:
+                    st.markdown("**Résultats de validation:**")
+                    for check, status in integrity.items():
+                        icon = "✅" if status else "❌"
+                        check_name = check.replace('_', ' ').title()
+                        st.markdown(f"{icon} {check_name}")
+                    
+                    if all(integrity.values()):
+                        st.success("🎉 Intégrité parfaite ! Architecture unifiée fonctionnelle.")
+                    else:
+                        st.warning("⚠️ Certaines vérifications ont échoué.")
+                else:
+                    st.error(f"Erreur validation: {integrity['error']}")
+        
+        # Informations détaillées
+        st.markdown("#### 📋 Détails de la Base")
+        
+        with st.expander("📊 Informations Techniques", expanded=False):
+            st.json(db_info)
+    
+    else:
+        st.error("❌ Base ERP non disponible")
+
+
 # Fonctions utilitaires (conservées pour compatibilité)
 def hash_password(password: str) -> str:
     """Hash un mot de passe avec SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
+
 def verify_password(password: str, hashed: str) -> bool:
     """Vérifie un mot de passe contre son hash"""
     return hash_password(password) == hashed
 
-# --- END OF FILE timetracker.py - VERSION SQLITE UNIFIÉE ERP ---
+
+# --- END OF FILE timetracker.py - VERSION FINALE ERP UNIFIÉE ---
