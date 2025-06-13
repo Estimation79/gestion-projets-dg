@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE ---
 
 import streamlit as st
 import pandas as pd
@@ -154,11 +154,160 @@ def apply_global_styles():
     """Version allégée - tout le CSS est externalisé dans style.css"""
     load_css_file('style.css')
 
-# ----- NOUVELLE CLASSE : Gestionnaire de Projets SQLite -----
+# ----- NOUVELLE FONCTION : Initialisation Données de Base (CORRECTION CRITIQUE) -----
+def _init_base_data_if_empty():
+    """Initialise les données de base si les tables sont vides - RÉSOUT ERREURS FK"""
+    db = st.session_state.erp_db
+    
+    try:
+        # Vérifier et créer entreprises par défaut
+        companies_count = db.get_table_count('companies')
+        if companies_count == 0:
+            # Créer quelques entreprises par défaut
+            default_companies = [
+                {
+                    'id': 1,
+                    'nom': 'AutoTech Corp.',
+                    'secteur': 'Automobile',
+                    'adresse': '123 Rue Industrielle, Montréal, QC',
+                    'site_web': 'www.autotech.com',
+                    'notes': 'Client métallurgie automobile'
+                },
+                {
+                    'id': 2,
+                    'nom': 'BâtiTech Inc.',
+                    'secteur': 'Construction',
+                    'adresse': '456 Boul. Construction, Québec, QC',
+                    'site_web': 'www.batitech.ca',
+                    'notes': 'Structures industrielles'
+                },
+                {
+                    'id': 3,
+                    'nom': 'AeroSpace Ltd',
+                    'secteur': 'Aéronautique',
+                    'adresse': '789 Ave. Aviation, Mirabel, QC',
+                    'site_web': 'www.aerospace.com',
+                    'notes': 'Pièces aéronautiques'
+                }
+            ]
+            
+            for company in default_companies:
+                db.execute_insert('''
+                    INSERT OR IGNORE INTO companies (id, nom, secteur, adresse, site_web, notes)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    company['id'], company['nom'], company['secteur'],
+                    company['adresse'], company['site_web'], company['notes']
+                ))
+            
+            print(f"✅ {len(default_companies)} entreprises par défaut créées")
+        
+        # Vérifier et créer contacts par défaut
+        contacts_count = db.get_table_count('contacts')
+        if contacts_count == 0:
+            default_contacts = [
+                {
+                    'id': 1,
+                    'prenom': 'Jean',
+                    'nom_famille': 'Dubois',
+                    'email': 'j.dubois@autotech.com',
+                    'telephone': '514-555-0101',
+                    'company_id': 1,
+                    'role_poste': 'Directeur Technique'
+                },
+                {
+                    'id': 2,
+                    'prenom': 'Marie',
+                    'nom_famille': 'Tremblay',
+                    'email': 'm.tremblay@batitech.ca',
+                    'telephone': '418-555-0202',
+                    'company_id': 2,
+                    'role_poste': 'Ingénieure Projet'
+                },
+                {
+                    'id': 3,
+                    'prenom': 'David',
+                    'nom_famille': 'Johnson',
+                    'email': 'd.johnson@aerospace.com',
+                    'telephone': '450-555-0303',
+                    'company_id': 3,
+                    'role_poste': 'Responsable Achats'
+                }
+            ]
+            
+            for contact in default_contacts:
+                db.execute_insert('''
+                    INSERT OR IGNORE INTO contacts (id, prenom, nom_famille, email, telephone, company_id, role_poste)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    contact['id'], contact['prenom'], contact['nom_famille'],
+                    contact['email'], contact['telephone'], contact['company_id'], contact['role_poste']
+                ))
+            
+            print(f"✅ {len(default_contacts)} contacts par défaut créés")
+        
+        # Initialiser postes de travail si vides
+        work_centers_count = db.get_table_count('work_centers')
+        if work_centers_count == 0:
+            # Créer quelques postes essentiels
+            default_work_centers = [
+                {
+                    'id': 1,
+                    'nom': 'Robot ABB GMAW Station 1',
+                    'departement': 'PRODUCTION',
+                    'categorie': 'ROBOTIQUE',
+                    'type_machine': 'Robot de soudage',
+                    'capacite_theorique': 8.0,
+                    'operateurs_requis': 1,
+                    'cout_horaire': 140.0,
+                    'competences_requises': 'Soudage GMAW, Programmation Robot'
+                },
+                {
+                    'id': 2,
+                    'nom': 'Découpe Plasma CNC',
+                    'departement': 'USINAGE',
+                    'categorie': 'CNC',
+                    'type_machine': 'Table plasma',
+                    'capacite_theorique': 7.5,
+                    'operateurs_requis': 1,
+                    'cout_horaire': 125.0,
+                    'competences_requises': 'Découpe plasma, Programmation CNC'
+                },
+                {
+                    'id': 3,
+                    'nom': 'Assemblage Manuel Station A',
+                    'departement': 'PRODUCTION',
+                    'categorie': 'MANUEL',
+                    'type_machine': 'Poste assemblage',
+                    'capacite_theorique': 8.0,
+                    'operateurs_requis': 2,
+                    'cout_horaire': 65.0,
+                    'competences_requises': 'Assemblage mécanique, Lecture plans'
+                }
+            ]
+            
+            for wc in default_work_centers:
+                db.execute_insert('''
+                    INSERT OR IGNORE INTO work_centers 
+                    (id, nom, departement, categorie, type_machine, capacite_theorique, 
+                     operateurs_requis, cout_horaire, competences_requises)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    wc['id'], wc['nom'], wc['departement'], wc['categorie'],
+                    wc['type_machine'], wc['capacite_theorique'], wc['operateurs_requis'],
+                    wc['cout_horaire'], wc['competences_requises']
+                ))
+            
+            print(f"✅ {len(default_work_centers)} postes de travail créés")
+            
+    except Exception as e:
+        print(f"Erreur initialisation données de base: {e}")
+
+# ----- NOUVELLE CLASSE : Gestionnaire de Projets SQLite CORRIGÉE -----
 class GestionnaireProjetSQL:
     """
     NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite au lieu de JSON
-    Remplace GestionnaireProjetIA pour une architecture unifiée
+    Remplace GestionnaireProjetIA pour une architecture unifiée - VERSION CORRIGÉE
     """
     
     def __init__(self, db: ERPDatabase):
@@ -232,11 +381,30 @@ class GestionnaireProjetSQL:
             return []
     
     def ajouter_projet(self, projet_data):
-        """Ajoute un nouveau projet en SQLite"""
+        """Ajoute un nouveau projet en SQLite - VERSION CORRIGÉE avec validation FK"""
         try:
             project_id = self.next_id
             
-            # Insérer projet principal
+            # VALIDATION PRÉALABLE des clés étrangères
+            if projet_data.get('client_company_id'):
+                company_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM companies WHERE id = ?",
+                    (projet_data['client_company_id'],)
+                )
+                if not company_exists or company_exists[0]['count'] == 0:
+                    raise ValueError(f"Entreprise ID {projet_data['client_company_id']} n'existe pas")
+            
+            # Validation employés assignés
+            employes_assignes = projet_data.get('employes_assignes', [])
+            for emp_id in employes_assignes:
+                emp_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM employees WHERE id = ?",
+                    (emp_id,)
+                )
+                if not emp_exists or emp_exists[0]['count'] == 0:
+                    raise ValueError(f"Employé ID {emp_id} n'existe pas")
+            
+            # Insérer projet principal avec gestion NULL
             query = '''
                 INSERT INTO projects 
                 (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
@@ -251,9 +419,9 @@ class GestionnaireProjetSQL:
             self.db.execute_update(query, (
                 project_id,
                 projet_data['nom_projet'],
-                projet_data.get('client_entreprise_id'),
+                projet_data.get('client_company_id'),  # Peut être NULL
                 projet_data.get('client_nom_cache'),
-                projet_data.get('client'),  # Legacy field
+                projet_data.get('client_legacy', ''),  # Legacy field
                 projet_data.get('statut', 'À FAIRE'),
                 projet_data.get('priorite', 'MOYEN'),
                 projet_data.get('tache'),
@@ -264,8 +432,7 @@ class GestionnaireProjetSQL:
                 projet_data.get('description')
             ))
             
-            # Insérer assignations employés
-            employes_assignes = projet_data.get('employes_assignes', [])
+            # Insérer assignations employés (validation déjà faite)
             for emp_id in employes_assignes:
                 self.db.execute_update(
                     "INSERT OR IGNORE INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
@@ -275,8 +442,11 @@ class GestionnaireProjetSQL:
             self.next_id += 1
             return project_id
             
+        except ValueError as ve:
+            st.error(f"Erreur validation: {ve}")
+            return None
         except Exception as e:
-            st.error(f"Erreur ajout projet: {e}")
+            st.error(f"Erreur technique ajout projet: {e}")
             return None
     
     def modifier_projet(self, projet_id, projet_data_update):
@@ -607,9 +777,6 @@ def show_dashboard():
                     st.session_state.show_project_modal = True
             st.markdown("</div>", unsafe_allow_html=True)
 
-# Les autres fonctions d'affichage restent largement inchangées
-# mais utilisent maintenant les données SQLite via le nouveau gestionnaire
-
 def show_liste_projets():
     st.markdown("## 📋 Liste des Projets (SQLite)")
     gestionnaire = st.session_state.gestionnaire
@@ -696,19 +863,33 @@ def show_liste_projets():
     if st.session_state.get('show_delete_confirmation'):
         render_delete_confirmation(gestionnaire)
 
-# Les fonctions render_create_project_form, render_edit_project_form, render_delete_confirmation
-# restent identiques car elles utilisent déjà les méthodes du gestionnaire
-
 def render_create_project_form(gestionnaire, crm_manager):
+    """FORMULAIRE CRÉATION PROJET - VERSION CORRIGÉE avec validation FK"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.markdown("### ➕ Créer Projet (SQLite)")
+    st.markdown("### ➕ Créer Projet DG Inc. (SQLite)")
+    
+    # VALIDATION PRÉALABLE des données de base
+    companies_count = st.session_state.erp_db.get_table_count('companies')
+    if companies_count == 0:
+        st.warning("⚠️ Aucune entreprise en base. Initialisation...")
+        _init_base_data_if_empty()
+        st.rerun()
+    
     with st.form("create_form", clear_on_submit=True):
         fc1, fc2 = st.columns(2)
         with fc1:
             nom = st.text_input("Nom *:")
-            liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in crm_manager.entreprises]
+            
+            # CORRECTION CRITIQUE : Récupérer entreprises depuis SQLite
+            try:
+                entreprises_db = st.session_state.erp_db.execute_query("SELECT id, nom FROM companies ORDER BY nom")
+                liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in entreprises_db]
+            except Exception as e:
+                st.error(f"Erreur récupération entreprises: {e}")
+                liste_entreprises_crm_form = [("", "Aucune entreprise disponible")]
+            
             selected_entreprise_id_form = st.selectbox(
                 "Client (Entreprise) *:",
                 options=[e_id for e_id, _ in liste_entreprises_crm_form],
@@ -719,24 +900,28 @@ def render_create_project_form(gestionnaire, crm_manager):
 
             statut = st.selectbox("Statut:", ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"])
             priorite = st.selectbox("Priorité:", ["BAS", "MOYEN", "ÉLEVÉ"])
+        
         with fc2:
             tache = st.selectbox("Type:", ["ESTIMATION", "CONCEPTION", "DÉVELOPPEMENT", "TESTS", "DÉPLOIEMENT", "MAINTENANCE", "FORMATION"])
             d_debut = st.date_input("Début:", datetime.now().date())
             d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
             bd_ft = st.number_input("BD-FT (h):", 0, value=40, step=1)
             prix = st.number_input("Prix ($):", 0.0, value=10000.0, step=100.0, format="%.2f")
+        
         desc = st.text_area("Description:")
         
-        # Assignation d'employés
+        # Assignation d'employés avec validation
+        employes_assignes = []
         if gestionnaire_employes.employes:
             st.markdown("##### 👥 Assignation d'Employés")
             employes_disponibles = [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')} ({emp.get('poste', '')})") for emp in gestionnaire_employes.employes if emp.get('statut') == 'ACTIF']
-            employes_assignes = st.multiselect(
-                "Employés assignés:",
-                options=[emp_id for emp_id, _ in employes_disponibles],
-                format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
-                key="project_create_employes_assign"
-            )
+            if employes_disponibles:
+                employes_assignes = st.multiselect(
+                    "Employés assignés:",
+                    options=[emp_id for emp_id, _ in employes_disponibles],
+                    format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
+                    key="project_create_employes_assign"
+                )
         
         st.markdown("<small>* Obligatoire</small>", unsafe_allow_html=True)
         s_btn, c_btn = st.columns(2)
@@ -744,46 +929,93 @@ def render_create_project_form(gestionnaire, crm_manager):
             submit = st.form_submit_button("💾 Créer en SQLite", use_container_width=True)
         with c_btn:
             cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
+        
         if submit:
-            if not nom or (not selected_entreprise_id_form and not client_nom_direct_form):
-                st.error("Nom du projet et Client (sélection ou nom direct) obligatoires.")
+            # VALIDATION RENFORCÉE
+            if not nom:
+                st.error("Nom du projet obligatoire.")
+            elif not selected_entreprise_id_form and not client_nom_direct_form:
+                st.error("Client (entreprise ou nom direct) obligatoire.")
             elif d_fin < d_debut:
                 st.error("Date fin < date début.")
             else:
+                # VALIDATION CLÉS ÉTRANGÈRES
+                client_company_id = None
                 client_nom_cache_val = ""
+                
                 if selected_entreprise_id_form:
-                    entreprise_obj = crm_manager.get_entreprise_by_id(selected_entreprise_id_form)
-                    if entreprise_obj:
-                        client_nom_cache_val = entreprise_obj.get('nom', '')
+                    # Vérifier que l'entreprise existe
+                    company_check = st.session_state.erp_db.execute_query(
+                        "SELECT nom FROM companies WHERE id = ?", 
+                        (selected_entreprise_id_form,)
+                    )
+                    if company_check:
+                        client_company_id = selected_entreprise_id_form
+                        client_nom_cache_val = company_check[0]['nom']
+                    else:
+                        st.error(f"Entreprise ID {selected_entreprise_id_form} non trouvée en base.")
+                        return
                 elif client_nom_direct_form:
                     client_nom_cache_val = client_nom_direct_form
 
-                data = {'nom_projet': nom,
-                        'client_entreprise_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
-                        'client_nom_cache': client_nom_cache_val,
-                        'client': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "",
-                        'statut': statut, 'priorite': priorite, 'tache': tache, 'date_soumis': d_debut.strftime('%Y-%m-%d'), 'date_prevu': d_fin.strftime('%Y-%m-%d'), 'bd_ft_estime': str(bd_ft), 'prix_estime': str(prix), 'description': desc or f"Projet {tache.lower()} pour {client_nom_cache_val}", 'employes_assignes': employes_assignes if 'employes_assignes' in locals() else []}
-                pid = gestionnaire.ajouter_projet(data)
+                # Validation employés assignés
+                employes_valides = []
+                if employes_assignes:
+                    for emp_id in employes_assignes:
+                        emp_check = st.session_state.erp_db.execute_query(
+                            "SELECT id FROM employees WHERE id = ?", 
+                            (emp_id,)
+                        )
+                        if emp_check:
+                            employes_valides.append(emp_id)
+                        else:
+                            st.warning(f"Employé ID {emp_id} non trouvé - ignoré")
+
+                # DONNÉES PROJET VALIDÉES
+                data = {
+                    'nom_projet': nom,
+                    'client_company_id': client_company_id,  # NULL si client direct
+                    'client_nom_cache': client_nom_cache_val,
+                    'client_legacy': client_nom_direct_form if not selected_entreprise_id_form else "",
+                    'statut': statut,
+                    'priorite': priorite,
+                    'tache': tache,
+                    'date_soumis': d_debut.strftime('%Y-%m-%d'),
+                    'date_prevu': d_fin.strftime('%Y-%m-%d'),
+                    'bd_ft_estime': float(bd_ft),
+                    'prix_estime': float(prix),
+                    'description': desc or f"Projet {tache.lower()} pour {client_nom_cache_val}",
+                    'employes_assignes': employes_valides
+                }
                 
-                if pid:
-                    # Mettre à jour les assignations des employés
-                    if 'employes_assignes' in locals() and employes_assignes:
-                        for emp_id in employes_assignes:
-                            employe = gestionnaire_employes.get_employe_by_id(emp_id)
-                            if employe:
-                                projets_existants = employe.get('projets_assignes', [])
-                                if pid not in projets_existants:
-                                    projets_existants.append(pid)
-                                    gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                try:
+                    pid = gestionnaire.ajouter_projet(data)
                     
-                    st.success(f"✅ Projet #{pid} créé en SQLite !")
-                    st.session_state.show_create_project = False
-                    st.rerun()
-                else:
-                    st.error("❌ Erreur lors de la création en SQLite")
+                    if pid:
+                        # Mettre à jour les assignations des employés
+                        if employes_valides:
+                            for emp_id in employes_valides:
+                                employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                                if employe:
+                                    projets_existants = employe.get('projets_assignes', [])
+                                    if pid not in projets_existants:
+                                        projets_existants.append(pid)
+                                        gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                        
+                        st.success(f"✅ Projet #{pid} créé en SQLite avec {len(employes_valides)} employé(s) assigné(s) !")
+                        st.session_state.show_create_project = False
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de la création en SQLite")
+                        
+                except Exception as e:
+                    st.error(f"❌ Erreur création projet: {str(e)}")
+                    st.info("💡 Vérifiez que les données de base sont initialisées (entreprises, employés)")
+        
         if cancel:
             st.session_state.show_create_project = False
             st.rerun()
+    
     st.markdown("</div>", unsafe_allow_html=True)
 
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
@@ -987,9 +1219,6 @@ def render_delete_confirmation(gestionnaire):
         st.session_state.delete_project_id = None
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Les autres fonctions d'affichage (show_itineraire, show_nomenclature, show_gantt, etc.)
-# restent largement identiques car elles utilisent déjà gestionnaire.projets
-
 def show_itineraire():
     """Version améliorée avec vrais postes de travail"""
     st.markdown("## 🛠️ Itinéraire Fabrication - DG Inc. (SQLite)")
@@ -1011,16 +1240,12 @@ def show_itineraire():
     
     st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
 
-    # Le reste de la fonction reste identique...
-    # [Code existant pour la régénération de gamme et l'affichage des opérations]
-
 def show_nomenclature():
     st.markdown("## 📊 Nomenclature (BOM) - SQLite")
     gestionnaire = st.session_state.gestionnaire
     if not gestionnaire.projets:
         st.warning("Aucun projet en SQLite.")
         return
-    # [Le reste du code reste identique...]
 
 def show_gantt():
     st.markdown("## 📈 Diagramme de Gantt - SQLite")
@@ -1029,15 +1254,12 @@ def show_gantt():
     if not gestionnaire.projets:
         st.info("Aucun projet SQLite pour Gantt.")
         return
-    # [Le reste du code reste identique...]
 
 def show_calendrier():
     st.markdown("## 📅 Vue Calendrier - SQLite")
-    # [Code identique...]
 
 def show_kanban():
-    st.markdown("## 🔄 Vue Kanban - SQLite")
-    # [Code identique...]
+    st.markdown("## 🔄 Vue Kanban - SQLite"
 
 def show_project_modal():
     """Affichage des détails d'un projet dans un expander"""
@@ -1050,9 +1272,6 @@ def show_project_modal():
         if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
             st.session_state.show_project_modal = False
             st.rerun()
-        
-        st.markdown("---")
-        # [Le reste du code reste identique...]
 
 def show_inventory_management_page():
     st.markdown("## 📦 Gestion de l'Inventaire (SQLite)")
@@ -1141,18 +1360,19 @@ def show_inventory_management_page():
 
 def show_crm_page():
     st.markdown("## 🤝 Gestion de la Relation Client (CRM) - SQLite")
-    # [Le code CRM reste identique car il utilise déjà potentiellement SQLite]
 
 def show_employees_page():
     st.markdown("## 👥 Gestion des Employés - SQLite")
-    # [Le code RH reste identique]
 
-# ----- Fonction Principale MODIFIÉE POUR SQLITE -----
+# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE -----
 def main():
-    # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase
+    # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec correction FK
     if 'erp_db' not in st.session_state:
         st.session_state.erp_db = ERPDatabase("erp_production_dg.db")
         st.session_state.migration_completed = True
+        
+        # AJOUT CRITIQUE : Initialiser données de base si vides - RÉSOUT ERREURS FK
+        _init_base_data_if_empty()
     
     # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite
     if 'gestionnaire' not in st.session_state:
@@ -1372,4 +1592,4 @@ if __name__ == "__main__":
         import traceback
         st.code(traceback.format_exc())
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE ---
