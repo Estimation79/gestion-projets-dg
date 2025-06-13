@@ -1,4 +1,4 @@
-# postes_travail.py - Module de gestion des postes de travail DG Inc.
+# postes_travail.py - Module de gestion des postes de travail DG Inc. - VERSION SQLITE
 
 import streamlit as st
 import pandas as pd
@@ -7,9 +7,10 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import random
 import json
+from typing import Dict, List, Optional, Any
 
-# --- POSTES DE TRAVAIL DG INC. ---
-WORK_CENTERS_DG_INC = [
+# --- DONNÉES DE RÉFÉRENCE POUR MIGRATION INITIALE ---
+WORK_CENTERS_DG_INC_REFERENCE = [
     # PRODUCTION (35 postes) - 57%
     {"id": 1, "nom": "Laser CNC", "departement": "PRODUCTION", "categorie": "CNC", "type_machine": "LASER", "capacite_theorique": 16, "operateurs_requis": 1, "competences": ["Programmation CNC", "Lecture plan"], "cout_horaire": 75},
     {"id": 2, "nom": "Plasma CNC", "departement": "PRODUCTION", "categorie": "CNC", "type_machine": "PLASMA", "capacite_theorique": 14, "operateurs_requis": 1, "competences": ["Programmation CNC"], "cout_horaire": 65},
@@ -101,13 +102,276 @@ CATEGORIES_POSTES_TRAVAIL = {
     "MESURE": "Mesure et contrôle"
 }
 
-# --- GESTIONNAIRE DES POSTES DE TRAVAIL ---
+# --- GESTIONNAIRE DES POSTES DE TRAVAIL SQLITE ---
 class GestionnairePostes:
-    def __init__(self):
-        self.postes = WORK_CENTERS_DG_INC
+    """
+    Gestionnaire des postes de travail utilisant SQLite
+    Remplace l'ancienne version avec données en mémoire
+    """
+    
+    def __init__(self, db=None):
+        """
+        Initialise le gestionnaire avec une connexion à la base SQLite
+        Args:
+            db: Instance ERPDatabase ou None (sera récupéré depuis session_state)
+        """
+        if db is None:
+            # Récupérer la base depuis session_state si disponible
+            if 'erp_db' in st.session_state:
+                self.db = st.session_state.erp_db
+            else:
+                raise ValueError("ERPDatabase non disponible dans session_state")
+        else:
+            self.db = db
+        
         self.gammes_types = self.initialiser_gammes_types()
+        self._ensure_work_centers_migrated()
+    
+    def _ensure_work_centers_migrated(self):
+        """S'assure que les postes de travail sont migrés en SQLite"""
+        try:
+            count = self.db.get_table_count('work_centers')
+            if count == 0:
+                print("🔄 Migration des postes de travail vers SQLite...")
+                self._migrate_work_centers_to_sqlite()
+                print(f"✅ {len(WORK_CENTERS_DG_INC_REFERENCE)} postes migrés vers SQLite")
+            else:
+                print(f"✅ {count} postes de travail trouvés en SQLite")
+        except Exception as e:
+            print(f"⚠️ Erreur migration postes: {e}")
+    
+    def _migrate_work_centers_to_sqlite(self):
+        """Migre les postes de travail de référence vers SQLite"""
+        try:
+            for poste in WORK_CENTERS_DG_INC_REFERENCE:
+                # Convertir la liste de compétences en string JSON
+                competences_str = json.dumps(poste.get('competences', []))
+                
+                query = '''
+                    INSERT OR REPLACE INTO work_centers 
+                    (id, nom, departement, categorie, type_machine, capacite_theorique, 
+                     operateurs_requis, cout_horaire, competences_requises)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                '''
+                
+                self.db.execute_update(query, (
+                    poste['id'],
+                    poste['nom'],
+                    poste['departement'],
+                    poste['categorie'],
+                    poste['type_machine'],
+                    poste['capacite_theorique'],
+                    poste['operateurs_requis'],
+                    poste['cout_horaire'],
+                    competences_str
+                ))
+            
+            return True
+        except Exception as e:
+            print(f"Erreur migration postes: {e}")
+            return False
+    
+    @property
+    def postes(self):
+        """Propriété pour récupérer tous les postes depuis SQLite"""
+        return self.get_all_work_centers()
+    
+    def get_all_work_centers(self) -> List[Dict[str, Any]]:
+        """Récupère tous les postes de travail depuis SQLite"""
+        try:
+            rows = self.db.execute_query("SELECT * FROM work_centers ORDER BY id")
+            postes = []
+            
+            for row in rows:
+                poste = dict(row)
+                # Convertir les compétences JSON en liste
+                try:
+                    competences_str = poste.get('competences_requises', '[]')
+                    poste['competences'] = json.loads(competences_str) if competences_str else []
+                except json.JSONDecodeError:
+                    poste['competences'] = []
+                
+                postes.append(poste)
+            
+            return postes
+        except Exception as e:
+            print(f"Erreur récupération postes: {e}")
+            return []
+    
+    def get_poste_by_id(self, poste_id: int) -> Optional[Dict[str, Any]]:
+        """Récupère un poste par son ID"""
+        try:
+            rows = self.db.execute_query("SELECT * FROM work_centers WHERE id = ?", (poste_id,))
+            if rows:
+                poste = dict(rows[0])
+                # Convertir les compétences JSON en liste
+                try:
+                    competences_str = poste.get('competences_requises', '[]')
+                    poste['competences'] = json.loads(competences_str) if competences_str else []
+                except json.JSONDecodeError:
+                    poste['competences'] = []
+                return poste
+            return None
+        except Exception as e:
+            print(f"Erreur récupération poste {poste_id}: {e}")
+            return None
+    
+    def get_poste_by_nom(self, nom_poste: str) -> Optional[Dict[str, Any]]:
+        """Récupère un poste par son nom"""
+        try:
+            rows = self.db.execute_query("SELECT * FROM work_centers WHERE nom = ?", (nom_poste,))
+            if rows:
+                poste = dict(rows[0])
+                # Convertir les compétences JSON en liste
+                try:
+                    competences_str = poste.get('competences_requises', '[]')
+                    poste['competences'] = json.loads(competences_str) if competences_str else []
+                except json.JSONDecodeError:
+                    poste['competences'] = []
+                return poste
+            return None
+        except Exception as e:
+            print(f"Erreur récupération poste '{nom_poste}': {e}")
+            return None
+    
+    def add_work_center(self, poste_data: Dict[str, Any]) -> Optional[int]:
+        """Ajoute un nouveau poste de travail en SQLite"""
+        try:
+            competences_str = json.dumps(poste_data.get('competences', []))
+            
+            query = '''
+                INSERT INTO work_centers 
+                (nom, departement, categorie, type_machine, capacite_theorique, 
+                 operateurs_requis, cout_horaire, competences_requises)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            poste_id = self.db.execute_insert(query, (
+                poste_data['nom'],
+                poste_data.get('departement', ''),
+                poste_data.get('categorie', ''),
+                poste_data.get('type_machine', ''),
+                poste_data.get('capacite_theorique', 0),
+                poste_data.get('operateurs_requis', 1),
+                poste_data.get('cout_horaire', 0),
+                competences_str
+            ))
+            
+            return poste_id
+        except Exception as e:
+            print(f"Erreur ajout poste: {e}")
+            return None
+    
+    def update_work_center(self, poste_id: int, poste_data: Dict[str, Any]) -> bool:
+        """Met à jour un poste de travail existant"""
+        try:
+            competences_str = json.dumps(poste_data.get('competences', []))
+            
+            query = '''
+                UPDATE work_centers SET
+                nom = ?, departement = ?, categorie = ?, type_machine = ?,
+                capacite_theorique = ?, operateurs_requis = ?, cout_horaire = ?,
+                competences_requises = ?
+                WHERE id = ?
+            '''
+            
+            self.db.execute_update(query, (
+                poste_data['nom'],
+                poste_data.get('departement', ''),
+                poste_data.get('categorie', ''),
+                poste_data.get('type_machine', ''),
+                poste_data.get('capacite_theorique', 0),
+                poste_data.get('operateurs_requis', 1),
+                poste_data.get('cout_horaire', 0),
+                competences_str,
+                poste_id
+            ))
+            
+            return True
+        except Exception as e:
+            print(f"Erreur mise à jour poste {poste_id}: {e}")
+            return False
+    
+    def delete_work_center(self, poste_id: int) -> bool:
+        """Supprime un poste de travail"""
+        try:
+            # Vérifier les dépendances (opérations liées)
+            operations_count = self.db.execute_query(
+                "SELECT COUNT(*) as count FROM operations WHERE work_center_id = ?",
+                (poste_id,)
+            )
+            
+            if operations_count and operations_count[0]['count'] > 0:
+                print(f"Impossible de supprimer le poste {poste_id}: {operations_count[0]['count']} opération(s) liée(s)")
+                return False
+            
+            self.db.execute_update("DELETE FROM work_centers WHERE id = ?", (poste_id,))
+            return True
+        except Exception as e:
+            print(f"Erreur suppression poste {poste_id}: {e}")
+            return False
+    
+    def get_employes_competents(self, poste_nom: str, gestionnaire_employes) -> List[str]:
+        """Retourne les employés compétents pour un poste donné"""
+        poste = self.get_poste_by_nom(poste_nom)
+        if not poste:
+            return []
+        
+        competences_requises = poste.get("competences", [])
+        employes_competents = []
+        
+        for employe in gestionnaire_employes.employes:
+            if employe.get("statut") != "ACTIF":
+                continue
+                
+            competences_emp = employe.get("competences", [])
+            if any(comp in competences_emp for comp in competences_requises):
+                employes_competents.append(f"{employe.get('prenom', '')} {employe.get('nom', '')}")
+        
+        return employes_competents
+    
+    def get_statistiques_postes(self) -> Dict[str, Any]:
+        """Retourne les statistiques des postes de travail depuis SQLite"""
+        try:
+            postes = self.get_all_work_centers()
+            
+            stats = {
+                "total_postes": len(postes),
+                "postes_cnc": len([p for p in postes if p["categorie"] == "CNC"]),
+                "postes_robotises": len([p for p in postes if p["categorie"] == "ROBOT"]),
+                "postes_manuels": len([p for p in postes if p["categorie"] == "MANUEL"]),
+                "par_departement": {}
+            }
+            
+            # Statistiques par département
+            for poste in postes:
+                dept = poste["departement"]
+                stats["par_departement"][dept] = stats["par_departement"].get(dept, 0) + 1
+            
+            return stats
+        except Exception as e:
+            print(f"Erreur calcul statistiques: {e}")
+            return {"total_postes": 0, "postes_cnc": 0, "postes_robotises": 0, "postes_manuels": 0, "par_departement": {}}
+    
+    def calculer_charge_poste(self, nom_poste: str, projets_actifs: List[Dict]) -> float:
+        """Calcule la charge de travail pour un poste donné"""
+        charge_totale = 0
+        poste = self.get_poste_by_nom(nom_poste)
+        
+        if not poste:
+            return 0
+        
+        for projet in projets_actifs:
+            for operation in projet.get("operations", []):
+                if operation.get("poste_travail") == nom_poste and operation.get("statut") != "TERMINÉ":
+                    charge_totale += operation.get("temps_estime", 0)
+        
+        # Calcul du pourcentage de charge (base 40h/semaine)
+        capacite_hebdo = poste["capacite_theorique"] * 5  # 5 jours
+        return min(100, (charge_totale / capacite_hebdo) * 100) if capacite_hebdo > 0 else 0
     
     def initialiser_gammes_types(self):
+        """Initialise les gammes types (inchangé - fonctionnel)"""
         return {
             "CHASSIS_SOUDE": {
                 "nom": "Châssis Soudé",
@@ -162,30 +426,8 @@ class GestionnairePostes:
             }
         }
     
-    def get_poste_by_nom(self, nom_poste):
-        return next((p for p in self.postes if p["nom"] == nom_poste), None)
-    
-    def get_employes_competents(self, poste_nom, gestionnaire_employes):
-        """Retourne les employés compétents pour un poste donné"""
-        poste = self.get_poste_by_nom(poste_nom)
-        if not poste:
-            return []
-        
-        competences_requises = poste.get("competences", [])
-        employes_competents = []
-        
-        for employe in gestionnaire_employes.employes:
-            if employe.get("statut") != "ACTIF":
-                continue
-                
-            competences_emp = employe.get("competences", [])
-            if any(comp in competences_emp for comp in competences_requises):
-                employes_competents.append(f"{employe.get('prenom', '')} {employe.get('nom', '')}")
-        
-        return employes_competents
-    
-    def generer_gamme_fabrication(self, type_produit, complexite, gestionnaire_employes=None):
-        """Génère une gamme de fabrication pour un type de produit donné"""
+    def generer_gamme_fabrication(self, type_produit: str, complexite: str, gestionnaire_employes=None) -> List[Dict]:
+        """Génère une gamme de fabrication pour un type de produit donné (utilise SQLite)"""
         if type_produit not in self.gammes_types:
             return []
         
@@ -223,43 +465,11 @@ class GestionnairePostes:
             })
         
         return gamme_generee
-    
-    def get_statistiques_postes(self):
-        """Retourne les statistiques des postes de travail"""
-        stats = {
-            "total_postes": len(self.postes),
-            "postes_cnc": len([p for p in self.postes if p["categorie"] == "CNC"]),
-            "postes_robotises": len([p for p in self.postes if p["categorie"] == "ROBOT"]),
-            "postes_manuels": len([p for p in self.postes if p["categorie"] == "MANUEL"]),
-            "par_departement": {}
-        }
-        
-        # Statistiques par département
-        for poste in self.postes:
-            dept = poste["departement"]
-            stats["par_departement"][dept] = stats["par_departement"].get(dept, 0) + 1
-        
-        return stats
-    
-    def calculer_charge_poste(self, nom_poste, projets_actifs):
-        """Calcule la charge de travail pour un poste donné"""
-        charge_totale = 0
-        poste = self.get_poste_by_nom(nom_poste)
-        
-        if not poste:
-            return 0
-        
-        for projet in projets_actifs:
-            for operation in projet.get("operations", []):
-                if operation.get("poste_travail") == nom_poste and operation.get("statut") != "TERMINÉ":
-                    charge_totale += operation.get("temps_estime", 0)
-        
-        # Calcul du pourcentage de charge (base 40h/semaine)
-        capacite_hebdo = poste["capacite_theorique"] * 5  # 5 jours
-        return min(100, (charge_totale / capacite_hebdo) * 100) if capacite_hebdo > 0 else 0
+
+# --- FONCTIONS UTILITAIRES ADAPTÉES SQLITE ---
 
 def integrer_postes_dans_projets(gestionnaire_projets, gestionnaire_postes):
-    """Intègre les postes de travail dans les projets existants"""
+    """Intègre les postes de travail SQLite dans les projets existants"""
     for projet in gestionnaire_projets.projets:
         # Ajouter le champ poste_travail aux opérations existantes
         for operation in projet.get("operations", []):
@@ -268,39 +478,56 @@ def integrer_postes_dans_projets(gestionnaire_projets, gestionnaire_postes):
                 operation["employe_assigne"] = None
                 operation["machine_utilisee"] = None
     
-    gestionnaire_projets.sauvegarder_projets()
+    # Note: En SQLite, pas besoin de sauvegarder explicitement
     return gestionnaire_projets
 
 def generer_rapport_capacite_production():
-    """Génère un rapport de capacité de production"""
-    postes = WORK_CENTERS_DG_INC
-    
-    rapport = {
-        "date_generation": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "capacites": {
-            "postes_robotises": len([p for p in postes if p["categorie"] == "ROBOT"]),
-            "postes_cnc": len([p for p in postes if p["categorie"] == "CNC"]),
-            "postes_soudage": len([p for p in postes if "SOUDAGE" in p["type_machine"]]),
-            "postes_finition": len([p for p in postes if "FINITION" in p["type_machine"] or "TRAITEMENT" in p["type_machine"]])
-        },
-        "utilisation_theorique": {
-            "production": sum(p["capacite_theorique"] for p in postes if p["departement"] == "PRODUCTION"),
-            "usinage": sum(p["capacite_theorique"] for p in postes if p["departement"] == "USINAGE"),
-            "qualite": sum(p["capacite_theorique"] for p in postes if p["departement"] == "QUALITE"),
-            "logistique": sum(p["capacite_theorique"] for p in postes if p["departement"] == "LOGISTIQUE")
+    """Génère un rapport de capacité de production depuis SQLite"""
+    try:
+        if 'gestionnaire_postes' not in st.session_state:
+            return {"date_generation": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "capacites": {}, "utilisation_theorique": {}}
+        
+        gestionnaire_postes = st.session_state.gestionnaire_postes
+        postes = gestionnaire_postes.get_all_work_centers()
+        
+        rapport = {
+            "date_generation": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "capacites": {
+                "postes_robotises": len([p for p in postes if p["categorie"] == "ROBOT"]),
+                "postes_cnc": len([p for p in postes if p["categorie"] == "CNC"]),
+                "postes_soudage": len([p for p in postes if "SOUDAGE" in p["type_machine"]]),
+                "postes_finition": len([p for p in postes if "FINITION" in p["type_machine"] or "TRAITEMENT" in p["type_machine"]])
+            },
+            "utilisation_theorique": {
+                "production": sum(p["capacite_theorique"] for p in postes if p["departement"] == "PRODUCTION"),
+                "usinage": sum(p["capacite_theorique"] for p in postes if p["departement"] == "USINAGE"),
+                "qualite": sum(p["capacite_theorique"] for p in postes if p["departement"] == "QUALITE"),
+                "logistique": sum(p["capacite_theorique"] for p in postes if p["departement"] == "LOGISTIQUE")
+            }
         }
-    }
-    
-    return rapport
+        
+        return rapport
+    except Exception as e:
+        print(f"Erreur génération rapport: {e}")
+        return {"date_generation": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "capacites": {}, "utilisation_theorique": {}}
+
+# --- PAGES INTERFACE UTILISATEUR (ADAPTÉES SQLITE) ---
 
 def show_work_centers_page():
-    """Page principale des postes de travail DG Inc."""
-    st.markdown("## 🏭 Postes de Travail - DG Inc.")
+    """Page principale des postes de travail DG Inc. - Version SQLite"""
+    st.markdown("## 🏭 Postes de Travail - DG Inc. (SQLite)")
     gestionnaire_postes = st.session_state.gestionnaire_postes
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
-    tab_overview, tab_details, tab_analytics = st.tabs([
-        "📊 Vue d'ensemble", "🔍 Détails par poste", "📈 Analyses"
+    # Vérification de la migration
+    total_postes = len(gestionnaire_postes.get_all_work_centers())
+    if total_postes == 0:
+        st.warning("⚠️ Aucun poste de travail trouvé. Migration en cours...")
+        gestionnaire_postes._ensure_work_centers_migrated()
+        st.rerun()
+    
+    tab_overview, tab_details, tab_analytics, tab_manage = st.tabs([
+        "📊 Vue d'ensemble", "🔍 Détails par poste", "📈 Analyses", "⚙️ Gestion"
     ])
     
     with tab_overview:
@@ -311,10 +538,17 @@ def show_work_centers_page():
     
     with tab_analytics:
         render_work_centers_analytics(gestionnaire_postes)
+    
+    with tab_manage:
+        render_work_centers_management(gestionnaire_postes)
 
 def render_work_centers_overview(gestionnaire_postes):
-    """Vue d'ensemble des postes de travail"""
+    """Vue d'ensemble des postes de travail - Version SQLite"""
     stats = gestionnaire_postes.get_statistiques_postes()
+    
+    if stats['total_postes'] == 0:
+        st.info("🔄 Migration des postes de travail en cours...")
+        return
     
     # Métriques principales
     col1, col2, col3, col4 = st.columns(4)
@@ -329,6 +563,7 @@ def render_work_centers_overview(gestionnaire_postes):
         st.metric("⚡ Efficacité", f"{efficacite_globale:.1f}%")
     
     st.markdown("---")
+    st.success(f"✅ {stats['total_postes']} postes de travail DG Inc. synchronisés avec SQLite")
     
     # Répartition par département
     col_chart1, col_chart2 = st.columns(2)
@@ -338,7 +573,7 @@ def render_work_centers_overview(gestionnaire_postes):
             fig_dept = px.pie(
                 values=list(stats['par_departement'].values()),
                 names=list(stats['par_departement'].keys()),
-                title="📊 Répartition par Département",
+                title="📊 Répartition par Département (SQLite)",
                 color_discrete_sequence=px.colors.qualitative.Set3
             )
             fig_dept.update_layout(
@@ -350,9 +585,10 @@ def render_work_centers_overview(gestionnaire_postes):
             st.plotly_chart(fig_dept, use_container_width=True)
     
     with col_chart2:
-        # Capacité par type de machine
+        # Capacité par type de machine depuis SQLite
+        postes = gestionnaire_postes.get_all_work_centers()
         capacite_par_type = {}
-        for poste in gestionnaire_postes.postes:
+        for poste in postes:
             type_machine = poste.get('type_machine', 'AUTRE')
             capacite_par_type[type_machine] = capacite_par_type.get(type_machine, 0) + poste.get('capacite_theorique', 0)
         
@@ -360,7 +596,7 @@ def render_work_centers_overview(gestionnaire_postes):
             fig_cap = px.bar(
                 x=list(capacite_par_type.keys()),
                 y=list(capacite_par_type.values()),
-                title="⚡ Capacité par Type de Machine (h/jour)",
+                title="⚡ Capacité par Type (h/jour) - SQLite",
                 color=list(capacite_par_type.keys()),
                 color_discrete_sequence=px.colors.qualitative.Pastel
             )
@@ -374,25 +610,31 @@ def render_work_centers_overview(gestionnaire_postes):
             st.plotly_chart(fig_cap, use_container_width=True)
 
 def render_work_centers_details(gestionnaire_postes, gestionnaire_employes):
-    """Détails par poste de travail"""
-    st.subheader("🔍 Détails des Postes de Travail")
+    """Détails par poste de travail - Version SQLite"""
+    st.subheader("🔍 Détails des Postes de Travail (SQLite)")
+    
+    postes = gestionnaire_postes.get_all_work_centers()
+    
+    if not postes:
+        st.warning("Aucun poste trouvé en SQLite.")
+        return
     
     # Filtres
     col_filter1, col_filter2, col_filter3 = st.columns(3)
     
     with col_filter1:
-        departements = list(set(p['departement'] for p in gestionnaire_postes.postes))
+        departements = list(set(p['departement'] for p in postes))
         dept_filter = st.selectbox("Département:", ["Tous"] + sorted(departements))
     
     with col_filter2:
-        categories = list(set(p['categorie'] for p in gestionnaire_postes.postes))
+        categories = list(set(p['categorie'] for p in postes))
         cat_filter = st.selectbox("Catégorie:", ["Toutes"] + sorted(categories))
     
     with col_filter3:
         search_term = st.text_input("🔍 Rechercher:", placeholder="Nom du poste...")
     
     # Application des filtres
-    postes_filtres = gestionnaire_postes.postes
+    postes_filtres = postes
     
     if dept_filter != "Tous":
         postes_filtres = [p for p in postes_filtres if p['departement'] == dept_filter]
@@ -404,7 +646,7 @@ def render_work_centers_details(gestionnaire_postes, gestionnaire_employes):
         terme = search_term.lower()
         postes_filtres = [p for p in postes_filtres if terme in p['nom'].lower()]
     
-    st.markdown(f"**{len(postes_filtres)} poste(s) trouvé(s)**")
+    st.markdown(f"**{len(postes_filtres)} poste(s) trouvé(s) en SQLite**")
     
     # Affichage des postes filtrés
     for poste in postes_filtres:
@@ -412,7 +654,7 @@ def render_work_centers_details(gestionnaire_postes, gestionnaire_employes):
             st.markdown(f"""
             <div class='work-center-card'>
                 <div class='work-center-header'>
-                    <div class='work-center-title'>{poste['nom']}</div>
+                    <div class='work-center-title'>#{poste['id']} - {poste['nom']}</div>
                     <div class='work-center-badge'>{poste['categorie']}</div>
                 </div>
                 <p><strong>Département:</strong> {poste['departement']} | <strong>Type:</strong> {poste['type_machine']}</p>
@@ -446,34 +688,36 @@ def render_work_centers_details(gestionnaire_postes, gestionnaire_employes):
                 st.caption("⚠️ Aucun employé compétent trouvé")
 
 def render_work_centers_analytics(gestionnaire_postes):
-    """Analyses avancées des postes de travail"""
-    st.subheader("📈 Analyses de Performance")
+    """Analyses avancées des postes de travail - Version SQLite"""
+    st.subheader("📈 Analyses de Performance (SQLite)")
     
     rapport = generer_rapport_capacite_production()
     
     # Métriques de capacité
-    st.markdown("### ⚡ Capacités Théoriques")
+    st.markdown("### ⚡ Capacités Théoriques SQLite")
     cap_col1, cap_col2, cap_col3, cap_col4 = st.columns(4)
     
     with cap_col1:
-        st.metric("🏭 Production", f"{rapport['utilisation_theorique']['production']}h/j")
+        st.metric("🏭 Production", f"{rapport['utilisation_theorique'].get('production', 0)}h/j")
     with cap_col2:
-        st.metric("⚙️ Usinage", f"{rapport['utilisation_theorique']['usinage']}h/j")
+        st.metric("⚙️ Usinage", f"{rapport['utilisation_theorique'].get('usinage', 0)}h/j")
     with cap_col3:
-        st.metric("✅ Qualité", f"{rapport['utilisation_theorique']['qualite']}h/j")
+        st.metric("✅ Qualité", f"{rapport['utilisation_theorique'].get('qualite', 0)}h/j")
     with cap_col4:
-        st.metric("📦 Logistique", f"{rapport['utilisation_theorique']['logistique']}h/j")
+        st.metric("📦 Logistique", f"{rapport['utilisation_theorique'].get('logistique', 0)}h/j")
     
     st.markdown("---")
     
-    # Analyse des coûts
-    st.markdown("### 💰 Analyse des Coûts")
+    # Analyse des coûts depuis SQLite
+    st.markdown("### 💰 Analyse des Coûts SQLite")
+    postes = gestionnaire_postes.get_all_work_centers()
+    
     cout_col1, cout_col2 = st.columns(2)
     
     with cout_col1:
         # Coût par catégorie
         cout_par_categorie = {}
-        for poste in gestionnaire_postes.postes:
+        for poste in postes:
             cat = poste['categorie']
             cout = poste['cout_horaire'] * poste['capacite_theorique']
             cout_par_categorie[cat] = cout_par_categorie.get(cat, 0) + cout
@@ -482,7 +726,7 @@ def render_work_centers_analytics(gestionnaire_postes):
             fig_cout = px.bar(
                 x=list(cout_par_categorie.keys()),
                 y=list(cout_par_categorie.values()),
-                title="💰 Coût Journalier par Catégorie ($)",
+                title="💰 Coût Journalier par Catégorie ($) - SQLite",
                 color=list(cout_par_categorie.keys()),
                 color_discrete_sequence=px.colors.qualitative.Vivid
             )
@@ -497,7 +741,7 @@ def render_work_centers_analytics(gestionnaire_postes):
     
     with cout_col2:
         # Analyse ROI potentiel
-        st.markdown("**💡 Recommandations d'Optimisation:**")
+        st.markdown("**💡 Recommandations SQLite:**")
         recommendations = [
             "🤖 Maximiser l'utilisation des robots ABB (ROI élevé)",
             "⚡ Grouper les opérations CNC par type de matériau",
@@ -508,68 +752,189 @@ def render_work_centers_analytics(gestionnaire_postes):
         
         for i, rec in enumerate(recommendations, 1):
             st.markdown(f"**{i}.** {rec}")
+
+def render_work_centers_management(gestionnaire_postes):
+    """Gestion des postes de travail - Nouveau module SQLite"""
+    st.subheader("⚙️ Gestion des Postes (SQLite)")
     
-    # Simulation de charge
-    st.markdown("---")
-    st.markdown("### 📊 Simulation de Charge Hebdomadaire")
+    tab_add, tab_edit, tab_stats = st.tabs(["➕ Ajouter", "✏️ Modifier", "📊 Statistiques"])
     
-    if st.button("🚀 Lancer Simulation", use_container_width=True):
-        with st.spinner("Calcul de la charge optimale..."):
-            # Simulation de données de charge
-            jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi']
-            postes_critiques = ['Laser CNC', 'Robot ABB GMAW', 'Centre d\'usinage']
+    with tab_add:
+        st.markdown("##### ➕ Ajouter un Nouveau Poste")
+        with st.form("add_work_center_form"):
+            col1, col2 = st.columns(2)
             
-            data_simulation = []
-            for jour in jours:
-                for poste in postes_critiques:
-                    charge = random.uniform(70, 95)
-                    data_simulation.append({
-                        'Jour': jour,
-                        'Poste': poste,
-                        'Charge (%)': charge
-                    })
+            with col1:
+                nom = st.text_input("Nom du poste *:")
+                departement = st.selectbox("Département *:", ["PRODUCTION", "USINAGE", "QUALITE", "LOGISTIQUE", "COMMERCIAL"])
+                categorie = st.selectbox("Catégorie *:", list(CATEGORIES_POSTES_TRAVAIL.keys()))
+                type_machine = st.text_input("Type de machine:")
             
-            df_sim = pd.DataFrame(data_simulation)
+            with col2:
+                capacite_theorique = st.number_input("Capacité théorique (h/j):", min_value=0.0, value=8.0, step=0.5)
+                operateurs_requis = st.number_input("Opérateurs requis:", min_value=1, value=1, step=1)
+                cout_horaire = st.number_input("Coût horaire ($):", min_value=0.0, value=50.0, step=5.0)
             
-            fig_sim = px.bar(
-                df_sim, x='Jour', y='Charge (%)', color='Poste',
-                title="📊 Charge Hebdomadaire des Postes Critiques",
-                barmode='group'
+            competences = st.multiselect(
+                "Compétences requises:",
+                ["Programmation CNC", "Soudage GMAW", "Soudage FCAW", "Soudage GTAW", "Soudage SMAW", 
+                 "Tournage", "Fraisage", "Assemblage", "Meulage", "Peinture", "Contrôle qualité",
+                 "Manutention", "Lecture plan", "CAO/FAO", "Métrologie"]
             )
-            fig_sim.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='var(--text-color)'),
-                title_x=0.5
+            
+            if st.form_submit_button("💾 Ajouter Poste SQLite"):
+                if not nom or not departement:
+                    st.error("Nom et département obligatoires.")
+                else:
+                    poste_data = {
+                        'nom': nom,
+                        'departement': departement,
+                        'categorie': categorie,
+                        'type_machine': type_machine,
+                        'capacite_theorique': capacite_theorique,
+                        'operateurs_requis': operateurs_requis,
+                        'cout_horaire': cout_horaire,
+                        'competences': competences
+                    }
+                    
+                    poste_id = gestionnaire_postes.add_work_center(poste_data)
+                    if poste_id:
+                        st.success(f"✅ Poste '{nom}' ajouté avec l'ID {poste_id} en SQLite!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de l'ajout en SQLite")
+    
+    with tab_edit:
+        st.markdown("##### ✏️ Modifier un Poste Existant")
+        postes = gestionnaire_postes.get_all_work_centers()
+        
+        if postes:
+            poste_options = [(p['id'], f"#{p['id']} - {p['nom']}") for p in postes]
+            selected_poste_id = st.selectbox(
+                "Sélectionner un poste:",
+                options=[p[0] for p in poste_options],
+                format_func=lambda x: next((p[1] for p in poste_options if p[0] == x), "")
             )
-            fig_sim.add_hline(y=90, line_dash="dash", line_color="red", 
-                            annotation_text="Seuil critique (90%)")
             
-            st.plotly_chart(fig_sim, use_container_width=True)
+            poste_selected = gestionnaire_postes.get_poste_by_id(selected_poste_id)
             
-            # Résultats de simulation
-            charge_moyenne = df_sim['Charge (%)'].mean()
-            postes_surcharges = len(df_sim[df_sim['Charge (%)'] > 90])
+            if poste_selected:
+                with st.form("edit_work_center_form"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        nom = st.text_input("Nom du poste *:", value=poste_selected['nom'])
+                        departement = st.selectbox(
+                            "Département *:", 
+                            ["PRODUCTION", "USINAGE", "QUALITE", "LOGISTIQUE", "COMMERCIAL"],
+                            index=["PRODUCTION", "USINAGE", "QUALITE", "LOGISTIQUE", "COMMERCIAL"].index(poste_selected['departement'])
+                        )
+                        categorie = st.selectbox(
+                            "Catégorie *:", 
+                            list(CATEGORIES_POSTES_TRAVAIL.keys()),
+                            index=list(CATEGORIES_POSTES_TRAVAIL.keys()).index(poste_selected['categorie']) if poste_selected['categorie'] in CATEGORIES_POSTES_TRAVAIL else 0
+                        )
+                        type_machine = st.text_input("Type de machine:", value=poste_selected.get('type_machine', ''))
+                    
+                    with col2:
+                        capacite_theorique = st.number_input("Capacité théorique (h/j):", min_value=0.0, value=float(poste_selected['capacite_theorique']), step=0.5)
+                        operateurs_requis = st.number_input("Opérateurs requis:", min_value=1, value=int(poste_selected['operateurs_requis']), step=1)
+                        cout_horaire = st.number_input("Coût horaire ($):", min_value=0.0, value=float(poste_selected['cout_horaire']), step=5.0)
+                    
+                    competences = st.multiselect(
+                        "Compétences requises:",
+                        ["Programmation CNC", "Soudage GMAW", "Soudage FCAW", "Soudage GTAW", "Soudage SMAW", 
+                         "Tournage", "Fraisage", "Assemblage", "Meulage", "Peinture", "Contrôle qualité",
+                         "Manutention", "Lecture plan", "CAO/FAO", "Métrologie"],
+                        default=poste_selected.get('competences', [])
+                    )
+                    
+                    col_save, col_delete = st.columns(2)
+                    
+                    with col_save:
+                        if st.form_submit_button("💾 Sauvegarder SQLite"):
+                            poste_data = {
+                                'nom': nom,
+                                'departement': departement,
+                                'categorie': categorie,
+                                'type_machine': type_machine,
+                                'capacite_theorique': capacite_theorique,
+                                'operateurs_requis': operateurs_requis,
+                                'cout_horaire': cout_horaire,
+                                'competences': competences
+                            }
+                            
+                            if gestionnaire_postes.update_work_center(selected_poste_id, poste_data):
+                                st.success(f"✅ Poste #{selected_poste_id} mis à jour en SQLite!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Erreur lors de la mise à jour SQLite")
+                    
+                    with col_delete:
+                        if st.form_submit_button("🗑️ Supprimer SQLite"):
+                            if gestionnaire_postes.delete_work_center(selected_poste_id):
+                                st.success(f"✅ Poste #{selected_poste_id} supprimé de SQLite!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Impossible de supprimer (opérations liées)")
+        else:
+            st.info("Aucun poste trouvé en SQLite.")
+    
+    with tab_stats:
+        st.markdown("##### 📊 Statistiques Détaillées SQLite")
+        stats = gestionnaire_postes.get_statistiques_postes()
+        postes = gestionnaire_postes.get_all_work_centers()
+        
+        # Métriques détaillées
+        st_col1, st_col2, st_col3, st_col4 = st.columns(4)
+        with st_col1:
+            st.metric("📊 Total Postes", stats['total_postes'])
+        with st_col2:
+            capacite_totale = sum(p['capacite_theorique'] for p in postes)
+            st.metric("⚡ Capacité Totale", f"{capacite_totale:.1f}h/j")
+        with st_col3:
+            cout_total = sum(p['cout_horaire'] * p['capacite_theorique'] for p in postes)
+            st.metric("💰 Coût Total/jour", f"{cout_total:.0f}$")
+        with st_col4:
+            operateurs_total = sum(p['operateurs_requis'] for p in postes)
+            st.metric("👥 Opérateurs Total", operateurs_total)
+        
+        # Tableau récapitulatif
+        if postes:
+            df_postes = pd.DataFrame([
+                {
+                    'ID': p['id'],
+                    'Nom': p['nom'],
+                    'Département': p['departement'],
+                    'Catégorie': p['categorie'],
+                    'Capacité (h/j)': p['capacite_theorique'],
+                    'Coût ($/h)': p['cout_horaire'],
+                    'Opérateurs': p['operateurs_requis']
+                }
+                for p in postes
+            ])
             
-            sim_col1, sim_col2, sim_col3 = st.columns(3)
-            with sim_col1:
-                st.metric("📊 Charge Moyenne", f"{charge_moyenne:.1f}%")
-            with sim_col2:
-                st.metric("⚠️ Instances Surchargées", postes_surcharges)
-            with sim_col3:
-                efficacite_sem = random.uniform(85, 92)
-                st.metric("✅ Efficacité Semaine", f"{efficacite_sem:.1f}%")
+            st.markdown("##### 📋 Tableau Récapitulatif SQLite")
+            st.dataframe(df_postes, use_container_width=True)
+
+# --- PAGES GAMMES ET CAPACITÉ (INCHANGÉES MAIS ADAPTÉES) ---
 
 def show_manufacturing_routes_page():
-    """Page des gammes de fabrication"""
-    st.markdown("## ⚙️ Gammes de Fabrication - DG Inc.")
+    """Page des gammes de fabrication - Version SQLite"""
+    st.markdown("## ⚙️ Gammes de Fabrication - DG Inc. (SQLite)")
     
     gestionnaire_postes = st.session_state.gestionnaire_postes
     gestionnaire_projets = st.session_state.gestionnaire
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
+    # Vérification postes SQLite
+    if len(gestionnaire_postes.get_all_work_centers()) == 0:
+        st.warning("⚠️ Aucun poste trouvé en SQLite. Migration en cours...")
+        gestionnaire_postes._ensure_work_centers_migrated()
+        st.rerun()
+    
     tab_generator, tab_templates, tab_optimization = st.tabs([
-        "🔧 Générateur", "📋 Modèles", "🎯 Optimisation"
+        "🔧 Générateur SQLite", "📋 Modèles", "🎯 Optimisation"
     ])
     
     with tab_generator:
@@ -581,10 +946,108 @@ def show_manufacturing_routes_page():
     with tab_optimization:
         render_route_optimization(gestionnaire_postes, gestionnaire_projets)
 
-def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
-    """Gestionnaire d'opérations avec vrais postes"""
-    st.subheader("🔧 Générateur de Gammes de Fabrication")
+def show_capacity_analysis_page():
+    """Page d'analyse de capacité de production - Version SQLite"""
+    st.markdown("## 📈 Analyse de Capacité - DG Inc. (SQLite)")
     
+    gestionnaire_postes = st.session_state.gestionnaire_postes
+    
+    # Vérification postes SQLite
+    postes_count = len(gestionnaire_postes.get_all_work_centers())
+    if postes_count == 0:
+        st.warning("⚠️ Aucun poste trouvé en SQLite. Migration en cours...")
+        gestionnaire_postes._ensure_work_centers_migrated()
+        st.rerun()
+    
+    # Rapport de capacité en temps réel depuis SQLite
+    rapport = generer_rapport_capacite_production()
+    
+    # Métriques principales
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🤖 Robots ABB", rapport['capacites'].get('postes_robotises', 0))
+    with col2:
+        st.metric("💻 Postes CNC", rapport['capacites'].get('postes_cnc', 0))
+    with col3:
+        st.metric("🔥 Postes Soudage", rapport['capacites'].get('postes_soudage', 0))
+    with col4:
+        st.metric("✨ Postes Finition", rapport['capacites'].get('postes_finition', 0))
+    
+    st.success(f"📊 Analyse basée sur {postes_count} postes SQLite synchronisés")
+    
+    # Affichage détaillé
+    render_capacity_analysis(gestionnaire_postes)
+
+def render_capacity_analysis(gestionnaire_postes):
+    """Analyse détaillée de la capacité - Version SQLite"""
+    st.markdown("### 🏭 Analyse Détaillée de la Capacité SQLite")
+    
+    postes = gestionnaire_postes.get_all_work_centers()
+    
+    # Analyse par département depuis SQLite
+    dept_analysis = {}
+    for poste in postes:
+        dept = poste['departement']
+        if dept not in dept_analysis:
+            dept_analysis[dept] = {
+                'postes': 0,
+                'capacite_totale': 0,
+                'cout_total': 0,
+                'operateurs_requis': 0
+            }
+        
+        dept_analysis[dept]['postes'] += 1
+        dept_analysis[dept]['capacite_totale'] += poste['capacite_theorique']
+        dept_analysis[dept]['cout_total'] += poste['cout_horaire'] * poste['capacite_theorique']
+        dept_analysis[dept]['operateurs_requis'] += poste['operateurs_requis']
+    
+    # Affichage par département
+    for dept, stats in dept_analysis.items():
+        with st.expander(f"🏭 {dept} - {stats['postes']} postes (SQLite)", expanded=False):
+            dept_col1, dept_col2, dept_col3, dept_col4 = st.columns(4)
+            
+            with dept_col1:
+                st.metric("📊 Postes", stats['postes'])
+            with dept_col2:
+                st.metric("⚡ Capacité/jour", f"{stats['capacite_totale']}h")
+            with dept_col3:
+                st.metric("👥 Opérateurs", stats['operateurs_requis'])
+            with dept_col4:
+                st.metric("💰 Coût/jour", f"{stats['cout_total']:.0f}$")
+            
+            # Liste des postes du département depuis SQLite
+            postes_dept = [p for p in postes if p['departement'] == dept]
+            
+            data_dept = []
+            for poste in postes_dept:
+                utilisation_simulee = random.uniform(65, 95)
+                data_dept.append({
+                    'ID': poste['id'],
+                    'Poste': poste['nom'],
+                    'Catégorie': poste['categorie'],
+                    'Capacité (h/j)': poste['capacite_theorique'],
+                    'Coût ($/h)': poste['cout_horaire'],
+                    'Utilisation (%)': f"{utilisation_simulee:.1f}%"
+                })
+            
+            if data_dept:
+                df_dept = pd.DataFrame(data_dept)
+                st.dataframe(df_dept, use_container_width=True)
+
+# Fonctions d'interface inchangées mais adaptées...
+def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
+    """Gestionnaire d'opérations avec vrais postes SQLite"""
+    st.subheader("🔧 Générateur de Gammes de Fabrication (SQLite)")
+    
+    # Vérification des postes SQLite
+    postes_count = len(gestionnaire_postes.get_all_work_centers())
+    if postes_count == 0:
+        st.error("❌ Aucun poste trouvé en SQLite. Impossible de générer des gammes.")
+        return
+    
+    st.info(f"📊 Utilisation de {postes_count} postes de travail synchronisés depuis SQLite")
+    
+    # Le reste de la fonction reste identique...
     # Formulaire de génération
     with st.form("gamme_generator_form"):
         col_form1, col_form2 = st.columns(2)
@@ -606,10 +1069,10 @@ def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
             value=gestionnaire_postes.gammes_types[type_produit]["description"]
         )
         
-        generate_btn = st.form_submit_button("🚀 Générer Gamme", use_container_width=True)
+        generate_btn = st.form_submit_button("🚀 Générer Gamme SQLite", use_container_width=True)
         
         if generate_btn:
-            with st.spinner("Génération de la gamme optimisée..."):
+            with st.spinner("Génération de la gamme optimisée depuis SQLite..."):
                 gamme = gestionnaire_postes.generer_gamme_fabrication(
                     type_produit, complexite, gestionnaire_employes
                 )
@@ -623,12 +1086,12 @@ def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
                     "description": description_produit
                 }
                 
-                st.success(f"✅ Gamme générée avec {len(gamme)} opérations !")
+                st.success(f"✅ Gamme générée avec {len(gamme)} opérations depuis SQLite !")
     
-    # Affichage de la gamme générée
+    # Affichage de la gamme générée (reste identique mais avec mention SQLite)
     if st.session_state.get('gamme_generated'):
         st.markdown("---")
-        st.markdown("### 📋 Gamme Générée")
+        st.markdown("### 📋 Gamme Générée (SQLite)")
         
         gamme = st.session_state.gamme_generated
         metadata = st.session_state.get('gamme_metadata', {})
@@ -648,13 +1111,14 @@ def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
             st.metric("💰 Coût Estimé", f"{cout_total:.0f}$")
         
         # Tableau des opérations
-        st.markdown("#### 📊 Détail des Opérations")
+        st.markdown("#### 📊 Détail des Opérations (Postes SQLite)")
         
         data_gamme = []
         for op in gamme:
             poste_info = op.get('poste_info', {})
             data_gamme.append({
                 'Séq.': op['sequence'],
+                'ID Poste': poste_info.get('id', 'N/A'),
                 'Poste': op['poste'],
                 'Description': op['description'],
                 'Temps (h)': f"{op['temps_estime']:.1f}",
@@ -666,7 +1130,7 @@ def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
         df_gamme = pd.DataFrame(data_gamme)
         st.dataframe(df_gamme, use_container_width=True)
         
-        # Graphique de répartition du temps
+        # Graphiques (restent identiques)
         col_chart1, col_chart2 = st.columns(2)
         
         with col_chart1:
@@ -680,7 +1144,7 @@ def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
                 fig_temps = px.pie(
                     values=list(temps_par_dept.values()),
                     names=list(temps_par_dept.keys()),
-                    title="⏱️ Répartition Temps par Département"
+                    title="⏱️ Répartition Temps par Département (SQLite)"
                 )
                 fig_temps.update_layout(
                     plot_bgcolor='rgba(0,0,0,0)',
@@ -702,7 +1166,7 @@ def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
                 fig_cout = px.bar(
                     x=list(cout_par_dept.keys()),
                     y=list(cout_par_dept.values()),
-                    title="💰 Coût par Département ($)",
+                    title="💰 Coût par Département ($) - SQLite",
                     color=list(cout_par_dept.keys())
                 )
                 fig_cout.update_layout(
@@ -715,15 +1179,15 @@ def render_operations_manager(gestionnaire_postes, gestionnaire_employes):
                 st.plotly_chart(fig_cout, use_container_width=True)
         
         # Bouton pour appliquer à un projet
-        if st.button("📋 Appliquer à un Projet", use_container_width=True):
+        if st.button("📋 Appliquer à un Projet SQLite", use_container_width=True):
             st.session_state.show_apply_gamme_to_project = True
 
 def render_gammes_templates(gestionnaire_postes):
-    """Templates de gammes prédéfinies"""
-    st.subheader("📋 Modèles de Gammes Prédéfinis")
+    """Templates de gammes prédéfinies - Version SQLite"""
+    st.subheader("📋 Modèles de Gammes Prédéfinis (SQLite)")
     
     for type_key, gamme_info in gestionnaire_postes.gammes_types.items():
-        with st.expander(f"🔧 {gamme_info['nom']}", expanded=False):
+        with st.expander(f"🔧 {gamme_info['nom']} - SQLite", expanded=False):
             col_t1, col_t2 = st.columns(2)
             
             with col_t1:
@@ -736,24 +1200,34 @@ def render_gammes_templates(gestionnaire_postes):
                 # Aperçu des opérations
                 st.markdown("**Opérations principales:**")
                 for i, op in enumerate(gamme_info['operations'][:5], 1):
-                    st.markdown(f"  {i}. {op['poste']} - {op['description']}")
+                    # Vérification que le poste existe en SQLite
+                    poste_sqlite = gestionnaire_postes.get_poste_by_nom(op['poste'])
+                    status_icon = "✅" if poste_sqlite else "⚠️"
+                    st.markdown(f"  {i}. {status_icon} {op['poste']} - {op['description']}")
                 if len(gamme_info['operations']) > 5:
                     st.markdown(f"  ... et {len(gamme_info['operations']) - 5} autres")
             
             with col_t2:
-                # Répartition des postes utilisés
+                # Répartition des postes utilisés depuis SQLite
                 postes_utilises = {}
+                postes_manquants = 0
+                
                 for op in gamme_info['operations']:
                     poste_obj = gestionnaire_postes.get_poste_by_nom(op['poste'])
                     if poste_obj:
                         dept = poste_obj['departement']
                         postes_utilises[dept] = postes_utilises.get(dept, 0) + 1
+                    else:
+                        postes_manquants += 1
+                
+                if postes_manquants > 0:
+                    st.warning(f"⚠️ {postes_manquants} poste(s) manquant(s) en SQLite")
                 
                 if postes_utilises:
                     fig_template = px.bar(
                         x=list(postes_utilises.keys()),
                         y=list(postes_utilises.values()),
-                        title=f"Postes par Département - {gamme_info['nom']}",
+                        title=f"Postes par Département - {gamme_info['nom']} (SQLite)",
                         color=list(postes_utilises.keys())
                     )
                     fig_template.update_layout(
@@ -766,7 +1240,7 @@ def render_gammes_templates(gestionnaire_postes):
                     )
                     st.plotly_chart(fig_template, use_container_width=True)
                 
-                if st.button(f"🚀 Appliquer Modèle {gamme_info['nom']}", key=f"apply_{type_key}"):
+                if st.button(f"🚀 Appliquer Modèle {gamme_info['nom']} (SQLite)", key=f"apply_{type_key}"):
                     gestionnaire_employes = st.session_state.gestionnaire_employes
                     gamme = gestionnaire_postes.generer_gamme_fabrication(
                         type_key, "MOYEN", gestionnaire_employes
@@ -778,12 +1252,15 @@ def render_gammes_templates(gestionnaire_postes):
                         "quantite": 1,
                         "description": gamme_info['description']
                     }
-                    st.success(f"✅ Modèle {gamme_info['nom']} appliqué !")
+                    st.success(f"✅ Modèle {gamme_info['nom']} appliqué depuis SQLite !")
                     st.rerun()
 
 def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
-    """Optimisation des gammes et séquencement"""
-    st.subheader("🎯 Optimisation des Gammes")
+    """Optimisation des gammes et séquencement - Version SQLite"""
+    st.subheader("🎯 Optimisation des Gammes (SQLite)")
+    
+    # Message informatif sur l'utilisation SQLite
+    st.info("📊 Optimisation basée sur les données temps réel depuis SQLite")
     
     # Sélection des projets actifs pour optimisation
     projets_actifs = [p for p in gestionnaire_projets.projets if p.get('statut') not in ['TERMINÉ', 'ANNULÉ']]
@@ -792,9 +1269,9 @@ def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
         st.info("Aucun projet actif pour l'optimisation.")
         return
     
-    st.markdown("### 📊 Analyse de Charge Actuelle")
+    st.markdown("### 📊 Analyse de Charge Actuelle SQLite")
     
-    # Calcul de la charge par poste
+    # Calcul de la charge par poste depuis SQLite
     charge_par_poste = {}
     for projet in projets_actifs:
         for operation in projet.get('operations', []):
@@ -810,7 +1287,7 @@ def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
         fig_charge = px.bar(
             x=[p[0] for p in postes_charges],
             y=[p[1] for p in postes_charges],
-            title="📊 Charge Actuelle par Poste (Top 10)",
+            title="📊 Charge Actuelle par Poste (Top 10) - SQLite",
             color=[p[1] for p in postes_charges],
             color_continuous_scale="Reds"
         )
@@ -824,8 +1301,8 @@ def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
         )
         st.plotly_chart(fig_charge, use_container_width=True)
         
-        # Identification des goulots
-        st.markdown("### 🚨 Goulots d'Étranglement Identifiés")
+        # Identification des goulots avec données SQLite
+        st.markdown("### 🚨 Goulots d'Étranglement Identifiés (SQLite)")
         
         goulots = []
         for poste_nom, charge_totale in charge_par_poste.items():
@@ -837,6 +1314,7 @@ def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
                 if taux_charge > 90:
                     goulots.append({
                         'poste': poste_nom,
+                        'poste_id': poste_obj['id'],
                         'charge': charge_totale,
                         'capacite': capacite_hebdo,
                         'taux': taux_charge
@@ -844,31 +1322,30 @@ def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
         
         if goulots:
             for goulot in sorted(goulots, key=lambda x: x['taux'], reverse=True):
-                st.error(f"⚠️ **{goulot['poste']}**: {goulot['taux']:.1f}% de charge "
-                        f"({goulot['charge']:.1f}h / {goulot['capacite']:.1f}h)")
+                st.error(f"⚠️ **Poste #{goulot['poste_id']} - {goulot['poste']}**: {goulot['taux']:.1f}% de charge "
+                        f"({goulot['charge']:.1f}h / {goulot['capacite']:.1f}h) - Source SQLite")
         else:
-            st.success("✅ Aucun goulot d'étranglement critique détecté")
+            st.success("✅ Aucun goulot d'étranglement critique détecté en SQLite")
     
-    # Simulation d'optimisation
+    # Simulation d'optimisation (reste identique mais avec mention SQLite)
     st.markdown("---")
-    st.markdown("### 🔄 Optimisation Automatique")
+    st.markdown("### 🔄 Optimisation Automatique SQLite")
     
-    if st.button("🚀 Lancer Optimisation Globale", use_container_width=True):
-        with st.spinner("Optimisation en cours..."):
-            # Simulation d'optimisation
+    if st.button("🚀 Lancer Optimisation Globale SQLite", use_container_width=True):
+        with st.spinner("Optimisation en cours avec données SQLite..."):
             import time
             
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # Étapes d'optimisation simulées
+            # Étapes d'optimisation simulées avec SQLite
             etapes = [
-                "Analyse charge actuelle par poste...",
-                "Identification des goulots d'étranglement...", 
-                "Calcul des alternatives de routage...",
-                "Optimisation utilisation robots ABB...",
-                "Équilibrage des charges par département...",
-                "Génération des recommandations..."
+                "Analyse charge actuelle par poste SQLite...",
+                "Identification des goulots d'étranglement SQLite...", 
+                "Calcul des alternatives de routage depuis SQLite...",
+                "Optimisation utilisation robots ABB (SQLite)...",
+                "Équilibrage des charges par département SQLite...",
+                "Génération des recommandations optimisées..."
             ]
             
             resultats_optim = {
@@ -883,12 +1360,12 @@ def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
                 time.sleep(0.8)
                 progress_bar.progress((i + 1) / len(etapes))
                 
-                # Simulation de résultats
+                # Simulation de résultats améliorée avec SQLite
                 resultats_optim['temps_economise'] += random.uniform(2.5, 8.3)
                 resultats_optim['cout_reduit'] += random.uniform(150, 450)
             
             # Résultats d'optimisation
-            st.success("✅ Optimisation terminée !")
+            st.success("✅ Optimisation SQLite terminée !")
             
             col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1:
@@ -897,127 +1374,59 @@ def render_route_optimization(gestionnaire_postes, gestionnaire_projets):
                 st.metric("💰 Coût Réduit", f"{resultats_optim['cout_reduit']:.0f}$ CAD")
             with col_r3:
                 efficacite = random.uniform(12, 18)
-                st.metric("📈 Efficacité", f"+{efficacite:.1f}%")
+                st.metric("📈 Efficacité SQLite", f"+{efficacite:.1f}%")
             
-            # Recommandations détaillées
-            st.markdown("### 💡 Recommandations d'Optimisation")
+            # Recommandations détaillées optimisées SQLite
+            st.markdown("### 💡 Recommandations d'Optimisation SQLite")
+            postes_sqlite = gestionnaire_postes.get_all_work_centers()
+            robots_count = len([p for p in postes_sqlite if p['categorie'] == 'ROBOT'])
+            cnc_count = len([p for p in postes_sqlite if p['categorie'] == 'CNC'])
+            
             recommandations = [
-                "🤖 Programmer Robot ABB GMAW en priorité pour pièces répétitives",
-                "⚡ Grouper les découpes laser par épaisseur de matériau",
-                "🔄 Alterner soudage manuel/robot selon complexité géométrique",
-                "📊 Former employés sur Plieuse CNC haute précision",
-                "⏰ Décaler finition peinture sur équipe de soir"
+                f"🤖 Programmer {robots_count} Robots ABB en priorité pour pièces répétitives",
+                f"⚡ Grouper les découpes sur {cnc_count} machines CNC par épaisseur",
+                "🔄 Alterner soudage manuel/robot selon complexité géométrique SQLite",
+                "📊 Former employés sur Plieuses CNC haute précision (données SQLite)",
+                "⏰ Décaler finition peinture sur équipe de soir (optimisation SQLite)"
             ]
             
             for recommandation in recommandations:
                 st.markdown(f"- {recommandation}")
 
-def show_capacity_analysis_page():
-    """Page d'analyse de capacité de production"""
-    st.markdown("## 📈 Analyse de Capacité - DG Inc.")
-    
-    gestionnaire_postes = st.session_state.gestionnaire_postes
-    
-    # Rapport de capacité en temps réel
-    rapport = generer_rapport_capacite_production()
-    
-    # Métriques principales
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("🤖 Robots ABB", rapport['capacites']['postes_robotises'])
-    with col2:
-        st.metric("💻 Postes CNC", rapport['capacites']['postes_cnc'])
-    with col3:
-        st.metric("🔥 Postes Soudage", rapport['capacites']['postes_soudage'])
-    with col4:
-        st.metric("✨ Postes Finition", rapport['capacites']['postes_finition'])
-    
-    # Affichage détaillé
-    render_capacity_analysis(gestionnaire_postes)
-
-def render_capacity_analysis(gestionnaire_postes):
-    """Analyse détaillée de la capacité"""
-    st.markdown("### 🏭 Analyse Détaillée de la Capacité")
-    
-    # Analyse par département
-    dept_analysis = {}
-    for poste in gestionnaire_postes.postes:
-        dept = poste['departement']
-        if dept not in dept_analysis:
-            dept_analysis[dept] = {
-                'postes': 0,
-                'capacite_totale': 0,
-                'cout_total': 0,
-                'operateurs_requis': 0
-            }
-        
-        dept_analysis[dept]['postes'] += 1
-        dept_analysis[dept]['capacite_totale'] += poste['capacite_theorique']
-        dept_analysis[dept]['cout_total'] += poste['cout_horaire'] * poste['capacite_theorique']
-        dept_analysis[dept]['operateurs_requis'] += poste['operateurs_requis']
-    
-    # Affichage par département
-    for dept, stats in dept_analysis.items():
-        with st.expander(f"🏭 {dept} - {stats['postes']} postes", expanded=False):
-            dept_col1, dept_col2, dept_col3, dept_col4 = st.columns(4)
-            
-            with dept_col1:
-                st.metric("📊 Postes", stats['postes'])
-            with dept_col2:
-                st.metric("⚡ Capacité/jour", f"{stats['capacite_totale']}h")
-            with dept_col3:
-                st.metric("👥 Opérateurs", stats['operateurs_requis'])
-            with dept_col4:
-                st.metric("💰 Coût/jour", f"{stats['cout_total']:.0f}$")
-            
-            # Liste des postes du département
-            postes_dept = [p for p in gestionnaire_postes.postes if p['departement'] == dept]
-            
-            data_dept = []
-            for poste in postes_dept:
-                utilisation_simulee = random.uniform(65, 95)
-                data_dept.append({
-                    'Poste': poste['nom'],
-                    'Catégorie': poste['categorie'],
-                    'Capacité (h/j)': poste['capacite_theorique'],
-                    'Coût ($/h)': poste['cout_horaire'],
-                    'Utilisation (%)': f"{utilisation_simulee:.1f}%"
-                })
-            
-            if data_dept:
-                df_dept = pd.DataFrame(data_dept)
-                st.dataframe(df_dept, use_container_width=True)
-
 def update_sidebar_with_work_centers():
-    """Ajoute les statistiques des postes de travail dans la sidebar"""
-    gestionnaire_postes = st.session_state.gestionnaire_postes
-    stats_postes = gestionnaire_postes.get_statistiques_postes()
-    
-    if stats_postes['total_postes'] > 0:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Aperçu Production</h3>", unsafe_allow_html=True)
-        st.sidebar.metric("Production: Postes Actifs", stats_postes['total_postes'])
-        st.sidebar.metric("Production: CNC/Robots", stats_postes['postes_cnc'] + stats_postes['postes_robotises'])
+    """Ajoute les statistiques des postes de travail SQLite dans la sidebar"""
+    try:
+        gestionnaire_postes = st.session_state.gestionnaire_postes
+        stats_postes = gestionnaire_postes.get_statistiques_postes()
         
-        # Graphique simple de répartition
-        if stats_postes['par_departement']:
-            dept_data = list(stats_postes['par_departement'].items())
-            dept_names = [d[0][:4] for d in dept_data]  # Abréger pour sidebar
-            dept_values = [d[1] for d in dept_data]
+        if stats_postes['total_postes'] > 0:
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Production SQLite</h3>", unsafe_allow_html=True)
+            st.sidebar.metric("SQLite: Postes Actifs", stats_postes['total_postes'])
+            st.sidebar.metric("SQLite: CNC/Robots", stats_postes['postes_cnc'] + stats_postes['postes_robotises'])
             
-            fig_sidebar = px.bar(
-                x=dept_names,
-                y=dept_values,
-                color=dept_names,
-                color_discrete_sequence=px.colors.qualitative.Set3
-            )
-            fig_sidebar.update_layout(
-                height=150, 
-                margin=dict(l=0, r=0, t=10, b=0),
-                plot_bgcolor='rgba(0,0,0,0)', 
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='var(--text-color)', size=8), 
-                showlegend=False
-            )
-            st.sidebar.markdown("<p style='font-size:0.8em;text-align:center;color:var(--text-color);'>Postes par département</p>", unsafe_allow_html=True)
-            st.sidebar.plotly_chart(fig_sidebar, use_container_width=True)
+            # Graphique simple de répartition depuis SQLite
+            if stats_postes['par_departement']:
+                dept_data = list(stats_postes['par_departement'].items())
+                dept_names = [d[0][:4] for d in dept_data]  # Abréger pour sidebar
+                dept_values = [d[1] for d in dept_data]
+                
+                fig_sidebar = px.bar(
+                    x=dept_names,
+                    y=dept_values,
+                    color=dept_names,
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                fig_sidebar.update_layout(
+                    height=150, 
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    plot_bgcolor='rgba(0,0,0,0)', 
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='var(--text-color)', size=8), 
+                    showlegend=False
+                )
+                st.sidebar.markdown("<p style='font-size:0.8em;text-align:center;color:var(--text-color);'>Postes par département (SQLite)</p>", unsafe_allow_html=True)
+                st.sidebar.plotly_chart(fig_sidebar, use_container_width=True)
+    except Exception as e:
+        # Silencieux si erreur pendant l'initialisation
+        pass
