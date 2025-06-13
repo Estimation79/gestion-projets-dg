@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE COMPLÈTE ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE ---
 
 import streamlit as st
 import pandas as pd
@@ -17,7 +17,7 @@ from fractions import Fraction
 # NOUVELLE ARCHITECTURE : Import SQLite Database
 from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
 
-# Importations pour le CRM (avec toutes les fonctions décommentées) - CORRIGÉ
+# Importations pour le CRM (avec toutes les fonctions décommentées)
 from crm import (
     GestionnaireCRM,
     render_crm_contacts_tab,
@@ -31,17 +31,13 @@ from crm import (
     render_crm_interaction_details
 )
 
-# Importations pour les Employés - CORRIGÉ COMPLET
+# Importations pour les Employés
 from employees import (
     GestionnaireEmployes,
     render_employes_liste_tab,
     render_employes_dashboard_tab,
     render_employe_form,
-    render_employe_details,
-    show_employees_page as real_show_employees_page,
-    DEPARTEMENTS,
-    STATUTS_EMPLOYE,
-    COMPETENCES_DISPONIBLES
+    render_employe_details
 )
 
 # Importation du module postes de travail
@@ -1224,7 +1220,7 @@ def render_delete_confirmation(gestionnaire):
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_itineraire():
-    """Version améliorée avec vrais postes de travail"""
+    """Version améliorée avec vrais postes de travail - SQLite"""
     st.markdown("## 🛠️ Itinéraire Fabrication - DG Inc. (SQLite)")
     gestionnaire = st.session_state.gestionnaire
     gestionnaire_postes = st.session_state.gestionnaire_postes
@@ -1244,26 +1240,468 @@ def show_itineraire():
     
     st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
 
+    # Bouton de régénération de gamme
+    col_regen1, col_regen2 = st.columns([3, 1])
+    with col_regen2:
+        if st.button("🔄 Régénérer Gamme SQLite", help="Régénérer avec les vrais postes DG Inc."):
+            # Déterminer le type de produit
+            nom_projet = proj.get('nom_projet', '').lower()
+            if any(mot in nom_projet for mot in ['chassis', 'structure', 'assemblage']):
+                type_produit = "CHASSIS_SOUDE"
+            elif any(mot in nom_projet for mot in ['batiment', 'pont', 'charpente']):
+                type_produit = "STRUCTURE_LOURDE"
+            else:
+                type_produit = "PIECE_PRECISION"
+            
+            # Générer nouvelle gamme
+            gamme = gestionnaire_postes.generer_gamme_fabrication(type_produit, "MOYEN", gestionnaire_employes)
+            
+            # Mettre à jour les opérations en SQLite
+            nouvelles_operations = []
+            for i, op in enumerate(gamme, 1):
+                nouvelles_operations.append({
+                    'id': i,
+                    'sequence': str(op['sequence']),
+                    'description': f"{op['poste']} - {proj.get('nom_projet', '')}",
+                    'temps_estime': op['temps_estime'],
+                    'ressource': op['employes_disponibles'][0] if op['employes_disponibles'] else 'À assigner',
+                    'statut': 'À FAIRE',
+                    'poste_travail': op['poste']
+                })
+            
+            # Mise à jour via SQLite
+            proj['operations'] = nouvelles_operations
+            gestionnaire.modifier_projet(proj['id'], {'operations': nouvelles_operations})
+            st.success("✅ Gamme régénérée avec les postes DG Inc. en SQLite !")
+            st.rerun()
+
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    operations = proj.get('operations', [])
+    if not operations:
+        st.info("Aucune opération en SQLite.")
+    else:
+        total_time = sum(op.get('temps_estime', 0) for op in operations)
+        finished_ops = sum(1 for op in operations if op.get('statut') == 'TERMINÉ')
+        progress = (finished_ops / len(operations) * 100) if operations else 0
+        
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            st.metric("🔧 Opérations", len(operations))
+        with mc2:
+            st.metric("⏱️ Durée Totale", f"{total_time:.1f}h")
+        with mc3:
+            st.metric("📊 Progression", f"{progress:.1f}%")
+        
+        # Tableau enrichi avec postes de travail
+        data_iti = []
+        for op in operations:
+            poste_travail = op.get('poste_travail', 'Non assigné')
+            data_iti.append({
+                '🆔': op.get('id', '?'), 
+                '📊 Séq.': op.get('sequence', ''), 
+                '🏭 Poste': poste_travail,
+                '📋 Desc.': op.get('description', ''), 
+                '⏱️ Tps (h)': f"{(op.get('temps_estime', 0) or 0):.1f}", 
+                '👨‍🔧 Ress.': op.get('ressource', ''), 
+                '🚦 Statut': op.get('statut', 'À FAIRE')
+            })
+        
+        st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
+        
+        st.markdown("---")
+        st.markdown("##### 📈 Analyse Opérations SQLite")
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            counts = {}
+            colors_op_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'TERMINÉ': '#10b981', 'EN ATTENTE': '#ef4444'}
+            for op in operations:
+                status = op.get('statut', 'À FAIRE')
+                counts[status] = counts.get(status, 0) + 1
+            if counts:
+                fig = px.bar(x=list(counts.keys()), y=list(counts.values()), title="Répartition par statut", color=list(counts.keys()), color_discrete_map=colors_op_statut)
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+        with ac2:
+            res_time = {}
+            for op in operations:
+                res = op.get('poste_travail', 'Non assigné')
+                time = op.get('temps_estime', 0)
+                res_time[res] = res_time.get(res, 0) + time
+            if res_time:
+                fig = px.pie(values=list(res_time.values()), names=list(res_time.keys()), title="Temps par poste")
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
 def show_nomenclature():
     st.markdown("## 📊 Nomenclature (BOM) - SQLite")
     gestionnaire = st.session_state.gestionnaire
+    
     if not gestionnaire.projets:
         st.warning("Aucun projet en SQLite.")
         return
+    
+    opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
+    sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="bom_sel")
+    proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
+    
+    if not proj:
+        st.error("Projet non trouvé en SQLite.")
+        return
+    
+    st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    materiaux = proj.get('materiaux', [])
+    
+    if not materiaux:
+        st.info("Aucun matériau en SQLite.")
+    else:
+        total_cost = 0
+        data_bom = []
+        for item in materiaux:
+            qty, price = item.get('quantite', 0) or 0, item.get('prix_unitaire', 0) or 0
+            total = qty * price
+            total_cost += total
+            data_bom.append({
+                '🆔': item.get('id', '?'), 
+                '📝 Code': item.get('code', ''), 
+                '📋 Désignation': item.get('designation', 'N/A'), 
+                '📊 Qté': f"{qty} {item.get('unite', '')}", 
+                '💳 PU': format_currency(price), 
+                '💰 Total': format_currency(total), 
+                '🏪 Fourn.': item.get('fournisseur', 'N/A')
+            })
+        
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            st.metric("📦 Items", len(materiaux))
+        with mc2:
+            st.metric("💰 Coût Total", format_currency(total_cost))
+        with mc3:
+            st.metric("📊 Coût Moyen/Item", format_currency(total_cost / len(materiaux) if materiaux else 0))
+        
+        st.dataframe(pd.DataFrame(data_bom), use_container_width=True)
+        
+        if len(materiaux) > 1:
+            st.markdown("---")
+            st.markdown("##### 📈 Analyse Coûts Matériaux SQLite")
+            costs = [(item.get('quantite', 0) or 0) * (item.get('prix_unitaire', 0) or 0) for item in materiaux]
+            labels = [item.get('designation', 'N/A') for item in materiaux]
+            fig = px.pie(values=costs, names=labels, title="Répartition coûts par matériau")
+            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def show_gantt():
     st.markdown("## 📈 Diagramme de Gantt - SQLite")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
+    
     if not gestionnaire.projets:
         st.info("Aucun projet SQLite pour Gantt.")
         return
+    
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    gantt_data = []
+    for p in gestionnaire.projets:
+        try:
+            s_date = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d") if p.get('date_soumis') else None
+            e_date = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d") if p.get('date_prevu') else None
+            
+            if s_date and e_date:
+                client_display_name_gantt = p.get('client_nom_cache', 'N/A')
+                if client_display_name_gantt == 'N/A' and p.get('client_company_id'):
+                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_company_id'))
+                    if entreprise:
+                        client_display_name_gantt = entreprise.get('nom', 'N/A')
+                elif client_display_name_gantt == 'N/A':
+                    client_display_name_gantt = p.get('client_legacy', 'N/A')
+
+                gantt_data.append({
+                    'Projet': f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}", 
+                    'Début': s_date, 
+                    'Fin': e_date, 
+                    'Client': client_display_name_gantt, 
+                    'Statut': p.get('statut', 'N/A'), 
+                    'Priorité': p.get('priorite', 'N/A')
+                })
+        except:
+            continue
+    
+    if not gantt_data:
+        st.warning("Données de dates invalides pour Gantt SQLite.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    
+    df_gantt = pd.DataFrame(gantt_data)
+    colors_gantt = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
+    
+    fig = px.timeline(
+        df_gantt, 
+        x_start="Début", 
+        x_end="Fin", 
+        y="Projet", 
+        color="Statut", 
+        color_discrete_map=colors_gantt, 
+        title="📊 Planning Projets SQLite", 
+        hover_data=['Client', 'Priorité']
+    )
+    
+    fig.update_layout(
+        height=max(400, len(gantt_data) * 40), 
+        plot_bgcolor='rgba(0,0,0,0)', 
+        paper_bgcolor='rgba(0,0,0,0)', 
+        font=dict(color=TEXT_COLOR_CHARTS), 
+        xaxis=dict(title="📅 Calendrier", gridcolor='rgba(0,0,0,0.05)'), 
+        yaxis=dict(title="📋 Projets", gridcolor='rgba(0,0,0,0.05)', categoryorder='total ascending'), 
+        title_x=0.5, 
+        legend_title_text=''
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("---")
+    st.markdown("##### 📊 Stats Planning SQLite")
+    durees = [(item['Fin'] - item['Début']).days for item in gantt_data if item['Fin'] and item['Début']]
+    if durees:
+        gsc1, gsc2, gsc3 = st.columns(3)
+        with gsc1:
+            st.metric("📅 Durée Moy.", f"{sum(durees) / len(durees):.1f} j")
+        with gsc2:
+            st.metric("⏱️ Min Durée", f"{min(durees)} j")
+        with gsc3:
+            st.metric("🕐 Max Durée", f"{max(durees)} j")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def show_calendrier():
     st.markdown("## 📅 Vue Calendrier - SQLite")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+    curr_date = st.session_state.selected_date
+
+    # Navigation
+    cn1, cn2, cn3 = st.columns([1, 2, 1])
+    with cn1:
+        if st.button("◀️ Mois Préc.", key="cal_prev", use_container_width=True):
+            prev_m = curr_date.replace(day=1) - timedelta(days=1)
+            st.session_state.selected_date = prev_m.replace(day=min(curr_date.day, calendar.monthrange(prev_m.year, prev_m.month)[1]))
+            st.rerun()
+    with cn2:
+        m_names = ["", "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+        st.markdown(f"<div class='project-header' style='margin-bottom:1rem; text-align:center;'><h4 style='margin:0; color:#1E40AF;'>{m_names[curr_date.month]} {curr_date.year}</h4></div>", unsafe_allow_html=True)
+    with cn3:
+        if st.button("Mois Suiv. ▶️", key="cal_next", use_container_width=True):
+            next_m = (curr_date.replace(day=calendar.monthrange(curr_date.year, curr_date.month)[1])) + timedelta(days=1)
+            st.session_state.selected_date = next_m.replace(day=min(curr_date.day, calendar.monthrange(next_m.year, next_m.month)[1]))
+            st.rerun()
+    
+    if st.button("📅 Aujourd'hui", key="cal_today", use_container_width=True):
+        st.session_state.selected_date = date.today()
+        st.rerun()
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Préparation des données depuis SQLite
+    events_by_date = {}
+    for p in gestionnaire.projets:
+        try:
+            s_date_obj = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d").date() if p.get('date_soumis') else None
+            e_date_obj = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d").date() if p.get('date_prevu') else None
+            
+            client_display_name_cal = p.get('client_nom_cache', 'N/A')
+            if client_display_name_cal == 'N/A':
+                 client_display_name_cal = p.get('client_legacy', 'N/A')
+
+            if s_date_obj:
+                if s_date_obj not in events_by_date: 
+                    events_by_date[s_date_obj] = []
+                events_by_date[s_date_obj].append({
+                    'type': '🚀 Début', 
+                    'projet': p.get('nom_projet', 'N/A'), 
+                    'id': p.get('id'), 
+                    'client': client_display_name_cal, 
+                    'color_class': 'event-type-debut'
+                })
+            if e_date_obj:
+                if e_date_obj not in events_by_date: 
+                    events_by_date[e_date_obj] = []
+                events_by_date[e_date_obj].append({
+                    'type': '🏁 Fin', 
+                    'projet': p.get('nom_projet', 'N/A'), 
+                    'id': p.get('id'), 
+                    'client': client_display_name_cal, 
+                    'color_class': 'event-type-fin'
+                })
+        except:
+            continue
+    
+    # Affichage de la grille du calendrier
+    cal = calendar.Calendar(firstweekday=6)
+    month_dates = cal.monthdatescalendar(curr_date.year, curr_date.month)
+    day_names = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"]
+
+    st.markdown('<div class="calendar-grid-container">', unsafe_allow_html=True)
+    # En-têtes des jours
+    header_cols = st.columns(7)
+    for i, name in enumerate(day_names):
+        with header_cols[i]:
+            st.markdown(f"<div class='calendar-week-header'><div class='day-name'>{name}</div></div>", unsafe_allow_html=True)
+    
+    # Grille des jours
+    for week in month_dates:
+        cols = st.columns(7)
+        for i, day_date_obj in enumerate(week):
+            with cols[i]:
+                day_classes = ["calendar-day-cell"]
+                if day_date_obj.month != curr_date.month:
+                    day_classes.append("other-month")
+                if day_date_obj == date.today():
+                    day_classes.append("today")
+
+                events_html = ""
+                if day_date_obj in events_by_date:
+                    for event in events_by_date[day_date_obj]:
+                        events_html += f"<div class='calendar-event-item {event['color_class']}' title='{event['projet']}'>{event['type']} P#{event['id']}</div>"
+
+                cell_html = f"""
+                <div class='{' '.join(day_classes)}'>
+                    <div class='day-number'>{day_date_obj.day}</div>
+                    <div class='calendar-events-container'>{events_html}</div>
+                </div>
+                """
+                st.markdown(cell_html, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def show_kanban():
-    st.markdown("## 🔄 Vue Kanban - SQLite")
+    st.markdown("## 🔄 Vue Kanban (Style Planner) - SQLite")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+
+    # Initialisation de l'état de drag & drop
+    if 'dragged_project_id' not in st.session_state:
+        st.session_state.dragged_project_id = None
+    if 'dragged_from_status' not in st.session_state:
+        st.session_state.dragged_from_status = None
+
+    if not gestionnaire.projets:
+        st.info("Aucun projet à afficher dans le Kanban SQLite.")
+        return
+
+    # Logique de filtrage
+    with st.expander("🔍 Filtres", expanded=False):
+        recherche = st.text_input("Rechercher par nom, client...", key="kanban_search")
+
+    projets_filtres = gestionnaire.projets
+    if recherche:
+        terme = recherche.lower()
+        projets_filtres = [
+            p for p in projets_filtres if
+            terme in str(p.get('nom_projet', '')).lower() or
+            terme in str(p.get('client_nom_cache', '')).lower() or
+            (p.get('client_company_id') and crm_manager.get_entreprise_by_id(p.get('client_company_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_company_id')).get('nom', '').lower()) or
+            terme in str(p.get('client_legacy', '')).lower()
+        ]
+
+    # Préparation des données pour les colonnes
+    statuts_k = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"]
+    projs_by_statut = {s: [] for s in statuts_k}
+    for p in projets_filtres:
+        stat = p.get('statut', 'À FAIRE')
+        if stat in projs_by_statut:
+            projs_by_statut[stat].append(p)
+        else:
+            projs_by_statut['À FAIRE'].append(p)
+    
+    # Définition des couleurs pour les colonnes
+    col_borders_k = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'LIVRAISON': '#8b5cf6'}
+
+    # Indicateur visuel si un projet est en cours de déplacement
+    if st.session_state.dragged_project_id:
+        proj_dragged = next((p for p in gestionnaire.projets if p['id'] == st.session_state.dragged_project_id), None)
+        if proj_dragged:
+            st.markdown(f"""
+            <div class="kanban-drag-indicator">
+                Déplacement de: <strong>#{proj_dragged['id']} - {proj_dragged['nom_projet']}</strong>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.sidebar.button("❌ Annuler le déplacement", use_container_width=True):
+                st.session_state.dragged_project_id = None
+                st.session_state.dragged_from_status = None
+                st.rerun()
+
+    # STRUCTURE HORIZONTALE
+    st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
+
+    # Créer colonnes pour chaque statut
+    cols = st.columns(len(statuts_k))
+    
+    for idx, sk in enumerate(statuts_k):
+        with cols[idx]:
+            # En-tête de la colonne
+            st.markdown(f"""
+            <div class="kanban-column" style="border-top: 4px solid {col_borders_k.get(sk, '#ccc')};">
+                <div class="kanban-header">{sk} ({len(projs_by_statut[sk])})</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Si un projet est "soulevé", afficher une zone de dépôt
+            if st.session_state.dragged_project_id and sk != st.session_state.dragged_from_status:
+                if st.button(f"⤵️ Déposer ici", key=f"drop_in_{sk}", use_container_width=True, help=f"Déplacer vers {sk}"):
+                    proj_id_to_move = st.session_state.dragged_project_id
+                    if gestionnaire.modifier_projet(proj_id_to_move, {'statut': sk}):
+                        st.success(f"Projet #{proj_id_to_move} déplacé vers '{sk}' en SQLite!")
+                    else:
+                        st.error("Erreur lors du déplacement SQLite.")
+
+                    st.session_state.dragged_project_id = None
+                    st.session_state.dragged_from_status = None
+                    st.rerun()
+
+            # Zone pour les cartes
+            if not projs_by_statut[sk]:
+                st.markdown("<div style='text-align:center; color:var(--text-color-muted); margin-top:2rem;'><i>Vide</i></div>", unsafe_allow_html=True)
+
+            for pk in projs_by_statut[sk]:
+                prio_k = pk.get('priorite', 'MOYEN')
+                card_borders_k = {'ÉLEVÉ': '#ef4444', 'MOYEN': '#f59e0b', 'BAS': '#10b981'}
+                prio_icons_k = {'ÉLEVÉ': '🔴', 'MOYEN': '🟡', 'BAS': '🟢'}
+                
+                client_display_name_kanban = pk.get('client_nom_cache', 'N/A')
+                if client_display_name_kanban == 'N/A' and pk.get('client_company_id'):
+                    entreprise = crm_manager.get_entreprise_by_id(pk.get('client_company_id'))
+                    client_display_name_kanban = entreprise.get('nom', 'N/A') if entreprise else 'N/A'
+                elif client_display_name_kanban == 'N/A':
+                    client_display_name_kanban = pk.get('client_legacy', 'N/A')
+                
+                # Affichage de la carte
+                st.markdown(f"""
+                <div class='kanban-card' style='border-left-color:{card_borders_k.get(prio_k, 'var(--border-color)')};'>
+                    <div class='kanban-card-title'>#{pk.get('id')} - {pk.get('nom_projet', 'N/A')}</div>
+                    <div class='kanban-card-info'>👤 {client_display_name_kanban}</div>
+                    <div class='kanban-card-info'>{prio_icons_k.get(prio_k, '⚪')} {prio_k}</div>
+                    <div class='kanban-card-info'>💰 {format_currency(pk.get('prix_estime', 0))}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Boutons d'action pour la carte
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("👁️ Voir", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
+                        st.session_state.selected_project = pk
+                        st.session_state.show_project_modal = True
+                        st.rerun()
+                with col2:
+                    if st.button("➡️ Déplacer", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
+                        st.session_state.dragged_project_id = pk['id']
+                        st.session_state.dragged_from_status = sk
+                        st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def show_project_modal():
     """Affichage des détails d'un projet dans un expander"""
@@ -1274,6 +1712,128 @@ def show_project_modal():
     
     with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')} (SQLite)", expanded=True):
         if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
+            st.session_state.show_project_modal = False
+            st.rerun()
+        
+        st.markdown("---")
+        
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            st.markdown(f"""
+            <div class='info-card'>
+                <h4>📋 {proj_mod.get('nom_projet', 'N/A')}</h4>
+                <p><strong>👤 Client:</strong> {proj_mod.get('client_nom_cache', 'N/A')}</p>
+                <p><strong>🚦 Statut:</strong> {proj_mod.get('statut', 'N/A')}</p>
+                <p><strong>⭐ Priorité:</strong> {proj_mod.get('priorite', 'N/A')}</p>
+                <p><strong>✅ Tâche:</strong> {proj_mod.get('tache', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with mc2:
+            st.markdown(f"""
+            <div class='info-card'>
+                <h4>📊 Finances</h4>
+                <p><strong>💰 Prix:</strong> {format_currency(proj_mod.get('prix_estime', 0))}</p>
+                <p><strong>⏱️ BD-FT:</strong> {proj_mod.get('bd_ft_estime', 'N/A')}h</p>
+                <p><strong>📅 Début:</strong> {proj_mod.get('date_soumis', 'N/A')}</p>
+                <p><strong>🏁 Fin:</strong> {proj_mod.get('date_prevu', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        if proj_mod.get('description'):
+            st.markdown("##### 📝 Description")
+            st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
+
+        tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations"])
+        
+        with tabs_mod[0]:
+            sts_mod = proj_mod.get('sous_taches', [])
+            if not sts_mod:
+                st.info("Aucune sous-tâche en SQLite.")
+            else:
+                for st_item in sts_mod:
+                    st_color = {
+                        'À FAIRE': 'orange', 
+                        'EN COURS': 'var(--primary-color)', 
+                        'TERMINÉ': 'var(--success-color)'
+                    }.get(st_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
+                    
+                    st.markdown(f"""
+                    <div class='info-card' style='border-left:4px solid {st_color};margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>ST{st_item.get('id')} - {st_item.get('nom', 'N/A')}</h5>
+                        <p style='margin:0 0 0.3rem 0;'>🚦 {st_item.get('statut', 'N/A')}</p>
+                        <p style='margin:0;'>📅 {st_item.get('date_debut', 'N/A')} → {st_item.get('date_fin', 'N/A')}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        with tabs_mod[1]:
+            mats_mod = proj_mod.get('materiaux', [])
+            if not mats_mod:
+                st.info("Aucun matériau en SQLite.")
+            else:
+                total_c_mod = 0
+                for mat in mats_mod:
+                    q, p_u = mat.get('quantite', 0), mat.get('prix_unitaire', 0)
+                    tot = q * p_u
+                    total_c_mod += tot
+                    fournisseur_html = ""
+                    if mat.get("fournisseur"):
+                        fournisseur_html = f"<p style='margin:0.3rem 0 0 0;font-size:0.9em;'>🏪 {mat.get('fournisseur', 'N/A')}</p>"
+                    
+                    st.markdown(f"""
+                    <div class='info-card' style='margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>{mat.get('code', 'N/A')} - {mat.get('designation', 'N/A')}</h5>
+                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
+                            <span>📊 {q} {mat.get('unite', '')}</span>
+                            <span>💳 {format_currency(p_u)}</span>
+                            <span>💰 {format_currency(tot)}</span>
+                        </div>
+                        {fournisseur_html}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
+                    <h5 style='color:var(--primary-color-darker);margin:0;'>💰 Coût Total Mat.: {format_currency(total_c_mod)}</h5>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with tabs_mod[2]:
+            ops_mod = proj_mod.get('operations', [])
+            if not ops_mod:
+                st.info("Aucune opération en SQLite.")
+            else:
+                total_t_mod = 0
+                for op_item in ops_mod:
+                    tps = op_item.get('temps_estime', 0)
+                    total_t_mod += tps
+                    op_color = {
+                        'À FAIRE': 'orange', 
+                        'EN COURS': 'var(--primary-color)', 
+                        'TERMINÉ': 'var(--success-color)'
+                    }.get(op_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
+                    
+                    poste_travail = op_item.get('poste_travail', 'Non assigné')
+                    st.markdown(f"""
+                    <div class='info-card' style='border-left:4px solid {op_color};margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>{op_item.get('sequence', '?')} - {op_item.get('description', 'N/A')}</h5>
+                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
+                            <span>🏭 {poste_travail}</span>
+                            <span>⏱️ {tps}h</span>
+                            <span>👨‍🔧 {op_item.get('ressource', 'N/A')}</span>
+                            <span>🚦 {op_item.get('statut', 'N/A')}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
+                    <h5 style='color:var(--primary-color-darker);margin:0;'>⏱️ Temps Total Est.: {total_t_mod}h</h5>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        if st.button("✖️ Fermer", use_container_width=True, key="close_modal_details_btn_bottom"):
             st.session_state.show_project_modal = False
             st.rerun()
 
@@ -1363,85 +1923,95 @@ def show_inventory_management_page():
                 st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire SQLite est vide.")
 
 def show_crm_page():
-    """Page CRM complète avec onglets et fonctionnalités - CORRIGÉE"""
     st.markdown("## 🤝 Gestion de la Relation Client (CRM) - SQLite")
-    
-    # Récupérer les gestionnaires
-    crm_manager = st.session_state.gestionnaire_crm
-    projet_manager = st.session_state.gestionnaire
-    
-    # Initialiser le CRM avec la base SQLite si pas déjà fait
-    if not crm_manager.use_sqlite:
-        crm_manager.db = st.session_state.erp_db
-        crm_manager.use_sqlite = True
-        crm_manager._init_demo_data_if_empty()
-    
-    # Vérifier données en base
-    total_companies = st.session_state.erp_db.get_table_count('companies')
-    total_contacts = st.session_state.erp_db.get_table_count('contacts')
-    st.info(f"🗄️ Base SQLite CRM : {total_companies} entreprises • {total_contacts} contacts")
-    
-    # Interface avec onglets
-    tab1, tab2, tab3 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions"])
-    
-    with tab1:
-        render_crm_contacts_tab(crm_manager, projet_manager)
-    
-    with tab2:
-        render_crm_entreprises_tab(crm_manager, projet_manager)
-    
-    with tab3:
-        render_crm_interactions_tab(crm_manager)
-    
-    # Gestion des actions CRM (formulaires, détails, etc.)
+    gestionnaire_crm = st.session_state.gestionnaire_crm
+    gestionnaire_projets = st.session_state.gestionnaire
+
+    if 'crm_action' not in st.session_state:
+        st.session_state.crm_action = None
+    if 'crm_selected_id' not in st.session_state:
+        st.session_state.crm_selected_id = None
+    if 'crm_confirm_delete_contact_id' not in st.session_state:
+        st.session_state.crm_confirm_delete_contact_id = None
+    if 'crm_confirm_delete_entreprise_id' not in st.session_state:
+        st.session_state.crm_confirm_delete_entreprise_id = None
+    if 'crm_confirm_delete_interaction_id' not in st.session_state:
+        st.session_state.crm_confirm_delete_interaction_id = None
+
+    tab_contacts, tab_entreprises, tab_interactions = st.tabs([
+        "👤 Contacts", "🏢 Entreprises", "💬 Interactions"
+    ])
+
+    with tab_contacts:
+        render_crm_contacts_tab(gestionnaire_crm, gestionnaire_projets)
+
+    with tab_entreprises:
+        render_crm_entreprises_tab(gestionnaire_crm, gestionnaire_projets)
+
+    with tab_interactions:
+        render_crm_interactions_tab(gestionnaire_crm)
+
     action = st.session_state.get('crm_action')
     selected_id = st.session_state.get('crm_selected_id')
-    
+
     if action == "create_contact":
-        render_crm_contact_form(crm_manager)
-    
+        render_crm_contact_form(gestionnaire_crm, contact_data=None)
     elif action == "edit_contact" and selected_id:
-        contact_data = crm_manager.get_contact_by_id(selected_id)
-        render_crm_contact_form(crm_manager, contact_data)
-    
+        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
+        render_crm_contact_form(gestionnaire_crm, contact_data=contact_data)
     elif action == "view_contact_details" and selected_id:
-        contact_data = crm_manager.get_contact_by_id(selected_id)
-        render_crm_contact_details(crm_manager, projet_manager, contact_data)
-    
+        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
+        render_crm_contact_details(gestionnaire_crm, gestionnaire_projets, contact_data)
     elif action == "create_entreprise":
-        render_crm_entreprise_form(crm_manager)
-    
+        render_crm_entreprise_form(gestionnaire_crm, entreprise_data=None)
     elif action == "edit_entreprise" and selected_id:
-        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
-        render_crm_entreprise_form(crm_manager, entreprise_data)
-    
+        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_form(gestionnaire_crm, entreprise_data=entreprise_data)
     elif action == "view_entreprise_details" and selected_id:
-        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
-        render_crm_entreprise_details(crm_manager, projet_manager, entreprise_data)
-    
+        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_details(gestionnaire_crm, gestionnaire_projets, entreprise_data)
     elif action == "create_interaction":
-        render_crm_interaction_form(crm_manager)
-    
+        render_crm_interaction_form(gestionnaire_crm, interaction_data=None)
     elif action == "edit_interaction" and selected_id:
-        interaction_data = crm_manager.get_interaction_by_id(selected_id)
-        render_crm_interaction_form(crm_manager, interaction_data)
-    
+        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
+        render_crm_interaction_form(gestionnaire_crm, interaction_data=interaction_data)
     elif action == "view_interaction_details" and selected_id:
-        interaction_data = crm_manager.get_interaction_by_id(selected_id)
-        render_crm_interaction_details(crm_manager, projet_manager, interaction_data)
+        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
+        render_crm_interaction_details(gestionnaire_crm, gestionnaire_projets, interaction_data)
 
 def show_employees_page():
-    """Redirection vers la vraie page employés - CORRIGÉE"""
-    # Vérifier que le gestionnaire utilise SQLite
-    if hasattr(st.session_state, 'gestionnaire_employes'):
-        emp_manager = st.session_state.gestionnaire_employes
-        if hasattr(emp_manager, 'db') and emp_manager.db is None:
-            # Connecter à SQLite si pas déjà fait
-            emp_manager.db = st.session_state.erp_db
-            emp_manager._load_employes_from_db()
+    st.markdown("## 👥 Gestion des Employés - SQLite")
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    gestionnaire_projets = st.session_state.gestionnaire
     
-    # Appeler la vraie fonction depuis employees.py
-    real_show_employees_page()
+    if 'emp_action' not in st.session_state:
+        st.session_state.emp_action = None
+    if 'emp_selected_id' not in st.session_state:
+        st.session_state.emp_selected_id = None
+    if 'emp_confirm_delete_id' not in st.session_state:
+        st.session_state.emp_confirm_delete_id = None
+    
+    tab_dashboard, tab_liste = st.tabs([
+        "📊 Dashboard RH", "👥 Liste Employés"
+    ])
+    
+    with tab_dashboard:
+        render_employes_dashboard_tab(gestionnaire_employes, gestionnaire_projets)
+    
+    with tab_liste:
+        render_employes_liste_tab(gestionnaire_employes, gestionnaire_projets)
+    
+    action = st.session_state.get('emp_action')
+    selected_id = st.session_state.get('emp_selected_id')
+    
+    if action == "create_employe":
+        render_employe_form(gestionnaire_employes, employe_data=None)
+    elif action == "edit_employe" and selected_id:
+        employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
+        render_employe_form(gestionnaire_employes, employe_data=employe_data)
+    elif action == "view_employe_details" and selected_id:
+        employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
+        render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
 
 # ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE -----
 def main():
@@ -1457,18 +2027,11 @@ def main():
     if 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
     
-    # Gestionnaire CRM - CORRECTION SQLite  
+    # Les autres gestionnaires restent inchangés pour l'instant
     if 'gestionnaire_crm' not in st.session_state:
-        st.session_state.gestionnaire_crm = GestionnaireCRM(st.session_state.erp_db)
-    
-    # Gestionnaire employés - CORRECTION SQLite
+        st.session_state.gestionnaire_crm = GestionnaireCRM()
     if 'gestionnaire_employes' not in st.session_state:
-        st.session_state.gestionnaire_employes = GestionnaireEmployes(st.session_state.erp_db)
-        
-        # Vérifier si les employés sont initialisés
-        emp_count = st.session_state.erp_db.get_table_count('employees')
-        if emp_count == 0:
-            st.info("🏭 Initialisation des 21 employés DG Inc...")
+        st.session_state.gestionnaire_employes = GestionnaireEmployes()
     
     # Gestionnaire des postes de travail
     if 'gestionnaire_postes' not in st.session_state:
@@ -1502,13 +2065,6 @@ def main():
         except Exception:
             pass  # Silencieux si erreur d'initialisation TimeTracker
 
-    # DEBUG - Forcer initialisation si nécessaire
-    if st.session_state.erp_db.get_table_count('companies') == 0:
-        st.session_state.gestionnaire_crm._create_demo_data_sqlite()
-        
-    if st.session_state.erp_db.get_table_count('employees') == 0:
-        st.session_state.gestionnaire_employes._initialiser_donnees_employes_dg_inc()
-
     # Initialisation des variables de session (inchangées)
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
@@ -1521,7 +2077,7 @@ def main():
         'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
         'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
         'competences_form': [],
-        'gamme_generated': None, 'gamme_metadata': None,
+        'gamme_generated': None, 'gamme_metadata': None,  # NOUVEAU pour les gammes
         # INTÉGRATION TIMETRACKER : Variables de session
         'timetracker_employee_id': None, 'timetracker_project_id': None,
         'timetracker_task_id': None, 'timetracker_is_clocked_in': False,
@@ -1685,4 +2241,4 @@ if __name__ == "__main__":
         import traceback
         st.code(traceback.format_exc())
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE CORRIGÉE COMPLÈTE ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE ---
