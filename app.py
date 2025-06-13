@@ -1,4511 +1,2244 @@
-# app.py - TimeTracker Pro Desmarais & Gagné - VERSION COMPLÈTE AVEC 34 POSTES RÉELS
-# Système de pointage avec gestion granulaire des tâches, interfaces CRUD complètes et assignations
-# Intégration des vrais postes de travail D&G avec taux 85-140$ CAD
+# --- START OF FILE app.py ---
 
 import streamlit as st
-import sqlite3
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import hashlib
+from datetime import datetime, timedelta, date
+import calendar
 import io
-import base64
 import json
 import os
-from datetime import datetime, date, timedelta
-from PIL import Image
-import time
+import re
+import random
+from math import gcd
+from fractions import Fraction
+
+# Importations pour le CRM (avec toutes les fonctions décommentées)
+from crm import (
+    GestionnaireCRM,
+    render_crm_contacts_tab,
+    render_crm_entreprises_tab,
+    render_crm_interactions_tab,
+    render_crm_contact_form,
+    render_crm_entreprise_form,
+    render_crm_contact_details,
+    render_crm_entreprise_details,
+    render_crm_interaction_form,
+    render_crm_interaction_details
+)
+
+# Importations pour les Employés
+from employees import (
+    GestionnaireEmployes,
+    render_employes_liste_tab,
+    render_employes_dashboard_tab,
+    render_employe_form,
+    render_employe_details
+)
+
+# Importation du module postes de travail
+from postes_travail import (
+    GestionnairePostes,
+    integrer_postes_dans_projets,
+    generer_rapport_capacite_production,
+    show_work_centers_page,
+    show_manufacturing_routes_page,
+    show_capacity_analysis_page,
+    update_sidebar_with_work_centers
+)
+
+# INTÉGRATION TIMETRACKER : Importation des modules TimeTracker
+try:
+    from timetracker import show_timetracker_interface
+    from database_sync import DatabaseSync, show_sync_interface
+    TIMETRACKER_AVAILABLE = True
+except ImportError as e:
+    TIMETRACKER_AVAILABLE = False
+    # Note: Le warning sera affiché dans l'interface si nécessaire
 
 # Configuration de la page
 st.set_page_config(
-    page_title="TimeTracker Pro - Desmarais & Gagné",
-    page_icon="⏱️",
+    page_title="🚀 ERP Production DG Inc.",
+    page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ================================
-# CSS PERSONNALISÉ COMPLET
-# ================================
+# --- Fonctions Utilitaires de Mesure (intégrées depuis inventory_app.py) ---
+UNITES_MESURE = ["IMPÉRIAL", "MÉTRIQUE"]
+TYPES_PRODUITS_INVENTAIRE = ["BOIS", "MÉTAL", "QUINCAILLERIE", "OUTILLAGE", "MATÉRIAUX", "ACCESSOIRES", "AUTRE"]
+STATUTS_STOCK_INVENTAIRE = ["DISPONIBLE", "FAIBLE", "CRITIQUE", "EN COMMANDE", "ÉPUISÉ", "INDÉTERMINÉ"]
 
-def load_css():
-    st.markdown("""
-    <style>
-    /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    
-    /* --- Variables CSS identiques au programme d'estimation --- */
+def convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperiale_str_input):
+    try:
+        mesure_str_cleaned = str(mesure_imperiale_str_input).strip().lower()
+        mesure_str_cleaned = mesure_str_cleaned.replace('"', '"').replace("''", "'")
+        mesure_str_cleaned = mesure_str_cleaned.replace('ft', "'").replace('pieds', "'").replace('pied', "'")
+        mesure_str_cleaned = mesure_str_cleaned.replace('in', '"').replace('pouces', '"').replace('pouce', '"')
+        if mesure_str_cleaned == "0":
+            return 0.0
+        total_pieds_dec = 0.0
+        pattern_general = re.compile(
+            r"^\s*(?:(?P<feet>\d+(?:\.\d+)?)\s*(?:'|\sft|\spieds?)?)?"
+            r"\s*(?:(?P<inches>\d+(?:\.\d+)?)\s*(?:\"|\sin|\spouces?)?)?"
+            r"\s*(?:(?P<frac_num>\d+)\s*\/\s*(?P<frac_den>\d+)\s*(?:\"|\sin|\spouces?)?)?\s*$"
+        )
+        pattern_nombres_seulement = re.compile(
+            r"^\s*(?P<num1>\d+(?:\.\d+)?)"
+            r"(?:\s+(?P<num2>\d+(?:\.\d+)?)"
+            r"(?:\s+(?P<frac_num2>\d+)\s*\/\s*(?P<frac_den2>\d+))?"
+            r")?"
+            r"(?:\s+(?P<frac_num1>\d+)\s*\/\s*(?P<frac_den1>\d+))?"
+            r"\s*$"
+        )
+        match = pattern_general.match(mesure_str_cleaned)
+        pieds_val, pouces_val, fraction_dec = 0.0, 0.0, 0.0
+        if match and (match.group('feet') or match.group('inches') or match.group('frac_num')):
+            if match.group('feet'):
+                pieds_val = float(match.group('feet'))
+            if match.group('inches'):
+                pouces_val = float(match.group('inches'))
+            if match.group('frac_num') and match.group('frac_den'):
+                num, den = int(match.group('frac_num')), int(match.group('frac_den'))
+                if den == 0:
+                    return 0.0
+                fraction_dec = num / den
+        else:
+            match_alt = pattern_nombres_seulement.match(mesure_str_cleaned)
+            if match_alt:
+                pieds_val = float(match_alt.group('num1'))
+                if match_alt.group('num2'):
+                    pouces_val = float(match_alt.group('num2'))
+                    if match_alt.group('frac_num2') and match_alt.group('frac_den2'):
+                        num, den = int(match_alt.group('frac_num2')), int(match_alt.group('frac_den2'))
+                        if den == 0:
+                            return 0.0
+                        fraction_dec = num / den
+                elif match_alt.group('frac_num1') and match_alt.group('frac_den1'):
+                    num, den = int(match_alt.group('frac_num1')), int(match_alt.group('frac_den1'))
+                    if den == 0:
+                        return 0.0
+                    pouces_val = num / den
+            elif "/" in mesure_str_cleaned:
+                try:
+                    pouces_val = float(Fraction(mesure_str_cleaned))
+                except ValueError:
+                    return 0.0
+            elif mesure_str_cleaned.replace('.', '', 1).isdigit():
+                try:
+                    pouces_val = float(mesure_str_cleaned)
+                except ValueError:
+                    return 0.0
+            else:
+                return 0.0
+        total_pieds_dec = pieds_val + (pouces_val / 12.0) + (fraction_dec / 12.0)
+        return total_pieds_dec
+    except Exception:
+        return 0.0
+
+def convertir_en_pieds_pouces_fractions(valeur_decimale_pieds_input):
+    try:
+        valeur_pieds_dec = float(valeur_decimale_pieds_input)
+        if valeur_pieds_dec < 0:
+            valeur_pieds_dec = 0
+        pieds_entiers = int(valeur_pieds_dec)
+        pouces_decimaux_restants_total = (valeur_pieds_dec - pieds_entiers) * 12.0
+        pouces_entiers = int(pouces_decimaux_restants_total)
+        fraction_decimale_de_pouce = pouces_decimaux_restants_total - pouces_entiers
+        fraction_denominateur = 8
+        fraction_numerateur_arrondi = round(fraction_decimale_de_pouce * fraction_denominateur)
+        fraction_display_str = ""
+        if fraction_numerateur_arrondi > 0:
+            if fraction_numerateur_arrondi == fraction_denominateur:
+                pouces_entiers += 1
+            else:
+                common_divisor = gcd(fraction_numerateur_arrondi, fraction_denominateur)
+                num_simplifie, den_simplifie = fraction_numerateur_arrondi // common_divisor, fraction_denominateur // common_divisor
+                fraction_display_str = f" {num_simplifie}/{den_simplifie}"
+        if pouces_entiers >= 12:
+            pieds_entiers += pouces_entiers // 12
+            pouces_entiers %= 12
+        if pieds_entiers == 0 and pouces_entiers == 0 and not fraction_display_str:
+            return "0' 0\""
+        return f"{pieds_entiers}' {pouces_entiers}{fraction_display_str}\""
+    except Exception:
+        return "0' 0\""
+
+def valider_mesure_saisie(mesure_saisie_str):
+    mesure_nettoyee = str(mesure_saisie_str).strip()
+    if not mesure_nettoyee:
+        return True, "0' 0\""
+    try:
+        valeur_pieds_dec = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_nettoyee)
+        entree_est_zero_explicite = mesure_nettoyee in ["0", "0'", "0\"", "0.0", "0.0'"]
+        if valeur_pieds_dec > 0.000001 or entree_est_zero_explicite:
+            format_standardise = convertir_en_pieds_pouces_fractions(valeur_pieds_dec)
+            return True, format_standardise
+        else:
+            return False, f"Format non reconnu ou invalide: '{mesure_nettoyee}'"
+    except Exception as e_valid:
+        return False, f"Erreur de validation: {e_valid}"
+
+def convertir_imperial_vers_metrique(mesure_imperiale_str_conv):
+    try:
+        valeur_pieds_decimaux_conv = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperiale_str_conv)
+        metres_val = valeur_pieds_decimaux_conv * 0.3048
+        return {"valeur": round(metres_val, 3), "unite": "m"}
+    except Exception:
+        return {"valeur": 0.0, "unite": "m"}
+
+def mettre_a_jour_statut_stock(produit_dict_stat):
+    if not isinstance(produit_dict_stat, dict):
+        return
+    try:
+        qty_act_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('quantite', "0' 0\""))
+        lim_min_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('limite_minimale', "0' 0\""))
+        qty_res_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('quantite_reservee', "0' 0\""))
+        stock_disp_dec_stat = qty_act_dec_stat - qty_res_dec_stat
+        epsilon_stat = 0.0001
+        if stock_disp_dec_stat <= epsilon_stat:
+            produit_dict_stat['statut'] = "ÉPUISÉ"
+        elif lim_min_dec_stat > epsilon_stat and stock_disp_dec_stat <= lim_min_dec_stat + epsilon_stat:
+            produit_dict_stat['statut'] = "CRITIQUE"
+        elif lim_min_dec_stat > epsilon_stat and stock_disp_dec_stat <= (lim_min_dec_stat * 1.5) + epsilon_stat:
+            produit_dict_stat['statut'] = "FAIBLE"
+        else:
+            produit_dict_stat['statut'] = "DISPONIBLE"
+    except Exception:
+        produit_dict_stat['statut'] = "INDÉTERMINÉ"
+
+def get_next_inventory_id(inventory_data):
+    max_numeric_id = 0
+    if inventory_data:
+        for prod_id_str in inventory_data.keys():
+            try:
+                prod_id_int = int(prod_id_str)
+                if prod_id_int > max_numeric_id:
+                    max_numeric_id = prod_id_int
+            except ValueError:
+                continue
+    return max_numeric_id + 1
+
+# --- CSS et Interface ---
+def load_css_file(css_file_path):
+    try:
+        with open(css_file_path, 'r', encoding='utf-8') as f:
+            css_content = f.read()
+        st.markdown(f'<style>{css_content}</style>', unsafe_allow_html=True)
+        return True
+    except FileNotFoundError:
+        st.warning(f"Fichier CSS '{css_file_path}' non trouvé. Utilisation du CSS intégré.")
+        return False
+    except Exception as e:
+        st.error(f"Erreur CSS : {e}")
+        return False
+
+def apply_integrated_css():
+    css_content = """
+    /* Style CSS harmonisé pour ERP Production DG Inc. */
     :root {
-        --primary-color: #00A971; 
-        --primary-color-darker: #00673D;
-        --primary-color-darkest: #004C2E;
-        --background-color: #F9FAFB;
-        --secondary-background-color: #FFFFFF;
-        --text-color: #374151;
-        --text-color-light: #6B7280;
-        --border-color: #E5E7EB;
-        --border-color-light: #F3F4F6;
-        --border-radius-sm: 0.375rem;
-        --border-radius-md: 0.5rem;
-        --font-family: 'Inter', sans-serif;
-        --box-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        --primary-color: #3B82F6; --primary-color-light: #93C5FD; --primary-color-lighter: #DBEAFE;
+        --primary-color-darker: #2563EB; --primary-color-darkest: #1D4ED8;
+        --button-color: #1F2937; --button-color-light: #374151; --button-color-lighter: #4B5563;
+        --button-color-dark: #111827; --button-color-darkest: #030712;
+        --background-color: #FAFBFF; --secondary-background-color: #F0F8FF; --card-background: #FFFFFF;
+        --content-background: #FFFFFF; --text-color: #1F2937; --text-color-light: #6B7280; --text-color-muted: #9CA3AF;
+        --border-color: #E5E7EB; --border-color-light: #F3F4F6; --border-color-blue: #DBEAFE;
+        --border-radius-sm: 0.375rem; --border-radius-md: 0.5rem; --border-radius-lg: 0.75rem;
+        --font-family: 'Inter', sans-serif; --box-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.05);
         --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-        --animation-speed: 0.3s;
-        --success-color: #22c55e;
-        --warning-color: #f59e0b;
-        --error-color: #ef4444;
-        --task-color: #8b5cf6;
-        --edit-color: #3b82f6;
-        --delete-color: #ef4444;
-        --assignment-color: #06b6d4;
-        --premium-color: #e74c3c;
-        --high-value-color: #f39c12;
-        
-        /* Nouveaux gradients D&G */
-        --primary-gradient: linear-gradient(135deg, #e6f7f1 0%, #ffffff 100%);
-        --secondary-gradient: linear-gradient(135deg, #e8f5e9 0%, #ffffff 100%);
-        --green-gradient: linear-gradient(90deg, #00A971 0%, #00673D 100%);
+        --box-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.1);
+        --box-shadow-blue: 0 4px 12px rgba(59, 130, 246, 0.15); --box-shadow-black: 0 4px 12px rgba(31, 41, 55, 0.25);
+        --animation-speed: 0.3s; --primary-gradient: linear-gradient(135deg, #3B82F6 0%, #1F2937 100%);
+        --secondary-gradient: linear-gradient(135deg, #DBEAFE 0%, #FFFFFF 100%);
+        --card-gradient: linear-gradient(135deg, #F5F8FF 0%, #FFFFFF 100%);
+        --button-gradient: linear-gradient(145deg, rgba(255,255,255,0.4) 0%, #3B82F6 20%, #1F2937 80%, rgba(0,0,0,0.2) 100%);
+        --button-gradient-hover: linear-gradient(145deg, rgba(255,255,255,0.5) 0%, #60A5FA 20%, #2563EB 80%, rgba(0,0,0,0.3) 100%);
+        --button-gradient-active: linear-gradient(145deg, rgba(0,0,0,0.1) 0%, #2563EB 20%, #1D4ED8 80%, rgba(0,0,0,0.4) 100%);
     }
-
-    /* --- Reset et Styles Globaux identiques --- */
-    body {
-        font-family: var(--font-family) !important;
-        color: var(--text-color);
-        background-color: var(--background-color);
-        line-height: 1.6;
-        font-size: 16px;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    .stApp { font-family: var(--font-family) !important; background: var(--background-color) !important; color: var(--text-color) !important; min-height: 100vh; }
+    body { font-family: var(--font-family) !important; color: var(--text-color); background-color: var(--background-color); line-height: 1.6; font-size: 16px; }
+    .main .block-container h1, .main .block-container h2, .main .block-container h3, .main .block-container h4, .main .block-container h5, .main .block-container h6 {
+        font-family: var(--font-family) !important; font-weight: 700 !important; color: var(--text-color) !important; margin-bottom: 0.8em; line-height: 1.3;
     }
-
-    h1, h2, h3, h4, h5, h6 {
-        font-family: var(--font-family) !important;
-        font-weight: 700 !important;
-        color: var(--text-color);
-        margin-bottom: 0.8em;
-        line-height: 1.3;
+    @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes header-shine { 0% {left:-100%;} 50% {left:-100%;} 100% {left:100%;} }
+    .main-title { background: var(--primary-gradient) !important; padding:25px 30px !important; border-radius:16px !important; color:white !important; text-align:center !important;
+        margin-bottom:30px !important; box-shadow:var(--box-shadow-black) !important; animation:fadeIn 0.8s ease-out !important;
+        border:1px solid rgba(255,255,255,0.2) !important; position:relative !important; overflow:hidden !important;
     }
-
-    /* --- Animations identiques au programme d'estimation --- */
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
+    .main-title::before { content:""; position:absolute; top:0; left:-100%; width:100%; height:100%;
+        background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+        animation:header-shine 4s infinite; z-index:1;
     }
-
-    @keyframes slideIn {
-        from { transform: translateX(-20px); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
+    .main-title h1 { margin:0 !important; font-size:2.2rem !important; font-weight:700 !important; color:white !important;
+        text-shadow:0 2px 4px rgba(0,0,0,0.6), 0 1px 2px rgba(0,0,0,0.4), 0 0 10px rgba(0,0,0,0.3) !important;
+        position:relative !important; z-index:2 !important;
     }
-
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(0, 169, 113, 0.4); }
-        70% { box-shadow: 0 0 0 10px rgba(0, 169, 113, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(0, 169, 113, 0); }
+    .project-header { background: linear-gradient(145deg, rgba(255,255,255,0.8) 0%, #DBEAFE 25%, #93C5FD 75%, rgba(59,130,246,0.3) 100%) !important;
+        padding:22px 25px !important; border-radius:14px !important; margin-bottom:25px !important;
+        box-shadow:0 6px 20px rgba(59,130,246,0.2), inset 0 2px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,0,0,0.1), 0 0 20px rgba(59,130,246,0.1) !important;
+        border:1px solid rgba(59,130,246,0.3) !important; position:relative !important; overflow:hidden !important;
     }
-
-    @keyframes pulse-lustrous {
-        0% { 
-            box-shadow: 
-                0 4px 8px rgba(51, 105, 30, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-                0 0 0 0 rgba(174, 213, 129, 0.4);
-        }
-        70% { 
-            box-shadow: 
-                0 4px 8px rgba(51, 105, 30, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-                0 0 0 12px rgba(174, 213, 129, 0);
-        }
-        100% { 
-            box-shadow: 
-                0 4px 8px rgba(51, 105, 30, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-                0 0 0 0 rgba(174, 213, 129, 0);
-        }
+    .project-header::before { content:""; position:absolute; top:0; left:-100%; width:100%; height:100%;
+        background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
+        animation:header-shine 6s infinite; z-index:1;
     }
-
-    @keyframes subtle-pulse {
-        0% { 
-            box-shadow: 
-                0 4px 8px rgba(0, 169, 113, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.3),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-                0 0 0 0 rgba(0, 169, 113, 0.3);
-        }
-        50% { 
-            box-shadow: 
-                0 4px 8px rgba(0, 169, 113, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.3),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-                0 0 0 4px rgba(0, 169, 113, 0.1);
-        }
-        100% { 
-            box-shadow: 
-                0 4px 8px rgba(0, 169, 113, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.3),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-                0 0 0 0 rgba(0, 169, 113, 0);
-        }
+    .project-header h2 { margin:0 !important; color:#1E40AF !important; font-size:1.6rem !important; display:flex !important;
+        align-items:center !important; font-weight:700 !important; text-shadow:0 1px 2px rgba(255,255,255,0.8) !important;
+        position:relative !important; z-index:2 !important;
     }
-
-    /* ================================
-       SIDEBAR BLANC IDENTIQUE À L'ESTIMATION
-       ================================ */
-    
-    /* Sidebar principal - exactement comme l'estimation */
-    .css-1d391kg,
-    .css-1lcbmhc,
-    .css-17eq0hr,
-    .css-1cypcdb,
-    .css-1lcbmhc .css-1cypcdb,
-    .css-1d391kg .css-1cypcdb,
-    section[data-testid="stSidebar"],
-    section[data-testid="stSidebar"] > div,
-    .css-1outpf7,
-    .css-1e5imcs,
-    .css-1e5imcs .css-1cypcdb {
-        background-color: #FFFFFF !important;
-        background: #FFFFFF !important;
+    .project-header h2::before { content:"🏭 " !important; margin-right:12px !important; font-size:1.4rem !important;
+        filter:drop-shadow(0 1px 2px rgba(0,0,0,0.1)) !important;
     }
-    
-    section[data-testid="stSidebar"] {
-        background-color: var(--secondary-background-color) !important;
-        border-right: 1px solid var(--border-color) !important;
-        padding: 1.5rem !important;
+    .stButton > button { background:var(--button-gradient) !important; color:white !important; border:none !important;
+        border-radius:var(--border-radius-md) !important; padding:0.6rem 1.2rem !important; font-weight:600 !important;
+        transition:all var(--animation-speed) ease !important; box-shadow:0 4px 8px rgba(59,130,246,0.25),
+        inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(0,0,0,0.1) !important; width:100% !important;
+        text-align:center !important; display:inline-flex !important; align-items:center !important;
+        justify-content:center !important; position:relative !important; overflow:hidden !important;
     }
-
-    /* Titre de la sidebar */
-    section[data-testid="stSidebar"] .stHeadingContainer h1 {
-        font-size: 1.5rem;
-        color: var(--primary-color);
-        margin-bottom: 1.5rem;
+    .stButton > button::before { content:""; position:absolute; top:0; left:-100%; width:100%; height:100%;
+        background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
+        transition:left 0.6s ease; z-index:1;
     }
-
-    /* Sous-titres dans la sidebar */
-    section[data-testid="stSidebar"] h3 {
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: var(--text-color-light);
-        margin-top: 2rem;
-        margin-bottom: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        display: flex;
-        align-items: center;
+    .stButton > button:hover::before { left:100%; }
+    .stButton > button:hover { background:var(--button-gradient-hover) !important; transform:translateY(-3px) !important;
+        box-shadow:0 8px 16px rgba(59,130,246,0.35), inset 0 2px 0 rgba(255,255,255,0.4),
+        inset 0 -2px 0 rgba(0,0,0,0.15), 0 0 20px rgba(59,130,246,0.2) !important;
     }
-
-    /* Container du sidebar */
-    .css-1d391kg {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #E5E7EB !important;
+    .stButton > button:active { background:var(--button-gradient-active) !important; transform:translateY(-1px) !important;
+        box-shadow:0 2px 4px rgba(59,130,246,0.3), inset 0 -1px 0 rgba(255,255,255,0.2),
+        inset 0 1px 2px rgba(0,0,0,0.2) !important;
     }
-    
-    /* Texte du sidebar */
-    .css-1d391kg,
-    .css-1d391kg .stMarkdown,
-    .css-1d391kg p,
-    .css-1d391kg h1,
-    .css-1d391kg h2,
-    .css-1d391kg h3,
-    .css-1d391kg h4,
-    .css-1d391kg h5,
-    .css-1d391kg span {
-        color: var(--text-color) !important;
+    .stButton > button:has(span:contains("🤖")) { background: linear-gradient(145deg, rgba(255,255,255,0.4) 0%, #8b5cf6 20%, #7c3aed 80%, rgba(0,0,0,0.2) 100%) !important; }
+    .stButton > button:has(span:contains("⚙️")) { background: linear-gradient(145deg, rgba(255,255,255,0.4) 0%, #f59e0b 20%, #d97706 80%, rgba(0,0,0,0.2) 100%) !important; }
+    .stButton > button:has(span:contains("🏭")) { background: linear-gradient(145deg, rgba(255,255,255,0.4) 0%, #10b981 20%, #059669 80%, rgba(0,0,0,0.2) 100%) !important; }
+    section[data-testid="stSidebar"] { background: var(--card-gradient) !important; border-right:1px solid var(--border-color-blue) !important; padding:1.5rem !important;
+        box-shadow:2px 0 10px rgba(59,130,246,0.08) !important;
     }
-    
-    /* Titre du sidebar */
-    .css-1d391kg h3 {
-        color: var(--primary-color) !important;
-        font-weight: 600 !important;
+    section[data-testid="stSidebar"] * { color:var(--text-color) !important; }
+    section[data-testid="stSidebar"] h3 { color:var(--primary-color-darker) !important; }
+    section[data-testid="stSidebar"] .stMetric > div > div { color:var(--text-color-light) !important; }
+    section[data-testid="stSidebar"] .stMetric > div:nth-child(2) > div { color:var(--primary-color-darker) !important; font-size: 1.5rem !important; }
+    section[data-testid="stSidebar"] .stRadio > label p { color: var(--text-color) !important; }
+    .info-card, .nav-container, .section-card { background:var(--card-background) !important; padding:1.5rem !important; border-radius:var(--border-radius-lg) !important;
+        margin-bottom:1.5rem !important; box-shadow:var(--box-shadow-md) !important; border:1px solid var(--border-color-light) !important; transition:all 0.3s ease !important;
+    }
+    .info-card:hover, .section-card:hover { transform:translateY(-4px) !important; box-shadow:var(--box-shadow-blue) !important; }
+    .info-card h4, .section-card h4, .info-card h5, .section-card h5 { color:var(--primary-color-darker) !important; }
+    .info-card p, .section-card p { color:var(--text-color) !important; }
+    .info-card small, .section-card small { color:var(--text-color-light) !important; }
+    div[data-testid="stMetric"] { background:var(--card-background) !important; padding:1.5rem !important;
+        border-radius:var(--border-radius-lg) !important; box-shadow:var(--box-shadow-md) !important;
+        border:1px solid var(--border-color-light) !important; transition:all 0.3s ease !important;
+    }
+    div[data-testid="stMetric"]:hover { transform:translateY(-4px) !important; box-shadow:var(--box-shadow-blue) !important; }
+    div[data-testid="stMetric"] > div:first-child > div { font-weight:600 !important; color:var(--primary-color) !important; }
+    div[data-testid="stMetric"] > div:nth-child(2) > div { color:var(--text-color) !important; font-size: 1.75rem; }
+    .dataframe { background:var(--card-background) !important; border-radius:var(--border-radius-lg) !important;
+        overflow:hidden !important; box-shadow:var(--box-shadow-md) !important; border:1px solid var(--border-color) !important;
+    }
+    .dataframe th { background:linear-gradient(135deg, var(--primary-color-lighter), var(--primary-color-light)) !important;
+        color:var(--primary-color-darkest) !important; font-weight:600 !important; padding:1rem !important; border:none !important;
         border-bottom: 2px solid var(--primary-color) !important;
-        padding-bottom: 8px !important;
-        margin-bottom: 16px !important;
     }
-
-    /* === BOUTONS LUSTRÉS IDENTIQUES À L'ESTIMATION === */
-    
-    /* Boutons principaux avec effet lustré exactement comme l'estimation */
-    .stButton > button {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.4) 0%, 
-            var(--primary-color) 20%, 
-            var(--primary-color-darker) 80%, 
-            rgba(0,0,0,0.2) 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: var(--border-radius-md) !important;
-        padding: 0.6rem 1.2rem !important;
-        font-weight: 600 !important;
-        transition: all var(--animation-speed) ease !important;
-        box-shadow: 
-            0 4px 8px rgba(0, 169, 113, 0.25),
-            inset 0 1px 0 rgba(255, 255, 255, 0.3),
-            inset 0 -1px 0 rgba(0, 0, 0, 0.1) !important;
-        width: 100% !important;
-        text-align: center !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        position: relative !important;
-        overflow: hidden !important;
-        font-size: 16px !important;
-        margin: 10px 0 !important;
-    }
-
-    /* Effet de brillance animé */
-    .stButton > button::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, 
-            transparent 0%, 
-            rgba(255, 255, 255, 0.4) 50%, 
-            transparent 100%);
-        transition: left 0.6s ease;
-        z-index: 1;
-    }
-
-    .stButton > button:hover::before {
-        left: 100%;
-    }
-
-    .stButton > button:hover {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.5) 0%, 
-            #00C89A 20%, 
-            var(--primary-color-darker) 80%, 
-            rgba(0,0,0,0.3) 100%) !important;
-        transform: translateY(-3px) !important;
-        box-shadow: 
-            0 8px 16px rgba(0, 169, 113, 0.35),
-            inset 0 2px 0 rgba(255, 255, 255, 0.4),
-            inset 0 -2px 0 rgba(0, 0, 0, 0.15),
-            0 0 20px rgba(0, 169, 113, 0.2) !important;
-    }
-
-    .stButton > button:active {
-        background: linear-gradient(145deg, 
-            rgba(0,0,0,0.1) 0%, 
-            var(--primary-color-darker) 20%, 
-            var(--primary-color-darkest) 80%, 
-            rgba(0,0,0,0.4) 100%) !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 
-            0 2px 4px rgba(0, 169, 113, 0.3),
-            inset 0 -1px 0 rgba(255, 255, 255, 0.2),
-            inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
-    }
-
-    /* Boutons spécialisés TimeTracker */
-    .stButton > button:has(span:contains("SORTIE")) {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.4) 0%, 
-            var(--error-color) 20%, 
-            #dc2626 80%, 
-            rgba(0,0,0,0.2) 100%) !important;
-    }
-
-    .stButton > button:has(span:contains("PAUSE")) {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.4) 0%, 
-            var(--warning-color) 20%, 
-            #d97706 80%, 
-            rgba(0,0,0,0.2) 100%) !important;
-    }
-
-    .stButton > button:has(span:contains("CHANGER")) {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.4) 0%, 
-            var(--task-color) 20%, 
-            #7c3aed 80%, 
-            rgba(0,0,0,0.2) 100%) !important;
-    }
-
-    .stButton > button:has(span:contains("✏️")) {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.4) 0%, 
-            var(--edit-color) 20%, 
-            #2563eb 80%, 
-            rgba(0,0,0,0.2) 100%) !important;
-    }
-
-    .stButton > button:has(span:contains("🗑️")) {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.4) 0%, 
-            var(--delete-color) 20%, 
-            #dc2626 80%, 
-            rgba(0,0,0,0.2) 100%) !important;
-    }
-
-    .stButton > button:has(span:contains("👥")) {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.4) 0%, 
-            var(--assignment-color) 20%, 
-            #0891b2 80%, 
-            rgba(0,0,0,0.2) 100%) !important;
-    }
-
-    /* Boutons sidebar - style différencié */
-    .css-1d391kg .stButton > button {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.8) 0%, 
-            #f8f9fa 50%, 
-            #e9ecef 100%) !important;
-        color: var(--text-color) !important;
-        border: 1px solid var(--border-color) !important;
-    }
-    
-    .css-1d391kg .stButton > button:hover {
-        background: linear-gradient(145deg, 
-            rgba(255,255,255,0.9) 0%, 
-            #e6f3ff 50%, 
-            #dbeafe 100%) !important;
-        color: var(--primary-color) !important;
-        border-color: var(--primary-color) !important;
-    }
-
-    /* === HEADER PRINCIPAL IDENTIQUE === */
-    .main-header {
-        background: var(--primary-gradient);
-        padding: 20px;
-        border-radius: var(--border-radius-md);
-        color: var(--text-color);
-        text-align: center;
-        margin-bottom: 25px;
-        box-shadow: var(--box-shadow-md);
-        animation: fadeIn 0.6s ease-out;
-    }
-
-    .main-header h1 {
-        margin: 0;
-        font-size: 28px;
-        font-weight: 600;
-        color: var(--primary-color-darker);
-    }
-
-    .main-header p {
-        margin-top: 10px;
-        margin-bottom: 0;
-        font-size: 16px;
-        opacity: 0.9;
-    }
-
-    /* === STATUS CARDS TIMETRACKER === */
-    .status-card {
-        background: linear-gradient(to right, var(--secondary-background-color), #f7f9fc);
-        padding: 20px;
-        border-radius: var(--border-radius-md);
-        margin-bottom: 15px;
-        box-shadow: var(--box-shadow-sm);
-        transition: all var(--animation-speed);
-        border-left: 4px solid var(--primary-color);
-        animation: slideIn 0.4s ease-out;
-    }
-
-    .status-card.punched-in {
-        border-left-color: var(--success-color);
-        background: linear-gradient(to right, #f0fdf4, #e6f7ec);
-    }
-
-    .status-card.break {
-        border-left-color: var(--warning-color);
-        background: linear-gradient(to right, #fffbeb, #fef3c7);
-    }
-
-    .status-card.task-active {
-        border-left-color: var(--task-color);
-        background: linear-gradient(to right, #f3f4f6, #e5e7eb);
-    }
-
-    .status-card:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--box-shadow-md);
-    }
-
-    /* === CARTES DE TÂCHES D&G === */
-    .task-card-dg {
-        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid var(--border-color);
-        border-radius: var(--border-radius-md);
-        padding: 15px;
-        margin: 8px 0;
-        transition: all var(--animation-speed);
-        cursor: pointer;
-    }
-
-    .task-card-dg:hover {
-        border-color: var(--primary-color);
-        box-shadow: var(--box-shadow-md);
-        transform: translateY(-1px);
-    }
-
-    .task-card-dg.premium {
-        border-left: 4px solid var(--premium-color);
-        background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
-    }
-
-    .task-card-dg.high-value {
-        border-left: 4px solid var(--high-value-color);
-        background: linear-gradient(135deg, #fffbeb 0%, #ffffff 100%);
-    }
-
-    /* === HORLOGE DIGITALE === */
-    .digital-clock {
-        background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
-        color: #00ff41;
-        font-family: 'Courier New', monospace;
-        font-size: 2.5rem;
-        font-weight: bold;
-        text-align: center;
-        padding: 20px;
-        border-radius: var(--border-radius-md);
-        margin-bottom: 20px;
-        box-shadow: 
-            0 8px 16px rgba(0, 0, 0, 0.3),
-            inset 0 2px 4px rgba(255, 255, 255, 0.1);
-        text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
-        border: 2px solid #4a5568;
-    }
-
-    /* === INDICATEURS ET BADGES === */
-    .task-indicator {
-        background: var(--task-color);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-        display: inline-block;
-        margin: 5px 0;
-    }
-
-    .assignment-indicator {
-        background: var(--assignment-color);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-        display: inline-block;
-        margin: 5px 0;
-    }
-
-    .premium-indicator {
-        background: var(--premium-color);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-        display: inline-block;
-        margin: 5px 0;
-    }
-
-    .high-value-indicator {
-        background: var(--high-value-color);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-        display: inline-block;
-        margin: 5px 0;
-    }
-
-    /* === CARTES MÉTRIQUES === */
-    .metric-card {
-        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-        padding: 20px;
-        border-radius: var(--border-radius-md);
-        box-shadow: var(--box-shadow-sm);
-        border-left: 4px solid var(--primary-color);
-        margin: 10px 0;
-        transition: all var(--animation-speed);
-    }
-
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--box-shadow-md);
-    }
-    
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--primary-color);
-        margin: 0;
-    }
-    
-    .metric-label {
-        font-size: 0.9rem;
-        color: var(--text-color-light);
-        margin: 5px 0 0 0;
-    }
-
-    /* === FORMULAIRES === */
-    .edit-form {
-        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-        border: 2px solid var(--edit-color);
-        border-radius: var(--border-radius-md);
-        padding: 20px;
-        margin: 15px 0;
-    }
-
-    .delete-form {
-        background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-        border: 2px solid var(--delete-color);
-        border-radius: var(--border-radius-md);
-        padding: 20px;
-        margin: 15px 0;
-    }
-
-    .assignment-card {
-        background: linear-gradient(135deg, #e0f7ff 0%, #ffffff 100%);
-        border: 2px solid var(--assignment-color);
-        border-radius: var(--border-radius-md);
-        padding: 15px;
-        margin: 10px 0;
-        box-shadow: var(--box-shadow-sm);
-    }
-
-    /* === FILTRES === */
-    .filter-container {
-        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-        border: 1px solid var(--border-color);
-        border-radius: var(--border-radius-md);
-        padding: 15px;
-        margin: 15px 0;
-    }
-
-    /* === ALERTES D&G === */
-    .alert-dg {
-        padding: 15px;
-        border-radius: var(--border-radius-md);
-        margin: 10px 0;
-        border-left: 4px solid;
-    }
-
-    .alert-dg.warning {
-        background: #fffbeb;
-        border-left-color: var(--warning-color);
-        color: #92400e;
-    }
-
-    .alert-dg.success {
-        background: #f0fdf4;
-        border-left-color: var(--success-color);
-        color: #065f46;
-    }
-
-    .alert-dg.error {
-        background: #fef2f2;
-        border-left-color: var(--error-color);
-        color: #991b1b;
-    }
-
-    .alert-dg.info {
-        background: #f0f9ff;
-        border-left-color: var(--assignment-color);
-        color: #0c4a6e;
-    }
-
-    /* === INPUTS ET SELECTBOX === */
-    .stSelectbox > div {
-        border-radius: var(--border-radius-md);
-        border: 1px solid var(--border-color);
-        background-color: var(--secondary-background-color);
-        color: var(--text-color);
-        box-shadow: var(--box-shadow-sm);
-        transition: all var(--animation-speed);
-    }
-
-    .stSelectbox > div:hover {
-        border-color: var(--primary-color);
-        box-shadow: 0 2px 6px rgba(0, 169, 113, 0.15);
-    }
-
-    .stTextInput > div > div > input {
-        border-radius: var(--border-radius-md) !important;
-        border: 1px solid var(--border-color) !important;
-        background-color: var(--secondary-background-color) !important;
-        padding: 0.7rem 1rem !important;
-        transition: all var(--animation-speed) !important;
-        box-shadow: 
-            0 1px 3px rgba(0, 0, 0, 0.05),
-            inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
-    }
-
-    .stTextInput > div > div > input:focus {
-        border-color: var(--primary-color) !important;
-        box-shadow: 
-            0 0 0 2px rgba(0, 169, 113, 0.2),
-            inset 0 1px 3px rgba(0, 0, 0, 0.1),
-            0 2px 4px rgba(0, 169, 113, 0.1) !important;
-        transform: translateY(-1px) !important;
-    }
-
-    /* === TABLEAUX === */
-    .styled-dataframe {
-        background: white;
-        border-radius: var(--border-radius-md);
-        overflow: hidden;
-        box-shadow: var(--box-shadow-md);
-        margin: 20px 0;
-    }
-
-    /* === GRILLES D'ASSIGNATION === */
-    .assignment-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 15px;
-        margin: 20px 0;
-    }
-
-    .employee-card {
-        background: white;
-        border: 1px solid var(--border-color);
-        border-radius: var(--border-radius-md);
-        padding: 15px;
-        box-shadow: var(--box-shadow-sm);
-        transition: all var(--animation-speed);
-    }
-
-    .employee-card:hover {
-        box-shadow: var(--box-shadow-md);
-        transform: translateY(-2px);
-    }
-
-    /* === BADGES DE COMPÉTENCES === */
-    .skill-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 600;
-        margin-left: 5px;
-    }
-
-    .skill-debutant { background: #fef3c7; color: #92400e; }
-    .skill-intermediaire { background: #dbeafe; color: #1e40af; }
-    .skill-avance { background: #d1fae5; color: #065f46; }
-    .skill-expert { background: #fce7f3; color: #be185d; }
-
-    /* === STATUS BADGES === */
-    .status-active {
-        background: var(--success-color);
-        color: white;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    .status-inactive {
-        background: var(--error-color);
-        color: white;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    .status-assigned {
-        background: var(--assignment-color);
-        color: white;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    /* === INDICATEURS DE TAUX === */
-    .rate-premium {
-        color: var(--premium-color);
-        font-weight: 700;
-        font-size: 1.1em;
-    }
-
-    .rate-high {
-        color: var(--high-value-color);
-        font-weight: 600;
-    }
-
-    .rate-standard {
-        color: var(--primary-color);
-        font-weight: 500;
-    }
-
-    .rate-admin {
-        color: var(--text-color-light);
-    }
-
-    /* === PULSE ANIMATION POUR TÂCHE ACTIVE === */
-    .task-active-indicator {
-        animation: pulse 2s infinite;
-    }
-
-    /* === RESPONSIVE MOBILE === */
-    @media (max-width: 768px) {
-        .digital-clock {
-            font-size: 1.8rem;
-            padding: 15px;
-        }
-        
-        .stButton > button {
-            padding: 12px 20px !important;
-            font-size: 16px !important;
-        }
-        
-        .main-header h1 {
-            font-size: 24px;
-        }
-        
-        .task-card-dg {
-            padding: 10px;
-        }
-
-        .metric-card {
-            padding: 15px;
-        }
-
-        .assignment-grid {
-            grid-template-columns: 1fr;
-        }
-
-        body {
-            padding: 10px;
-        }
-        
-        .main-header {
-            padding: 15px;
-            margin-bottom: 15px;
-        }
-        
-        .status-card {
-            padding: 12px;
-        }
-        
-        .stButton > button {
-            min-height: 44px !important;
-            font-size: 16px !important;
-            padding: 0.8rem 1rem !important;
-        }
-    }
-
-    /* === MASQUER BRANDING STREAMLIT === */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    /* === SCROLLBAR SIDEBAR === */
-    .css-1d391kg::-webkit-scrollbar {
-        width: 6px;
-    }
-    
-    .css-1d391kg::-webkit-scrollbar-track {
-        background: #F1F5F9;
-    }
-    
-    .css-1d391kg::-webkit-scrollbar-thumb {
-        background: #CBD5E1;
-        border-radius: 3px;
-    }
-    
-    .css-1d391kg::-webkit-scrollbar-thumb:hover {
-        background: var(--primary-color);
-    }
-
-    /* === SÉPARATEURS SIDEBAR === */
-    .css-1d391kg hr {
-        border-color: #E5E7EB !important;
-        margin: 16px 0 !important;
-    }
-
-    /* Hide Streamlit sidebar default styles */
-    section[data-testid="stSidebar"] hr {
-        display: none;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ================================
-# GESTIONNAIRE BASE DE DONNÉES ENRICHI AVEC POSTES D&G RÉELS
-# ================================
-
-class DatabaseManager:
-    def __init__(self, db_path="timetracking.db"):
-        self.db_path = db_path
-        self.init_database()
-    
-    def init_database(self):
-        """Initialise la base de données avec toutes les tables"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Table des employés
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS employees (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                employee_code TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'employee',
-                is_active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Table des projets
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_code TEXT UNIQUE NOT NULL,
-                project_name TEXT NOT NULL,
-                client_name TEXT,
-                requires_task_selection BOOLEAN DEFAULT 1,
-                is_active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Table des tâches de projet
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id INTEGER NOT NULL,
-                task_code TEXT NOT NULL,
-                task_name TEXT NOT NULL,
-                task_category TEXT,
-                hourly_rate DECIMAL(10,2) DEFAULT 0,
-                description TEXT,
-                is_active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (project_id) REFERENCES projects (id),
-                UNIQUE(project_id, task_code)
-            )
-        """)
-        
-        # Table des assignations Projet-Tâches
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_task_assignments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id INTEGER NOT NULL,
-                task_id INTEGER NOT NULL,
-                is_enabled BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (project_id) REFERENCES projects (id),
-                FOREIGN KEY (task_id) REFERENCES project_tasks (id),
-                UNIQUE(project_id, task_id)
-            )
-        """)
-        
-        # Table des assignations Employé-Tâches
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS employee_task_assignments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                employee_id INTEGER NOT NULL,
-                project_id INTEGER NOT NULL,
-                task_id INTEGER NOT NULL,
-                is_authorized BOOLEAN DEFAULT 1,
-                skill_level TEXT DEFAULT 'intermédiaire',
-                hourly_rate_override DECIMAL(10,2),
-                assigned_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (employee_id) REFERENCES employees (id),
-                FOREIGN KEY (project_id) REFERENCES projects (id),
-                FOREIGN KEY (task_id) REFERENCES project_tasks (id),
-                UNIQUE(employee_id, project_id, task_id)
-            )
-        """)
-        
-        # Table des entrées de temps
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS time_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                employee_id INTEGER NOT NULL,
-                project_id INTEGER,
-                task_id INTEGER,
-                punch_in TIMESTAMP NOT NULL,
-                punch_out TIMESTAMP,
-                break_start TIMESTAMP,
-                break_end TIMESTAMP,
-                total_break_minutes INTEGER DEFAULT 0,
-                location_lat REAL,
-                location_lng REAL,
-                notes TEXT,
-                photo_data TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (employee_id) REFERENCES employees (id),
-                FOREIGN KEY (project_id) REFERENCES projects (id),
-                FOREIGN KEY (task_id) REFERENCES project_tasks (id)
-            )
-        """)
-        
-        # Table des changements de tâches
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS task_changes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                time_entry_id INTEGER NOT NULL,
-                previous_task_id INTEGER,
-                new_task_id INTEGER NOT NULL,
-                change_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notes TEXT,
-                FOREIGN KEY (time_entry_id) REFERENCES time_entries (id),
-                FOREIGN KEY (previous_task_id) REFERENCES project_tasks (id),
-                FOREIGN KEY (new_task_id) REFERENCES project_tasks (id)
-            )
-        """)
-        
-        # Créer admin par défaut
-        admin_password = hashlib.sha256("admin123".encode()).hexdigest()
-        cursor.execute("""
-            INSERT OR IGNORE INTO employees (employee_code, name, password_hash, role) 
-            VALUES ('ADMIN', 'Administrateur', ?, 'admin')
-        """, (admin_password,))
-        
-        # Projets par défaut avec focus D&G
-        default_projects = [
-            ('DG-GENERAL', 'Opérations Générales D&G', 'Desmarais & Gagné Inc.', 1),
-            ('MAINTENANCE', 'Maintenance', 'Interne', 0),
-            ('FORMATION', 'Formation', 'Interne', 0)
-        ]
-        
-        cursor.executemany("""
-            INSERT OR IGNORE INTO projects (project_code, project_name, client_name, requires_task_selection) 
-            VALUES (?, ?, ?, ?)
-        """, default_projects)
-        
-        # Créer les 34 postes réels D&G
-        self._create_dg_real_tasks(cursor)
-        
-        conn.commit()
-        conn.close()
-    
-    def _create_dg_real_tasks(self, cursor):
-        """Crée les 34 postes de travail réels Desmarais & Gagné"""
-        
-        # Récupérer l'ID du projet DG-GENERAL
-        cursor.execute("SELECT id FROM projects WHERE project_code = 'DG-GENERAL'")
-        dg_project = cursor.fetchone()
-        
-        if dg_project:
-            project_id = dg_project[0]
-            
-            # LES 34 POSTES RÉELS DESMARAIS & GAGNÉ avec vrais taux 2025
-            dg_tasks = [
-                # PRÉPARATION ET PROGRAMMATION
-                ('PROGR_POINCO', 'Programmation CNC', 'Préparation et Programmation', 95.00, 'Programmation des machines CNC et poinçonneuses'),
-                ('DESSIN', 'Conception technique', 'Préparation et Programmation', 105.00, 'Conception et dessin technique des pièces'),
-                ('TEMPS_BUREAU', 'Temps administratif', 'Préparation et Programmation', 85.00, 'Tâches administratives et bureau'),
-                
-                # DÉCOUPE ET PERÇAGE (taux élevés 120-135$)
-                ('PLASMA', 'Découpe plasma', 'Découpe et Perçage', 135.00, 'Découpe plasma automatisée'),
-                ('OXYCOUPAGE', 'Opération de coupe au feu', 'Découpe et Perçage', 135.00, 'Découpe à l\'oxygène et acétylène'),
-                ('SCIE', 'Découpe avec scie', 'Découpe et Perçage', 95.00, 'Découpe mécanique avec scie'),
-                ('POINCONNAGE', 'Poinçonnage', 'Découpe et Perçage', 135.00, 'Poinçonnage automatisé'),
-                ('PUNCH_PRESS', 'Presse à poinçonner', 'Découpe et Perçage', 135.00, 'Opération presse à poinçonner'),
-                ('DRILL_MAGNET', 'Perçage magnétique', 'Découpe et Perçage', 95.00, 'Perçage avec perceuse magnétique'),
-                ('PRESS_DRILL', 'Perceuse à colonne', 'Découpe et Perçage', 95.00, 'Perçage avec perceuse à colonne'),
-                ('FRAISAGE', 'Fraiser des trous', 'Découpe et Perçage', 120.00, 'Fraisage de précision'),
-                
-                # FORMAGE ET ASSEMBLAGE (taux 95-120$)
-                ('PLIEUSE', 'Opération de pliage', 'Formage et Assemblage', 120.00, 'Pliage de tôles avec plieuse'),
-                ('ROULAGE', 'Opération de rouleau', 'Formage et Assemblage', 120.00, 'Roulage et formage cylindrique'),
-                ('CINTRUSE', 'Cintrage des pièces', 'Formage et Assemblage', 120.00, 'Cintrage de profilés et tubes'),
-                ('ASSEMBLAGE', 'Préparation pour soudage', 'Formage et Assemblage', 95.00, 'Assemblage et préparation des pièces'),
-                ('POINTAGE', 'Pointage des pièces', 'Formage et Assemblage', 95.00, 'Pointage de soudure et fixation'),
-                
-                # SOUDAGE (95$ standard, 140$ robot)
-                ('SOUDURE_TIG', 'Soudage TIG', 'Soudage', 95.00, 'Soudage TIG manuel de précision'),
-                ('SOUDURE_MIG', 'Soudure MIG', 'Soudage', 95.00, 'Soudage MIG semi-automatique'),
-                ('SOUDURE_SPOT', 'Soudure par points', 'Soudage', 95.00, 'Soudage par résistance par points'),
-                ('ROBOT', 'Robot soudeur', 'Soudage', 140.00, 'Soudage robotisé automatisé (taux premium)'),
-                
-                # FINITION (95$ standard)
-                ('ÉBAVURAGE', 'Préparation et ébavurage', 'Finition', 95.00, 'Ébavurage et préparation des surfaces'),
-                ('MEULAGE', 'Meuler les surfaces', 'Finition', 95.00, 'Meulage et finition des soudures'),
-                ('POLISSAGE', 'Polir', 'Finition', 95.00, 'Polissage et finition miroir'),
-                ('SABLAGE', 'Sabler', 'Finition', 95.00, 'Sablage et préparation de surface'),
-                ('FILETAGE', 'Fileter des trous', 'Finition', 95.00, 'Filetage manuel et mécanique'),
-                ('SERTISSAGE', 'Sertissage', 'Finition', 95.00, 'Sertissage d\'éléments et fixations'),
-                
-                # MANUTENTION ET CISAILLAGE (85-110$)
-                ('SHEAR', 'Cisaillage', 'Manutention et Cisaillage', 110.00, 'Cisaillage de tôles'),
-                ('MANUTENTION', 'Nettoyage et manutention', 'Manutention et Cisaillage', 95.00, 'Manutention générale et nettoyage'),
-                ('RECEPTION', 'Réception matériel', 'Manutention et Cisaillage', 85.00, 'Réception et contrôle matières premières'),
-                ('INVENTAIRE', 'Gestion d\'inventaire', 'Manutention et Cisaillage', 85.00, 'Gestion stocks et inventaires'),
-                
-                # CONTRÔLE QUALITÉ (85$ administratif)
-                ('XINSP_PARTIE', 'Inspection partielle', 'Contrôle Qualité', 85.00, 'Inspection en cours de fabrication'),
-                ('X_INSPEC_FIN', 'Inspection finale', 'Contrôle Qualité', 85.00, 'Contrôle qualité final'),
-                ('X_FERMETURE', 'Fermeture d\'un item', 'Contrôle Qualité', 85.00, 'Finalisation et fermeture dossier'),
-                
-                # EXPÉDITION (85-95$)
-                ('EMBALLAGE', 'Emballer', 'Expédition', 85.00, 'Emballage des produits finis'),
-                ('EXPEDITION', 'Expédition', 'Expédition', 85.00, 'Préparation et expédition commandes'),
-                ('TRANSPORT', 'Transport externe', 'Expédition', 95.00, 'Transport et livraison externe'),
-            ]
-            
-            for task_code, task_name, category, rate, description in dg_tasks:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO project_tasks 
-                    (project_id, task_code, task_name, task_category, hourly_rate, description)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (project_id, task_code, task_name, category, rate, description))
-            
-            # Assigner toutes les tâches D&G au projet automatiquement
-            cursor.execute("""
-                INSERT OR IGNORE INTO project_task_assignments (project_id, task_id, is_enabled)
-                SELECT ?, id, 1 FROM project_tasks WHERE project_id = ?
-            """, (project_id, project_id))
-    
-    def authenticate_user(self, employee_code, password):
-        """Authentifie un utilisateur"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        cursor.execute("""
-            SELECT id, name, role FROM employees 
-            WHERE employee_code = ? AND password_hash = ? AND is_active = 1
-        """, (employee_code, password_hash))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {
-                'id': result[0],
-                'name': result[1], 
-                'role': result[2],
-                'employee_code': employee_code
+    .dataframe td { padding:0.75rem 1rem !important; border-bottom:1px solid var(--border-color-light) !important;
+        background:var(--card-background) !important; color:var(--text-color) !important;
+    }
+    .dataframe tr:hover td { background:var(--primary-color-lighter) !important; }
+    div[data-testid="stTabs"] > div[data-baseweb="tab-list"] { gap:0.25rem !important; background:var(--secondary-background-color) !important;
+        padding:0.5rem !important; border-radius:var(--border-radius-lg) !important; border-bottom: 1px solid var(--border-color-blue) !important; margin-bottom: -1px;
+    }
+    div[data-testid="stTabs"] > div[data-baseweb="tab-list"] > button[data-baseweb="tab"] { background:transparent !important; border-radius:var(--border-radius-md) var(--border-radius-md) 0 0 !important;
+        border:1px solid transparent !important; border-bottom:none !important; padding:0.75rem 1.5rem !important; font-weight:500 !important; color:var(--text-color-light) !important;
+        transition:all 0.3s ease !important; margin-bottom: -1px;
+    }
+    div[data-testid="stTabs"] > div[data-baseweb="tab-list"] > button[data-baseweb="tab"]:hover { color:var(--primary-color) !important; background:var(--primary-color-lighter) !important; }
+    div[data-testid="stTabs"] > div[data-baseweb="tab-list"] > button[data-baseweb="tab"][aria-selected="true"] { background:var(--content-background) !important;
+        color:var(--primary-color-darker) !important; border: 1px solid var(--border-color-blue) !important;
+        border-bottom: 1px solid var(--content-background) !important; box-shadow:none !important;
+    }
+    div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) { background:var(--content-background) !important; padding:1.5rem !important;
+        border-radius:0 0 var(--border-radius-lg) var(--border-radius-lg) !important; border: 1px solid var(--border-color-blue) !important; color:var(--text-color) !important;
+    }
+    div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) * { color:var(--text-color) !important; }
+    div[data-testid="stTabs"] > div:not([data-baseweb="tab-list"]) h5 { color:var(--primary-color-darker) !important; }
+    .kanban-container { display: flex; flex-direction: row; gap: 15px; padding: 15px; background-color: var(--secondary-background-color);
+        border-radius: 12px; overflow-x: auto; overflow-y: hidden; min-height: 600px; margin-bottom: 20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .kanban-column { flex: 0 0 320px; width: 320px; padding: 1rem; border-radius: var(--border-radius-md); background: var(--background-color);
+        height: 100%; display: flex; flex-direction: column; border: 1px solid var(--border-color-light);
+    }
+    .kanban-header { font-weight: 600; font-size: 1.1em; text-align: left; padding: 0.75rem; border-radius: var(--border-radius-sm);
+        margin-bottom: 1rem; color: var(--primary-color-darker); background: var(--primary-color-lighter);
+        border-bottom: 2px solid var(--primary-color); cursor: default;
+    }
+    .kanban-cards-zone { flex-grow: 1; overflow-y: auto; padding-right: 5px; }
+    .kanban-card { background: var(--card-background); border-radius: 10px; padding: 15px; margin-bottom: 15px;
+        box-shadow: var(--box-shadow-sm); border-left: 5px solid transparent; transition: all 0.3s ease; color: var(--text-color);
+    }
+    .kanban-card:hover { transform: translateY(-3px); box-shadow: var(--box-shadow-blue); }
+    .kanban-card-title { font-weight: 600; margin-bottom: 5px; }
+    .kanban-card-info { font-size: 0.8em; color: var(--text-color-muted); margin-bottom: 3px; }
+    .kanban-drag-indicator { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: var(--button-color);
+        color: white; padding: 12px 20px; border-radius: var(--border-radius-lg); box-shadow: var(--box-shadow-black); z-index: 1000;
+        animation: fadeIn 0.3s ease-out; font-weight: 500;
+    }
+    .stButton > button.drop-target-button { background: #D4EDDA !important; color: #155724 !important; border: 2px dashed #155724 !important;
+        width: 100%; margin-bottom: 1rem; font-weight: 600 !important;
+    }
+    .stButton > button.drop-target-button:hover { background: #C3E6CB !important; transform: scale(1.02); }
+    .calendar-grid-container { border: 1px solid var(--border-color-blue); border-radius: var(--border-radius-lg); overflow: hidden;
+        background: var(--card-background); box-shadow: var(--box-shadow-md);
+    }
+    .calendar-week-header { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; padding: 0.5rem 0;
+        background: var(--primary-color-lighter); border-bottom: 1px solid var(--border-color-blue);
+    }
+    .calendar-week-header .day-name { font-weight: 600; color: var(--primary-color-darker); font-size: 0.9em; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: minmax(120px, auto); }
+    .calendar-day-cell { border-right: 1px solid var(--border-color-light); border-bottom: 1px solid var(--border-color-light);
+        padding: 0.3rem; position: relative; transition: background-color 0.2s ease; display: flex; flex-direction: column;
+    }
+    .calendar-day-cell:nth-child(7n) { border-right: none; }
+    .calendar-day-cell.other-month { background-color: var(--secondary-background-color); }
+    .calendar-day-cell.other-month .day-number { color: var(--text-color-muted); }
+    .day-number { font-weight: 500; text-align: right; font-size: 0.85em; padding: 0.2rem 0.4rem; align-self: flex-end; }
+    .calendar-day-cell.today .day-number { background-color: var(--primary-color); color: white !important; border-radius: 50%;
+        width: 24px; height: 24px; line-height: 24px; text-align: center; font-weight: 700; margin-left: auto;
+    }
+    .calendar-events-container { flex-grow: 1; overflow-y: auto; max-height: 85px; scrollbar-width: thin;
+        scrollbar-color: var(--primary-color-light) var(--border-color-light);
+    }
+    .calendar-events-container::-webkit-scrollbar { width: 5px; }
+    .calendar-events-container::-webkit-scrollbar-track { background: transparent; }
+    .calendar-events-container::-webkit-scrollbar-thumb { background-color: var(--primary-color-light); border-radius: 10px; }
+    .calendar-event-item { font-size: 0.75em; padding: 3px 6px; border-radius: 4px; margin: 2px 0; color: white;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: opacity 0.2s;
+    }
+    .calendar-event-item:hover { opacity: 0.8; }
+    .event-type-debut { background-color: #3b82f6; }
+    .event-type-fin { background-color: #10b981; }
+    .stAlert { background:var(--card-background) !important; backdrop-filter:blur(10px) !important;
+        border-radius:var(--border-radius-lg) !important; border:1px solid var(--border-color) !important;
+        box-shadow:var(--box-shadow-sm) !important; color:var(--text-color) !important;
+    }
+    .stAlert p { color:var(--text-color) !important; }
+    .stAlert[data-testid="stNotificationSuccess"] { background-color: #E6FFFA !important; border-left: 5px solid #38A169 !important; }
+    .stAlert[data-testid="stNotificationSuccess"] p { color: #2F855A !important; }
+    /* Styles spécifiques pour les postes de travail */
+    .work-center-card { 
+        background: var(--card-background); 
+        border-radius: var(--border-radius-lg); 
+        padding: 1.2rem; 
+        margin-bottom: 1rem; 
+        box-shadow: var(--box-shadow-md); 
+        border-left: 4px solid var(--primary-color); 
+        transition: all 0.3s ease; 
+    }
+    .work-center-card:hover { 
+        transform: translateY(-2px); 
+        box-shadow: var(--box-shadow-blue); 
+        border-left-color: var(--primary-color-darker); 
+    }
+    .work-center-header { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        margin-bottom: 0.8rem; 
+    }
+    .work-center-title { 
+        font-weight: 700; 
+        font-size: 1.1rem; 
+        color: var(--primary-color-darker); 
+        margin: 0; 
+    }
+    .work-center-badge { 
+        background: var(--primary-color-lighter); 
+        color: var(--primary-color-darker); 
+        padding: 0.2rem 0.6rem; 
+        border-radius: var(--border-radius-sm); 
+        font-size: 0.8rem; 
+        font-weight: 600; 
+    }
+    .work-center-info { 
+        display: grid; 
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); 
+        gap: 0.8rem; 
+        margin-top: 0.8rem; 
+    }
+    .work-center-stat { 
+        text-align: center; 
+        padding: 0.5rem; 
+        background: var(--secondary-background-color); 
+        border-radius: var(--border-radius-sm); 
+    }
+    .work-center-stat-value { 
+        font-weight: 700; 
+        font-size: 1.2rem; 
+        color: var(--primary-color-darker); 
+        margin-bottom: 0.2rem; 
+    }
+    .work-center-stat-label { 
+        font-size: 0.8rem; 
+        color: var(--text-color-muted); 
+        margin: 0; 
+    }
+    @media (max-width:768px) {
+        .main-title { padding:15px !important; margin-bottom:15px !important; }
+        .main-title h1 { font-size:1.8rem !important; }
+        .info-card, .nav-container, .section-card { padding:1rem !important; margin-bottom:1rem !important; }
+        .project-header { padding:18px 20px !important; border-radius:10px !important; }
+        .project-header h2 { font-size:1.4rem !important; }
+        .main-title::before, .project-header::before { animation-duration:10s !important; }
+        .main-title:hover, .project-header:hover { transform:translateY(-1px) !important; }
+        .stButton > button { min-height:44px !important; font-size:16px !important; padding:0.8rem 1rem !important; }
+        .stButton > button::before { display:none; }
+        .stButton > button:hover { transform:translateY(-2px) !important; }
+        .kanban-container { flex-direction: column; }
+        .calendar-grid { grid-auto-rows: minmax(100px, auto); }
+        .calendar-event-item { font-size: 0.7em; }
+    }
+    .stApp > div { animation:fadeIn 0.5s ease-out; }
+    ::-webkit-scrollbar { width:8px; }
+    ::-webkit-scrollbar-track { background:var(--border-color-light); border-radius:4px; }
+    ::-webkit-scrollbar-thumb { background:var(--primary-color-light); border-radius:4px; }
+    ::-webkit-scrollbar-thumb:hover { background:var(--primary-color); }
+    """
+    st.markdown(f'<style>{css_content}</style>', unsafe_allow_html=True)
+
+def apply_global_styles():
+    css_loaded = load_css_file('style.css')
+    if not css_loaded:
+        apply_integrated_css()
+
+# NOUVELLE FONCTION pour obtenir le chemin des données de l'app inventaire
+def get_inventory_data_app_data_path():
+    app_name = "GestionnaireInventaireAI"
+    if os.name == 'nt':
+        base_app_data = os.environ.get('APPDATA', os.path.join(os.path.expanduser('~'), 'AppData', 'Roaming'))
+        app_data = os.path.join(base_app_data, app_name)
+    else:
+        app_data = os.path.join(os.path.expanduser('~'), f'.{app_name.lower()}')
+
+    if not os.path.exists(app_data):
+        try:
+            os.makedirs(app_data, exist_ok=True)
+        except Exception as e:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            app_data = os.path.join(script_dir, f".{app_name.lower()}_data_streamlit_fallback")
+            if not os.path.exists(app_data):
+                os.makedirs(app_data, exist_ok=True)
+            st.warning(f"Impossible de créer/accéder au dossier de données standard. Utilisation du dossier local: {app_data}. Erreur: {e}")
+    return app_data
+
+def load_inventory_data():
+    app_data_dir_inventory = get_inventory_data_app_data_path()
+    inventory_file = os.path.join(app_data_dir_inventory, 'inventaire_v2.json')
+
+    if os.path.exists(inventory_file):
+        try:
+            with open(inventory_file, 'r', encoding='utf-8') as f:
+                inventaire_content = json.load(f)
+            return {str(k): v for k, v in inventaire_content.items()}
+        except Exception as e:
+            st.error(f"Erreur lors de la lecture du fichier d'inventaire '{inventory_file}': {e}")
+            return {}
+    return {}
+
+def save_inventory_data(inventory_data_to_save):
+    app_data_dir_inventory = get_inventory_data_app_data_path()
+    inventory_file = os.path.join(app_data_dir_inventory, 'inventaire_v2.json')
+    try:
+        with open(inventory_file, 'w', encoding='utf-8') as f:
+            json.dump(inventory_data_to_save, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        st.error(f"Erreur lors de la sauvegarde du fichier d'inventaire '{inventory_file}': {e}")
+        return False
+
+# ----- Gestionnaire de Données (Projets) MODIFIÉ POUR IDS 10000+ -----
+class GestionnaireProjetIA:
+    def __init__(self):
+        self.data_file = "projets_data.json"
+        self.projets = []
+        self.next_id = 10000  # MODIFIÉ : Commencer à 10000
+        self.charger_projets()
+
+    def charger_projets(self):
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.projets = data.get('projets', [])
+                    # MODIFIÉ : Calculer le prochain ID en tenant compte du minimum 10000
+                    if self.projets:
+                        max_id = max(p.get('id', 10000) for p in self.projets)
+                        self.next_id = max(max_id + 1, 10000)
+                    else:
+                        self.next_id = 10000
+            else:
+                self.projets = self.get_demo_data()
+                self.next_id = 10003  # Après les 3 projets de démo (10000, 10001, 10002)
+        except Exception as e:
+            st.error(f"Erreur chargement projets: {e}")
+            self.projets = self.get_demo_data()
+            self.next_id = 10003
+
+    def sauvegarder_projets(self):
+        try:
+            data = {'projets': self.projets, 'next_id': self.next_id, 'last_update': datetime.now().isoformat()}
+            with open(self.data_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            st.error(f"Erreur sauvegarde projets: {e}")
+
+    def get_demo_data(self):
+        """MODIFIÉ : Données de démonstration avec IDs à partir de 10000"""
+        now_iso = datetime.now().isoformat()
+        return [
+            {
+                'id': 10000,  # MODIFIÉ : ID commence à 10000
+                'nom_projet': 'Châssis Automobile', 
+                'client_entreprise_id': 101, 
+                'client_nom_cache': 'AutoTech Corp.', 
+                'statut': 'EN COURS', 
+                'priorite': 'ÉLEVÉ', 
+                'tache': 'PRODUCTION', 
+                'date_soumis': '2024-01-15', 
+                'date_prevu': '2024-03-15', 
+                'bd_ft_estime': '120', 
+                'prix_estime': '35000', 
+                'description': 'Châssis soudé pour véhicule électrique', 
+                'sous_taches': [
+                    {'id': 1, 'nom': 'Programmation CNC', 'statut': 'TERMINÉ', 'date_debut': '2024-01-15', 'date_fin': '2024-01-20'}, 
+                    {'id': 2, 'nom': 'Découpe laser', 'statut': 'EN COURS', 'date_debut': '2024-01-21', 'date_fin': '2024-02-05'}, 
+                    {'id': 3, 'nom': 'Soudage robotisé', 'statut': 'À FAIRE', 'date_debut': '2024-02-06', 'date_fin': '2024-02-20'}
+                ], 
+                'materiaux': [
+                    {'id': 1, 'code': 'ACR-001', 'designation': 'Acier haute résistance', 'quantite': 250, 'unite': 'kg', 'prix_unitaire': 8.5, 'fournisseur': 'Aciers DG'}, 
+                    {'id': 2, 'code': 'SOD-001', 'designation': 'Fil de soudage GMAW', 'quantite': 15, 'unite': 'bobines', 'prix_unitaire': 125, 'fournisseur': 'Soudage Pro'}
+                ], 
+                'operations': [
+                    {'id': 1, 'sequence': '10', 'description': 'Programmation Bureau', 'temps_estime': 2.5, 'ressource': 'Programmeur CNC', 'statut': 'TERMINÉ', 'poste_travail': 'Programmation Bureau'}, 
+                    {'id': 2, 'sequence': '20', 'description': 'Découpe laser des tôles', 'temps_estime': 4.2, 'ressource': 'Opérateur laser', 'statut': 'EN COURS', 'poste_travail': 'Laser CNC'}, 
+                    {'id': 3, 'sequence': '30', 'description': 'Soudage robotisé GMAW', 'temps_estime': 8.5, 'ressource': 'Programmeur robot', 'statut': 'À FAIRE', 'poste_travail': 'Robot ABB GMAW'}
+                ], 
+                'employes_assignes': [1, 2]
+            },
+            {
+                'id': 10001,  # MODIFIÉ : ID 10001
+                'nom_projet': 'Structure Industrielle', 
+                'client_entreprise_id': 102, 
+                'client_nom_cache': 'BâtiTech Inc.', 
+                'statut': 'À FAIRE', 
+                'priorite': 'MOYEN', 
+                'tache': 'ESTIMATION', 
+                'date_soumis': '2024-02-01', 
+                'date_prevu': '2024-05-01', 
+                'bd_ft_estime': '180', 
+                'prix_estime': '58000', 
+                'description': 'Charpente métallique pour entrepôt industriel', 
+                'sous_taches': [
+                    {'id': 1, 'nom': 'Étude structure', 'statut': 'À FAIRE', 'date_debut': '2024-02-15', 'date_fin': '2024-03-01'}, 
+                    {'id': 2, 'nom': 'Découpe plasma', 'statut': 'À FAIRE', 'date_debut': '2024-03-02', 'date_fin': '2024-03-20'}, 
+                    {'id': 3, 'nom': 'Assemblage lourd', 'statut': 'À FAIRE', 'date_debut': '2024-03-21', 'date_fin': '2024-04-15'}
+                ], 
+                'materiaux': [
+                    {'id': 1, 'code': 'IPE-200', 'designation': 'Poutre IPE 200', 'quantite': 50, 'unite': 'ml', 'prix_unitaire': 45, 'fournisseur': 'Métal Québec'}, 
+                    {'id': 2, 'code': 'HEA-160', 'designation': 'Poutre HEA 160', 'quantite': 30, 'unite': 'ml', 'prix_unitaire': 52, 'fournisseur': 'Métal Québec'}
+                ], 
+                'operations': [
+                    {'id': 1, 'sequence': '10', 'description': 'Étude et programmation', 'temps_estime': 4.0, 'ressource': 'Ingénieur', 'statut': 'À FAIRE', 'poste_travail': 'Programmation Bureau'}, 
+                    {'id': 2, 'sequence': '20', 'description': 'Découpe plasma CNC', 'temps_estime': 6.8, 'ressource': 'Opérateur plasma', 'statut': 'À FAIRE', 'poste_travail': 'Plasma CNC'}, 
+                    {'id': 3, 'sequence': '30', 'description': 'Assemblage structure', 'temps_estime': 12.5, 'ressource': 'Équipe assemblage', 'statut': 'À FAIRE', 'poste_travail': 'Assemblage Lourd'}
+                ], 
+                'employes_assignes': [2, 3]
+            },
+            {
+                'id': 10002,  # MODIFIÉ : ID 10002
+                'nom_projet': 'Pièce Aéronautique', 
+                'client_entreprise_id': 103, 
+                'client_nom_cache': 'AeroSpace Ltd', 
+                'statut': 'TERMINÉ', 
+                'priorite': 'ÉLEVÉ', 
+                'tache': 'LIVRAISON', 
+                'date_soumis': '2023-10-01', 
+                'date_prevu': '2024-01-31', 
+                'bd_ft_estime': '95', 
+                'prix_estime': '75000', 
+                'description': 'Composant haute précision pour train d\'atterrissage', 
+                'sous_taches': [
+                    {'id': 1, 'nom': 'Usinage CNC', 'statut': 'TERMINÉ', 'date_debut': '2023-10-15', 'date_fin': '2023-11-15'}, 
+                    {'id': 2, 'nom': 'Contrôle qualité', 'statut': 'TERMINÉ', 'date_debut': '2023-11-16', 'date_fin': '2023-11-30'}, 
+                    {'id': 3, 'nom': 'Traitement surface', 'statut': 'TERMINÉ', 'date_debut': '2023-12-01', 'date_fin': '2023-12-15'}
+                ], 
+                'materiaux': [
+                    {'id': 1, 'code': 'ALU-7075', 'designation': 'Aluminium 7075 T6', 'quantite': 25, 'unite': 'kg', 'prix_unitaire': 18.5, 'fournisseur': 'Alu Tech'}, 
+                    {'id': 2, 'code': 'ANO-001', 'designation': 'Anodisation Type II', 'quantite': 1, 'unite': 'lot', 'prix_unitaire': 850, 'fournisseur': 'Surface Pro'}
+                ], 
+                'operations': [
+                    {'id': 1, 'sequence': '10', 'description': 'Usinage centre CNC', 'temps_estime': 8.2, 'ressource': 'Usineur CNC', 'statut': 'TERMINÉ', 'poste_travail': 'Centre d\'usinage'}, 
+                    {'id': 2, 'sequence': '20', 'description': 'Contrôle métrologique', 'temps_estime': 2.5, 'ressource': 'Contrôleur', 'statut': 'TERMINÉ', 'poste_travail': 'Contrôle métrologique'}, 
+                    {'id': 3, 'sequence': '30', 'description': 'Anodisation', 'temps_estime': 2.0, 'ressource': 'Technicien surface', 'statut': 'TERMINÉ', 'poste_travail': 'Anodisation'}
+                ], 
+                'employes_assignes': [3, 4]
             }
-        return None
+        ]
+
+    def ajouter_projet(self, projet_data):
+        projet_data['id'] = self.next_id
+        self.projets.append(projet_data)
+        self.next_id += 1
+        self.sauvegarder_projets()
+        return projet_data['id']
+
+    def modifier_projet(self, projet_id, projet_data_update):
+        for i, p in enumerate(self.projets):
+            if p['id'] == projet_id:
+                self.projets[i].update(projet_data_update)
+                self.sauvegarder_projets()
+                return True
+        return False
+
+    def supprimer_projet(self, projet_id):
+        self.projets = [p for p in self.projets if p['id'] != projet_id]
+        self.sauvegarder_projets()
+
+# NOUVELLE FONCTION : Migration des IDs des projets existants
+def migrer_ids_projets():
+    """Migre tous les projets vers des IDs commençant à 10000"""
+    gestionnaire = st.session_state.gestionnaire
     
-    def get_active_punch(self, employee_id):
-        """Récupère le pointage actif d'un employé avec tâche"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                te.id, te.punch_in, te.break_start, te.break_end, 
-                te.project_id, te.task_id,
-                p.project_name, p.requires_task_selection,
-                pt.task_name, pt.task_category, 
-                COALESCE(eta.hourly_rate_override, pt.hourly_rate) as effective_rate
-            FROM time_entries te
-            LEFT JOIN projects p ON te.project_id = p.id
-            LEFT JOIN project_tasks pt ON te.task_id = pt.id
-            LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-            WHERE te.employee_id = ? AND te.punch_out IS NULL 
-            ORDER BY te.punch_in DESC LIMIT 1
-        """, (employee_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        return result
+    # Trier les projets par ID pour maintenir l'ordre
+    projets_tries = sorted(gestionnaire.projets, key=lambda x: x.get('id', 0))
     
-    def get_projects(self):
-        """Récupère tous les projets actifs"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, project_code, project_name, client_name, requires_task_selection 
-            FROM projects WHERE is_active = 1
-            ORDER BY project_name
-        """)
-        result = cursor.fetchall()
-        conn.close()
-        return result
+    # Réassigner les IDs
+    for i, projet in enumerate(projets_tries):
+        nouveau_id = 10000 + i
+        projet['id'] = nouveau_id
     
-    def get_all_projects(self):
-        """Récupère TOUS les projets (actifs et inactifs)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, project_code, project_name, client_name, requires_task_selection, is_active, created_at
-            FROM projects
-            ORDER BY project_name
-        """)
-        result = cursor.fetchall()
-        conn.close()
-        return result
+    # Mettre à jour le prochain ID
+    gestionnaire.next_id = 10000 + len(gestionnaire.projets)
+    gestionnaire.sauvegarder_projets()
     
-    def get_project_by_id(self, project_id):
-        """Récupère un projet par son ID"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, project_code, project_name, client_name, requires_task_selection, is_active
-            FROM projects WHERE id = ?
-        """, (project_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        return result
-    
-    def get_project_tasks(self, project_id):
-        """Récupère les tâches d'un projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, task_code, task_name, task_category, hourly_rate, description
-            FROM project_tasks 
-            WHERE project_id = ? AND is_active = 1
-            ORDER BY task_category, task_name
-        """, (project_id,))
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def get_all_project_tasks(self, project_id):
-        """Récupère TOUTES les tâches d'un projet (actives et inactives)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, task_code, task_name, task_category, hourly_rate, description, is_active
-            FROM project_tasks 
-            WHERE project_id = ?
-            ORDER BY task_category, task_name
-        """, (project_id,))
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def get_task_by_id(self, task_id):
-        """Récupère une tâche par son ID"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, project_id, task_code, task_name, task_category, hourly_rate, description, is_active
-            FROM project_tasks WHERE id = ?
-        """, (task_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        return result
-    
-    # ================================
-    # MÉTHODES POUR ASSIGNATIONS
-    # ================================
-    
-    def get_project_assigned_tasks(self, project_id):
-        """Récupère les tâches assignées à un projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT pt.id, pt.task_name, pt.task_category, pt.hourly_rate, pta.is_enabled
-            FROM project_tasks pt
-            INNER JOIN project_task_assignments pta ON pt.id = pta.task_id
-            WHERE pta.project_id = ? AND pta.is_enabled = 1
-            ORDER BY pt.task_category, pt.task_name
-        """, (project_id,))
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def get_available_tasks_for_project(self, project_id):
-        """Récupère toutes les tâches disponibles (non spécifiques au projet)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, task_code, task_name, task_category, hourly_rate, description
-            FROM project_tasks 
-            WHERE is_active = 1
-            ORDER BY task_category, task_name
-        """)
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def assign_task_to_project(self, project_id, task_id):
-        """Assigne une tâche à un projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
+    return len(projets_tries)
+
+# --- Fonctions Utilitaires (Projets)-----
+def format_currency(value):
+    if value is None:
+        return "$0.00"
+    try:
+        s_value = str(value).replace(' ', '').replace('€', '').replace('$', '')
+        if ',' in s_value and ('.' not in s_value or s_value.find(',') > s_value.find('.')):
+            s_value = s_value.replace('.', '').replace(',', '.')
+        elif ',' in s_value and '.' in s_value and s_value.find('.') > s_value.find(','):
+            s_value = s_value.replace(',', '')
+
+        num_value = float(s_value)
+        if num_value == 0:
+            return "$0.00"
+        return f"${num_value:,.2f}"
+    except (ValueError, TypeError):
+        if isinstance(value, (int, float)):
+            return f"${value:,.2f}"
+        return str(value) + " $ (Err)"
+
+def get_project_statistics(gestionnaire):
+    if not gestionnaire.projets:
+        return {'total': 0, 'par_statut': {}, 'par_priorite': {}, 'ca_total': 0, 'projets_actifs': 0, 'taux_completion': 0}
+    stats = {'total': len(gestionnaire.projets), 'par_statut': {}, 'par_priorite': {}, 'ca_total': 0, 'projets_actifs': 0}
+    for p in gestionnaire.projets:
+        statut = p.get('statut', 'N/A')
+        stats['par_statut'][statut] = stats['par_statut'].get(statut, 0) + 1
+        priorite = p.get('priorite', 'N/A')
+        stats['par_priorite'][priorite] = stats['par_priorite'].get(priorite, 0) + 1
         try:
-            cursor.execute("""
-                INSERT OR REPLACE INTO project_task_assignments (project_id, task_id, is_enabled)
-                VALUES (?, ?, 1)
-            """, (project_id, task_id))
-            conn.commit()
-            conn.close()
-            return True, "Tâche assignée au projet"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de l'assignation: {str(e)}"
+            prix = p.get('prix_estime', '0')
+            s_prix = str(prix).replace(' ', '').replace('€', '').replace('$', '')
+            if ',' in s_prix and ('.' not in s_prix or s_prix.find(',') > s_prix.find('.')):
+                s_prix = s_prix.replace('.', '').replace(',', '.')
+            elif ',' in s_prix and '.' in s_prix and s_prix.find('.') > s_prix.find(','):
+                s_prix = s_prix.replace(',', '')
+            prix_num = float(s_prix)
+            stats['ca_total'] += prix_num
+        except (ValueError, TypeError):
+            pass
+        if statut not in ['TERMINÉ', 'ANNULÉ', 'FERMÉ']:
+            stats['projets_actifs'] += 1
+    termines = stats['par_statut'].get('TERMINÉ', 0)
+    stats['taux_completion'] = (termines / stats['total'] * 100) if stats['total'] > 0 else 0
+    return stats
+
+# ----- FONCTIONS D'AFFICHAGE MODIFIÉES -----
+
+TEXT_COLOR_CHARTS = 'var(--text-color)'
+
+def show_dashboard():
+    st.markdown("## 📊 Tableau de Bord ERP Production")
+    gestionnaire = st.session_state.gestionnaire
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    gestionnaire_postes = st.session_state.gestionnaire_postes
     
-    def unassign_task_from_project(self, project_id, task_id):
-        """Désassigne une tâche d'un projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
+    stats = get_project_statistics(gestionnaire)
+    emp_stats = gestionnaire_employes.get_statistiques_employes()
+    postes_stats = gestionnaire_postes.get_statistiques_postes()
+    
+    if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
+        st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3><p>Créez votre premier projet, explorez les postes de travail ou consultez les gammes de fabrication.</p></div>", unsafe_allow_html=True)
+        return
+
+    # Métriques Projets
+    if stats['total'] > 0:
+        st.markdown("### 🚀 Aperçu Projets")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("📊 Total Projets", stats['total'])
+        with c2:
+            st.metric("🚀 Projets Actifs", stats['projets_actifs'])
+        with c3:
+            st.metric("✅ Taux Completion", f"{stats['taux_completion']:.1f}%")
+        with c4:
+            st.metric("💰 CA Total", format_currency(stats['ca_total']))
+
+    # Métriques postes de travail
+    if postes_stats['total_postes'] > 0:
+        st.markdown("### 🏭 Aperçu Production DG Inc.")
+        prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
+        with prod_c1:
+            st.metric("🏭 Total Postes", postes_stats['total_postes'])
+        with prod_c2:
+            st.metric("🤖 Robots ABB", postes_stats['postes_robotises'])
+        with prod_c3:
+            st.metric("💻 Postes CNC", postes_stats['postes_cnc'])
+        with prod_c4:
+            efficacite_globale = random.uniform(82, 87)  # Simulation temps réel
+            st.metric("⚡ Efficacité", f"{efficacite_globale:.1f}%")
+
+    # INTÉGRATION TIMETRACKER : Métriques temps et revenus
+    if TIMETRACKER_AVAILABLE:
         try:
-            cursor.execute("""
-                UPDATE project_task_assignments 
-                SET is_enabled = 0 
-                WHERE project_id = ? AND task_id = ?
-            """, (project_id, task_id))
-            conn.commit()
-            conn.close()
-            return True, "Tâche désassignée du projet"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de la désassignation: {str(e)}"
-    
-    def is_task_assigned_to_project(self, project_id, task_id):
-        """Vérifie si une tâche est assignée à un projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT is_enabled FROM project_task_assignments 
-            WHERE project_id = ? AND task_id = ?
-        """, (project_id, task_id))
-        
-        result = cursor.fetchone()
-        conn.close()
-        return result is not None and result[0] == 1
-    
-    def get_employee_authorized_tasks(self, employee_id, project_id):
-        """Récupère les tâches autorisées pour un employé sur un projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                pt.id, pt.task_name, pt.task_category, 
-                eta.skill_level, 
-                COALESCE(eta.hourly_rate_override, pt.hourly_rate) as effective_rate,
-                pt.description
-            FROM project_tasks pt
-            INNER JOIN project_task_assignments pta ON pt.id = pta.task_id
-            INNER JOIN employee_task_assignments eta ON pt.id = eta.task_id 
-                AND eta.project_id = pta.project_id
-            WHERE eta.employee_id = ? AND eta.project_id = ? 
-                AND pta.is_enabled = 1 AND eta.is_authorized = 1 AND pt.is_active = 1
-            ORDER BY pt.task_category, pt.task_name
-        """, (employee_id, project_id))
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def get_task_assigned_employees(self, project_id, task_id):
-        """Récupère les employés assignés à une tâche spécifique"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                e.id, e.name, e.employee_code,
-                eta.skill_level, eta.hourly_rate_override, eta.is_authorized
-            FROM employees e
-            INNER JOIN employee_task_assignments eta ON e.id = eta.employee_id
-            WHERE eta.project_id = ? AND eta.task_id = ? AND eta.is_authorized = 1
-            ORDER BY e.name
-        """, (project_id, task_id))
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def assign_employee_to_task(self, employee_id, project_id, task_id, skill_level='intermédiaire', hourly_rate_override=None):
-        """Assigne un employé à une tâche"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute("""
-                INSERT OR REPLACE INTO employee_task_assignments 
-                (employee_id, project_id, task_id, skill_level, hourly_rate_override, is_authorized)
-                VALUES (?, ?, ?, ?, ?, 1)
-            """, (employee_id, project_id, task_id, skill_level, hourly_rate_override))
-            conn.commit()
-            conn.close()
-            return True, "Employé assigné à la tâche"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de l'assignation: {str(e)}"
-    
-    def unassign_employee_from_task(self, employee_id, project_id, task_id):
-        """Désassigne un employé d'une tâche"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute("""
-                UPDATE employee_task_assignments 
-                SET is_authorized = 0 
-                WHERE employee_id = ? AND project_id = ? AND task_id = ?
-            """, (employee_id, project_id, task_id))
-            conn.commit()
-            conn.close()
-            return True, "Employé désassigné de la tâche"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de la désassignation: {str(e)}"
-    
-    def is_employee_authorized_for_task(self, employee_id, project_id, task_id):
-        """Vérifie si un employé est autorisé pour une tâche"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT is_authorized FROM employee_task_assignments 
-            WHERE employee_id = ? AND project_id = ? AND task_id = ?
-        """, (employee_id, project_id, task_id))
-        
-        result = cursor.fetchone()
-        conn.close()
-        return result is not None and result[0] == 1
-    
-    def get_all_global_tasks(self):
-        """Récupère toutes les tâches globales (pour assignation)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT DISTINCT task_name, task_category, id, project_id
-            FROM project_tasks 
-            WHERE is_active = 1
-            ORDER BY task_category, task_name
-        """)
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    # ================================
-    # MÉTHODES MÉTIER AVEC VALIDATION D&G
-    # ================================
-    
-    def punch_in(self, employee_id, project_id, task_id=None, location=None, notes=None):
-        """Enregistre un pointage d'arrivée avec vérification des assignations"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Vérifier qu'il n'y a pas déjà un punch actif
-        active = self.get_active_punch(employee_id)
-        if active:
-            conn.close()
-            return False, "Vous êtes déjà pointé. Veuillez d'abord pointer la sortie."
-        
-        # Vérifier si le projet nécessite une tâche
-        cursor.execute("SELECT requires_task_selection FROM projects WHERE id = ?", (project_id,))
-        project_info = cursor.fetchone()
-        
-        if project_info and project_info[0] and not task_id:
-            conn.close()
-            return False, "Ce projet nécessite la sélection d'un poste de travail spécifique."
-        
-        # Vérifier l'autorisation de l'employé pour cette tâche
-        if task_id:
-            if not self.is_employee_authorized_for_task(employee_id, project_id, task_id):
-                conn.close()
-                return False, "Vous n'êtes pas autorisé à travailler sur ce poste pour ce projet."
-        
-        lat, lng = location if location else (None, None)
-        cursor.execute("""
-            INSERT INTO time_entries (employee_id, project_id, task_id, punch_in, location_lat, location_lng, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (employee_id, project_id, task_id, datetime.now(), lat, lng, notes))
-        
-        conn.commit()
-        entry_id = cursor.lastrowid
-        conn.close()
-        return True, entry_id
-    
-    def change_task(self, employee_id, new_task_id, notes=None):
-        """Change la tâche active avec vérification des assignations"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Récupérer le pointage actif
-        active = self.get_active_punch(employee_id)
-        if not active:
-            conn.close()
-            return False, "Aucun pointage actif trouvé."
-        
-        time_entry_id = active[0]
-        current_task_id = active[5]
-        project_id = active[4]
-        
-        # Vérifier que la nouvelle tâche appartient au même projet et est autorisée
-        if not self.is_employee_authorized_for_task(employee_id, project_id, new_task_id):
-            conn.close()
-            return False, "Vous n'êtes pas autorisé à travailler sur ce poste."
-        
-        # Enregistrer le changement de tâche
-        cursor.execute("""
-            INSERT INTO task_changes (time_entry_id, previous_task_id, new_task_id, notes)
-            VALUES (?, ?, ?, ?)
-        """, (time_entry_id, current_task_id, new_task_id, notes))
-        
-        # Mettre à jour l'entrée de temps
-        cursor.execute("""
-            UPDATE time_entries SET task_id = ? WHERE id = ?
-        """, (new_task_id, time_entry_id))
-        
-        conn.commit()
-        conn.close()
-        return True, "Poste de travail changé avec succès."
-    
-    def punch_out(self, employee_id, notes=None):
-        """Enregistre un pointage de sortie"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        active = self.get_active_punch(employee_id)
-        if not active:
-            conn.close()
-            return False, "Aucun pointage actif trouvé."
-        
-        # Si en pause, terminer la pause
-        if active[2] and not active[3]:  # break_start exists but break_end doesn't
-            cursor.execute("""
-                UPDATE time_entries 
-                SET break_end = ?, total_break_minutes = total_break_minutes + ?
-                WHERE id = ?
-            """, (datetime.now(), 
-                  int((datetime.now() - datetime.fromisoformat(active[2])).total_seconds() / 60),
-                  active[0]))
-        
-        cursor.execute("""
-            UPDATE time_entries 
-            SET punch_out = ?, notes = COALESCE(notes, '') || COALESCE(?, '')
-            WHERE id = ?
-        """, (datetime.now(), f"\nNotes sortie: {notes}" if notes else "", active[0]))
-        
-        conn.commit()
-        conn.close()
-        return True, "Pointage de sortie enregistré."
-    
-    def start_break(self, employee_id):
-        """Démarre une pause"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        active = self.get_active_punch(employee_id)
-        if not active:
-            conn.close()
-            return False, "Aucun pointage actif trouvé."
-        
-        if active[2] and not active[3]:  # Already on break
-            conn.close()
-            return False, "Vous êtes déjà en pause."
-        
-        cursor.execute("""
-            UPDATE time_entries 
-            SET break_start = ?
-            WHERE id = ?
-        """, (datetime.now(), active[0]))
-        
-        conn.commit()
-        conn.close()
-        return True, "Pause démarrée."
-    
-    def end_break(self, employee_id):
-        """Termine une pause"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        active = self.get_active_punch(employee_id)
-        if not active or not active[2] or active[3]:
-            conn.close()
-            return False, "Aucune pause active trouvée."
-        
-        break_duration = int((datetime.now() - datetime.fromisoformat(active[2])).total_seconds() / 60)
-        
-        cursor.execute("""
-            UPDATE time_entries 
-            SET break_end = ?, total_break_minutes = total_break_minutes + ?
-            WHERE id = ?
-        """, (datetime.now(), break_duration, active[0]))
-        
-        conn.commit()
-        conn.close()
-        return True, f"Pause terminée ({break_duration} minutes)."
-    
-    def get_employee_timesheet(self, employee_id, start_date, end_date):
-        """Récupère la feuille de temps d'un employé avec détails des tâches et assignations"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                te.id,
-                te.punch_in,
-                te.punch_out,
-                te.total_break_minutes,
-                p.project_name,
-                pt.task_name,
-                COALESCE(eta.hourly_rate_override, pt.hourly_rate) as effective_rate,
-                eta.skill_level,
-                te.notes,
-                CASE 
-                    WHEN te.punch_out IS NOT NULL THEN
-                        ROUND((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes, 2)
-                    ELSE NULL
-                END as total_minutes
-            FROM time_entries te
-            LEFT JOIN projects p ON te.project_id = p.id
-            LEFT JOIN project_tasks pt ON te.task_id = pt.id
-            LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-            WHERE te.employee_id = ? 
-            AND DATE(te.punch_in) BETWEEN ? AND ?
-            ORDER BY te.punch_in DESC
-        """, (employee_id, start_date, end_date))
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def get_task_changes_for_entry(self, time_entry_id):
-        """Récupère l'historique des changements de tâches pour une entrée"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                tc.change_time,
-                pt_prev.task_name as previous_task,
-                pt_new.task_name as new_task,
-                tc.notes
-            FROM task_changes tc
-            LEFT JOIN project_tasks pt_prev ON tc.previous_task_id = pt_prev.id
-            LEFT JOIN project_tasks pt_new ON tc.new_task_id = pt_new.id
-            WHERE tc.time_entry_id = ?
-            ORDER BY tc.change_time
-        """, (time_entry_id,))
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def get_all_employees(self):
-        """Récupère tous les employés"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, employee_code, name, role, is_active, created_at
-            FROM employees 
-            WHERE role != 'admin'
-            ORDER BY name
-        """)
-        
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    
-    def get_employee_by_id(self, employee_id):
-        """Récupère un employé par son ID"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT id, employee_code, name, role, is_active
-            FROM employees WHERE id = ?
-        """, (employee_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        return result
-    
-    def add_employee(self, employee_code, name, password, role='employee'):
-        """Ajoute un nouvel employé"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Vérifier unicité
-        cursor.execute("SELECT id FROM employees WHERE employee_code = ?", (employee_code,))
-        if cursor.fetchone():
-            conn.close()
-            return False, f"Code employé '{employee_code}' déjà utilisé"
-        
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        cursor.execute("""
-            INSERT INTO employees (employee_code, name, password_hash, role)
-            VALUES (?, ?, ?, ?)
-        """, (employee_code, name, password_hash, role))
-        
-        conn.commit()
-        employee_id = cursor.lastrowid
-        
-        # Auto-assigner à tous les postes D&G avec niveau intermédiaire
-        self._auto_assign_employee_to_dg_tasks(cursor, employee_id)
-        
-        conn.commit()
-        conn.close()
-        return True, "Employé créé avec succès et assigné aux postes D&G"
-    
-    def _auto_assign_employee_to_dg_tasks(self, cursor, employee_id):
-        """Assigne automatiquement un nouvel employé à tous les postes D&G"""
-        # Récupérer le projet D&G
-        cursor.execute("SELECT id FROM projects WHERE project_code = 'DG-GENERAL'")
-        dg_project = cursor.fetchone()
-        
-        if dg_project:
-            project_id = dg_project[0]
+            # Initialiser le gestionnaire de sync s'il n'existe pas
+            if 'database_sync' not in st.session_state:
+                st.session_state.database_sync = DatabaseSync()
             
-            # Assigner à toutes les tâches D&G avec niveau intermédiaire
-            cursor.execute("""
-                INSERT OR IGNORE INTO employee_task_assignments 
-                (employee_id, project_id, task_id, skill_level, hourly_rate_override, is_authorized)
-                SELECT ?, ?, pt.id, 'intermédiaire', pt.hourly_rate, 1 
-                FROM project_tasks pt WHERE pt.project_id = ?
-            """, (employee_id, project_id, project_id))
-    
-    def update_employee(self, employee_id, **kwargs):
-        """Met à jour un employé"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Construire la requête dynamiquement
-        set_clauses = []
-        values = []
-        
-        if 'employee_code' in kwargs:
-            # Vérifier unicité du code
-            cursor.execute("SELECT id FROM employees WHERE employee_code = ? AND id != ?", 
-                          (kwargs['employee_code'], employee_id))
-            if cursor.fetchone():
-                conn.close()
-                return False, f"Code employé '{kwargs['employee_code']}' déjà utilisé"
-            set_clauses.append("employee_code = ?")
-            values.append(kwargs['employee_code'])
-        
-        if 'name' in kwargs:
-            set_clauses.append("name = ?")
-            values.append(kwargs['name'])
-        
-        if 'password' in kwargs:
-            password_hash = hashlib.sha256(kwargs['password'].encode()).hexdigest()
-            set_clauses.append("password_hash = ?")
-            values.append(password_hash)
-        
-        if 'role' in kwargs:
-            set_clauses.append("role = ?")
-            values.append(kwargs['role'])
-        
-        if 'is_active' in kwargs:
-            set_clauses.append("is_active = ?")
-            values.append(kwargs['is_active'])
-        
-        if not set_clauses:
-            conn.close()
-            return False, "Aucune modification spécifiée"
-        
-        values.append(employee_id)
-        query = f"UPDATE employees SET {', '.join(set_clauses)} WHERE id = ?"
-        
-        try:
-            cursor.execute(query, values)
-            conn.commit()
-            conn.close()
-            return True, "Employé mis à jour avec succès"
+            timetracker_stats = st.session_state.database_sync.get_sync_statistics()
+            if timetracker_stats['employees'] > 0 or timetracker_stats['time_entries'] > 0:
+                st.markdown("### ⏱️ Aperçu TimeTracker DG")
+                tt_c1, tt_c2, tt_c3, tt_c4 = st.columns(4)
+                with tt_c1:
+                    st.metric("👥 Employés Sync", timetracker_stats['employees'])
+                with tt_c2:
+                    st.metric("⏱️ Entrées Temps", timetracker_stats['time_entries'])
+                with tt_c3:
+                    st.metric("🔧 Tâches Actives", timetracker_stats['tasks'])
+                with tt_c4:
+                    revenue_display = f"{timetracker_stats['total_revenue']:,.0f}$ CAD" if timetracker_stats['total_revenue'] > 0 else "0$ CAD"
+                    st.metric("💰 Revenus Temps", revenue_display)
         except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de la mise à jour: {str(e)}"
+            st.warning(f"TimeTracker stats non disponibles: {str(e)}")
     
-    def delete_employee(self, employee_id):
-        """Supprime un employé (ou le désactive)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Vérifier si l'employé a des pointages
-        cursor.execute("SELECT COUNT(*) FROM time_entries WHERE employee_id = ?", (employee_id,))
-        time_entries_count = cursor.fetchone()[0]
-        
-        if time_entries_count > 0:
-            # Désactiver au lieu de supprimer
-            cursor.execute("UPDATE employees SET is_active = 0 WHERE id = ?", (employee_id,))
-            conn.commit()
-            conn.close()
-            return True, f"Employé désactivé (avait {time_entries_count} pointages)"
-        else:
-            # Supprimer complètement
-            cursor.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
-            conn.commit()
-            conn.close()
-            return True, "Employé supprimé définitivement"
-    
-    def add_project(self, project_code, project_name, client_name=None, requires_task_selection=True):
-        """Ajoute un nouveau projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Vérifier unicité
-        cursor.execute("SELECT id FROM projects WHERE project_code = ?", (project_code,))
-        if cursor.fetchone():
-            conn.close()
-            return False, f"Code projet '{project_code}' déjà utilisé"
-        
-        try:
-            cursor.execute("""
-                INSERT INTO projects (project_code, project_name, client_name, requires_task_selection)
-                VALUES (?, ?, ?, ?)
-            """, (project_code, project_name, client_name, requires_task_selection))
-            conn.commit()
-            project_id = cursor.lastrowid
-            conn.close()
-            return True, f"Projet créé avec succès (ID: {project_id})"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de la création: {str(e)}"
-    
-    def update_project(self, project_id, **kwargs):
-        """Met à jour un projet"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Construire la requête dynamiquement
-        set_clauses = []
-        values = []
-        
-        if 'project_code' in kwargs:
-            # Vérifier unicité du code
-            cursor.execute("SELECT id FROM projects WHERE project_code = ? AND id != ?", 
-                          (kwargs['project_code'], project_id))
-            if cursor.fetchone():
-                conn.close()
-                return False, f"Code projet '{kwargs['project_code']}' déjà utilisé"
-            set_clauses.append("project_code = ?")
-            values.append(kwargs['project_code'])
-        
-        if 'project_name' in kwargs:
-            set_clauses.append("project_name = ?")
-            values.append(kwargs['project_name'])
-        
-        if 'client_name' in kwargs:
-            set_clauses.append("client_name = ?")
-            values.append(kwargs['client_name'])
-        
-        if 'requires_task_selection' in kwargs:
-            set_clauses.append("requires_task_selection = ?")
-            values.append(kwargs['requires_task_selection'])
-        
-        if 'is_active' in kwargs:
-            set_clauses.append("is_active = ?")
-            values.append(kwargs['is_active'])
-        
-        if not set_clauses:
-            conn.close()
-            return False, "Aucune modification spécifiée"
-        
-        values.append(project_id)
-        query = f"UPDATE projects SET {', '.join(set_clauses)} WHERE id = ?"
-        
-        try:
-            cursor.execute(query, values)
-            conn.commit()
-            conn.close()
-            return True, "Projet mis à jour avec succès"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de la mise à jour: {str(e)}"
-    
-    def delete_project(self, project_id):
-        """Supprime un projet (ou le désactive)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Vérifier si le projet a des pointages
-        cursor.execute("SELECT COUNT(*) FROM time_entries WHERE project_id = ?", (project_id,))
-        time_entries_count = cursor.fetchone()[0]
-        
-        # Vérifier si le projet a des tâches
-        cursor.execute("SELECT COUNT(*) FROM project_tasks WHERE project_id = ?", (project_id,))
-        tasks_count = cursor.fetchone()[0]
-        
-        if time_entries_count > 0 or tasks_count > 0:
-            # Désactiver au lieu de supprimer
-            cursor.execute("UPDATE projects SET is_active = 0 WHERE id = ?", (project_id,))
-            # Désactiver aussi les tâches associées
-            cursor.execute("UPDATE project_tasks SET is_active = 0 WHERE project_id = ?", (project_id,))
-            conn.commit()
-            conn.close()
-            return True, f"Projet désactivé (avait {time_entries_count} pointages et {tasks_count} tâches)"
-        else:
-            # Supprimer complètement
-            cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-            conn.commit()
-            conn.close()
-            return True, "Projet supprimé définitivement"
-    
-    def add_task(self, project_id, task_code, task_name, task_category=None, hourly_rate=0.0, description=None):
-        """Ajoute une nouvelle tâche"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Vérifier unicité du code dans le projet
-        cursor.execute("SELECT id FROM project_tasks WHERE project_id = ? AND task_code = ?", 
-                      (project_id, task_code))
-        if cursor.fetchone():
-            conn.close()
-            return False, f"Code tâche '{task_code}' déjà utilisé dans ce projet"
-        
-        try:
-            cursor.execute("""
-                INSERT INTO project_tasks (project_id, task_code, task_name, task_category, hourly_rate, description)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (project_id, task_code, task_name, task_category, hourly_rate, description))
-            conn.commit()
-            task_id = cursor.lastrowid
-            conn.close()
-            return True, f"Tâche créée avec succès (ID: {task_id})"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de la création: {str(e)}"
-    
-    def update_task(self, task_id, **kwargs):
-        """Met à jour une tâche"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Récupérer le project_id de la tâche
-        cursor.execute("SELECT project_id FROM project_tasks WHERE id = ?", (task_id,))
-        result = cursor.fetchone()
-        if not result:
-            conn.close()
-            return False, "Tâche introuvable"
-        
-        project_id = result[0]
-        
-        # Construire la requête dynamiquement
-        set_clauses = []
-        values = []
-        
-        if 'task_code' in kwargs:
-            # Vérifier unicité du code dans le projet
-            cursor.execute("SELECT id FROM project_tasks WHERE project_id = ? AND task_code = ? AND id != ?", 
-                          (project_id, kwargs['task_code'], task_id))
-            if cursor.fetchone():
-                conn.close()
-                return False, f"Code tâche '{kwargs['task_code']}' déjà utilisé dans ce projet"
-            set_clauses.append("task_code = ?")
-            values.append(kwargs['task_code'])
-        
-        if 'task_name' in kwargs:
-            set_clauses.append("task_name = ?")
-            values.append(kwargs['task_name'])
-        
-        if 'task_category' in kwargs:
-            set_clauses.append("task_category = ?")
-            values.append(kwargs['task_category'])
-        
-        if 'hourly_rate' in kwargs:
-            set_clauses.append("hourly_rate = ?")
-            values.append(kwargs['hourly_rate'])
-        
-        if 'description' in kwargs:
-            set_clauses.append("description = ?")
-            values.append(kwargs['description'])
-        
-        if 'is_active' in kwargs:
-            set_clauses.append("is_active = ?")
-            values.append(kwargs['is_active'])
-        
-        if not set_clauses:
-            conn.close()
-            return False, "Aucune modification spécifiée"
-        
-        values.append(task_id)
-        query = f"UPDATE project_tasks SET {', '.join(set_clauses)} WHERE id = ?"
-        
-        try:
-            cursor.execute(query, values)
-            conn.commit()
-            conn.close()
-            return True, "Tâche mise à jour avec succès"
-        except Exception as e:
-            conn.close()
-            return False, f"Erreur lors de la mise à jour: {str(e)}"
-    
-    def delete_task(self, task_id):
-        """Supprime une tâche (ou la désactive)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Vérifier si la tâche est utilisée
-        cursor.execute("SELECT COUNT(*) FROM time_entries WHERE task_id = ?", (task_id,))
-        usage_count = cursor.fetchone()[0]
-        
-        if usage_count > 0:
-            # Désactiver au lieu de supprimer
-            cursor.execute("UPDATE project_tasks SET is_active = 0 WHERE id = ?", (task_id,))
-            conn.commit()
-            conn.close()
-            return True, f"Tâche désactivée (était utilisée {usage_count} fois)"
-        else:
-            # Supprimer complètement
-            cursor.execute("DELETE FROM project_tasks WHERE id = ?", (task_id,))
-            conn.commit()
-            conn.close()
-            return True, "Tâche supprimée définitivement"
-    
-    def get_dashboard_stats(self):
-        """Récupère les statistiques pour le tableau de bord"""
-        conn = sqlite3.connect(self.db_path)
-        today = date.today()
-        
-        # Employés pointés aujourd'hui
-        pointés_aujourd_hui = pd.read_sql_query("""
-            SELECT COUNT(DISTINCT employee_id) as count
-            FROM time_entries 
-            WHERE DATE(punch_in) = ?
-        """, conn, params=(today,))
-        
-        # Employés au travail
-        au_travail = pd.read_sql_query("""
-            SELECT COUNT(*) as count 
-            FROM time_entries 
-            WHERE punch_out IS NULL AND DATE(punch_in) = ?
-        """, conn, params=(today,))
-        
-        # Heures travaillées aujourd'hui
-        heures_total = pd.read_sql_query("""
-            SELECT COALESCE(SUM(CASE 
-                WHEN punch_out IS NOT NULL THEN
-                    ROUND(((JULIANDAY(punch_out) - JULIANDAY(punch_in)) * 24 * 60 - total_break_minutes) / 60, 2)
-                ELSE 0
-            END), 0) as total_hours
-            FROM time_entries 
-            WHERE DATE(punch_in) = ?
-        """, conn, params=(today,))
-        
-        # Retards
-        retards = pd.read_sql_query("""
-            SELECT COUNT(*) as count
-            FROM time_entries 
-            WHERE DATE(punch_in) = ? AND TIME(punch_in) > '08:30:00'
-        """, conn, params=(today,))
-        
-        conn.close()
-        
-        return {
-            'pointés_aujourd_hui': pointés_aujourd_hui.iloc[0]['count'],
-            'au_travail': au_travail.iloc[0]['count'],
-            'heures_total': heures_total.iloc[0]['total_hours'],
-            'retards': retards.iloc[0]['count']
-        }
-    
-    def get_dg_enhanced_stats(self):
-        """Statistiques spécialisées pour Desmarais & Gagné"""
-        conn = sqlite3.connect(self.db_path)
-        today = date.today()
-        
-        # Revenus temps réel avec taux D&G
-        revenus_query = """
-            SELECT COALESCE(SUM(CASE 
-                WHEN te.punch_out IS NOT NULL THEN
-                    (((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) 
-                    * COALESCE(eta.hourly_rate_override, pt.hourly_rate)
-                ELSE 0
-            END), 0) as revenus_journee
-            FROM time_entries te
-            LEFT JOIN project_tasks pt ON te.task_id = pt.id
-            LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-            WHERE DATE(te.punch_in) = ?
-        """
-        
-        revenus_df = pd.read_sql_query(revenus_query, conn, params=(today,))
-        revenus_today = revenus_df.iloc[0]['revenus_journee']
-        
-        # Postes premium actifs (≥130$/h)
-        premium_query = """
-            SELECT COUNT(DISTINCT te.id) as sessions_premium
-            FROM time_entries te
-            INNER JOIN project_tasks pt ON te.task_id = pt.id
-            WHERE DATE(te.punch_in) = ? AND pt.hourly_rate >= 130
-            AND te.punch_out IS NULL
-        """
-        
-        premium_df = pd.read_sql_query(premium_query, conn, params=(today,))
-        premium_active = premium_df.iloc[0]['sessions_premium']
-        
-        # Efficacité moyenne
-        efficiency_query = """
-            SELECT 
-                COALESCE(SUM(((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60), 0) as total_hours,
-                COALESCE(SUM((((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) 
-                    * COALESCE(eta.hourly_rate_override, pt.hourly_rate)), 0) as total_revenue
-            FROM time_entries te
-            LEFT JOIN project_tasks pt ON te.task_id = pt.id
-            LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-            WHERE DATE(te.punch_in) = ? AND te.punch_out IS NOT NULL
-        """
-        
-        efficiency_df = pd.read_sql_query(efficiency_query, conn, params=(today,))
-        total_hours = efficiency_df.iloc[0]['total_hours']
-        total_revenue = efficiency_df.iloc[0]['total_revenue']
-        avg_efficiency = total_revenue / total_hours if total_hours > 0 else 0
-        
-        # Utilisation postes haute valeur
-        high_value_query = """
-            SELECT 
-                ROUND(
-                    (COUNT(CASE WHEN pt.hourly_rate >= 120 THEN 1 END) * 100.0 / COUNT(*)), 1
-                ) as pct_high_value
-            FROM time_entries te
-            INNER JOIN project_tasks pt ON te.task_id = pt.id
-            WHERE DATE(te.punch_in) = ?
-        """
-        
-        high_value_df = pd.read_sql_query(high_value_query, conn, params=(today,))
-        pct_high_value = high_value_df.iloc[0]['pct_high_value'] or 0
-        
-        conn.close()
-        
-        return {
-            'revenus_today': revenus_today,
-            'premium_active': premium_active,
-            'avg_efficiency': avg_efficiency,
-            'pct_high_value': pct_high_value,
-            'total_hours': total_hours,
-            'total_revenue': total_revenue
-        }
+    # Métriques RH
+    if emp_stats.get('total', 0) > 0:
+        st.markdown("### 👥 Aperçu Ressources Humaines")
+        emp_c1, emp_c2, emp_c3, emp_c4 = st.columns(4)
+        with emp_c1:
+            st.metric("👥 Total Employés", emp_stats['total'])
+        with emp_c2:
+            employes_actifs = len([emp for emp in gestionnaire_employes.employes if emp.get('statut') == 'ACTIF'])
+            st.metric("✅ Employés Actifs", employes_actifs)
+        with emp_c3:
+            st.metric("💰 Salaire Moyen", f"{emp_stats.get('salaire_moyen', 0):,.0f}€")
+        with emp_c4:
+            employes_surcharges = len([emp for emp in gestionnaire_employes.employes if emp.get('charge_travail', 0) > 90])
+            st.metric("⚠️ Surchargés", employes_surcharges)
 
-# ================================
-# UTILITAIRES
-# ================================
+    st.markdown("<br>", unsafe_allow_html=True)
 
-def format_duration(minutes):
-    """Formate une durée en minutes vers HH:MM"""
-    if pd.isna(minutes) or minutes is None or minutes == 0:
-        return "00:00"
-    
-    hours = int(minutes // 60)
-    mins = int(minutes % 60)
-    return f"{hours:02d}:{mins:02d}"
+    # Graphiques combinés
+    if stats['total'] > 0 or postes_stats['total_postes'] > 0:
+        gc1, gc2 = st.columns(2)
+        
+        with gc1:
+            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+            if stats['par_statut']:
+                colors_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
+                fig = px.pie(values=list(stats['par_statut'].values()), names=list(stats['par_statut'].keys()), title="📈 Projets par Statut", color_discrete_map=colors_statut)
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with gc2:
+            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+            if postes_stats.get('par_departement'):
+                colors_dept = {'PRODUCTION': '#10b981', 'USINAGE': '#3b82f6', 'QUALITE': '#f59e0b', 'LOGISTIQUE': '#8b5cf6', 'COMMERCIAL': '#ef4444'}
+                fig = px.bar(x=list(postes_stats['par_departement'].keys()), y=list(postes_stats['par_departement'].values()), 
+                           title="🏭 Postes par Département", color=list(postes_stats['par_departement'].keys()), 
+                           color_discrete_map=colors_dept)
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-def get_time_display():
-    """Retourne l'heure actuelle formatée"""
-    return datetime.now().strftime('%H:%M:%S')
-
-def generate_excel_report(data, filename="rapport_temps.xlsx"):
-    """Génère un rapport Excel"""
-    output = io.BytesIO()
-    
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        data.to_excel(writer, sheet_name='Rapport_Temps', index=False)
-    
-    return output.getvalue()
-
-def get_skill_badge_class(skill_level):
-    """Retourne la classe CSS pour le badge de niveau"""
-    skill_classes = {
-        'débutant': 'skill-debutant',
-        'intermédiaire': 'skill-intermediaire', 
-        'avancé': 'skill-avance',
-        'expert': 'skill-expert'
-    }
-    return skill_classes.get(skill_level, 'skill-intermediaire')
-
-def get_rate_class(rate):
-    """Retourne la classe CSS selon le taux horaire D&G"""
-    if rate >= 130:
-        return 'rate-premium'
-    elif rate >= 100:
-        return 'rate-high'
-    elif rate >= 90:
-        return 'rate-standard'
-    else:
-        return 'rate-admin'
-
-def get_rate_indicator(rate):
-    """Retourne l'indicateur visuel pour le taux"""
-    if rate >= 130:
-        return "🔥"  # Premium
-    elif rate >= 100:
-        return "⚡"  # Élevé
-    elif rate >= 90:
-        return "💼"  # Standard
-    else:
-        return "📋"  # Administratif
-
-# ================================
-# SÉLECTEUR DE TÂCHE AVANCÉ POUR D&G
-# ================================
-
-def show_advanced_task_selector_dg(db, user_info, project_id):
-    """Sélecteur de poste de travail avancé pour les 34 postes D&G"""
-    
-    st.markdown("#### 🔧 Sélection de Poste de Travail D&G")
-    
-    # Récupérer les tâches autorisées
-    authorized_tasks = db.get_employee_authorized_tasks(user_info['id'], project_id)
-    
-    if not authorized_tasks:
-        st.error("❌ Aucun poste autorisé pour ce projet")
-        st.info("💡 Contactez votre superviseur pour obtenir les autorisations nécessaires")
-        return None
-    
-    # Filtres avancés
-    with st.container():
-        st.markdown('<div class="filter-container">', unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            # Filtre par catégorie
-            categories = list(set([task[2] for task in authorized_tasks]))
-            selected_category = st.selectbox(
-                "📋 Filtrer par catégorie", 
-                ["Toutes"] + sorted(categories),
-                help="Filtrer les postes par type d'opération"
-            )
-        
-        with col2:
-            # Filtre par taux horaire
-            rates = [task[4] for task in authorized_tasks]
-            min_rate, max_rate = min(rates), max(rates)
-            rate_range = st.slider(
-                "💰 Plage de taux ($/h)",
-                min_value=float(min_rate),
-                max_value=float(max_rate),
-                value=(float(min_rate), float(max_rate)),
-                step=5.0,
-                help="Filtrer par gamme de taux horaire"
-            )
-        
-        with col3:
-            # Recherche textuelle
-            search_term = st.text_input(
-                "🔍 Rechercher un poste",
-                placeholder="Ex: soudage, robot, plasma...",
-                help="Rechercher par nom ou type de poste"
-            )
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Filtrer les tâches selon les critères
-    filtered_tasks = []
-    for task in authorized_tasks:
-        task_id, task_name, task_category, skill_level, effective_rate, description = task
-        
-        # Filtre catégorie
-        if selected_category != "Toutes" and task_category != selected_category:
-            continue
-        
-        # Filtre taux
-        if not (rate_range[0] <= effective_rate <= rate_range[1]):
-            continue
-        
-        # Filtre recherche
-        if search_term and search_term.lower() not in task_name.lower() and search_term.lower() not in (task_category or "").lower():
-            continue
-        
-        filtered_tasks.append(task)
-    
-    if not filtered_tasks:
-        st.warning("⚠️ Aucun poste ne correspond aux critères de recherche")
-        return None
-    
-    # Affichage des postes filtrés avec design D&G
-    st.markdown(f"**{len(filtered_tasks)} poste(s) disponible(s):**")
-    
-    # Grouper par catégorie pour affichage organisé
-    tasks_by_category = {}
-    for task in filtered_tasks:
-        category = task[2] or "Général"
-        if category not in tasks_by_category:
-            tasks_by_category[category] = []
-        tasks_by_category[category].append(task)
-    
-    selected_task = None
-    
-    # Couleurs par catégorie D&G
-    category_colors = {
-        'Soudage': '#e74c3c',
-        'Découpe et Perçage': '#3498db', 
-        'Formage et Assemblage': '#9b59b6',
-        'Finition': '#2ecc71',
-        'Préparation et Programmation': '#f39c12',
-        'Manutention et Cisaillage': '#95a5a6',
-        'Contrôle Qualité': '#1abc9c',
-        'Expédition': '#e67e22'
-    }
-    
-    # Afficher par catégorie avec style D&G
-    for category, category_tasks in tasks_by_category.items():
-        color = category_colors.get(category, '#34495e')
-        
-        # Trier par taux décroissant dans chaque catégorie
-        category_tasks.sort(key=lambda x: x[4], reverse=True)
-        
-        with st.expander(f"🔧 {category} ({len(category_tasks)} postes)", expanded=True):
-            
-            for task in category_tasks:
-                task_id, task_name, task_category, skill_level, effective_rate, description = task
-                
-                # Déterminer le style selon le taux
-                if effective_rate >= 130:
-                    card_class = "task-card-dg premium"
-                    indicator_class = "premium-indicator"
-                elif effective_rate >= 100:
-                    card_class = "task-card-dg high-value"
-                    indicator_class = "high-value-indicator"
-                else:
-                    card_class = "task-card-dg"
-                    indicator_class = "task-indicator"
-                
-                rate_class = get_rate_class(effective_rate)
-                rate_icon = get_rate_indicator(effective_rate)
-                
-                # Carte de poste avec style D&G
-                task_key = f"select_task_dg_{task_id}_{category.replace(' ', '_')}"
-                
-                st.markdown(f'<div class="{card_class}">', unsafe_allow_html=True)
-                
-                col_task, col_rate, col_skill, col_btn = st.columns([3, 1, 1, 1])
-                
-                with col_task:
-                    st.markdown(f"**{task_name}**")
-                    if description:
-                        st.caption(description)
-                    st.markdown(f'<div class="{indicator_class}">{task_category}</div>', unsafe_allow_html=True)
-                
-                with col_rate:
-                    st.markdown(f'<div class="{rate_class}">{rate_icon} {effective_rate:.0f}$ CAD</div>', unsafe_allow_html=True)
-                
-                with col_skill:
-                    skill_colors = {
-                        'expert': '🟣',
-                        'avancé': '🟢', 
-                        'intermédiaire': '🟡',
-                        'débutant': '🟠'
-                    }
-                    skill_icon = skill_colors.get(skill_level, '⚪')
-                    st.markdown(f"**{skill_icon} {skill_level.capitalize()}**")
-                
-                with col_btn:
-                    if st.button("✅ Sélectionner", key=task_key):
-                        selected_task = task
-                        st.session_state.selected_task_dg = selected_task
-                        st.success(f"✅ **{task_name}** sélectionné")
-                        st.rerun()
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Afficher le poste sélectionné
-    if 'selected_task_dg' in st.session_state:
-        task = st.session_state.selected_task_dg
-        
         st.markdown("---")
-        st.markdown("### ✅ Poste de Travail Sélectionné")
-        
-        # Card de confirmation stylée
-        rate_class = get_rate_class(task[4])
-        rate_icon = get_rate_indicator(task[4])
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-value">{task[1]}</div>
-                <div class="metric-label">📋 {task[2]}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-value {rate_class}">{rate_icon} {task[4]:.0f}$ CAD</div>
-                <div class="metric-label">💰 Taux Effectif / Heure</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            skill_class = get_skill_badge_class(task[3])
-            if st.button("🔄 Changer de poste", key="change_selected_task"):
-                del st.session_state.selected_task_dg
-                st.rerun()
-        
-        return task[0]  # Return task_id
-    
-    return None
+        st.markdown("### 🕒 Projets Récents")
+        projets_recents = sorted(gestionnaire.projets, key=lambda x: x.get('id', 0), reverse=True)[:5]
+        if not projets_recents:
+            st.info("Aucun projet récent.")
+        for p in projets_recents:
+            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+            rc1, rc2, rc3, rc4 = st.columns([3, 2, 2, 1])
+            with rc1:
+                st.markdown(f"**#{p.get('id')} - {p.get('nom_projet', 'Sans nom')}**")
+                st.caption(f"📝 {p.get('description', 'N/A')[:100]}...")
+            with rc2:
+                client_display_name = p.get('client_nom_cache', 'N/A')
+                if client_display_name == 'N/A' and p.get('client_entreprise_id'):
+                    crm_manager = st.session_state.gestionnaire_crm
+                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
+                    if entreprise:
+                        client_display_name = entreprise.get('nom', 'N/A')
+                elif client_display_name == 'N/A':
+                    client_display_name = p.get('client', 'N/A')
 
-# ================================
-# INTERFACE DE CONNEXION
-# ================================
+                st.markdown(f"👤 **{client_display_name}**")
+                st.caption(f"💰 {format_currency(p.get('prix_estime', 0))}")
+            with rc3:
+                statut, priorite = p.get('statut', 'N/A'), p.get('priorite', 'N/A')
+                statut_map = {'À FAIRE': '🟡', 'EN COURS': '🔵', 'EN ATTENTE': '🔴', 'TERMINÉ': '🟢', 'ANNULÉ': '⚫', 'LIVRAISON': '🟣'}
+                priorite_map = {'ÉLEVÉ': '🔴', 'MOYEN': '🟡', 'BAS': '🟢'}
+                st.markdown(f"{statut_map.get(statut, '⚪')} {statut}")
+                st.caption(f"{priorite_map.get(priorite, '⚪')} {priorite}")
+            with rc4:
+                if st.button("👁️", key=f"view_rec_{p.get('id')}", help="Voir détails"):
+                    st.session_state.selected_project = p
+                    st.session_state.show_project_modal = True
+            st.markdown("</div>", unsafe_allow_html=True)
 
-def show_login_page():
-    """Affiche la page de connexion"""
+def show_itineraire():
+    """Version améliorée avec vrais postes de travail"""
+    st.markdown("## 🛠️ Itinéraire Fabrication - DG Inc.")
+    gestionnaire = st.session_state.gestionnaire
+    gestionnaire_postes = st.session_state.gestionnaire_postes
+    gestionnaire_employes = st.session_state.gestionnaire_employes
     
-    # Logo et header
-    st.markdown("""
-    <div class="main-header">
-        <h1>⏱️ TimeTracker Pro</h1>
-        <p>Système de Pointage Avancé - Desmarais & Gagné</p>
-        <small>🔧 Version avec 34 Postes de Travail Réels et Taux D&G</small>
-    </div>
-    """, unsafe_allow_html=True)
+    if not gestionnaire.projets:
+        st.warning("Aucun projet.")
+        return
     
-    # Interface de connexion centrée
-    col1, col2, col3 = st.columns([1, 2, 1])
+    opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
+    sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="iti_sel")
+    proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
     
-    with col2:
-        st.markdown("### 🔐 Connexion Employé")
-        
-        with st.form("login_form"):
-            employee_code = st.text_input(
-                "Code Employé", 
-                placeholder="Ex: EMP001 ou ADMIN",
-                help="Entrez votre code employé"
-            )
-            password = st.text_input(
-                "Mot de passe", 
-                type="password",
-                help="Mot de passe fourni par l'administrateur"
-            )
-            
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                submit = st.form_submit_button("🔑 Se connecter", use_container_width=True)
-            with col_btn2:
-                demo = st.form_submit_button("👀 Démo", use_container_width=True, help="Connexion démo avec ADMIN/admin123")
-            
-            if demo:
-                employee_code = "ADMIN"
-                password = "admin123"
-                submit = True
-            
-            if submit:
-                if employee_code and password:
-                    db = get_database()
-                    user = db.authenticate_user(employee_code.upper(), password)
-                    if user:
-                        st.session_state.logged_in = True
-                        st.session_state.user_info = user
-                        st.success(f"✅ Connexion réussie ! Bienvenue {user['name']}")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("🚫 Code employé ou mot de passe incorrect")
-                else:
-                    st.warning("⚠️ Veuillez remplir tous les champs")
-        
-        # Informations de connexion par défaut
-        with st.expander("ℹ️ Informations de connexion", expanded=False):
-            st.info("""
-            **Connexion administrateur par défaut :**
-            - Code : `ADMIN`
-            - Mot de passe : `admin123`
-            
-            **🆕 Nouveautés Version D&G :**
-            - ✅ 34 postes de travail réels Desmarais & Gagné
-            - ✅ Taux horaires réels (85-140$ CAD)
-            - ✅ Catégorisation avancée (8 catégories)
-            - ✅ Sélecteur de poste avec filtres intelligents
-            - ✅ Dashboard revenus temps réel
-            - ✅ Analytics par niveau de taux
-            - ✅ Assignations automatiques nouveaux employés
-            - ✅ Rapports spécialisés rentabilité
-            """)
+    if not proj:
+        st.error("Projet non trouvé.")
+        return
+    
+    st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
 
-# ================================
-# INTERFACE EMPLOYÉ ENRICHIE POUR D&G
-# ================================
+    # Bouton de régénération de gamme
+    col_regen1, col_regen2 = st.columns([3, 1])
+    with col_regen2:
+        if st.button("🔄 Régénérer Gamme", help="Régénérer avec les vrais postes DG Inc."):
+            # Déterminer le type de produit
+            nom_projet = proj.get('nom_projet', '').lower()
+            if any(mot in nom_projet for mot in ['chassis', 'structure', 'assemblage']):
+                type_produit = "CHASSIS_SOUDE"
+            elif any(mot in nom_projet for mot in ['batiment', 'pont', 'charpente']):
+                type_produit = "STRUCTURE_LOURDE"
+            else:
+                type_produit = "PIECE_PRECISION"
+            
+            # Générer nouvelle gamme
+            gamme = gestionnaire_postes.generer_gamme_fabrication(type_produit, "MOYEN", gestionnaire_employes)
+            
+            # Mettre à jour les opérations
+            nouvelles_operations = []
+            for i, op in enumerate(gamme, 1):
+                nouvelles_operations.append({
+                    'id': i,
+                    'sequence': str(op['sequence']),
+                    'description': f"{op['poste']} - {proj.get('nom_projet', '')}",
+                    'temps_estime': op['temps_estime'],
+                    'ressource': op['employes_disponibles'][0] if op['employes_disponibles'] else 'À assigner',
+                    'statut': 'À FAIRE',
+                    'poste_travail': op['poste']
+                })
+            
+            proj['operations'] = nouvelles_operations
+            gestionnaire.sauvegarder_projets()
+            st.success("✅ Gamme régénérée avec les postes DG Inc. !")
+            st.rerun()
 
-def show_employee_interface():
-    """Interface principale pour les employés avec postes D&G"""
-    
-    user_info = st.session_state.user_info
-    db = get_database()
-    
-    # Header avec horloge temps réel
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.markdown(f"""
-        <div class="main-header">
-            <h1>👋 Bonjour {user_info['name']}</h1>
-            <p>Interface de pointage D&G - Code: {user_info['employee_code']}</p>
-            <small>🏭 34 postes de travail disponibles</small>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        # Horloge temps réel
-        clock_placeholder = st.empty()
-        clock_placeholder.markdown(f"""
-        <div class="digital-clock" id="digital-clock">
-            {get_time_display()}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Récupérer statut actuel
-    active_punch = db.get_active_punch(user_info['id'])
-    
-    # Interface de pointage
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Affichage du statut enrichi avec détails D&G
-        if active_punch:
-            punch_time = datetime.fromisoformat(active_punch[1])
-            worked_time = datetime.now() - punch_time
-            hours, remainder = divmod(worked_time.total_seconds(), 3600)
-            minutes, _ = divmod(remainder, 60)
-            
-            project_name = active_punch[6] or "Projet non spécifié"
-            task_name = active_punch[8] or "Aucun poste"
-            task_category = active_punch[9] or ""
-            effective_rate = active_punch[10] or 0
-            
-            # Calculer revenus estimés
-            total_hours = hours + minutes/60
-            estimated_earnings = total_hours * effective_rate
-            
-            # Indicateurs visuels D&G
-            rate_icon = get_rate_indicator(effective_rate)
-            rate_class = get_rate_class(effective_rate)
-            
-            if active_punch[2] and not active_punch[3]:  # En pause
-                break_start = datetime.fromisoformat(active_punch[2])
-                break_duration = datetime.now() - break_start
-                break_minutes = int(break_duration.total_seconds() / 60)
-                
-                st.markdown(f"""
-                <div class="status-card break">
-                    <h3>☕ EN PAUSE</h3>
-                    <p><strong>Projet:</strong> {project_name}</p>
-                    <div class="task-indicator">{task_category}: {task_name}</div>
-                    <p><strong>Arrivée:</strong> {punch_time.strftime('%H:%M')}</p>
-                    <p><strong>Temps travaillé:</strong> {int(hours)}h {int(minutes)}m</p>
-                    <p><strong>En pause depuis:</strong> {break_minutes} minutes</p>
-                    <p class="{rate_class}"><strong>Taux:</strong> {rate_icon} {effective_rate:.0f}$ CAD/h</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="status-card punched-in task-active">
-                    <h3>✅ AU TRAVAIL</h3>
-                    <p><strong>Projet:</strong> {project_name}</p>
-                    <div class="task-indicator task-active-indicator">{task_category}: {task_name}</div>
-                    <p><strong>Arrivée:</strong> {punch_time.strftime('%H:%M')}</p>
-                    <p><strong>Temps travaillé:</strong> {int(hours)}h {int(minutes)}m</p>
-                    <p class="{rate_class}"><strong>Taux:</strong> {rate_icon} {effective_rate:.0f}$ CAD/h</p>
-                    <p><strong>Revenus estimés:</strong> {estimated_earnings:.2f}$ CAD</p>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="status-card">
-                <h3>⭕ NON POINTÉ</h3>
-                <p>Vous n'êtes pas actuellement pointé au travail</p>
-                <p><strong>Prêt à commencer votre journée ?</strong></p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col2:
-        # Boutons d'action avec sélection de poste D&G
-        if not active_punch:
-            # Interface de pointage d'arrivée avec sélecteur D&G avancé
-            st.markdown("#### 🔴 Pointer l'arrivée")
-            
-            projects = db.get_projects()
-            if projects:
-                project_options = {f"{p[1]} - {p[3] or 'N/A'}": p for p in projects}
-                selected_project_display = st.selectbox(
-                    "📋 Sélectionner le projet", 
-                    options=list(project_options.keys()),
-                    help="Choisissez le projet sur lequel vous allez travailler"
-                )
-                
-                selected_project = project_options[selected_project_display]
-                project_id = selected_project[0]
-                requires_task = selected_project[4]
-                
-                # Sélection de poste de travail D&G
-                task_id = None
-                if requires_task:
-                    task_id = show_advanced_task_selector_dg(db, user_info, project_id)
-                
-                notes_arrivee = st.text_area(
-                    "📝 Notes (optionnel)", 
-                    placeholder="Ex: Travail sur fabrication porte ARQ-2025...",
-                    help="Décrivez brièvement ce que vous allez faire"
-                )
-                
-                # Bouton de pointage
-                punch_enabled = not requires_task or task_id is not None
-                if st.button("🔴 POINTER L'ARRIVÉE", key="punch_in", disabled=not punch_enabled):
-                    success, result = db.punch_in(user_info['id'], project_id, task_id, notes=notes_arrivee)
-                    if success:
-                        st.success("✅ Pointage d'arrivée enregistré!")
-                        if 'selected_task_dg' in st.session_state:
-                            del st.session_state.selected_task_dg
-                        st.balloons()
-                        time.sleep(2)
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {result}")
-                
-                if requires_task and not task_id:
-                    st.warning("⚠️ Vous devez sélectionner un poste de travail autorisé pour ce projet")
-                
-            else:
-                st.warning("⚠️ Aucun projet disponible. Contactez l'administrateur.")
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    operations = proj.get('operations', [])
+    if not operations:
+        st.info("Aucune opération.")
+    else:
+        total_time = sum(op.get('temps_estime', 0) for op in operations)
+        finished_ops = sum(1 for op in operations if op.get('statut') == 'TERMINÉ')
+        progress = (finished_ops / len(operations) * 100) if operations else 0
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            st.metric("🔧 Opérations", len(operations))
+        with mc2:
+            st.metric("⏱️ Durée Totale", f"{total_time:.1f}h")
+        with mc3:
+            st.metric("📊 Progression", f"{progress:.1f}%")
         
-        else:
-            # Interface pour employé pointé avec changement de poste D&G
-            st.markdown("#### ⚡ Actions rapides")
-            
-            # Changement de poste basé sur les assignations D&G
-            current_project_id = active_punch[4]
-            current_task_id = active_punch[5]
-            
-            if current_project_id:
-                authorized_tasks = db.get_employee_authorized_tasks(user_info['id'], current_project_id)
-                available_tasks = [t for t in authorized_tasks if t[0] != current_task_id]
-                
-                if available_tasks:
-                    st.markdown("##### 🔄 Changer de poste de travail")
-                    
-                    # Grouper par catégorie pour changement
-                    tasks_by_category = {}
-                    for t in available_tasks:
-                        category = t[2] or "Général"
-                        if category not in tasks_by_category:
-                            tasks_by_category[category] = []
-                        tasks_by_category[category].append(t)
-                    
-                    selected_category_change = st.selectbox(
-                        "Catégorie de poste",
-                        options=list(tasks_by_category.keys()),
-                        help="Sélectionnez d'abord la catégorie"
-                    )
-                    
-                    if selected_category_change:
-                        category_tasks = tasks_by_category[selected_category_change]
-                        task_options = {}
-                        
-                        for t in category_tasks:
-                            rate_icon = get_rate_indicator(t[4])
-                            task_display = f"{t[1]} ({rate_icon} {t[4]:.0f}$/h) - {t[3]}"
-                            task_options[task_display] = t[0]
-                        
-                        if task_options:
-                            new_task_display = st.selectbox(
-                                "Nouveau poste autorisé", 
-                                options=list(task_options.keys()),
-                                help="Changez de poste sans pointer sortie/entrée"
-                            )
-                            
-                            change_notes = st.text_input(
-                                "Raison du changement", 
-                                placeholder="Ex: Changement de priorité production..."
-                            )
-                            
-                            if st.button("🔄 CHANGER DE POSTE", key="change_task"):
-                                new_task_id = task_options[new_task_display]
-                                success, message = db.change_task(user_info['id'], new_task_id, change_notes)
-                                if success:
-                                    st.success(f"✅ {message}")
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ {message}")
-                else:
-                    st.info("ℹ️ Aucun autre poste autorisé disponible pour ce projet")
-            
-            st.markdown("---")
-            
-            # Gestion des pauses
-            if active_punch[2] and not active_punch[3]:  # En pause
-                if st.button("🔵 REPRENDRE LE TRAVAIL", key="end_break"):
-                    success, message = db.end_break(user_info['id'])
-                    if success:
-                        st.success(f"✅ {message}")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
-            else:
-                if st.button("🟡 COMMENCER UNE PAUSE", key="start_break"):
-                    success, message = db.start_break(user_info['id'])
-                    if success:
-                        st.success(f"✅ {message}")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
-            
-            st.markdown("---")
-            st.markdown("#### 📝 Fin de journée")
-            notes_sortie = st.text_area(
-                "Notes de fin de journée", 
-                placeholder="Résumé du travail effectué aujourd'hui...",
-                help="Décrivez votre travail d'aujourd'hui (optionnel mais recommandé)"
-            )
-            
-            if st.button("🔴 POINTER LA SORTIE", key="punch_out"):
-                success, message = db.punch_out(user_info['id'], notes_sortie)
-                if success:
-                    st.success(f"✅ {message}")
-                    st.success("🎉 Bonne fin de journée !")
-                    time.sleep(2)
-                    st.rerun()
-                else:
-                    st.error(f"❌ {message}")
-    
-    # Feuille de temps récente avec détails des assignations et taux D&G
-    st.markdown("---")
-    st.markdown("### 📊 Mes heures récentes (avec taux D&G)")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        start_date = st.date_input("📅 Date de début", value=date.today() - timedelta(days=7))
-    with col2:
-        end_date = st.date_input("📅 Date de fin", value=date.today())
-    with col3:
-        refresh_data = st.button("🔄 Actualiser", help="Recharger les données")
-    
-    # Récupérer et afficher les données
-    timesheet = db.get_employee_timesheet(user_info['id'], start_date, end_date)
-    
-    if timesheet:
-        df_data = []
-        total_hours = 0
-        total_earnings = 0
-        total_days = 0
-        
-        for entry in timesheet:
-            punch_in = datetime.fromisoformat(entry[1])
-            punch_out = datetime.fromisoformat(entry[2]) if entry[2] else None
-            
-            if punch_out and entry[9]:  # Si pointage complet
-                hours = entry[9] / 60
-                total_hours += hours
-                total_days += 1
-                status = "✅ Complet"
-                hours_display = f"{hours:.2f}h"
-                
-                # Calcul des revenus avec taux effectif D&G
-                effective_rate = entry[6] or 0
-                skill_level = entry[7] or "N/A"
-                earnings = hours * effective_rate
-                total_earnings += earnings
-                
-                # Formatage avec icônes selon taux
-                rate_icon = get_rate_indicator(effective_rate)
-                earnings_display = f"{earnings:.2f}$"
-                rate_display = f"{rate_icon} {effective_rate:.0f}$"
-            else:
-                hours = 0
-                earnings = 0
-                effective_rate = entry[6] or 0
-                skill_level = entry[7] or "N/A"
-                status = "🔄 En cours" if not punch_out else "⚠️ Incomplet"
-                hours_display = "-"
-                earnings_display = "-"
-                rate_display = f"{get_rate_indicator(effective_rate)} {effective_rate:.0f}$" if effective_rate else "0$"
-            
-            df_data.append({
-                "Date": punch_in.strftime('%Y-%m-%d'),
-                "Jour": punch_in.strftime('%A'),
-                "Arrivée": punch_in.strftime('%H:%M'),
-                "Sortie": punch_out.strftime('%H:%M') if punch_out else "-",
-                "Pause": format_duration(entry[3]) if entry[3] else "00:00",
-                "Projet": entry[4] or "Non spécifié",
-                "Poste": entry[5] or "Générale",
-                "Niveau": skill_level,
-                "Taux": rate_display,
-                "Heures": hours_display,
-                "Revenus": earnings_display,
-                "Statut": status
+        # Tableau enrichi avec postes de travail
+        data_iti = []
+        for op in operations:
+            poste_travail = op.get('poste_travail', 'Non assigné')
+            data_iti.append({
+                '🆔': op.get('id', '?'), 
+                '📊 Séq.': op.get('sequence', ''), 
+                '🏭 Poste': poste_travail,
+                '📋 Desc.': op.get('description', ''), 
+                '⏱️ Tps (h)': f"{(op.get('temps_estime', 0) or 0):.1f}", 
+                '👨‍🔧 Ress.': op.get('ressource', ''), 
+                '🚦 Statut': op.get('statut', 'À FAIRE')
             })
         
-        if df_data:
-            df = pd.DataFrame(df_data)
-            st.dataframe(df, use_container_width=True)
+        st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
+        st.markdown("---")
+        st.markdown("##### 📈 Analyse Opérations")
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            counts = {}
+            colors_op_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'TERMINÉ': '#10b981', 'EN ATTENTE': '#ef4444'}
+            for op in operations:
+                status = op.get('statut', 'À FAIRE')
+                counts[status] = counts.get(status, 0) + 1
+            if counts:
+                fig = px.bar(x=list(counts.keys()), y=list(counts.values()), title="Répartition par statut", color=list(counts.keys()), color_discrete_map=colors_op_statut)
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+        with ac2:
+            res_time = {}
+            for op in operations:
+                res = op.get('poste_travail', 'Non assigné')
+                time = op.get('temps_estime', 0)
+                res_time[res] = res_time.get(res, 0) + time
+            if res_time:
+                fig = px.pie(values=list(res_time.values()), names=list(res_time.keys()), title="Temps par poste")
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_liste_projets():
+    st.markdown("## 📋 Liste des Projets")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+
+    col_create, _ = st.columns([1, 3])
+    with col_create:
+        if st.button("➕ Nouveau Projet", use_container_width=True, key="create_btn_liste"):
+            st.session_state.show_create_project = True
+    st.markdown("---")
+    if not gestionnaire.projets and not st.session_state.get('show_create_project'):
+        st.info("Aucun projet. Cliquez sur 'Nouveau Projet' pour commencer.")
+
+    if gestionnaire.projets:
+        with st.expander("🔍 Filtres", expanded=False):
+            fcol1, fcol2, fcol3 = st.columns(3)
+            statuts_dispo = sorted(list(set([p.get('statut', 'N/A') for p in gestionnaire.projets])))
+            priorites_dispo = sorted(list(set([p.get('priorite', 'N/A') for p in gestionnaire.projets])))
+            with fcol1:
+                filtre_statut = st.multiselect("Statut:", ['Tous'] + statuts_dispo, default=['Tous'])
+            with fcol2:
+                filtre_priorite = st.multiselect("Priorité:", ['Toutes'] + priorites_dispo, default=['Toutes'])
+            with fcol3:
+                recherche = st.text_input("🔍 Rechercher:", placeholder="Nom, client...")
+
+        projets_filtres = gestionnaire.projets
+        if 'Tous' not in filtre_statut and filtre_statut:
+            projets_filtres = [p for p in projets_filtres if p.get('statut') in filtre_statut]
+        if 'Toutes' not in filtre_priorite and filtre_priorite:
+            projets_filtres = [p for p in projets_filtres if p.get('priorite') in filtre_priorite]
+        if recherche:
+            terme = recherche.lower()
+            projets_filtres = [p for p in projets_filtres if
+                               terme in str(p.get('nom_projet', '')).lower() or
+                               terme in str(p.get('client_nom_cache', '')).lower() or
+                               (p.get('client_entreprise_id') and crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')).get('nom', '').lower()) or
+                               terme in str(p.get('client', '')).lower()
+                              ]
+
+        st.markdown(f"**{len(projets_filtres)} projet(s) trouvé(s)**")
+        if projets_filtres:
+            df_data = []
+            for p in projets_filtres:
+                client_display_name_df = p.get('client_nom_cache', 'N/A')
+                if client_display_name_df == 'N/A' and p.get('client_entreprise_id'):
+                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
+                    if entreprise:
+                        client_display_name_df = entreprise.get('nom', 'N/A')
+                elif client_display_name_df == 'N/A':
+                    client_display_name_df = p.get('client', 'N/A')
+
+                df_data.append({'🆔': p.get('id', '?'), '📋 Projet': p.get('nom_projet', 'N/A'), '👤 Client': client_display_name_df, '🚦 Statut': p.get('statut', 'N/A'), '⭐ Priorité': p.get('priorite', 'N/A'), '📅 Début': p.get('date_soumis', 'N/A'), '🏁 Fin': p.get('date_prevu', 'N/A'), '💰 Prix': format_currency(p.get('prix_estime', 0))})
+            st.dataframe(pd.DataFrame(df_data), use_container_width=True)
+            st.markdown("---")
+            st.markdown("### 🔧 Actions sur un projet")
+            selected_id_actions = st.selectbox("Projet:", options=[p.get('id') for p in projets_filtres], format_func=lambda pid: f"#{pid} - {next((p.get('nom_projet', '') for p in projets_filtres if p.get('id') == pid), '')}", key="proj_actions_sel")
+            sel_proj_action = next((p for p in gestionnaire.projets if p.get('id') == selected_id_actions), None)
+            if sel_proj_action:
+                acol1, acol2, acol3 = st.columns(3)
+                with acol1:
+                    if st.button("👁️ Voir Détails", use_container_width=True, key=f"view_act_{selected_id_actions}"):
+                        st.session_state.selected_project = sel_proj_action
+                        st.session_state.show_project_modal = True
+                with acol2:
+                    if st.button("✏️ Modifier", use_container_width=True, key=f"edit_act_{selected_id_actions}"):
+                        st.session_state.edit_project_data = sel_proj_action
+                        st.session_state.show_edit_project = True
+                with acol3:
+                    if st.button("🗑️ Supprimer", use_container_width=True, key=f"del_act_{selected_id_actions}"):
+                        st.session_state.delete_project_id = selected_id_actions
+                        st.session_state.show_delete_confirmation = True
+
+    if st.session_state.get('show_create_project'):
+        render_create_project_form(gestionnaire, crm_manager)
+    if st.session_state.get('show_edit_project') and st.session_state.get('edit_project_data'):
+        render_edit_project_form(gestionnaire, crm_manager, st.session_state.edit_project_data)
+    if st.session_state.get('show_delete_confirmation'):
+        render_delete_confirmation(gestionnaire)
+
+def render_create_project_form(gestionnaire, crm_manager):
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("### ➕ Créer Projet")
+    with st.form("create_form", clear_on_submit=True):
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            nom = st.text_input("Nom *:")
+            liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in crm_manager.entreprises]
+            selected_entreprise_id_form = st.selectbox(
+                "Client (Entreprise) *:",
+                options=[e_id for e_id, _ in liste_entreprises_crm_form],
+                format_func=lambda e_id: next((nom for id_e, nom in liste_entreprises_crm_form if id_e == e_id), "Sélectionner..."),
+                key="project_create_client_select"
+            )
+            client_nom_direct_form = st.text_input("Ou nom client direct (si non listé):")
+
+            statut = st.selectbox("Statut:", ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"])
+            priorite = st.selectbox("Priorité:", ["BAS", "MOYEN", "ÉLEVÉ"])
+        with fc2:
+            tache = st.selectbox("Type:", ["ESTIMATION", "CONCEPTION", "DÉVELOPPEMENT", "TESTS", "DÉPLOIEMENT", "MAINTENANCE", "FORMATION"])
+            d_debut = st.date_input("Début:", datetime.now().date())
+            d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
+            bd_ft = st.number_input("BD-FT (h):", 0, value=40, step=1)
+            prix = st.number_input("Prix ($):", 0.0, value=10000.0, step=100.0, format="%.2f")
+        desc = st.text_area("Description:")
+        
+        # Assignation d'employés
+        if gestionnaire_employes.employes:
+            st.markdown("##### 👥 Assignation d'Employés")
+            employes_disponibles = [(emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')} ({emp.get('poste', '')})") for emp in gestionnaire_employes.employes if emp.get('statut') == 'ACTIF']
+            employes_assignes = st.multiselect(
+                "Employés assignés:",
+                options=[emp_id for emp_id, _ in employes_disponibles],
+                format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
+                key="project_create_employes_assign"
+            )
+        
+        st.markdown("<small>* Obligatoire</small>", unsafe_allow_html=True)
+        s_btn, c_btn = st.columns(2)
+        with s_btn:
+            submit = st.form_submit_button("💾 Créer", use_container_width=True)
+        with c_btn:
+            cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
+        if submit:
+            if not nom or (not selected_entreprise_id_form and not client_nom_direct_form):
+                st.error("Nom du projet et Client (sélection ou nom direct) obligatoires.")
+            elif d_fin < d_debut:
+                st.error("Date fin < date début.")
+            else:
+                client_nom_cache_val = ""
+                if selected_entreprise_id_form:
+                    entreprise_obj = crm_manager.get_entreprise_by_id(selected_entreprise_id_form)
+                    if entreprise_obj:
+                        client_nom_cache_val = entreprise_obj.get('nom', '')
+                elif client_nom_direct_form:
+                    client_nom_cache_val = client_nom_direct_form
+
+                data = {'nom_projet': nom,
+                        'client_entreprise_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
+                        'client_nom_cache': client_nom_cache_val,
+                        'client': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "",
+                        'statut': statut, 'priorite': priorite, 'tache': tache, 'date_soumis': d_debut.strftime('%Y-%m-%d'), 'date_prevu': d_fin.strftime('%Y-%m-%d'), 'bd_ft_estime': str(bd_ft), 'prix_estime': str(prix), 'description': desc or f"Projet {tache.lower()} pour {client_nom_cache_val}", 'sous_taches': [], 'materiaux': [], 'operations': [], 'employes_assignes': employes_assignes if 'employes_assignes' in locals() else []}
+                pid = gestionnaire.ajouter_projet(data)
+                
+                # Mettre à jour les assignations des employés
+                if 'employes_assignes' in locals() and employes_assignes:
+                    for emp_id in employes_assignes:
+                        employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                        if employe:
+                            projets_existants = employe.get('projets_assignes', [])
+                            if pid not in projets_existants:
+                                projets_existants.append(pid)
+                                gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                
+                st.success(f"✅ Projet #{pid} créé !")
+                st.session_state.show_create_project = False
+                st.rerun()
+        if cancel:
+            st.session_state.show_create_project = False
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def render_edit_project_form(gestionnaire, crm_manager, project_data):
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown(f"### ✏️ Modifier Projet #{project_data.get('id')}")
+    
+    with st.form("edit_form", clear_on_submit=True):
+        fc1, fc2 = st.columns(2)
+        
+        with fc1:
+            nom = st.text_input("Nom *:", value=project_data.get('nom_projet', ''))
             
-            # Résumé enrichi avec métriques D&G
-            col1, col2, col3, col4, col5 = st.columns(5)
+            # Gestion de la liste des entreprises CRM
+            liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in crm_manager.entreprises]
+            current_entreprise_id = project_data.get('client_entreprise_id', "")
+            selected_entreprise_id_form = st.selectbox(
+                "Client (Entreprise) *:",
+                options=[e_id for e_id, _ in liste_entreprises_crm_form],
+                index=next((i for i, (e_id, _) in enumerate(liste_entreprises_crm_form) if e_id == current_entreprise_id), 0),
+                format_func=lambda e_id: next((nom for id_e, nom in liste_entreprises_crm_form if id_e == e_id), "Sélectionner..."),
+                key="project_edit_client_select"
+            )
+            client_nom_direct_form = st.text_input("Ou nom client direct:", value=project_data.get('client', ''))
+
+            # Gestion du statut
+            statuts = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"]
+            current_statut = project_data.get('statut', 'À FAIRE')
+            statut = st.selectbox("Statut:", statuts, index=statuts.index(current_statut) if current_statut in statuts else 0)
+            
+            # Gestion de la priorité
+            priorites = ["BAS", "MOYEN", "ÉLEVÉ"]
+            current_priorite = project_data.get('priorite', 'MOYEN')
+            priorite = st.selectbox("Priorité:", priorites, index=priorites.index(current_priorite) if current_priorite in priorites else 1)
+        
+        with fc2:
+            # Gestion du type de tâche
+            taches = ["ESTIMATION", "CONCEPTION", "DÉVELOPPEMENT", "TESTS", "DÉPLOIEMENT", "MAINTENANCE", "FORMATION"]
+            current_tache = project_data.get('tache', 'ESTIMATION')
+            tache = st.selectbox("Type:", taches, index=taches.index(current_tache) if current_tache in taches else 0)
+            
+            # Gestion des dates
+            try:
+                d_debut = st.date_input("Début:", datetime.strptime(project_data.get('date_soumis', ''), '%Y-%m-%d').date())
+            except (ValueError, TypeError):
+                d_debut = st.date_input("Début:", datetime.now().date())
+            
+            try:
+                d_fin = st.date_input("Fin Prévue:", datetime.strptime(project_data.get('date_prevu', ''), '%Y-%m-%d').date())
+            except (ValueError, TypeError):
+                d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
+            
+            # Gestion BD-FT
+            try:
+                bd_ft_val = int(project_data.get('bd_ft_estime', 0))
+            except (ValueError, TypeError):
+                bd_ft_val = 0
+            bd_ft = st.number_input("BD-FT (h):", 0, value=bd_ft_val, step=1)
+            
+            # Gestion du prix
+            try:
+                prix_str = str(project_data.get('prix_estime', '0'))
+                # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
+                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace('$', '')
+                prix_val = float(prix_str) if prix_str else 0.0
+            except (ValueError, TypeError):
+                prix_val = 0.0
+            
+            prix = st.number_input("Prix ($):", 0.0, value=prix_val, step=100.0, format="%.2f")
+        
+        # Description
+        desc = st.text_area("Description:", value=project_data.get('description', ''))
+        
+        # Assignation d'employés
+        if gestionnaire_employes.employes:
+            st.markdown("##### 👥 Assignation d'Employés")
+            employes_disponibles = [
+                (emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')} ({emp.get('poste', '')})")
+                for emp in gestionnaire_employes.employes 
+                if emp.get('statut') == 'ACTIF'
+            ]
+            current_employes = project_data.get('employes_assignes', [])
+            employes_assignes = st.multiselect(
+                "Employés assignés:",
+                options=[emp_id for emp_id, _ in employes_disponibles],
+                default=[emp_id for emp_id in current_employes if emp_id in [e[0] for e in employes_disponibles]],
+                format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
+                key="project_edit_employes_assign"
+            )
+        
+        st.markdown("<small>* Obligatoire</small>", unsafe_allow_html=True)
+        
+        # Boutons d'action
+        s_btn, c_btn = st.columns(2)
+        with s_btn:
+            submit = st.form_submit_button("💾 Sauvegarder", use_container_width=True)
+        with c_btn:
+            cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
+        
+        # Traitement de la soumission
+        if submit:
+            if not nom or (not selected_entreprise_id_form and not client_nom_direct_form):
+                st.error("Nom du projet et Client obligatoires.")
+            elif d_fin < d_debut:
+                st.error("Date fin < date début.")
+            else:
+                # Détermination du nom du client pour cache
+                client_nom_cache_val = ""
+                if selected_entreprise_id_form:
+                    entreprise_obj = crm_manager.get_entreprise_by_id(selected_entreprise_id_form)
+                    if entreprise_obj:
+                        client_nom_cache_val = entreprise_obj.get('nom', '')
+                elif client_nom_direct_form:
+                    client_nom_cache_val = client_nom_direct_form
+
+                # Préparation des données de mise à jour
+                update_data = {
+                    'nom_projet': nom,
+                    'client_entreprise_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
+                    'client_nom_cache': client_nom_cache_val,
+                    'client': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "",
+                    'statut': statut,
+                    'priorite': priorite,
+                    'tache': tache,
+                    'date_soumis': d_debut.strftime('%Y-%m-%d'),
+                    'date_prevu': d_fin.strftime('%Y-%m-%d'),
+                    'bd_ft_estime': str(bd_ft),
+                    'prix_estime': str(prix),
+                    'description': desc,
+                    'employes_assignes': employes_assignes if 'employes_assignes' in locals() else []
+                }
+                
+                # Mise à jour du projet
+                if gestionnaire.modifier_projet(project_data['id'], update_data):
+                    # Mettre à jour les assignations des employés
+                    if 'employes_assignes' in locals():
+                        # Supprimer l'ancien projet des anciens employés
+                        for emp_id in project_data.get('employes_assignes', []):
+                            if emp_id not in employes_assignes:
+                                employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                                if employe:
+                                    projets_existants = employe.get('projets_assignes', [])
+                                    if project_data['id'] in projets_existants:
+                                        projets_existants.remove(project_data['id'])
+                                        gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                        
+                        # Ajouter le projet aux nouveaux employés
+                        for emp_id in employes_assignes:
+                            if emp_id not in project_data.get('employes_assignes', []):
+                                employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                                if employe:
+                                    projets_existants = employe.get('projets_assignes', [])
+                                    if project_data['id'] not in projets_existants:
+                                        projets_existants.append(project_data['id'])
+                                        gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                    
+                    st.success(f"✅ Projet #{project_data['id']} modifié !")
+                    st.session_state.show_edit_project = False
+                    st.session_state.edit_project_data = None
+                    st.rerun()
+                else:
+                    st.error("Erreur lors de la modification.")
+        
+        # Traitement de l'annulation
+        if cancel:
+            st.session_state.show_edit_project = False
+            st.session_state.edit_project_data = None
+            st.rerun()
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def render_delete_confirmation(gestionnaire):
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("### 🗑️ Confirmation de Suppression")
+    project_id = st.session_state.delete_project_id
+    project = next((p for p in gestionnaire.projets if p.get('id') == project_id), None)
+    
+    if project:
+        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer le projet **#{project.get('id')} - {project.get('nom_projet', 'N/A')}** ?")
+        st.markdown("Cette action est **irréversible**.")
+        
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            if st.button("🗑️ Confirmer Suppression", use_container_width=True):
+                gestionnaire.supprimer_projet(project_id)
+                st.success(f"✅ Projet #{project_id} supprimé !")
+                st.session_state.show_delete_confirmation = False
+                st.session_state.delete_project_id = None
+                st.rerun()
+        with dcol2:
+            if st.button("❌ Annuler", use_container_width=True):
+                st.session_state.show_delete_confirmation = False
+                st.session_state.delete_project_id = None
+                st.rerun()
+    else:
+        st.error("Projet non trouvé.")
+        st.session_state.show_delete_confirmation = False
+        st.session_state.delete_project_id = None
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_nomenclature():
+    st.markdown("## 📊 Nomenclature (BOM)")
+    gestionnaire = st.session_state.gestionnaire
+    if not gestionnaire.projets:
+        st.warning("Aucun projet.")
+        return
+    opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
+    sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="bom_sel")
+    proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
+    if not proj:
+        st.error("Projet non trouvé.")
+        return
+    st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    materiaux = proj.get('materiaux', [])
+    if not materiaux:
+        st.info("Aucun matériau.")
+    else:
+        total_cost = 0
+        data_bom = []
+        for item in materiaux:
+            qty, price = item.get('quantite', 0) or 0, item.get('prix_unitaire', 0) or 0
+            total = qty * price
+            total_cost += total
+            data_bom.append({'🆔': item.get('id', '?'), '📝 Code': item.get('code', ''), '📋 Désignation': item.get('designation', 'N/A'), '📊 Qté': f"{qty} {item.get('unite', '')}", '💳 PU': format_currency(price), '💰 Total': format_currency(total), '🏪 Fourn.': item.get('fournisseur', 'N/A')})
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            st.metric("📦 Items", len(materiaux))
+        with mc2:
+            st.metric("💰 Coût Total", format_currency(total_cost))
+        with mc3:
+            st.metric("📊 Coût Moyen/Item", format_currency(total_cost / len(materiaux) if materiaux else 0))
+        st.dataframe(pd.DataFrame(data_bom), use_container_width=True)
+        if len(materiaux) > 1:
+            st.markdown("---")
+            st.markdown("##### 📈 Analyse Coûts Matériaux")
+            costs = [(item.get('quantite', 0) or 0) * (item.get('prix_unitaire', 0) or 0) for item in materiaux]
+            labels = [item.get('designation', 'N/A') for item in materiaux]
+            fig = px.pie(values=costs, names=labels, title="Répartition coûts par matériau")
+            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+            st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_gantt():
+    st.markdown("## 📈 Diagramme de Gantt")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+    if not gestionnaire.projets:
+        st.info("Aucun projet pour Gantt.")
+        return
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    gantt_data = []
+    for p in gestionnaire.projets:
+        try:
+            s_date = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d") if p.get('date_soumis') else None
+            e_date = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d") if p.get('date_prevu') else None
+            if s_date and e_date:
+                client_display_name_gantt = p.get('client_nom_cache', 'N/A')
+                if client_display_name_gantt == 'N/A' and p.get('client_entreprise_id'):
+                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_entreprise_id'))
+                    if entreprise:
+                        client_display_name_gantt = entreprise.get('nom', 'N/A')
+                elif client_display_name_gantt == 'N/A':
+                    client_display_name_gantt = p.get('client', 'N/A')
+
+                gantt_data.append({'Projet': f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}", 'Début': s_date, 'Fin': e_date, 'Client': client_display_name_gantt, 'Statut': p.get('statut', 'N/A'), 'Priorité': p.get('priorite', 'N/A')})
+        except:
+            continue
+    if not gantt_data:
+        st.warning("Données de dates invalides pour Gantt.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    df_gantt = pd.DataFrame(gantt_data)
+    colors_gantt = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
+    fig = px.timeline(df_gantt, x_start="Début", x_end="Fin", y="Projet", color="Statut", color_discrete_map=colors_gantt, title="📊 Planning Projets", hover_data=['Client', 'Priorité'])
+    fig.update_layout(height=max(400, len(gantt_data) * 40), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), xaxis=dict(title="📅 Calendrier", gridcolor='rgba(0,0,0,0.05)'), yaxis=dict(title="📋 Projets", gridcolor='rgba(0,0,0,0.05)', categoryorder='total ascending'), title_x=0.5, legend_title_text='')
+    st.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
+    st.markdown("##### 📊 Stats Planning")
+    durees = [(item['Fin'] - item['Début']).days for item in gantt_data if item['Fin'] and item['Début']]
+    if durees:
+        gsc1, gsc2, gsc3 = st.columns(3)
+        with gsc1:
+            st.metric("📅 Durée Moy.", f"{sum(durees) / len(durees):.1f} j")
+        with gsc2:
+            st.metric("⏱️ Min Durée", f"{min(durees)} j")
+        with gsc3:
+            st.metric("🕐 Max Durée", f"{max(durees)} j")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_calendrier():
+    st.markdown("## 📅 Vue Calendrier")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+    curr_date = st.session_state.selected_date
+
+    # Navigation
+    cn1, cn2, cn3 = st.columns([1, 2, 1])
+    with cn1:
+        if st.button("◀️ Mois Préc.", key="cal_prev", use_container_width=True):
+            prev_m = curr_date.replace(day=1) - timedelta(days=1)
+            st.session_state.selected_date = prev_m.replace(day=min(curr_date.day, calendar.monthrange(prev_m.year, prev_m.month)[1]))
+            st.rerun()
+    with cn2:
+        m_names = ["", "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+        st.markdown(f"<div class='project-header' style='margin-bottom:1rem; text-align:center;'><h4 style='margin:0; color:#1E40AF;'>{m_names[curr_date.month]} {curr_date.year}</h4></div>", unsafe_allow_html=True)
+    with cn3:
+        if st.button("Mois Suiv. ▶️", key="cal_next", use_container_width=True):
+            next_m = (curr_date.replace(day=calendar.monthrange(curr_date.year, curr_date.month)[1])) + timedelta(days=1)
+            st.session_state.selected_date = next_m.replace(day=min(curr_date.day, calendar.monthrange(next_m.year, next_m.month)[1]))
+            st.rerun()
+    if st.button("📅 Aujourd'hui", key="cal_today", use_container_width=True):
+        st.session_state.selected_date = date.today()
+        st.rerun()
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Préparation des données
+    events_by_date = {}
+    for p in gestionnaire.projets:
+        try:
+            s_date_obj = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d").date() if p.get('date_soumis') else None
+            e_date_obj = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d").date() if p.get('date_prevu') else None
+            
+            client_display_name_cal = p.get('client_nom_cache', 'N/A')
+            if client_display_name_cal == 'N/A':
+                 client_display_name_cal = p.get('client', 'N/A')
+
+            if s_date_obj:
+                if s_date_obj not in events_by_date: events_by_date[s_date_obj] = []
+                events_by_date[s_date_obj].append({'type': '🚀 Début', 'projet': p.get('nom_projet', 'N/A'), 'id': p.get('id'), 'client': client_display_name_cal, 'color_class': 'event-type-debut'})
+            if e_date_obj:
+                if e_date_obj not in events_by_date: events_by_date[e_date_obj] = []
+                events_by_date[e_date_obj].append({'type': '🏁 Fin', 'projet': p.get('nom_projet', 'N/A'), 'id': p.get('id'), 'client': client_display_name_cal, 'color_class': 'event-type-fin'})
+        except:
+            continue
+    
+    # Affichage de la grille du calendrier
+    cal = calendar.Calendar(firstweekday=6)
+    month_dates = cal.monthdatescalendar(curr_date.year, curr_date.month)
+    day_names = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"]
+
+    st.markdown('<div class="calendar-grid-container">', unsafe_allow_html=True)
+    # En-têtes des jours
+    header_cols = st.columns(7)
+    for i, name in enumerate(day_names):
+        with header_cols[i]:
+            st.markdown(f"<div class='calendar-week-header'><div class='day-name'>{name}</div></div>", unsafe_allow_html=True)
+    
+    # Grille des jours
+    for week in month_dates:
+        cols = st.columns(7)
+        for i, day_date_obj in enumerate(week):
+            with cols[i]:
+                day_classes = ["calendar-day-cell"]
+                if day_date_obj.month != curr_date.month:
+                    day_classes.append("other-month")
+                if day_date_obj == date.today():
+                    day_classes.append("today")
+
+                events_html = ""
+                if day_date_obj in events_by_date:
+                    for event in events_by_date[day_date_obj]:
+                        events_html += f"<div class='calendar-event-item {event['color_class']}' title='{event['projet']}'>{event['type']} P#{event['id']}</div>"
+
+                cell_html = f"""
+                <div class='{' '.join(day_classes)}'>
+                    <div class='day-number'>{day_date_obj.day}</div>
+                    <div class='calendar-events-container'>{events_html}</div>
+                </div>
+                """
+                st.markdown(cell_html, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def show_kanban():
+    st.markdown("## 🔄 Vue Kanban (Style Planner)")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+
+    # Initialisation de l'état de drag & drop
+    if 'dragged_project_id' not in st.session_state:
+        st.session_state.dragged_project_id = None
+    if 'dragged_from_status' not in st.session_state:
+        st.session_state.dragged_from_status = None
+
+    if not gestionnaire.projets:
+        st.info("Aucun projet à afficher dans le Kanban.")
+        return
+
+    # Logique de filtrage
+    with st.expander("🔍 Filtres", expanded=False):
+        recherche = st.text_input("Rechercher par nom, client...", key="kanban_search")
+
+    projets_filtres = gestionnaire.projets
+    if recherche:
+        terme = recherche.lower()
+        projets_filtres = [
+            p for p in projets_filtres if
+            terme in str(p.get('nom_projet', '')).lower() or
+            terme in str(p.get('client_nom_cache', '')).lower() or
+            (p.get('client_entreprise_id') and crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_entreprise_id')).get('nom', '').lower()) or
+            terme in str(p.get('client', '')).lower()
+        ]
+
+    # Préparation des données pour les colonnes
+    statuts_k = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"]
+    projs_by_statut = {s: [] for s in statuts_k}
+    for p in projets_filtres:
+        stat = p.get('statut', 'À FAIRE')
+        if stat in projs_by_statut:
+            projs_by_statut[stat].append(p)
+        else:
+            projs_by_statut['À FAIRE'].append(p)
+    
+    # Définition des couleurs pour les colonnes
+    col_borders_k = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'LIVRAISON': '#8b5cf6'}
+
+    # Indicateur visuel si un projet est en cours de déplacement
+    if st.session_state.dragged_project_id:
+        proj_dragged = next((p for p in gestionnaire.projets if p['id'] == st.session_state.dragged_project_id), None)
+        if proj_dragged:
+            st.markdown(f"""
+            <div class="kanban-drag-indicator">
+                Déplacement de: <strong>#{proj_dragged['id']} - {proj_dragged['nom_projet']}</strong>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.sidebar.button("❌ Annuler le déplacement", use_container_width=True):
+                st.session_state.dragged_project_id = None
+                st.session_state.dragged_from_status = None
+                st.rerun()
+
+    # STRUCTURE HORIZONTALE
+    st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
+
+    for sk in statuts_k:
+        # Chaque colonne est un conteneur div
+        st.markdown(f'<div class="kanban-column" style="border-top: 4px solid {col_borders_k.get(sk, "#ccc")};">', unsafe_allow_html=True)
+
+        # En-tête de la colonne
+        st.markdown(f'<div class="kanban-header">{sk} ({len(projs_by_statut[sk])})</div>', unsafe_allow_html=True)
+
+        # Si un projet est "soulevé", afficher une zone de dépôt
+        if st.session_state.dragged_project_id and sk != st.session_state.dragged_from_status:
+            if st.button(f"⤵️ Déposer ici", key=f"drop_in_{sk}", use_container_width=True, help=f"Déplacer vers {sk}"):
+                proj_id_to_move = st.session_state.dragged_project_id
+                if gestionnaire.modifier_projet(proj_id_to_move, {'statut': sk}):
+                    st.success(f"Projet #{proj_id_to_move} déplacé vers '{sk}'!")
+                else:
+                    st.error("Une erreur est survenue lors du déplacement.")
+
+                st.session_state.dragged_project_id = None
+                st.session_state.dragged_from_status = None
+                st.rerun()
+
+        # Zone pour les cartes avec défilement vertical interne
+        st.markdown('<div class="kanban-cards-zone">', unsafe_allow_html=True)
+
+        if not projs_by_statut[sk]:
+            st.markdown("<div style='text-align:center; color:var(--text-color-muted); margin-top:2rem;'><i>Vide</i></div>", unsafe_allow_html=True)
+
+        for pk in projs_by_statut[sk]:
+            prio_k = pk.get('priorite', 'MOYEN')
+            card_borders_k = {'ÉLEVÉ': '#ef4444', 'MOYEN': '#f59e0b', 'BAS': '#10b981'}
+            prio_icons_k = {'ÉLEVÉ': '🔴', 'MOYEN': '🟡', 'BAS': '🟢'}
+            
+            client_display_name_kanban = pk.get('client_nom_cache', 'N/A')
+            if client_display_name_kanban == 'N/A' and pk.get('client_entreprise_id'):
+                entreprise = crm_manager.get_entreprise_by_id(pk.get('client_entreprise_id'))
+                client_display_name_kanban = entreprise.get('nom', 'N/A') if entreprise else 'N/A'
+            elif client_display_name_kanban == 'N/A':
+                client_display_name_kanban = pk.get('client', 'N/A')
+            
+            # Affichage de la carte
+            st.markdown(f"""
+            <div class='kanban-card' style='border-left-color:{card_borders_k.get(prio_k, 'var(--border-color)')};'>
+                <div class='kanban-card-title'>#{pk.get('id')} - {pk.get('nom_projet', 'N/A')}</div>
+                <div class='kanban-card-info'>👤 {client_display_name_kanban}</div>
+                <div class='kanban-card-info'>{prio_icons_k.get(prio_k, '⚪')} {prio_k}</div>
+                <div class='kanban-card-info'>💰 {format_currency(pk.get('prix_estime', 0))}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Boutons d'action pour la carte
+            col1, col2 = st.columns(2)
             with col1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-value">{total_hours:.1f}h</div>
-                    <div class="metric-label">Total heures</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
+                if st.button("👁️ Voir", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
+                    st.session_state.selected_project = pk
+                    st.session_state.show_project_modal = True
+                    st.rerun()
             with col2:
-                avg_hours = total_hours / total_days if total_days > 0 else 0
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-value">{avg_hours:.1f}h</div>
-                    <div class="metric-label">Moyenne/jour</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-value">{total_days}</div>
-                    <div class="metric-label">Jours travaillés</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col4:
-                overtime = max(0, total_hours - (total_days * 8))
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-value">{overtime:.1f}h</div>
-                    <div class="metric-label">Heures supp.</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col5:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-value">{total_earnings:.0f}$</div>
-                    <div class="metric-label">Revenus période</div>
-                </div>
-                """, unsafe_allow_html=True)
-        
-    else:
-        st.info("📭 Aucune entrée de temps pour cette période")
+                if st.button("➡️ Déplacer", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
+                    st.session_state.dragged_project_id = pk['id']
+                    st.session_state.dragged_from_status = sk
+                    st.rerun()
 
-# ================================
-# DASHBOARD ADMIN ENRICHI POUR D&G
-# ================================
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-def show_dg_enhanced_dashboard(db):
-    """Dashboard admin spécifique aux réalités D&G"""
-    
-    st.markdown("### 📊 Dashboard Desmarais & Gagné - Analytics Temps Réel")
-    
-    # Métriques temps réel avec focus D&G
-    stats = db.get_dashboard_stats()
-    dg_stats = db.get_dg_enhanced_stats()
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{dg_stats['revenus_today']:,.0f}$</div>
-            <div class="metric-label">💰 Revenus Aujourd'hui</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{dg_stats['premium_active']}</div>
-            <div class="metric-label">🔥 Postes Premium Actifs (≥130$)</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{dg_stats['avg_efficiency']:.0f}$/h</div>
-            <div class="metric-label">⚡ Efficacité Moyenne</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{dg_stats['pct_high_value']:.1f}%</div>
-            <div class="metric-label">🎯 % Postes Haute Valeur (≥120$)</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Graphiques spécialisés D&G
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Répartition revenus par catégorie D&G
-        conn = sqlite3.connect(db.db_path)
-        today = date.today()
-        
-        revenue_by_category_query = """
-            SELECT 
-                pt.task_category,
-                SUM((((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) 
-                    * COALESCE(eta.hourly_rate_override, pt.hourly_rate)) as revenue
-            FROM time_entries te
-            INNER JOIN project_tasks pt ON te.task_id = pt.id
-            LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-            WHERE DATE(te.punch_in) = ? AND te.punch_out IS NOT NULL
-            GROUP BY pt.task_category
-            HAVING revenue > 0
-            ORDER BY revenue DESC
-        """
-        
-        revenue_cat_df = pd.read_sql_query(revenue_by_category_query, conn, params=(today,))
-        
-        if not revenue_cat_df.empty:
-            fig_revenue = px.pie(
-                revenue_cat_df,
-                values='revenue',
-                names='task_category',
-                title="💰 Revenus par Catégorie D&G (Aujourd'hui)",
-                color_discrete_sequence=px.colors.qualitative.Set3
-            )
-            fig_revenue.update_traces(textinfo='label+percent', textfont_size=12)
-            fig_revenue.update_layout(height=400)
-            st.plotly_chart(fig_revenue, use_container_width=True)
-        else:
-            st.info("Aucun revenu catégorisé aujourd'hui")
-    
-    with col2:
-        # Utilisation des postes par niveau de taux D&G
-        premium_usage_query = """
-            SELECT 
-                CASE 
-                    WHEN pt.hourly_rate >= 130 THEN 'Premium (≥130$)'
-                    WHEN pt.hourly_rate >= 100 THEN 'Élevé (100-129$)'
-                    WHEN pt.hourly_rate >= 90 THEN 'Standard (90-99$)'
-                    ELSE 'Administratif (<90$)'
-                END as tier,
-                COUNT(*) as sessions,
-                SUM(((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) as hours
-            FROM time_entries te
-            INNER JOIN project_tasks pt ON te.task_id = pt.id
-            WHERE DATE(te.punch_in) >= ? AND te.punch_out IS NOT NULL
-            GROUP BY tier
-            ORDER BY 
-                CASE tier
-                    WHEN 'Premium (≥130$)' THEN 1
-                    WHEN 'Élevé (100-129$)' THEN 2
-                    WHEN 'Standard (90-99$)' THEN 3
-                    ELSE 4
-                END
-        """
-        
-        start_week = today - timedelta(days=7)
-        tier_df = pd.read_sql_query(premium_usage_query, conn, params=(start_week,))
-        
-        if not tier_df.empty:
-            fig_tiers = px.bar(
-                tier_df,
-                x='tier',
-                y='hours',
-                title="⚡ Utilisation par Niveau de Taux (7 jours)",
-                color='tier',
-                color_discrete_map={
-                    'Premium (≥130$)': '#e74c3c',
-                    'Élevé (100-129$)': '#f39c12',
-                    'Standard (90-99$)': '#3498db',
-                    'Administratif (<90$)': '#95a5a6'
-                }
-            )
-            fig_tiers.update_layout(height=400, xaxis_tickangle=-45)
-            st.plotly_chart(fig_tiers, use_container_width=True)
-        
-        conn.close()
-    
-    # Alertes intelligentes pour D&G
-    st.markdown("### 🚨 Alertes Opérationnelles D&G")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if dg_stats['pct_high_value'] < 40:
-            st.markdown(f"""
-            <div class="alert-dg warning">
-                <strong>⚠️ Sous-utilisation postes haute valeur</strong><br>
-                Seulement {dg_stats['pct_high_value']:.1f}% des sessions sont sur des postes ≥120$/h<br>
-                <strong>Objectif D&G:</strong> >50%
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="alert-dg success">
-                <strong>✅ Bonne utilisation postes haute valeur</strong><br>
-                {dg_stats['pct_high_value']:.1f}% des sessions sur postes premium<br>
-                <strong>Continue ainsi!</strong>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col2:
-        if dg_stats['avg_efficiency'] < 100:
-            st.markdown(f"""
-            <div class="alert-dg error">
-                <strong>🔴 Efficacité sous la moyenne D&G</strong><br>
-                Efficacité actuelle: {dg_stats['avg_efficiency']:.0f}$/h<br>
-                <strong>Objectif D&G:</strong> >100$/h
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="alert-dg success">
-                <strong>✅ Excellente efficacité</strong><br>
-                {dg_stats['avg_efficiency']:.0f}$/h dépasse l'objectif D&G<br>
-                <strong>Performance optimale!</strong>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col3:
-        if dg_stats['revenus_today'] < 5000:
-            st.markdown(f"""
-            <div class="alert-dg info">
-                <strong>📊 Revenus journée normale</strong><br>
-                {dg_stats['revenus_today']:,.0f}$ aujourd'hui<br>
-                <strong>Objectif D&G:</strong> 8000$/jour
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="alert-dg success">
-                <strong>🎉 Excellente journée revenus!</strong><br>
-                {dg_stats['revenus_today']:,.0f}$ aujourd'hui<br>
-                <strong>Dépasse l'objectif D&G!</strong>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Analytics en temps réel des postes premium
-    st.markdown("### 🔥 Suivi Postes Premium D&G (≥130$/h)")
-    
-    premium_details_query = """
-        SELECT 
-            pt.task_name,
-            pt.hourly_rate,
-            COUNT(CASE WHEN te.punch_out IS NULL THEN 1 END) as actifs_maintenant,
-            COUNT(*) as sessions_total,
-            SUM(CASE 
-                WHEN te.punch_out IS NOT NULL THEN
-                    ((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60
-                ELSE 0
-            END) as heures_terminees,
-            SUM(CASE 
-                WHEN te.punch_out IS NOT NULL THEN
-                    (((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) * pt.hourly_rate
-                ELSE 0
-            END) as revenus_generes
-        FROM project_tasks pt
-        LEFT JOIN time_entries te ON pt.id = te.task_id AND DATE(te.punch_in) = ?
-        WHERE pt.hourly_rate >= 130 AND pt.is_active = 1
-        GROUP BY pt.id
-        ORDER BY pt.hourly_rate DESC, revenus_generes DESC
-    """
-    
-    conn = sqlite3.connect(db.db_path)
-    premium_df = pd.read_sql_query(premium_details_query, conn, params=(today,))
-    conn.close()
-    
-    if not premium_df.empty:
-        # Formater pour affichage
-        premium_display = premium_df.copy()
-        premium_display['Poste'] = premium_display['task_name']
-        premium_display['Taux'] = premium_display['hourly_rate'].apply(lambda x: f"🔥 {x:.0f}$")
-        premium_display['Actifs'] = premium_display['actifs_maintenant']
-        premium_display['Sessions'] = premium_display['sessions_total']
-        premium_display['Heures'] = premium_display['heures_terminees'].apply(lambda x: f"{x:.1f}h")
-        premium_display['Revenus'] = premium_display['revenus_generes'].apply(lambda x: f"{x:,.0f}$")
-        
-        # Afficher le tableau des postes premium
-        st.dataframe(
-            premium_display[['Poste', 'Taux', 'Actifs', 'Sessions', 'Heures', 'Revenus']],
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("Aucune utilisation des postes premium aujourd'hui")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ================================
-# INTERFACE ADMINISTRATEUR ENRICHIE AVEC D&G
-# ================================
-
-def show_admin_interface():
-    """Interface administrateur complète avec gestion D&G"""
-    
-    user_info = st.session_state.user_info
-    db = get_database()
-    
-    st.markdown(f"""
-    <div class="main-header">
-        <h1>👨‍💼 Tableau de Bord Administrateur</h1>
-        <p>Bienvenue {user_info['name']} - Gestion complète D&G avec 34 postes de travail</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Tabs pour organiser l'interface admin
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Dashboard D&G", "👥 Employés", "📋 Projets", "🔧 Tâches", "🎯 Assignations", "📈 Rapports"])
-    
-    with tab1:
-        show_dg_enhanced_dashboard(db)
-    
-    with tab2:
-        show_employee_management_crud(db)
-    
-    with tab3:
-        show_project_management_crud(db)
-    
-    with tab4:
-        show_task_management_crud(db)
-    
-    with tab5:
-        show_assignment_management(db)
-    
-    with tab6:
-        show_reports_management_enhanced(db)
-
-def show_assignment_management(db):
-    """Interface de gestion des assignations"""
-    
-    st.markdown("### 🎯 Gestion des Assignations")
-    
-    assignment_type = st.radio(
-        "Type d'assignation", 
-        ["📋 Tâches → Projets", "👥 Employés → Tâches"],
-        horizontal=True
-    )
-    
-    if assignment_type == "📋 Tâches → Projets":
-        show_project_task_assignments(db)
-    else:
-        show_employee_task_assignments(db)
-
-def show_project_task_assignments(db):
-    """Interface pour assigner tâches aux projets"""
-    
-    st.markdown("#### 📋 Assignation Tâches → Projets")
-    
-    # Sélection du projet
-    projects = db.get_all_projects()
-    active_projects = [p for p in projects if p[5]]  # is_active = True
-    
-    if not active_projects:
-        st.warning("Aucun projet actif disponible")
+def show_project_modal():
+    """Affichage des détails d'un projet dans un expander"""
+    if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
         return
     
-    project_options = {f"{p[2]} ({p[1]})": p[0] for p in active_projects}
-    selected_project_display = st.selectbox(
-        "📋 Sélectionner un projet", 
-        options=list(project_options.keys())
-    )
+    proj_mod = st.session_state.selected_project
     
-    project_id = project_options[selected_project_display]
-    project_name = next(p[2] for p in active_projects if p[0] == project_id)
-    
-    st.markdown(f"##### Gestion des tâches pour: **{project_name}**")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**🔧 Toutes les tâches disponibles**")
+    with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')}", expanded=True):
+        if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
+            st.session_state.show_project_modal = False
+            st.rerun()
         
-        # Récupérer toutes les tâches
-        all_tasks = db.get_all_global_tasks()
+        st.markdown("---")
         
-        # Grouper par catégorie
-        task_categories = {}
-        for task in all_tasks:
-            category = task[1] or "Général"
-            if category not in task_categories:
-                task_categories[category] = []
-            task_categories[category].append(task)
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            st.markdown(f"""
+            <div class='info-card'>
+                <h4>📋 {proj_mod.get('nom_projet', 'N/A')}</h4>
+                <p><strong>👤 Client:</strong> {proj_mod.get('client', 'N/A')}</p>
+                <p><strong>🚦 Statut:</strong> {proj_mod.get('statut', 'N/A')}</p>
+                <p><strong>⭐ Priorité:</strong> {proj_mod.get('priorite', 'N/A')}</p>
+                <p><strong>✅ Tâche:</strong> {proj_mod.get('tache', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
         
-        # Interface par catégorie
-        for category, category_tasks in task_categories.items():
-            with st.expander(f"🔧 {category} ({len(category_tasks)} tâches)"):
-                for task in category_tasks:
-                    task_name, task_category, task_id, task_project_id = task
-                    
-                    # Vérifier si déjà assignée
-                    is_assigned = db.is_task_assigned_to_project(project_id, task_id)
-                    
-                    col_check, col_action = st.columns([3, 1])
-                    
-                    with col_check:
-                        assign_checked = st.checkbox(
-                            f"{task_name}",
-                            value=is_assigned,
-                            key=f"assign_task_{task_id}_{project_id}"
-                        )
-                    
-                    with col_action:
-                        if assign_checked and not is_assigned:
-                            if st.button("✅", key=f"add_{task_id}_{project_id}", help="Assigner"):
-                                success, message = db.assign_task_to_project(project_id, task_id)
-                                if success:
-                                    st.success("✅ Assignée")
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ {message}")
-                        
-                        elif not assign_checked and is_assigned:
-                            if st.button("❌", key=f"remove_{task_id}_{project_id}", help="Désassigner"):
-                                success, message = db.unassign_task_from_project(project_id, task_id)
-                                if success:
-                                    st.success("✅ Désassignée")
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ {message}")
-    
-    with col2:
-        st.markdown("**✅ Tâches assignées à ce projet**")
+        with mc2:
+            st.markdown(f"""
+            <div class='info-card'>
+                <h4>📊 Finances</h4>
+                <p><strong>💰 Prix:</strong> {format_currency(proj_mod.get('prix_estime', 0))}</p>
+                <p><strong>⏱️ BD-FT:</strong> {proj_mod.get('bd_ft_estime', 'N/A')}h</p>
+                <p><strong>📅 Début:</strong> {proj_mod.get('date_soumis', 'N/A')}</p>
+                <p><strong>🏁 Fin:</strong> {proj_mod.get('date_prevu', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
         
-        assigned_tasks = db.get_project_assigned_tasks(project_id)
-        
-        if assigned_tasks:
-            st.info(f"📊 **{len(assigned_tasks)}** tâches assignées")
-            
-            for task in assigned_tasks:
-                task_id, task_name, task_category, hourly_rate, is_enabled = task
-                
-                rate_icon = get_rate_indicator(hourly_rate)
-                
-                st.markdown(f"""
-                <div class="assignment-card">
-                    <strong>{task_name}</strong><br>
-                    <small>Catégorie: {task_category} | Taux: {rate_icon} {hourly_rate:.0f}$ CAD</small>
-                    <div class="assignment-indicator">Assignée</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("Aucune tâche assignée à ce projet")
+        if proj_mod.get('description'):
+            st.markdown("##### 📝 Description")
+            st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
 
-def show_employee_task_assignments(db):
-    """Interface pour assigner employés aux tâches"""
-    
-    st.markdown("#### 👥 Assignation Employés → Tâches")
-    
-    # Sélection du projet et de la tâche
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        projects = db.get_all_projects()
-        active_projects = [p for p in projects if p[5]]
+        tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations"])
         
-        if not active_projects:
-            st.warning("Aucun projet actif disponible")
-            return
-        
-        project_options = {f"{p[2]} ({p[1]})": p[0] for p in active_projects}
-        selected_project_display = st.selectbox(
-            "📋 Sélectionner un projet", 
-            options=list(project_options.keys()),
-            key="emp_assign_project"
-        )
-        
-        project_id = project_options[selected_project_display]
-    
-    with col2:
-        # Récupérer les tâches assignées à ce projet
-        assigned_tasks = db.get_project_assigned_tasks(project_id)
-        
-        if not assigned_tasks:
-            st.warning("Aucune tâche assignée à ce projet")
-            return
-        
-        task_options = {f"{t[1]} ({get_rate_indicator(t[3])} {t[3]:.0f}$)": t[0] for t in assigned_tasks}
-        selected_task_display = st.selectbox(
-            "🔧 Sélectionner une tâche", 
-            options=list(task_options.keys()),
-            key="emp_assign_task"
-        )
-        
-        task_id = task_options[selected_task_display]
-    
-    # Interface d'assignation des employés
-    st.markdown(f"##### Assignation des employés à la tâche sélectionnée")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**👥 Tous les employés**")
-        
-        all_employees = db.get_all_employees()
-        active_employees = [e for e in all_employees if e[4]]  # is_active = True
-        
-        for emp in active_employees:
-            emp_id, emp_code, emp_name, emp_role, is_active, created_at = emp
-            
-            # Vérifier si déjà assigné
-            is_authorized = db.is_employee_authorized_for_task(emp_id, project_id, task_id)
-            
-            with st.expander(f"👤 {emp_name} ({emp_code})", expanded=is_authorized):
-                col_check, col_skill, col_rate = st.columns([2, 2, 2])
-                
-                with col_check:
-                    authorize_checked = st.checkbox(
-                        "Autoriser",
-                        value=is_authorized,
-                        key=f"auth_emp_{emp_id}_{task_id}"
-                    )
-                
-                if authorize_checked:
-                    with col_skill:
-                        skill_level = st.selectbox(
-                            "Niveau de compétence",
-                            ["débutant", "intermédiaire", "avancé", "expert"],
-                            index=1,
-                            key=f"skill_emp_{emp_id}_{task_id}"
-                        )
-                    
-                    with col_rate:
-                        # Récupérer le taux de base de la tâche
-                        task_info = next((t for t in assigned_tasks if t[0] == task_id), None)
-                        base_rate = task_info[3] if task_info else 95.0
-                        
-                        rate_override = st.number_input(
-                            "Taux spécial (CAD)",
-                            min_value=0.0,
-                            value=float(base_rate),
-                            step=5.0,
-                            key=f"rate_emp_{emp_id}_{task_id}"
-                        )
-                    
-                    if st.button("💾 Sauvegarder", key=f"save_emp_{emp_id}_{task_id}"):
-                        if authorize_checked and not is_authorized:
-                            success, message = db.assign_employee_to_task(
-                                emp_id, project_id, task_id, skill_level, rate_override
-                            )
-                        elif authorize_checked and is_authorized:
-                            success, message = db.assign_employee_to_task(
-                                emp_id, project_id, task_id, skill_level, rate_override
-                            )
-                        else:
-                            success, message = db.unassign_employee_from_task(emp_id, project_id, task_id)
-                        
-                        if success:
-                            st.success(f"✅ {message}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {message}")
-                
-                elif is_authorized:
-                    if st.button("❌ Désautoriser", key=f"unauth_emp_{emp_id}_{task_id}"):
-                        success, message = db.unassign_employee_from_task(emp_id, project_id, task_id)
-                        if success:
-                            st.success(f"✅ {message}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {message}")
-    
-    with col2:
-        st.markdown("**✅ Employés autorisés pour cette tâche**")
-        
-        assigned_employees = db.get_task_assigned_employees(project_id, task_id)
-        
-        if assigned_employees:
-            st.info(f"📊 **{len(assigned_employees)}** employés autorisés")
-            
-            for emp in assigned_employees:
-                emp_id, emp_name, emp_code, skill_level, rate_override, is_authorized = emp
-                
-                if is_authorized:
-                    skill_class = get_skill_badge_class(skill_level)
-                    rate_icon = get_rate_indicator(rate_override)
+        with tabs_mod[0]:
+            sts_mod = proj_mod.get('sous_taches', [])
+            if not sts_mod:
+                st.info("Aucune sous-tâche.")
+            else:
+                for st_item in sts_mod:
+                    st_color = {
+                        'À FAIRE': 'orange', 
+                        'EN COURS': 'var(--primary-color)', 
+                        'TERMINÉ': 'var(--success-color)'
+                    }.get(st_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
                     
                     st.markdown(f"""
-                    <div class="assignment-card">
-                        <strong>{emp_name}</strong> ({emp_code})<br>
-                        <small>Taux: {rate_icon} {rate_override:.0f}$ CAD</small><br>
-                        <span class="skill-badge {skill_class}">{skill_level}</span>
-                        <div class="assignment-indicator">Autorisé</div>
+                    <div class='info-card' style='border-left:4px solid {st_color};margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>ST{st_item.get('id')} - {st_item.get('nom', 'N/A')}</h5>
+                        <p style='margin:0 0 0.3rem 0;'>🚦 {st_item.get('statut', 'N/A')}</p>
+                        <p style='margin:0;'>📅 {st_item.get('date_debut', 'N/A')} → {st_item.get('date_fin', 'N/A')}</p>
                     </div>
                     """, unsafe_allow_html=True)
-        else:
-            st.info("Aucun employé autorisé pour cette tâche")
-            st.warning("⚠️ Les employés ne pourront pas sélectionner cette tâche lors du pointage")
-
-def show_employee_management_crud(db):
-    """Gestion CRUD complète des employés"""
-    
-    st.markdown("### 👥 Gestion des Employés")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.markdown("#### ➕ Ajouter un employé")
         
-        with st.form("add_employee_form"):
-            emp_code = st.text_input("Code Employé *", placeholder="EMP001")
-            emp_name = st.text_input("Nom Complet *", placeholder="Jean Dupont")
-            emp_password = st.text_input("Mot de passe *", type="password", value="", placeholder="Mot de passe initial")
-            emp_role = st.selectbox("Rôle", ["employee", "admin"])
-            
-            if st.form_submit_button("👤 Créer l'employé"):
-                if emp_code and emp_name and emp_password:
-                    success, message = db.add_employee(emp_code.upper(), emp_name, emp_password, emp_role)
-                    if success:
-                        st.success(f"✅ {message}")
-                        st.info(f"🔑 Code de connexion: **{emp_code.upper()}**")
-                        st.info("🎯 Employé automatiquement assigné à tous les postes D&G")
-                        time.sleep(2)
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
-                else:
-                    st.warning("⚠️ Tous les champs sont obligatoires")
-    
-    with col2:
-        st.markdown("#### 📋 Liste des employés")
-        
-        try:
-            employees = db.get_all_employees()
-            if employees and len(employees) > 0:
-                for emp in employees:
-                    if len(emp) >= 6:  # Vérifier que nous avons tous les champs
-                        emp_id, emp_code, emp_name, emp_role, is_active, created_at = emp
-                        
-                        with st.container():
-                            col_info, col_status, col_assign_btn, col_edit_btn, col_delete_btn = st.columns([3, 1, 1, 1, 1])
-                            
-                            with col_info:
-                                st.write(f"**{emp_name}** ({emp_code})")
-                                st.caption(f"Rôle: {emp_role} | Créé: {created_at[:10]}")
-                            
-                            with col_status:
-                                if is_active:
-                                    st.markdown('<span class="status-active">✅ Actif</span>', unsafe_allow_html=True)
-                                else:
-                                    st.markdown('<span class="status-inactive">❌ Inactif</span>', unsafe_allow_html=True)
-                            
-                            with col_assign_btn:
-                                if st.button("👥", key=f"assign_emp_{emp_id}", help="Assignations"):
-                                    st.session_state.view_employee_assignments = emp_id
-                                    st.rerun()
-                            
-                            with col_edit_btn:
-                                if st.button("✏️", key=f"edit_emp_{emp_id}", help="Modifier"):
-                                    st.session_state.edit_employee_id = emp_id
-                                    st.rerun()
-                            
-                            with col_delete_btn:
-                                if st.button("🗑️", key=f"delete_emp_{emp_id}", help="Supprimer"):
-                                    st.session_state.delete_employee_id = emp_id
-                                    st.rerun()
-                            
-                            st.markdown("---")
+        with tabs_mod[1]:
+            mats_mod = proj_mod.get('materiaux', [])
+            if not mats_mod:
+                st.info("Aucun matériau.")
             else:
-                st.info("Aucun employé trouvé")
-        except Exception as e:
-            st.error(f"Erreur lors du chargement des employés: {str(e)}")
-            st.info("Essayez de rafraîchir la page.")
-    
-    # Gestion des modals d'édition, suppression et assignations
-    if 'edit_employee_id' in st.session_state:
-        show_edit_employee_form(db, st.session_state.edit_employee_id)
-    
-    if 'delete_employee_id' in st.session_state:
-        show_delete_employee_form(db, st.session_state.delete_employee_id)
-    
-    if 'view_employee_assignments' in st.session_state:
-        show_employee_assignments_summary(db, st.session_state.view_employee_assignments)
-
-def show_employee_assignments_summary(db, employee_id):
-    """Affiche un résumé des assignations d'un employé"""
-    
-    employee = db.get_employee_by_id(employee_id)
-    if not employee:
-        st.error("Employé introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.view_employee_assignments
-            st.rerun()
-        return
-    
-    emp_id, emp_code, emp_name, emp_role, is_active = employee
-    
-    st.markdown(f"""
-    <div class="assignment-card">
-        <h4>👥 Assignations de: {emp_name} ({emp_code})</h4>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Récupérer toutes les assignations de l'employé
-    conn = sqlite3.connect(db.db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT 
-            p.project_name, p.project_code,
-            pt.task_name, pt.task_category,
-            eta.skill_level, eta.hourly_rate_override,
-            eta.is_authorized
-        FROM employee_task_assignments eta
-        INNER JOIN projects p ON eta.project_id = p.id
-        INNER JOIN project_tasks pt ON eta.task_id = pt.id
-        WHERE eta.employee_id = ? AND eta.is_authorized = 1
-        ORDER BY p.project_name, pt.task_category, pt.task_name
-    """, (employee_id,))
-    
-    assignments = cursor.fetchall()
-    conn.close()
-    
-    if assignments:
-        st.info(f"📊 **{len(assignments)}** assignations actives")
-        
-        # Grouper par projet
-        projects_assignments = {}
-        for assignment in assignments:
-            project_name = assignment[0]
-            if project_name not in projects_assignments:
-                projects_assignments[project_name] = []
-            projects_assignments[project_name].append(assignment)
-        
-        for project_name, project_assignments in projects_assignments.items():
-            with st.expander(f"📋 {project_name} ({len(project_assignments)} tâches)"):
-                for assignment in project_assignments:
-                    project_name, project_code, task_name, task_category, skill_level, hourly_rate, is_authorized = assignment
-                    
-                    skill_class = get_skill_badge_class(skill_level)
-                    rate_icon = get_rate_indicator(hourly_rate)
+                total_c_mod = 0
+                for mat in mats_mod:
+                    q, p_u = mat.get('quantite', 0), mat.get('prix_unitaire', 0)
+                    tot = q * p_u
+                    total_c_mod += tot
+                    fournisseur_html = ""
+                    if mat.get("fournisseur"):
+                        fournisseur_html = f"<p style='margin:0.3rem 0 0 0;font-size:0.9em;'>🏪 {mat.get('fournisseur', 'N/A')}</p>"
                     
                     st.markdown(f"""
-                    <div class="employee-card">
-                        <strong>{task_name}</strong> ({task_category})<br>
-                        <small>Taux: {rate_icon} {hourly_rate:.0f}$ CAD</small><br>
-                        <span class="skill-badge {skill_class}">{skill_level}</span>
+                    <div class='info-card' style='margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>{mat.get('code', 'N/A')} - {mat.get('designation', 'N/A')}</h5>
+                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
+                            <span>📊 {q} {mat.get('unite', '')}</span>
+                            <span>💳 {format_currency(p_u)}</span>
+                            <span>💰 {format_currency(tot)}</span>
+                        </div>
+                        {fournisseur_html}
                     </div>
                     """, unsafe_allow_html=True)
-    else:
-        st.warning("Aucune assignation active pour cet employé")
-        st.info("💡 Utilisez l'onglet 'Assignations' pour autoriser cet employé sur des tâches")
-    
-    if st.button("❌ Fermer", key="close_assignments"):
-        del st.session_state.view_employee_assignments
-        st.rerun()
-
-def show_edit_employee_form(db, employee_id):
-    """Formulaire de modification d'un employé"""
-    
-    employee = db.get_employee_by_id(employee_id)
-    if not employee:
-        st.error("Employé introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.edit_employee_id
-            st.rerun()
-        return
-    
-    emp_id, emp_code, emp_name, emp_role, is_active = employee
-    
-    st.markdown(f"""
-    <div class="edit-form">
-        <h4>✏️ Modifier l'employé: {emp_name}</h4>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    with st.form(f"edit_employee_form_{employee_id}"):
-        new_code = st.text_input("Code Employé", value=emp_code)
-        new_name = st.text_input("Nom Complet", value=emp_name)
-        new_password = st.text_input("Nouveau mot de passe", type="password", placeholder="Laisser vide pour conserver actuel")
-        new_role = st.selectbox("Rôle", ["employee", "admin"], index=0 if emp_role == "employee" else 1)
-        new_status = st.selectbox("Statut", [True, False], index=0 if is_active else 1, 
-                                 format_func=lambda x: "✅ Actif" if x else "❌ Inactif")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.form_submit_button("💾 Sauvegarder"):
-                updates = {
-                    'employee_code': new_code,
-                    'name': new_name,
-                    'role': new_role,
-                    'is_active': new_status
-                }
                 
-                if new_password:
-                    updates['password'] = new_password
-                
-                success, message = db.update_employee(employee_id, **updates)
-                if success:
-                    st.success(f"✅ {message}")
-                    del st.session_state.edit_employee_id
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error(f"❌ {message}")
+                st.markdown(f"""
+                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
+                    <h5 style='color:var(--primary-color-darker);margin:0;'>💰 Coût Total Mat.: {format_currency(total_c_mod)}</h5>
+                </div>
+                """, unsafe_allow_html=True)
         
-        with col2:
-            if st.form_submit_button("❌ Annuler"):
-                del st.session_state.edit_employee_id
-                st.rerun()
-
-def show_delete_employee_form(db, employee_id):
-    """Formulaire de suppression d'un employé"""
-    
-    employee = db.get_employee_by_id(employee_id)
-    if not employee:
-        st.error("Employé introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.delete_employee_id
-            st.rerun()
-        return
-    
-    emp_id, emp_code, emp_name, emp_role, is_active = employee
-    
-    st.markdown(f"""
-    <div class="delete-form">
-        <h4>🗑️ Supprimer l'employé: {emp_name}</h4>
-        <p>⚠️ <strong>Attention:</strong> Cette action peut être irréversible selon l'utilisation de l'employé.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Vérifier l'utilisation
-    conn = sqlite3.connect(db.db_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM time_entries WHERE employee_id = ?", (employee_id,))
-    usage_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM employee_task_assignments WHERE employee_id = ?", (employee_id,))
-    assignments_count = cursor.fetchone()[0]
-    conn.close()
-    
-    if usage_count > 0:
-        st.warning(f"⚠️ Cet employé a {usage_count} pointage(s) enregistré(s). Il sera désactivé au lieu d'être supprimé.")
-    
-    if assignments_count > 0:
-        st.info(f"ℹ️ Cet employé a {assignments_count} assignation(s) de tâches.")
-    
-    if usage_count == 0 and assignments_count == 0:
-        st.info("ℹ️ Cet employé n'a aucun pointage ni assignation et peut être supprimé définitivement.")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button(f"🗑️ Confirmer la suppression", key=f"confirm_delete_emp_{employee_id}"):
-            success, message = db.delete_employee(employee_id)
-            if success:
-                st.success(f"✅ {message}")
-                del st.session_state.delete_employee_id
-                time.sleep(2)
-                st.rerun()
+        with tabs_mod[2]:
+            ops_mod = proj_mod.get('operations', [])
+            if not ops_mod:
+                st.info("Aucune opération.")
             else:
-                st.error(f"❌ {message}")
-    
-    with col2:
-        if st.button("❌ Annuler", key=f"cancel_delete_emp_{employee_id}"):
-            del st.session_state.delete_employee_id
-            st.rerun()
-
-def show_project_management_crud(db):
-    """Gestion CRUD complète des projets"""
-    
-    st.markdown("### 📋 Gestion des Projets")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.markdown("#### ➕ Ajouter un projet")
-        
-        with st.form("add_project_form"):
-            proj_code = st.text_input("Code Projet *", placeholder="PROJ001")
-            proj_name = st.text_input("Nom Projet *", placeholder="Fabrication portes")
-            client_name = st.text_input("Client", placeholder="Nom du client")
-            requires_task = st.checkbox("Sélection de poste obligatoire", value=True, 
-                                      help="Cochez si ce projet nécessite obligatoirement la sélection d'un poste de travail")
-            
-            if st.form_submit_button("📋 Créer le projet"):
-                if proj_code and proj_name:
-                    success, message = db.add_project(proj_code.upper(), proj_name, client_name, requires_task)
-                    if success:
-                        st.success(f"✅ {message}")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {message}")
-                else:
-                    st.warning("⚠️ Code et nom du projet sont obligatoires")
-    
-    with col2:
-        st.markdown("#### 📋 Liste des projets")
-        
-        try:
-            projects = db.get_all_projects()
-            if projects and len(projects) > 0:
-                for proj in projects:
-                    if len(proj) >= 7:  # Vérifier que nous avons tous les champs
-                        proj_id, proj_code, proj_name, client_name, requires_task, is_active, created_at = proj
-                        
-                        with st.container():
-                            col_info, col_status, col_assign_btn, col_edit_btn, col_delete_btn = st.columns([3, 1, 1, 1, 1])
-                            
-                            with col_info:
-                                st.write(f"**{proj_name}** ({proj_code})")
-                                if client_name:
-                                    st.caption(f"Client: {client_name}")
-                                st.caption(f"Poste obligatoire: {'✅ Oui' if requires_task else '❌ Non'}")
-                            
-                            with col_status:
-                                if is_active:
-                                    st.markdown('<span class="status-active">✅ Actif</span>', unsafe_allow_html=True)
-                                else:
-                                    st.markdown('<span class="status-inactive">❌ Inactif</span>', unsafe_allow_html=True)
-                            
-                            with col_assign_btn:
-                                if st.button("🎯", key=f"assign_proj_{proj_id}", help="Assignations"):
-                                    st.session_state.view_project_assignments = proj_id
-                                    st.rerun()
-                            
-                            with col_edit_btn:
-                                if st.button("✏️", key=f"edit_proj_{proj_id}", help="Modifier"):
-                                    st.session_state.edit_project_id = proj_id
-                                    st.rerun()
-                            
-                            with col_delete_btn:
-                                if st.button("🗑️", key=f"delete_proj_{proj_id}", help="Supprimer"):
-                                    st.session_state.delete_project_id = proj_id
-                                    st.rerun()
-                            
-                            st.markdown("---")
-            else:
-                st.info("Aucun projet trouvé")
-        except Exception as e:
-            st.error(f"Erreur lors du chargement des projets: {str(e)}")
-            st.info("Essayez de rafraîchir la page.")
-    
-    # Gestion des modals d'édition, suppression et assignations
-    if 'edit_project_id' in st.session_state:
-        show_edit_project_form(db, st.session_state.edit_project_id)
-    
-    if 'delete_project_id' in st.session_state:
-        show_delete_project_form(db, st.session_state.delete_project_id)
-    
-    if 'view_project_assignments' in st.session_state:
-        show_project_assignments_summary(db, st.session_state.view_project_assignments)
-
-def show_project_assignments_summary(db, project_id):
-    """Affiche un résumé des assignations d'un projet"""
-    
-    project = db.get_project_by_id(project_id)
-    if not project:
-        st.error("Projet introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.view_project_assignments
-            st.rerun()
-        return
-    
-    proj_id, proj_code, proj_name, client_name, requires_task, is_active = project
-    
-    st.markdown(f"""
-    <div class="assignment-card">
-        <h4>🎯 Assignations du projet: {proj_name} ({proj_code})</h4>
-        <p>Client: {client_name or 'N/A'}</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Récupérer les tâches assignées au projet
-    assigned_tasks = db.get_project_assigned_tasks(project_id)
-    
-    if assigned_tasks:
-        st.info(f"📊 **{len(assigned_tasks)}** tâches assignées à ce projet")
-        
-        # Pour chaque tâche, afficher les employés autorisés
-        for task in assigned_tasks:
-            task_id, task_name, task_category, hourly_rate, is_enabled = task
-            
-            rate_icon = get_rate_indicator(hourly_rate)
-            
-            with st.expander(f"🔧 {task_name} ({task_category}) - {rate_icon} {hourly_rate:.0f}$"):
-                # Récupérer les employés autorisés pour cette tâche
-                assigned_employees = db.get_task_assigned_employees(project_id, task_id)
-                
-                if assigned_employees:
-                    st.success(f"👥 {len(assigned_employees)} employé(s) autorisé(s)")
+                total_t_mod = 0
+                for op_item in ops_mod:
+                    tps = op_item.get('temps_estime', 0)
+                    total_t_mod += tps
+                    op_color = {
+                        'À FAIRE': 'orange', 
+                        'EN COURS': 'var(--primary-color)', 
+                        'TERMINÉ': 'var(--success-color)'
+                    }.get(op_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
                     
-                    cols = st.columns(min(len(assigned_employees), 3))
-                    for i, emp in enumerate(assigned_employees):
-                        emp_id, emp_name, emp_code, skill_level, rate_override, is_authorized = emp
-                        
-                        if is_authorized:
-                            skill_class = get_skill_badge_class(skill_level)
-                            emp_rate_icon = get_rate_indicator(rate_override)
-                            
-                            with cols[i % 3]:
-                                st.markdown(f"""
-                                <div class="employee-card">
-                                    <strong>{emp_name}</strong><br>
-                                    <small>({emp_code})</small><br>
-                                    <span class="skill-badge {skill_class}">{skill_level}</span><br>
-                                    <small>{emp_rate_icon} {rate_override:.0f}$ CAD/h</small>
-                                </div>
-                                """, unsafe_allow_html=True)
-                else:
-                    st.warning("❌ Aucun employé autorisé pour cette tâche")
-                    st.info("💡 Utilisez l'onglet 'Assignations' pour autoriser des employés")
-    else:
-        st.warning("Aucune tâche assignée à ce projet")
-        st.info("💡 Utilisez l'onglet 'Assignations' pour assigner des tâches")
-    
-    if st.button("❌ Fermer", key="close_project_assignments"):
-        del st.session_state.view_project_assignments
-        st.rerun()
-
-def show_edit_project_form(db, project_id):
-    """Formulaire de modification d'un projet"""
-    
-    project = db.get_project_by_id(project_id)
-    if not project:
-        st.error("Projet introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.edit_project_id
-            st.rerun()
-        return
-    
-    proj_id, proj_code, proj_name, client_name, requires_task, is_active = project
-    
-    st.markdown(f"""
-    <div class="edit-form">
-        <h4>✏️ Modifier le projet: {proj_name}</h4>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    with st.form(f"edit_project_form_{project_id}"):
-        new_code = st.text_input("Code Projet", value=proj_code)
-        new_name = st.text_input("Nom Projet", value=proj_name)
-        new_client = st.text_input("Client", value=client_name or "")
-        new_requires_task = st.checkbox("Sélection de poste obligatoire", value=requires_task)
-        new_status = st.selectbox("Statut", [True, False], index=0 if is_active else 1,
-                                 format_func=lambda x: "✅ Actif" if x else "❌ Inactif")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.form_submit_button("💾 Sauvegarder"):
-                updates = {
-                    'project_code': new_code,
-                    'project_name': new_name,
-                    'client_name': new_client,
-                    'requires_task_selection': new_requires_task,
-                    'is_active': new_status
-                }
+                    poste_travail = op_item.get('poste_travail', 'Non assigné')
+                    st.markdown(f"""
+                    <div class='info-card' style='border-left:4px solid {op_color};margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>{op_item.get('sequence', '?')} - {op_item.get('description', 'N/A')}</h5>
+                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
+                            <span>🏭 {poste_travail}</span>
+                            <span>⏱️ {tps}h</span>
+                            <span>👨‍🔧 {op_item.get('ressource', 'N/A')}</span>
+                            <span>🚦 {op_item.get('statut', 'N/A')}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 
-                success, message = db.update_project(project_id, **updates)
-                if success:
-                    st.success(f"✅ {message}")
-                    del st.session_state.edit_project_id
-                    time.sleep(1)
-                    st.rerun()
+                st.markdown(f"""
+                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
+                    <h5 style='color:var(--primary-color-darker);margin:0;'>⏱️ Temps Total Est.: {total_t_mod}h</h5>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        if st.button("✖️ Fermer", use_container_width=True, key="close_modal_details_btn_bottom"):
+            st.session_state.show_project_modal = False
+            st.rerun()
+
+def show_inventory_management_page():
+    st.markdown("## 📦 Gestion de l'Inventaire")
+
+    if 'inventory_data' not in st.session_state:
+        st.session_state.inventory_data = load_inventory_data()
+    inventory_data = st.session_state.inventory_data
+
+    action_mode = st.session_state.get('inv_action_mode', "Voir Liste")
+
+    if action_mode == "Ajouter Article":
+        st.subheader("➕ Ajouter un Nouvel Article")
+        with st.form("add_inventory_item_form", clear_on_submit=True):
+            new_id = get_next_inventory_id(inventory_data)
+            st.text_input("ID Article (auto)", value=str(new_id), disabled=True)
+            nom = st.text_input("Nom de l'article *:")
+            type_art = st.selectbox("Type *:", TYPES_PRODUITS_INVENTAIRE)
+            quantite_imp = st.text_input("Quantité Stock (Impérial) *:", "0' 0\"")
+            limite_min_imp = st.text_input("Limite Minimale (Impérial):", "0' 0\"")
+            description = st.text_area("Description:")
+            notes = st.text_area("Notes Internes:")
+
+            submitted_add = st.form_submit_button("💾 Ajouter Article")
+            if submitted_add:
+                if not nom or not quantite_imp:
+                    st.error("Le nom et la quantité sont obligatoires.")
                 else:
-                    st.error(f"❌ {message}")
-        
-        with col2:
-            if st.form_submit_button("❌ Annuler"):
-                del st.session_state.edit_project_id
-                st.rerun()
-
-def show_delete_project_form(db, project_id):
-    """Formulaire de suppression d'un projet"""
-    
-    project = db.get_project_by_id(project_id)
-    if not project:
-        st.error("Projet introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.delete_project_id
-            st.rerun()
-        return
-    
-    proj_id, proj_code, proj_name, client_name, requires_task, is_active = project
-    
-    st.markdown(f"""
-    <div class="delete-form">
-        <h4>🗑️ Supprimer le projet: {proj_name}</h4>
-        <p>⚠️ <strong>Attention:</strong> Cette action peut être irréversible selon l'utilisation du projet.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Vérifier l'utilisation
-    conn = sqlite3.connect(db.db_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM time_entries WHERE project_id = ?", (project_id,))
-    time_entries_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM project_tasks WHERE project_id = ?", (project_id,))
-    tasks_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM project_task_assignments WHERE project_id = ?", (project_id,))
-    assignments_count = cursor.fetchone()[0]
-    conn.close()
-    
-    if time_entries_count > 0 or tasks_count > 0:
-        st.warning(f"⚠️ Ce projet a {time_entries_count} pointage(s) et {tasks_count} tâche(s). Il sera désactivé au lieu d'être supprimé.")
-    
-    if assignments_count > 0:
-        st.info(f"ℹ️ Ce projet a {assignments_count} assignation(s) de tâches.")
-    
-    if time_entries_count == 0 and tasks_count == 0 and assignments_count == 0:
-        st.info("ℹ️ Ce projet n'a aucun pointage, tâche ni assignation et peut être supprimé définitivement.")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button(f"🗑️ Confirmer la suppression", key=f"confirm_delete_proj_{project_id}"):
-            success, message = db.delete_project(project_id)
-            if success:
-                st.success(f"✅ {message}")
-                del st.session_state.delete_project_id
-                time.sleep(2)
-                st.rerun()
-            else:
-                st.error(f"❌ {message}")
-    
-    with col2:
-        if st.button("❌ Annuler", key=f"cancel_delete_proj_{project_id}"):
-            del st.session_state.delete_project_id
-            st.rerun()
-
-def show_task_management_crud(db):
-    """Gestion CRUD complète des tâches"""
-    
-    st.markdown("### 🔧 Gestion des Postes de Travail")
-    
-    # Sélection du projet
-    projects = db.get_all_projects()
-    if not projects:
-        st.warning("Aucun projet disponible. Créez d'abord un projet.")
-        return
-    
-    active_projects = [p for p in projects if p[5]]  # is_active = True
-    project_options = {f"{p[2]} ({p[3] or 'Pas de client'})": p for p in active_projects}
-    
-    if not project_options:
-        st.warning("Aucun projet actif. Activez d'abord un projet.")
-        return
-    
-    selected_project_display = st.selectbox(
-        "📋 Sélectionner un projet", 
-        options=list(project_options.keys())
-    )
-    
-    selected_project = project_options[selected_project_display]
-    project_id = selected_project[0]
-    project_name = selected_project[2]
-    
-    st.markdown(f"#### Postes de travail pour: **{project_name}**")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.markdown("##### ➕ Ajouter un poste")
-        
-        with st.form(f"add_task_form_{project_id}"):
-            task_code = st.text_input("Code Poste *", placeholder="ROBOT")
-            task_name = st.text_input("Nom Poste *", placeholder="Robot soudeur")
-            task_category = st.selectbox("Catégorie", [
-                "Soudage", "Découpe et Perçage", "Formage et Assemblage", "Finition", 
-                "Préparation et Programmation", "Manutention et Cisaillage", "Contrôle Qualité", "Expédition"
-            ])
-            hourly_rate = st.number_input("Taux Horaire (CAD)", min_value=0.0, value=95.0, step=5.0)
-            description = st.text_area("Description", placeholder="Description détaillée du poste de travail...")
-            
-            if st.form_submit_button("🔧 Créer le Poste"):
-                if task_code and task_name:
-                    success, message = db.add_task(project_id, task_code.upper(), task_name, task_category, hourly_rate, description)
-                    if success:
-                        st.success(f"✅ {message}")
-                        time.sleep(1)
-                        st.rerun()
+                    is_valid_q, quantite_std = valider_mesure_saisie(quantite_imp)
+                    is_valid_l, limite_std = valider_mesure_saisie(limite_min_imp)
+                    if not is_valid_q:
+                        st.error(f"Format de quantité invalide: {quantite_std}")
+                    elif not is_valid_l:
+                        st.error(f"Format de limite minimale invalide: {limite_std}")
                     else:
-                        st.error(f"❌ {message}")
-                else:
-                    st.warning("⚠️ Code et nom du poste sont obligatoires")
-    
-    with col2:
-        st.markdown("##### 📋 Postes existants")
-        
-        tasks = db.get_all_project_tasks(project_id)
-        if tasks:
-            # Grouper par catégorie
-            task_categories = {}
-            for task in tasks:
-                category = task[3] or "Général"
-                if category not in task_categories:
-                    task_categories[category] = []
-                task_categories[category].append(task)
-            
-            for category, category_tasks in task_categories.items():
-                with st.expander(f"🔧 {category} ({len(category_tasks)} postes)"):
-                    for task in category_tasks:
-                        task_id, task_code, task_name, task_category, hourly_rate, description, is_active = task
-                        
-                        rate_icon = get_rate_indicator(hourly_rate)
-                        rate_class = get_rate_class(hourly_rate)
-                        
-                        col_task1, col_task2, col_assign_task, col_edit_task, col_delete_task = st.columns([2, 1, 1, 1, 1])
-                        
-                        with col_task1:
-                            st.write(f"**{task_name}** ({task_code})")
-                            if description:
-                                st.caption(description)
-                            if not is_active:
-                                st.markdown('<span class="status-inactive">❌ Inactif</span>', unsafe_allow_html=True)
-                        
-                        with col_task2:
-                            st.markdown(f'<div class="{rate_class}">{rate_icon} {hourly_rate:.0f}$ CAD</div>', unsafe_allow_html=True)
-                        
-                        with col_assign_task:
-                            if st.button("👥", key=f"assign_task_{task_id}", help="Assignations"):
-                                st.session_state.view_task_assignments = task_id
-                                st.rerun()
-                        
-                        with col_edit_task:
-                            if st.button("✏️", key=f"edit_task_{task_id}", help="Modifier"):
-                                st.session_state.edit_task_id = task_id
-                                st.rerun()
-                        
-                        with col_delete_task:
-                            if st.button("🗑️", key=f"delete_task_{task_id}", help="Supprimer"):
-                                st.session_state.delete_task_id = task_id
-                                st.rerun()
+                        new_item = {
+                            "id": new_id,
+                            "nom": nom,
+                            "type": type_art,
+                            "quantite": quantite_std,
+                            "conversion_metrique": convertir_imperial_vers_metrique(quantite_std),
+                            "limite_minimale": limite_std,
+                            "quantite_reservee": "0' 0\"",
+                            "statut": "",
+                            "description": description,
+                            "note": notes,
+                            "reservations": {},
+                            "historique": [{"date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "action": "CRÉATION", "quantite": quantite_std, "note": "Création initiale"}],
+                            "date_creation": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        mettre_a_jour_statut_stock(new_item)
+                        inventory_data[str(new_id)] = new_item
+                        if save_inventory_data(inventory_data):
+                            st.success(f"Article '{nom}' (ID: {new_id}) ajouté avec succès!")
+                            st.session_state.inventory_data = inventory_data
+                            st.rerun()
+                        else:
+                            st.error("Erreur lors de la sauvegarde de l'article.")
+
+    elif action_mode == "Voir Liste" or not inventory_data:
+        st.subheader("📋 Liste des Articles en Inventaire")
+        if not inventory_data:
+            st.info("L'inventaire est vide. Cliquez sur 'Ajouter Article' dans les actions d'inventaire de la barre latérale pour commencer.")
         else:
-            st.info("Aucun poste défini pour ce projet")
-    
-    # Gestion des modals d'édition, suppression et assignations des tâches
-    if 'edit_task_id' in st.session_state:
-        show_edit_task_form(db, st.session_state.edit_task_id)
-    
-    if 'delete_task_id' in st.session_state:
-        show_delete_task_form(db, st.session_state.delete_task_id)
-    
-    if 'view_task_assignments' in st.session_state:
-        show_task_assignments_summary(db, st.session_state.view_task_assignments)
+            search_term_inv = st.text_input("Rechercher dans l'inventaire (nom, ID):", key="inv_search").lower()
 
-def show_task_assignments_summary(db, task_id):
-    """Affiche un résumé des assignations d'une tâche"""
-    
-    task = db.get_task_by_id(task_id)
-    if not task:
-        st.error("Tâche introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.view_task_assignments
-            st.rerun()
-        return
-    
-    task_id_val, project_id, task_code, task_name, task_category, hourly_rate, description, is_active = task
-    
-    # Récupérer le nom du projet
-    project = db.get_project_by_id(project_id)
-    project_name = project[2] if project else "Projet inconnu"
-    
-    rate_icon = get_rate_indicator(hourly_rate)
-    
-    st.markdown(f"""
-    <div class="assignment-card">
-        <h4>🎯 Assignations du poste: {task_name} ({task_code})</h4>
-        <p>Projet: {project_name} | Catégorie: {task_category} | Taux: {rate_icon} {hourly_rate:.0f}$ CAD</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Vérifier si la tâche est assignée au projet
-    is_assigned_to_project = db.is_task_assigned_to_project(project_id, task_id)
-    
-    if not is_assigned_to_project:
-        st.warning("⚠️ Ce poste n'est pas assigné au projet")
-        st.info("💡 Utilisez l'onglet 'Assignations' → 'Tâches → Projets' pour l'assigner d'abord")
-        
-        if st.button("❌ Fermer", key="close_task_assignments_not_assigned"):
-            del st.session_state.view_task_assignments
-            st.rerun()
-        return
-    
-    # Récupérer les employés autorisés pour cette tâche
-    assigned_employees = db.get_task_assigned_employees(project_id, task_id)
-    
-    if assigned_employees:
-        st.info(f"📊 **{len(assigned_employees)}** employé(s) autorisé(s) pour ce poste")
-        
-        # Afficher les employés par niveau de compétence
-        skill_groups = {}
-        for emp in assigned_employees:
-            emp_id, emp_name, emp_code, skill_level, rate_override, is_authorized = emp
-            if is_authorized:
-                if skill_level not in skill_groups:
-                    skill_groups[skill_level] = []
-                skill_groups[skill_level].append(emp)
-        
-        # Ordre des niveaux
-        skill_order = ['expert', 'avancé', 'intermédiaire', 'débutant']
-        
-        for skill in skill_order:
-            if skill in skill_groups:
-                employees = skill_groups[skill]
-                skill_class = get_skill_badge_class(skill)
-                
-                with st.expander(f"{skill.capitalize()} ({len(employees)} employé(s))", expanded=True):
-                    cols = st.columns(min(len(employees), 3))
-                    
-                    for i, emp in enumerate(employees):
-                        emp_id, emp_name, emp_code, skill_level, rate_override, is_authorized = emp
-                        
-                        emp_rate_icon = get_rate_indicator(rate_override)
-                        
-                        with cols[i % 3]:
-                            st.markdown(f"""
-                            <div class="employee-card">
-                                <strong>{emp_name}</strong><br>
-                                <small>({emp_code})</small><br>
-                                <span class="skill-badge {skill_class}">{skill_level}</span><br>
-                                <small>{emp_rate_icon} {rate_override:.0f}$ CAD/h</small>
-                            </div>
-                            """, unsafe_allow_html=True)
-    else:
-        st.warning("❌ Aucun employé autorisé pour ce poste")
-        st.info("💡 Utilisez l'onglet 'Assignations' → 'Employés → Tâches' pour autoriser des employés")
-    
-    if st.button("❌ Fermer", key="close_task_assignments"):
-        del st.session_state.view_task_assignments
-        st.rerun()
+            items_display_list = []
+            for item_id, data in inventory_data.items():
+                if search_term_inv:
+                    if search_term_inv not in str(data.get("id", "")).lower() and \
+                       search_term_inv not in data.get("nom", "").lower():
+                        continue
 
-def show_edit_task_form(db, task_id):
-    """Formulaire de modification d'une tâche"""
-    
-    task = db.get_task_by_id(task_id)
-    if not task:
-        st.error("Tâche introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.edit_task_id
-            st.rerun()
-        return
-    
-    task_id_val, project_id, task_code, task_name, task_category, hourly_rate, description, is_active = task
-    
-    st.markdown(f"""
-    <div class="edit-form">
-        <h4>✏️ Modifier le poste: {task_name}</h4>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    with st.form(f"edit_task_form_{task_id}"):
-        new_code = st.text_input("Code Poste", value=task_code)
-        new_name = st.text_input("Nom Poste", value=task_name)
-        new_category = st.selectbox("Catégorie", [
-            "Soudage", "Découpe et Perçage", "Formage et Assemblage", "Finition", 
-            "Préparation et Programmation", "Manutention et Cisaillage", "Contrôle Qualité", "Expédition"
-        ], index=[
-            "Soudage", "Découpe et Perçage", "Formage et Assemblage", "Finition", 
-            "Préparation et Programmation", "Manutention et Cisaillage", "Contrôle Qualité", "Expédition"
-        ].index(task_category) if task_category in [
-            "Soudage", "Découpe et Perçage", "Formage et Assemblage", "Finition", 
-            "Préparation et Programmation", "Manutention et Cisaillage", "Contrôle Qualité", "Expédition"] else 0)
-        new_rate = st.number_input("Taux Horaire (CAD)", min_value=0.0, value=float(hourly_rate), step=5.0)
-        new_description = st.text_area("Description", value=description or "")
-        new_status = st.selectbox("Statut", [True, False], index=0 if is_active else 1,
-                                 format_func=lambda x: "✅ Actif" if x else "❌ Inactif")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.form_submit_button("💾 Sauvegarder"):
-                updates = {
-                    'task_code': new_code,
-                    'task_name': new_name,
-                    'task_category': new_category,
-                    'hourly_rate': new_rate,
-                    'description': new_description,
-                    'is_active': new_status
-                }
-                
-                success, message = db.update_task(task_id, **updates)
-                if success:
-                    st.success(f"✅ {message}")
-                    del st.session_state.edit_task_id
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error(f"❌ {message}")
-        
-        with col2:
-            if st.form_submit_button("❌ Annuler"):
-                del st.session_state.edit_task_id
-                st.rerun()
+                items_display_list.append({
+                    "ID": data.get("id", item_id),
+                    "Nom": data.get("nom", "N/A"),
+                    "Type": data.get("type", "N/A"),
+                    "Stock (Imp.)": data.get("quantite", "N/A"),
+                    "Stock (Métr.)": f"{data.get('conversion_metrique', {}).get('valeur', 0):.3f} {data.get('conversion_metrique', {}).get('unite', 'm')}",
+                    "Limite Min.": data.get("limite_minimale", "N/A"),
+                    "Réservé": data.get("quantite_reservee", "N/A"),
+                    "Statut": data.get("statut", "N/A")
+                })
 
-def show_delete_task_form(db, task_id):
-    """Formulaire de suppression d'une tâche"""
-    
-    task = db.get_task_by_id(task_id)
-    if not task:
-        st.error("Tâche introuvable")
-        if st.button("❌ Fermer"):
-            del st.session_state.delete_task_id
-            st.rerun()
-        return
-    
-    task_id_val, project_id, task_code, task_name, task_category, hourly_rate, description, is_active = task
-    
-    st.markdown(f"""
-    <div class="delete-form">
-        <h4>🗑️ Supprimer le poste: {task_name}</h4>
-        <p>⚠️ <strong>Attention:</strong> Cette action peut être irréversible selon l'utilisation du poste.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Vérifier l'utilisation
-    conn = sqlite3.connect(db.db_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM time_entries WHERE task_id = ?", (task_id,))
-    usage_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM employee_task_assignments WHERE task_id = ?", (task_id,))
-    assignments_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM project_task_assignments WHERE task_id = ?", (task_id,))
-    project_assignments_count = cursor.fetchone()[0]
-    conn.close()
-    
-    if usage_count > 0:
-        st.warning(f"⚠️ Ce poste a été utilisé {usage_count} fois. Il sera désactivé au lieu d'être supprimé.")
-    
-    if assignments_count > 0:
-        st.info(f"ℹ️ Ce poste a {assignments_count} assignation(s) d'employés.")
-    
-    if project_assignments_count > 0:
-        st.info(f"ℹ️ Ce poste a {project_assignments_count} assignation(s) de projets.")
-    
-    if usage_count == 0 and assignments_count == 0 and project_assignments_count == 0:
-        st.info("ℹ️ Ce poste n'a jamais été utilisé et peut être supprimé définitivement.")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button(f"🗑️ Confirmer la suppression", key=f"confirm_delete_task_{task_id}"):
-            success, message = db.delete_task(task_id)
-            if success:
-                st.success(f"✅ {message}")
-                del st.session_state.delete_task_id
-                time.sleep(2)
-                st.rerun()
+            if items_display_list:
+                df_inventory = pd.DataFrame(items_display_list)
+                st.dataframe(df_inventory, use_container_width=True)
             else:
-                st.error(f"❌ {message}")
-    
-    with col2:
-        if st.button("❌ Annuler", key=f"cancel_delete_task_{task_id}"):
-            del st.session_state.delete_task_id
-            st.rerun()
+                st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire est vide.")
 
-def show_reports_management_enhanced(db):
-    """Gestion des rapports avec détails D&G spécialisés"""
-    
-    st.markdown("### 📈 Rapports et Analytics D&G")
-    
-    # Sélecteur de période
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        start_date = st.date_input("📅 Date début", value=date.today() - timedelta(days=30))
-    with col2:
-        end_date = st.date_input("📅 Date fin", value=date.today())
-    with col3:
-        report_type = st.selectbox("📊 Type de rapport", [
-            "Analyse Rentabilité D&G",
-            "Résumé global avec postes D&G",
-            "Détail par employé avec taux effectifs", 
-            "Analyse par poste/catégorie avec niveaux",
-            "Rapport de paie avec taux D&G",
-            "Efficacité par niveau de compétence",
-            "Statut des assignations par projet",
-            "Performance postes premium (≥130$)"
-        ])
-    
-    if st.button("📊 Générer le rapport"):
-        conn = sqlite3.connect(db.db_path)
-        
-        if report_type == "Analyse Rentabilité D&G":
-            # Rapport spécialisé pour les réalités business de D&G
-            query = """
-                SELECT 
-                    pt.task_code as 'Code',
-                    pt.task_name as 'Poste de Travail',
-                    pt.task_category as 'Catégorie',
-                    pt.hourly_rate as 'Taux Base ($/h)',
-                    COUNT(te.id) as 'Nb Sessions',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            ((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60
-                        ELSE 0
-                    END), 2) as 'Heures Totales',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            (((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) 
-                            * COALESCE(eta.hourly_rate_override, pt.hourly_rate)
-                        ELSE 0
-                    END), 2) as 'Revenus Générés ($)',
-                    ROUND(AVG(COALESCE(eta.hourly_rate_override, pt.hourly_rate)), 2) as 'Taux Moyen Effectif ($/h)',
-                    CASE 
-                        WHEN pt.hourly_rate >= 130 THEN 'Premium'
-                        WHEN pt.hourly_rate >= 100 THEN 'Élevé'
-                        WHEN pt.hourly_rate >= 90 THEN 'Standard'
-                        ELSE 'Administratif'
-                    END as 'Niveau Taux'
-                FROM project_tasks pt
-                LEFT JOIN time_entries te ON pt.id = te.task_id
-                    AND DATE(te.punch_in) BETWEEN ? AND ?
-                LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                    AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-                WHERE pt.project_id = (SELECT id FROM projects WHERE project_code = 'DG-GENERAL')
-                GROUP BY pt.id
-                ORDER BY 'Revenus Générés ($)' DESC
-            """
-            
-            df_report = pd.read_sql_query(query, conn, params=(start_date, end_date))
-            
-        elif report_type == "Performance postes premium (≥130$)":
-            # Analyse des postes premium D&G
-            query = """
-                SELECT 
-                    pt.task_name as 'Poste Premium',
-                    pt.hourly_rate as 'Taux ($/h)',
-                    COUNT(te.id) as 'Sessions Période',
-                    COUNT(DISTINCT te.employee_id) as 'Employés Différents',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            ((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60
-                        ELSE 0
-                    END), 2) as 'Heures Premium',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            (((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) 
-                            * pt.hourly_rate
-                        ELSE 0
-                    END), 2) as 'Revenus Premium ($)',
-                    ROUND(AVG(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            ((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60
-                        ELSE NULL
-                    END), 2) as 'Durée Moy Session (h)',
-                    GROUP_CONCAT(DISTINCT eta.skill_level) as 'Niveaux Utilisés'
-                FROM project_tasks pt
-                LEFT JOIN time_entries te ON pt.id = te.task_id
-                    AND DATE(te.punch_in) BETWEEN ? AND ?
-                LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                    AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-                WHERE pt.hourly_rate >= 130 AND pt.is_active = 1
-                GROUP BY pt.id
-                HAVING COUNT(te.id) > 0
-                ORDER BY 'Revenus Premium ($)' DESC
-            """
-            
-            df_report = pd.read_sql_query(query, conn, params=(start_date, end_date))
-            
-        elif report_type == "Résumé global avec postes D&G":
-            # Rapport global avec répartition des postes D&G
-            query = """
-                SELECT 
-                    e.name as 'Employé',
-                    e.employee_code as 'Code',
-                    COUNT(DISTINCT DATE(te.punch_in)) as 'Jours travaillés',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            ((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60
-                        ELSE 0
-                    END), 2) as 'Total heures',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL AND COALESCE(eta.hourly_rate_override, pt.hourly_rate) IS NOT NULL THEN
-                            (((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) * COALESCE(eta.hourly_rate_override, pt.hourly_rate)
-                        ELSE 0
-                    END), 2) as 'Revenus totaux (CAD)',
-                    ROUND(AVG(COALESCE(eta.hourly_rate_override, pt.hourly_rate)), 2) as 'Taux moyen ($/h)',
-                    COUNT(DISTINCT pt.task_category) as 'Catégories utilisées',
-                    COUNT(CASE WHEN pt.hourly_rate >= 130 THEN 1 END) as 'Sessions Premium'
-                FROM employees e
-                LEFT JOIN time_entries te ON e.id = te.employee_id 
-                    AND DATE(te.punch_in) BETWEEN ? AND ?
-                LEFT JOIN project_tasks pt ON te.task_id = pt.id
-                LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                    AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-                WHERE e.role != 'admin'
-                GROUP BY e.id
-                ORDER BY 'Revenus totaux (CAD)' DESC
-            """
-            
-            df_report = pd.read_sql_query(query, conn, params=(start_date, end_date))
-            
-        elif report_type == "Rapport de paie avec taux D&G":
-            # Rapport pour la paie avec taux D&G réels
-            query = """
-                SELECT 
-                    e.name as 'Employé',
-                    e.employee_code as 'Code',
-                    COUNT(DISTINCT DATE(te.punch_in)) as 'Jours',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            MIN(((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60, 8)
-                        ELSE 0
-                    END), 2) as 'Heures régulières',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL THEN
-                            MAX(((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60 - 8, 0)
-                        ELSE 0
-                    END), 2) as 'Heures supplémentaires',
-                    ROUND(SUM(CASE 
-                        WHEN te.punch_out IS NOT NULL AND COALESCE(eta.hourly_rate_override, pt.hourly_rate) IS NOT NULL THEN
-                            (((JULIANDAY(te.punch_out) - JULIANDAY(te.punch_in)) * 24 * 60 - te.total_break_minutes) / 60) * COALESCE(eta.hourly_rate_override, pt.hourly_rate)
-                        ELSE 0
-                    END), 2) as 'Revenus bruts (CAD)',
-                    ROUND(AVG(COALESCE(eta.hourly_rate_override, pt.hourly_rate)), 2) as 'Taux moyen ($/h)',
-                    COUNT(CASE WHEN pt.hourly_rate >= 130 THEN 1 END) as 'Heures Premium',
-                    GROUP_CONCAT(DISTINCT eta.skill_level) as 'Niveaux utilisés'
-                FROM employees e
-                LEFT JOIN time_entries te ON e.id = te.employee_id 
-                    AND DATE(te.punch_in) BETWEEN ? AND ?
-                LEFT JOIN project_tasks pt ON te.task_id = pt.id
-                LEFT JOIN employee_task_assignments eta ON te.employee_id = eta.employee_id 
-                    AND te.project_id = eta.project_id AND te.task_id = eta.task_id
-                WHERE e.role != 'admin'
-                GROUP BY e.id
-                ORDER BY 'Revenus bruts (CAD)' DESC
-            """
-            
-            df_report = pd.read_sql_query(query, conn, params=(start_date, end_date))
-        
-        conn.close()
-        
-        if not df_report.empty:
-            st.markdown(f"#### 📊 {report_type}")
-            st.dataframe(df_report, use_container_width=True, hide_index=True)
-            
-            # Statistiques spécialisées D&G
-            if 'Revenus' in df_report.columns.str.cat():
-                revenue_cols = [col for col in df_report.columns if 'Revenus' in col or 'revenus' in col]
-                if revenue_cols:
-                    total_revenue = df_report[revenue_cols[0]].sum()
-                    st.markdown(f"**💰 Total Revenus: {total_revenue:,.2f}$ CAD**")
-            
-            if 'Total heures' in df_report.columns:
-                total_hours = df_report['Total heures'].sum()
-                st.markdown(f"**⏱️ Total Heures: {total_hours:.1f}h**")
-            
-            if 'Sessions Premium' in df_report.columns:
-                premium_sessions = df_report['Sessions Premium'].sum()
-                st.markdown(f"**🔥 Sessions Premium (≥130$): {premium_sessions}**")
-            
-            # Bouton d'export Excel
-            excel_data = generate_excel_report(df_report)
-            filename = f"rapport_dg_{report_type.lower().replace(' ', '_')}_{start_date}_{end_date}.xlsx"
-            
-            st.download_button(
-                label="📥 Télécharger Excel",
-                data=excel_data,
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.warning("Aucune donnée trouvée pour cette période")
+def show_crm_page():
+    st.markdown("## 🤝 Gestion de la Relation Client (CRM)")
+    gestionnaire_crm = st.session_state.gestionnaire_crm
+    gestionnaire_projets = st.session_state.gestionnaire
 
-# ================================
-# FONCTIONS PRINCIPALES
-# ================================
+    if 'crm_action' not in st.session_state:
+        st.session_state.crm_action = None
+    if 'crm_selected_id' not in st.session_state:
+        st.session_state.crm_selected_id = None
+    if 'crm_confirm_delete_contact_id' not in st.session_state:
+        st.session_state.crm_confirm_delete_contact_id = None
+    if 'crm_confirm_delete_entreprise_id' not in st.session_state:
+        st.session_state.crm_confirm_delete_entreprise_id = None
+    if 'crm_confirm_delete_interaction_id' not in st.session_state:
+        st.session_state.crm_confirm_delete_interaction_id = None
 
-@st.cache_resource
-def get_database():
-    """Initialise et retourne l'instance de base de données"""
-    return DatabaseManager()
+    tab_contacts, tab_entreprises, tab_interactions = st.tabs([
+        "👤 Contacts", "🏢 Entreprises", "💬 Interactions"
+    ])
 
+    with tab_contacts:
+        render_crm_contacts_tab(gestionnaire_crm, gestionnaire_projets)
+
+    with tab_entreprises:
+        render_crm_entreprises_tab(gestionnaire_crm, gestionnaire_projets)
+
+    with tab_interactions:
+        render_crm_interactions_tab(gestionnaire_crm)
+
+    action = st.session_state.get('crm_action')
+    selected_id = st.session_state.get('crm_selected_id')
+
+    if action == "create_contact":
+        render_crm_contact_form(gestionnaire_crm, contact_data=None)
+    elif action == "edit_contact" and selected_id:
+        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
+        render_crm_contact_form(gestionnaire_crm, contact_data=contact_data)
+    elif action == "view_contact_details" and selected_id:
+        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
+        render_crm_contact_details(gestionnaire_crm, gestionnaire_projets, contact_data)
+    elif action == "create_entreprise":
+        render_crm_entreprise_form(gestionnaire_crm, entreprise_data=None)
+    elif action == "edit_entreprise" and selected_id:
+        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_form(gestionnaire_crm, entreprise_data=entreprise_data)
+    elif action == "view_entreprise_details" and selected_id:
+        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_details(gestionnaire_crm, gestionnaire_projets, entreprise_data)
+    elif action == "create_interaction":
+        render_crm_interaction_form(gestionnaire_crm, interaction_data=None)
+    elif action == "edit_interaction" and selected_id:
+        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
+        render_crm_interaction_form(gestionnaire_crm, interaction_data=interaction_data)
+    elif action == "view_interaction_details" and selected_id:
+        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
+        render_crm_interaction_details(gestionnaire_crm, gestionnaire_projets, interaction_data)
+
+def show_employees_page():
+    st.markdown("## 👥 Gestion des Employés")
+    gestionnaire_employes = st.session_state.gestionnaire_employes
+    gestionnaire_projets = st.session_state.gestionnaire
+    
+    if 'emp_action' not in st.session_state:
+        st.session_state.emp_action = None
+    if 'emp_selected_id' not in st.session_state:
+        st.session_state.emp_selected_id = None
+    if 'emp_confirm_delete_id' not in st.session_state:
+        st.session_state.emp_confirm_delete_id = None
+    
+    tab_dashboard, tab_liste = st.tabs([
+        "📊 Dashboard RH", "👥 Liste Employés"
+    ])
+    
+    with tab_dashboard:
+        render_employes_dashboard_tab(gestionnaire_employes, gestionnaire_projets)
+    
+    with tab_liste:
+        render_employes_liste_tab(gestionnaire_employes, gestionnaire_projets)
+    
+    action = st.session_state.get('emp_action')
+    selected_id = st.session_state.get('emp_selected_id')
+    
+    if action == "create_employe":
+        render_employe_form(gestionnaire_employes, employe_data=None)
+    elif action == "edit_employe" and selected_id:
+        employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
+        render_employe_form(gestionnaire_employes, employe_data=employe_data)
+    elif action == "view_employe_details" and selected_id:
+        employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
+        render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
+
+# ----- Fonction Principale MODIFIÉE POUR TIMETRACKER -----
 def main():
-    """Fonction principale de l'application avec gestion d'erreurs robuste"""
+    # Initialisation des gestionnaires
+    if 'gestionnaire' not in st.session_state:
+        st.session_state.gestionnaire = GestionnaireProjetIA()
+    if 'gestionnaire_crm' not in st.session_state:
+        st.session_state.gestionnaire_crm = GestionnaireCRM()
+    if 'gestionnaire_employes' not in st.session_state:
+        st.session_state.gestionnaire_employes = GestionnaireEmployes()
     
-    try:
-        # Charger le CSS
-        load_css()
-        
-        # Initialiser l'état de session
-        if 'logged_in' not in st.session_state:
-            st.session_state.logged_in = False
-        if 'user_info' not in st.session_state:
-            st.session_state.user_info = None
-        
-        # Sidebar avec bouton de déconnexion si connecté
-        if st.session_state.logged_in:
-            with st.sidebar:
-                st.markdown("### ⚙️ Menu")
-                
-                user_info = st.session_state.user_info
-                st.info(f"👤 **{user_info['name']}**\n\nCode: {user_info['employee_code']}\nRôle: {user_info['role']}")
-                
-                st.markdown("---")
-                
-                # Informations système D&G
-                try:
-                    db = get_database()
-                    stats = db.get_dashboard_stats()
-                    dg_stats = db.get_dg_enhanced_stats()
-                    
-                    st.markdown("### 📊 Stats D&G")
-                    st.metric("👥 Employés pointés", stats['pointés_aujourd_hui'])
-                    st.metric("🟢 Au travail", stats['au_travail']) 
-                    st.metric("💰 Revenus aujourd'hui", f"{dg_stats['revenus_today']:,.0f}$")
-                    st.metric("⚡ Efficacité moyenne", f"{dg_stats['avg_efficiency']:.0f}$/h")
-                except Exception as e:
-                    st.warning("⚠️ Erreur chargement stats")
-                    st.caption(f"Détail: {str(e)}")
-                
-                # Nouveautés version D&G
-                st.markdown("---")
-                st.markdown("### 🏭 Version D&G Complète")
-                st.success("✅ 34 postes de travail réels")
-                st.success("✅ Taux 85-140$ CAD")
-                st.success("✅ 8 catégories métier")
-                st.success("✅ Sélecteur avancé avec filtres")
-                st.success("✅ Dashboard revenus temps réel")
-                st.success("✅ Analytics par niveau taux")
-                st.success("✅ Auto-assignations nouveaux employés")
-                st.success("✅ Rapports spécialisés D&G")
-                
-                st.markdown("---")
-                
-                # Bouton de déconnexion
-                if st.button("🚪 Se déconnecter", use_container_width=True):
-                    st.session_state.logged_in = False
-                    st.session_state.user_info = None
-                    # Nettoyer les états de session
-                    for key in list(st.session_state.keys()):
-                        if any(x in key for x in ['edit_', 'delete_', 'selected_task', 'view_', 'assign_']):
-                            del st.session_state[key]
-                    st.success("👋 Déconnexion réussie")
-                    time.sleep(1)
-                    st.rerun()
-        
-        # Affichage de l'interface selon l'état de connexion
-        if not st.session_state.logged_in:
-            show_login_page()
-        else:
-            user_info = st.session_state.user_info
-            if user_info and user_info.get('role') == 'admin':
-                show_admin_interface()
-            else:
-                show_employee_interface()
-                
-    except Exception as e:
-        st.error("🚨 Une erreur inattendue s'est produite")
-        st.markdown("### 🔧 Informations de débogage")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.error(f"**Type d'erreur:** {type(e).__name__}")
-            st.error(f"**Message:** {str(e)}")
-        
-        with col2:
-            st.info("### 🔄 Solutions suggérées")
-            st.markdown("""
-            1. **Rafraîchir la page** (F5)
-            2. **Se déconnecter et reconnecter**
-            3. **Vider le cache du navigateur**
-            4. **Contacter l'administrateur**
-            """)
-        
-        # Bouton de reset d'urgence
-        if st.button("🆘 Reset Application", help="Remet à zéro la session"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.success("✅ Session réinitialisée")
-            st.info("🔄 Veuillez rafraîchir la page")
-        
-        # Option pour afficher le traceback complet en développement
-        if st.checkbox("🔍 Afficher détails techniques"):
-            import traceback
-            st.code(traceback.format_exc())
+    # Gestionnaire des postes de travail
+    if 'gestionnaire_postes' not in st.session_state:
+        st.session_state.gestionnaire_postes = GestionnairePostes()
+        # Intégrer les postes dans les projets existants au premier lancement
+        if not hasattr(st.session_state, 'postes_integres'):
+            st.session_state.gestionnaire = integrer_postes_dans_projets(
+                st.session_state.gestionnaire, 
+                st.session_state.gestionnaire_postes
+            )
+            st.session_state.postes_integres = True
 
-# ================================
-# POINT D'ENTRÉE
-# ================================
+    # INTÉGRATION TIMETRACKER : Gestionnaire de synchronisation
+    if TIMETRACKER_AVAILABLE and 'database_sync' not in st.session_state:
+        try:
+            st.session_state.database_sync = DatabaseSync()
+            # Vérifier si une synchronisation initiale est nécessaire
+            if not hasattr(st.session_state, 'timetracker_init_sync_done'):
+                stats = st.session_state.database_sync.get_sync_statistics()
+                if stats['projects'] == 0 and len(st.session_state.gestionnaire.projets) > 0:
+                    # Synchronisation silencieuse au premier lancement
+                    try:
+                        st.session_state.database_sync.full_sync(
+                            st.session_state.gestionnaire,
+                            st.session_state.gestionnaire_employes,
+                            st.session_state.gestionnaire_postes
+                        )
+                    except Exception:
+                        pass  # Silencieux si erreur
+                st.session_state.timetracker_init_sync_done = True
+        except Exception:
+            pass  # Silencieux si erreur d'initialisation TimeTracker
+
+    # Migration des IDs de projet au premier lancement
+    if 'ids_migres' not in st.session_state:
+        gestionnaire = st.session_state.gestionnaire
+        if gestionnaire.projets and any(p.get('id', 0) < 10000 for p in gestionnaire.projets):
+            nb_migres = migrer_ids_projets()
+            st.success(f"✅ {nb_migres} projet(s) migré(s) vers les nouveaux IDs (10000+)")
+            st.session_state.ids_migres = True
+
+    session_defs = {
+        'show_project_modal': False, 'selected_project': None,
+        'show_create_project': False, 'show_edit_project': False,
+        'edit_project_data': None, 'show_delete_confirmation': False,
+        'delete_project_id': None, 'selected_date': datetime.now().date(),
+        'welcome_seen': False,
+        'inventory_data': load_inventory_data(),
+        'inv_action_mode': "Voir Liste",
+        'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
+        'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
+        'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
+        'competences_form': [],
+        'gamme_generated': None, 'gamme_metadata': None,  # NOUVEAU pour les gammes
+        # INTÉGRATION TIMETRACKER : Variables de session
+        'timetracker_employee_id': None, 'timetracker_project_id': None,
+        'timetracker_task_id': None, 'timetracker_is_clocked_in': False,
+        'timetracker_current_entry_id': None, 'timetracker_view_mode': 'employee',
+        'timetracker_show_sync': False, 'timetracker_selected_employee': None
+    }
+    for k, v_def in session_defs.items():
+        if k not in st.session_state:
+            st.session_state[k] = v_def
+
+    apply_global_styles()
+
+    st.markdown('<div class="main-title"><h1>🏭 ERP Production DG Inc.</h1></div>', unsafe_allow_html=True)
+
+    if not st.session_state.welcome_seen:
+        welcome_msg = "🎉 Bienvenue dans l'ERP Production DG Inc. ! Explorez les 61 postes de travail et les gammes de fabrication."
+        if TIMETRACKER_AVAILABLE:
+            welcome_msg += " ⏱️ TimeTracker intégré pour le suivi temps réel !"
+        st.success(welcome_msg)
+        st.session_state.welcome_seen = True
+
+    st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧭 Navigation</h3>", unsafe_allow_html=True)
+
+    # MENU INTÉGRÉ avec TimeTracker
+    pages = {
+        "🏠 Tableau de Bord": "dashboard",
+        "📋 Liste des Projets": "liste",
+        "🤝 CRM": "crm_page",
+        "👥 Employés": "employees_page",
+        "🏭 Postes de Travail": "work_centers_page",        # NOUVEAU
+        "⚙️ Gammes Fabrication": "manufacturing_routes",    # NOUVEAU
+        "📊 Capacité Production": "capacity_analysis",      # NOUVEAU
+        "⏱️ TimeTracker": "timetracker_page",              # INTÉGRATION TIMETRACKER
+        "📦 Gestion Inventaire": "inventory_management",
+        "📊 Nomenclature (BOM)": "bom",
+        "🛠️ Itinéraire": "routing",
+        "📈 Vue Gantt": "gantt",
+        "📅 Calendrier": "calendrier",
+        "🔄 Kanban": "kanban",
+    }
+    
+    sel_page_key = st.sidebar.radio("Menu Principal:", list(pages.keys()), key="main_nav_radio")
+    page_to_show_val = pages[sel_page_key]
+
+    if page_to_show_val == "inventory_management":
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Actions Inventaire</h4>", unsafe_allow_html=True)
+        st.session_state.inv_action_mode = st.sidebar.radio(
+            "Mode:",
+            ["Voir Liste", "Ajouter Article", "Modifier Article"],
+            key="inv_action_mode_selector",
+            index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.inv_action_mode)
+        )
+
+    st.sidebar.markdown("---")
+
+    # Statistiques d'inventaire
+    current_inventory_data = st.session_state.inventory_data
+    if current_inventory_data:
+        st.sidebar.metric("Inventaire: Total Articles", len(current_inventory_data))
+        items_low_stock_count = sum(1 for item_id, item_data in current_inventory_data.items() if isinstance(item_data, dict) and item_data.get("statut") in ["FAIBLE", "CRITIQUE", "ÉPUISÉ"])
+        st.sidebar.metric("Inventaire: Stock Bas/Critique", items_low_stock_count)
+
+    # Statistiques des postes de travail dans la sidebar
+    update_sidebar_with_work_centers()
+
+    # INTÉGRATION TIMETRACKER : Statistiques dans la sidebar
+    if TIMETRACKER_AVAILABLE:
+        try:
+            if 'database_sync' not in st.session_state:
+                st.session_state.database_sync = DatabaseSync()
+            
+            tt_stats = st.session_state.database_sync.get_sync_statistics()
+            if tt_stats['employees'] > 0 or tt_stats['projects'] > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️ Aperçu TimeTracker</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("TimeTracker: Employés", tt_stats['employees'])
+                st.sidebar.metric("TimeTracker: Projets Sync", tt_stats['projects'])
+                if tt_stats['time_entries'] > 0:
+                    st.sidebar.metric("TimeTracker: Pointages", tt_stats['time_entries'])
+                if tt_stats['total_revenue'] > 0:
+                    st.sidebar.metric("TimeTracker: Revenus", f"{tt_stats['total_revenue']:,.0f}$")
+                
+                # Afficher le statut de la dernière synchronisation
+                if tt_stats['last_sync']:
+                    last_sync_date = tt_stats['last_sync'][:10]  # Juste la date
+                    st.sidebar.info(f"🔄 Dernière sync: {last_sync_date}")
+        except Exception:
+            pass  # Silencieux si TimeTracker pas encore configuré
+
+    # Statistiques projets
+    stats_sb_projects = get_project_statistics(st.session_state.gestionnaire)
+    if stats_sb_projects['total'] > 0:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Aperçu Projets</h3>", unsafe_allow_html=True)
+        st.sidebar.metric("Projets: Total", stats_sb_projects['total'])
+        st.sidebar.metric("Projets: Actifs", stats_sb_projects['projets_actifs'])
+        if stats_sb_projects['ca_total'] > 0:
+            st.sidebar.metric("Projets: CA Estimé", format_currency(stats_sb_projects['ca_total']))
+
+    # Statistiques CRM
+    crm_manager_sb = st.session_state.gestionnaire_crm
+    if crm_manager_sb.contacts or crm_manager_sb.entreprises:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Aperçu CRM</h3>", unsafe_allow_html=True)
+        st.sidebar.metric("CRM: Total Contacts", len(crm_manager_sb.contacts))
+        st.sidebar.metric("CRM: Total Entreprises", len(crm_manager_sb.entreprises))
+
+    # Statistiques RH
+    emp_manager_sb = st.session_state.gestionnaire_employes
+    if emp_manager_sb.employes:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Aperçu RH</h3>", unsafe_allow_html=True)
+        st.sidebar.metric("RH: Total Employés", len(emp_manager_sb.employes))
+        employes_actifs = len([emp for emp in emp_manager_sb.employes if emp.get('statut') == 'ACTIF'])
+        st.sidebar.metric("RH: Employés Actifs", employes_actifs)
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🏭 ERP Production DG Inc.</p></div>", unsafe_allow_html=True)
+
+    # NOUVELLES PAGES dans le switch avec TimeTracker
+    if page_to_show_val == "dashboard":
+        show_dashboard()
+    elif page_to_show_val == "liste":
+        show_liste_projets()
+    elif page_to_show_val == "crm_page":
+        show_crm_page()
+    elif page_to_show_val == "employees_page":
+        show_employees_page()
+    elif page_to_show_val == "work_centers_page":          # NOUVEAU
+        show_work_centers_page()
+    elif page_to_show_val == "manufacturing_routes":       # NOUVEAU
+        show_manufacturing_routes_page()
+    elif page_to_show_val == "capacity_analysis":          # NOUVEAU
+        show_capacity_analysis_page()
+    elif page_to_show_val == "timetracker_page":           # INTÉGRATION TIMETRACKER
+        if TIMETRACKER_AVAILABLE:
+            show_timetracker_interface()
+        else:
+            st.error("❌ TimeTracker non disponible. Veuillez créer les fichiers timetracker.py et database_sync.py")
+            st.info("📋 Consultez le plan d'intégration pour créer les modules manquants.")
+    elif page_to_show_val == "inventory_management":
+        show_inventory_management_page()
+    elif page_to_show_val == "bom":
+        show_nomenclature()
+    elif page_to_show_val == "routing":
+        show_itineraire()
+    elif page_to_show_val == "gantt":
+        show_gantt()
+    elif page_to_show_val == "calendrier":
+        show_calendrier()
+    elif page_to_show_val == "kanban":
+        show_kanban()
+
+    if st.session_state.get('show_project_modal'):
+        show_project_modal()
+
+def show_footer():
+    st.markdown("---")
+    footer_text = "🏭 ERP Production DG Inc. - 61 Postes de Travail • CRM • Inventaire"
+    if TIMETRACKER_AVAILABLE:
+        footer_text += " • ⏱️ TimeTracker"
+    
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>Transformé en véritable industrie 4.0</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        show_footer()
+    except Exception as e_main:
+        st.error(f"Une erreur majeure est survenue dans l'application: {str(e_main)}")
+        st.info("Veuillez essayer de rafraîchir la page ou de redémarrer l'application.")
+        import traceback
+        st.code(traceback.format_exc())
+
+# --- END OF FILE app.py ---
