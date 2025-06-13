@@ -1259,7 +1259,7 @@ def show_calendrier():
     st.markdown("## 📅 Vue Calendrier - SQLite")
 
 def show_kanban():
-    st.markdown("## 🔄 Vue Kanban - SQLite"
+    st.markdown("## 🔄 Vue Kanban - SQLite")
 
 def show_project_modal():
     """Affichage des détails d'un projet dans un expander"""
