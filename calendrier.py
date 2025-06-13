@@ -1,3 +1,6 @@
+# calendrier.py - Version SQLite Unifiée
+# ERP Production DG Inc. - Compatible avec architecture SQLite
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -6,48 +9,9 @@ import calendar
 import os
 import json
 
-# --- Classe GestionnaireProjetIA (intégrée pour rendre le fichier autonome) ---
-# NOTE: Cette classe est une copie de celle dans app.py pour la cohérence.
-class GestionnaireProjetIA:
-    def __init__(self):
-        self.data_file = "projets_data.json"
-        self.projets = []
-        self.next_id = 1
-        self.charger_projets()
-
-    def charger_projets(self):
-        try:
-            if os.path.exists(self.data_file):
-                with open(self.data_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.projets = data.get('projets', [])
-                    self.next_id = data.get('next_id', len(self.projets) + 1 if self.projets else 1)
-            else:
-                self.projets = self.get_demo_data()
-                self.next_id = len(self.projets) + 1
-        except Exception as e:
-            st.error(f"Erreur chargement projets: {e}")
-            self.projets = self.get_demo_data()
-            self.next_id = len(self.projets) + 1
-
-    def sauvegarder_projets(self):
-        try:
-            data = {'projets': self.projets, 'next_id': self.next_id, 'last_update': datetime.now().isoformat()}
-            with open(self.data_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            st.error(f"Erreur sauvegarde projets: {e}")
-
-    def get_demo_data(self):
-        now_iso = datetime.now().isoformat()
-        return [
-            {'id': 1, 'nom_projet': 'Site Web E-commerce', 'client_entreprise_id': 101, 'client_nom_cache': 'TechCorp Inc.', 'statut': 'EN COURS', 'priorite': 'ÉLEVÉ', 'tache': 'DÉVELOPPEMENT', 'date_soumis': '2024-01-15', 'date_prevu': '2024-03-15', 'bd_ft_estime': '120', 'prix_estime': '25000', 'description': 'Développement d\'une plateforme e-commerce complète avec paiement en ligne', 'sous_taches': [{'id': 1, 'nom': 'Design UI/UX', 'statut': 'TERMINÉ', 'date_debut': '2024-01-15', 'date_fin': '2024-01-30'}, {'id': 2, 'nom': 'Développement Frontend', 'statut': 'EN COURS', 'date_debut': '2024-02-01', 'date_fin': '2024-02-28'}, {'id': 3, 'nom': 'Intégration paiement', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-03-15'}], 'materiaux': [{'id': 1, 'code': 'LIC-001', 'designation': 'Licence SSL', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 150, 'fournisseur': 'SecureTech'}, {'id': 2, 'code': 'SRV-001', 'designation': 'Serveur Cloud', 'quantite': 12, 'unite': 'mois', 'prix_unitaire': 200, 'fournisseur': 'CloudProvider'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse des besoins', 'temps_estime': 16, 'ressource': 'Analyste', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Conception architecture', 'temps_estime': 24, 'ressource': 'Architecte', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Développement', 'temps_estime': 80, 'ressource': 'Développeurs', 'statut': 'EN COURS'}]},
-            {'id': 2, 'nom_projet': 'Application Mobile', 'client_entreprise_id': 102, 'client_nom_cache': 'StartupXYZ', 'statut': 'À FAIRE', 'priorite': 'MOYEN', 'tache': 'ESTIMATION', 'date_soumis': '2024-02-01', 'date_prevu': '2024-05-01', 'bd_ft_estime': '80', 'prix_estime': '18000', 'description': 'Application mobile native iOS et Android pour gestion de tâches', 'sous_taches': [{'id': 1, 'nom': 'Wireframes', 'statut': 'À FAIRE', 'date_debut': '2024-02-15', 'date_fin': '2024-02-28'}, {'id': 2, 'nom': 'Développement iOS', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}, {'id': 3, 'nom': 'Développement Android', 'statut': 'À FAIRE', 'date_debut': '2024-03-01', 'date_fin': '2024-04-15'}], 'materiaux': [{'id': 1, 'code': 'DEV-IOS', 'designation': 'Licence développeur iOS', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 99, 'fournisseur': 'Apple'}, {'id': 2, 'code': 'DEV-AND', 'designation': 'Licence développeur Android', 'quantite': 1, 'unite': 'pcs', 'prix_unitaire': 25, 'fournisseur': 'Google'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Spécifications techniques', 'temps_estime': 12, 'ressource': 'Analyste', 'statut': 'À FAIRE'}, {'id': 2, 'sequence': '20', 'description': 'Développement cross-platform', 'temps_estime': 60, 'ressource': 'Développeurs', 'statut': 'À FAIRE'}, {'id': 3, 'sequence': '30', 'description': 'Tests et déploiement', 'temps_estime': 8, 'ressource': 'Testeur', 'statut': 'À FAIRE'}]},
-            {'id': 3, 'nom_projet': 'Système CRM', 'client_entreprise_id': 103, 'client_nom_cache': 'MegaCorp Ltd', 'statut': 'TERMINÉ', 'priorite': 'ÉLEVÉ', 'tache': 'LIVRAISON', 'date_soumis': '2023-10-01', 'date_prevu': '2024-01-31', 'bd_ft_estime': '200', 'prix_estime': '45000', 'description': 'Système de gestion de relation client personnalisé avec intégrations', 'sous_taches': [{'id': 1, 'nom': 'Module contacts', 'statut': 'TERMINÉ', 'date_debut': '2023-10-15', 'date_fin': '2023-11-15'}, {'id': 2, 'nom': 'Module ventes', 'statut': 'TERMINÉ', 'date_debut': '2023-11-16', 'date_fin': '2023-12-15'}, {'id': 3, 'nom': 'Rapports et analytics', 'statut': 'TERMINÉ', 'date_debut': '2023-12-16', 'date_fin': '2024-01-31'}], 'materiaux': [{'id': 1, 'code': 'DB-001', 'designation': 'Base de données Enterprise', 'quantite': 1, 'unite': 'licence', 'prix_unitaire': 5000, 'fournisseur': 'DatabaseCorp'}, {'id': 2, 'code': 'INT-001', 'designation': 'API Intégrations', 'quantite': 5, 'unite': 'pcs', 'prix_unitaire': 200, 'fournisseur': 'IntegrationHub'}], 'operations': [{'id': 1, 'sequence': '10', 'description': 'Analyse détaillée', 'temps_estime': 40, 'ressource': 'Analyste Senior', 'statut': 'TERMINÉ'}, {'id': 2, 'sequence': '20', 'description': 'Développement modules', 'temps_estime': 120, 'ressource': 'Équipe Dev', 'statut': 'TERMINÉ'}, {'id': 3, 'sequence': '30', 'description': 'Tests et formation', 'temps_estime': 40, 'ressource': 'Consultant', 'statut': 'TERMINÉ'}]}
-        ]
-
-# --- Fin de la classe GestionnaireProjetIA ---
-
+# NOUVELLE ARCHITECTURE : Import SQLite Database et Gestionnaires
+from erp_database import ERPDatabase
+from app import GestionnaireProjetSQL  # Import depuis app.py
 
 def is_mobile_device():
     """Estimation si l'appareil est mobile basée sur la largeur de viewport."""
@@ -224,31 +188,6 @@ def display_mini_calendar(year, month, calendar_func, month_events, is_mobile=Fa
                     if has_events:
                         icons += "🔔 "
                     
-                    # Classe CSS pour le style
-                    button_style = """
-                    style="
-                        width: 100%;
-                        height: 100%;
-                        font-size: {font_size};
-                        font-weight: {font_weight};
-                        border-radius: 10px;
-                        border: {border};
-                        background: {bg_color};
-                        color: {text_color};
-                        box-shadow: {shadow};
-                        padding: 10px 5px;
-                        position: relative;
-                        transition: all 0.3s;
-                    "
-                    """.format(
-                        font_size="18px" if not is_mobile else "16px",
-                        font_weight="bold" if is_selected or has_events else "500",
-                        border="2px solid #b2d8d8" if is_today else "1px solid #e0e0e0",
-                        bg_color="linear-gradient(135deg, #a5d8ff 0%, #c8e6ff 100%)" if is_selected else "#ffffff",
-                        text_color="#0056b3" if is_selected else "#333333",
-                        shadow="0 4px 8px rgba(26, 115, 232, 0.2)" if is_selected else "0 2px 4px rgba(0, 0, 0, 0.05)"
-                    )
-                    
                     # Affichage du jour avec un style amélioré
                     day_display = f"{day}"
                     if has_events:
@@ -260,7 +199,7 @@ def display_mini_calendar(year, month, calendar_func, month_events, is_mobile=Fa
                     
                     if st.button(day_display, key=f"day_{year}_{month}_{day}", use_container_width=True):
                         st.session_state.selected_date = current_date
-                        st.experimental_rerun()
+                        st.rerun()
                     
                     # Superposer les icônes si nécessaire
                     if has_events or is_today or is_selected:
@@ -293,7 +232,7 @@ def display_mini_calendar(year, month, calendar_func, month_events, is_mobile=Fa
     st.markdown('</div>', unsafe_allow_html=True)
 
 def display_day_details(selected_date, month_events, is_mobile=False, gestionnaire=None):
-    """Affiche les détails du jour sélectionné avec adaptation mobile."""
+    """Affiche les détails du jour sélectionné avec adaptation mobile - VERSION SQLITE."""
     day_name_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
     day_name = day_name_fr[selected_date.weekday()]
     month_name = ["", "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", 
@@ -513,7 +452,7 @@ def display_day_details(selected_date, month_events, is_mobile=False, gestionnai
             
             if st.button("Voir les détails", use_container_width=is_mobile):
                 selected_proj_id = projects_ids[selected_proj_index]
-                # Trouver le projet dans les données
+                # Trouver le projet dans les données SQLite
                 projet = next((p for p in gestionnaire.projets if p.get('id') == selected_proj_id), None)
                 if projet:
                     st.session_state.selected_project_id = selected_proj_id
@@ -793,7 +732,7 @@ def get_month_calendar(year, month):
     return cal, days_of_week
 
 def get_events_for_month(year, month, gestionnaire):
-    """Récupère tous les événements pour le mois donné."""
+    """Récupère tous les événements pour le mois donné - VERSION SQLITE."""
     events = {}
     
     # Déterminer la plage de dates du mois
@@ -805,7 +744,7 @@ def get_events_for_month(year, month, gestionnaire):
     start_date_extended = start_date - timedelta(days=7)
     end_date_extended = end_date + timedelta(days=7)
     
-    # Parcourir les projets pour trouver les dates
+    # Parcourir les projets depuis SQLite
     for projet in gestionnaire.projets:
         proj_id = projet.get('id')
         proj_nom = projet.get('nom_projet', 'N/A')
@@ -844,7 +783,7 @@ def get_events_for_month(year, month, gestionnaire):
         except (ValueError, TypeError):
             pass
         
-        # Vérifier les sous-tâches
+        # Vérifier les sous-tâches (si disponibles dans SQLite)
         for st in projet.get('sous_taches', []):
             # Date début sous-tâche
             try:
@@ -883,6 +822,7 @@ def get_events_for_month(year, month, gestionnaire):
     return events
 
 def show_project_details():
+    """Affichage des détails d'un projet - VERSION SQLITE"""
     # Style amélioré pour les détails du projet
     st.markdown("""
     <style>
@@ -954,10 +894,9 @@ def show_project_details():
     </style>
     """, unsafe_allow_html=True)
     
-    # Récupérer le projet sélectionné
+    # Récupérer le projet sélectionné depuis SQLite
     projet_id = st.session_state.selected_project_id
     projet = st.session_state.selected_project
-    gestionnaire = st.session_state.gestionnaire
     
     # Entête du projet
     st.markdown(f"""
@@ -966,16 +905,21 @@ def show_project_details():
     </div>
     """, unsafe_allow_html=True)
     
-    tabs = st.tabs(["📊 Informations", "📝 Sous-tâches", "📎 Documents"])
+    tabs = st.tabs(["📊 Informations", "📝 Sous-tâches", "🔧 Opérations", "📦 Matériaux"])
     
     with tabs[0]:  # Informations
         col1, col2 = st.columns(2)
         
         with col1:
+            # Adaptation des champs SQLite
+            client_display = projet.get('client_nom_cache', 'N/A')
+            if client_display == 'N/A':
+                client_display = projet.get('client_legacy', 'N/A')
+            
             st.markdown(f"""
             <div class="info-card">
                 <div class="info-label">👤 Client:</div>
-                <div class="info-value">{projet.get('client', 'N/A')}</div>
+                <div class="info-value">{client_display}</div>
             </div>
             <div class="info-card">
                 <div class="info-label">🚦 Statut:</div>
@@ -1015,58 +959,12 @@ def show_project_details():
         st.markdown("<div class='info-label'>📝 Description:</div>", unsafe_allow_html=True)
         st.text_area("", value=projet.get('description', '(Aucune description)'), height=100, disabled=True, label_visibility="collapsed")
         st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Bouton pour analyser le projet avec l'IA
-        st.markdown("""
-        <style>
-        .ai-button {
-            background: linear-gradient(90deg, #c5e1a5 0%, #aed581 100%);
-            border: none;
-            padding: 10px 15px;
-            border-radius: 8px;
-            color: #33691e;
-            font-weight: bold;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: all 0.3s;
-        }
-        .ai-button:hover {
-            background: linear-gradient(90deg, #aed581 0%, #9ccc65 100%);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-            transform: translateY(-2px);
-        }
-        div.stButton > button:has(span:contains("Analyser")) {
-            background: linear-gradient(90deg, #c5e1a5 0%, #aed581 100%) !important;
-            color: #33691e !important;
-        }
-        div.stButton > button:has(span:contains("Analyser"))::before {
-            content: "🧠 " !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        ai_button_container = st.container()
-        with ai_button_container:
-            if st.button("Analyser avec IA", use_container_width=True):
-                if 'ai_assistant' in st.session_state and st.session_state.ai_assistant:
-                    with st.spinner("Analyse en cours..."):
-                        analyse = st.session_state.ai_assistant.analyze_project_data(projet)
-                        st.markdown("""
-                        <div style="background: linear-gradient(to right, #f0f7ff, #e6f3ff); 
-                                    padding: 15px; border-radius: 10px; 
-                                    border-left: 4px solid #4285f4;
-                                    box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-                        <h3 style="color: #4285f4; display: flex; align-items: center;"><span style="margin-right: 8px;">🧠</span> Analyse IA</h3>
-                        """, unsafe_allow_html=True)
-                        st.markdown(analyse)
-                        st.markdown("</div>", unsafe_allow_html=True)
-                else:
-                    st.warning("Assistant IA non disponible. Vérifiez la clé API.")
     
     with tabs[1]:  # Sous-tâches
         sous_taches = projet.get('sous_taches', [])
         
         if not sous_taches:
-            st.info("Aucune sous-tâche pour ce projet.")
+            st.info("Aucune sous-tâche pour ce projet en SQLite.")
         else:
             # Style pour le tableau des sous-tâches
             st.markdown("""
@@ -1112,25 +1010,56 @@ def show_project_details():
             
             st_df = pd.DataFrame(st_data)
             st.dataframe(st_df, use_container_width=True)
-    
-    with tabs[2]:  # Documents
-        documents = projet.get('documents', [])
+
+    with tabs[2]:  # Opérations (nouvelles depuis SQLite)
+        operations = projet.get('operations', [])
         
-        if not documents:
-            st.info("Aucun document lié à ce projet.")
+        if not operations:
+            st.info("Aucune opération pour ce projet en SQLite.")
         else:
-            # Tableau des documents
-            doc_data = []
-            for doc in documents:
-                doc_data.append({
-                    "Type": doc.get('type', 'N/A'),
-                    "Nom": doc.get('nom', 'N/A'),
-                    "Date": doc.get('date', 'N/A'),
-                    "Taille": doc.get('taille', 'N/A')
+            # Tableau des opérations
+            op_data = []
+            for op in operations:
+                op_data.append({
+                    "Séquence": op.get('sequence', '?'),
+                    "Description": op.get('description', 'N/A'),
+                    "Temps (h)": op.get('temps_estime', 0),
+                    "Ressource": op.get('ressource', 'N/A'),
+                    "Poste": op.get('poste_travail', 'N/A'),
+                    "Statut": op.get('statut', 'À FAIRE')
                 })
             
-            doc_df = pd.DataFrame(doc_data)
-            st.dataframe(doc_df, use_container_width=True)
+            op_df = pd.DataFrame(op_data)
+            st.dataframe(op_df, use_container_width=True)
+
+    with tabs[3]:  # Matériaux
+        materiaux = projet.get('materiaux', [])
+        
+        if not materiaux:
+            st.info("Aucun matériau lié à ce projet en SQLite.")
+        else:
+            # Tableau des matériaux
+            mat_data = []
+            total_cost = 0
+            for mat in materiaux:
+                qty = mat.get('quantite', 0) or 0
+                unit_price = mat.get('prix_unitaire', 0) or 0
+                total = qty * unit_price
+                total_cost += total
+                
+                mat_data.append({
+                    "Code": mat.get('code', 'N/A'),
+                    "Désignation": mat.get('designation', 'N/A'),
+                    "Quantité": f"{qty} {mat.get('unite', '')}",
+                    "Prix Unit.": f"{unit_price:.2f}€",
+                    "Total": f"{total:.2f}€",
+                    "Fournisseur": mat.get('fournisseur', 'N/A')
+                })
+            
+            mat_df = pd.DataFrame(mat_data)
+            st.dataframe(mat_df, use_container_width=True)
+            
+            st.info(f"💰 **Coût total matériaux:** {total_cost:.2f}€")
     
     # Bouton pour fermer
     st.markdown("""
@@ -1151,9 +1080,10 @@ def show_project_details():
     with st.container():
         if st.button("Fermer", use_container_width=True, key="btn_close_details"):
             st.session_state.show_project_details = False
-            st.experimental_rerun()
+            st.rerun()
 
 def app():
+    """Application calendrier principale - VERSION SQLITE UNIFIÉE"""
     # Style global de l'application
     st.markdown("""
     <style>
@@ -1240,13 +1170,20 @@ def app():
     """, unsafe_allow_html=True)
     
     # Titre avec style amélioré
-    st.markdown('<div class="main-title"><h1>📅 Vue Calendrier</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title"><h1>📅 Vue Calendrier - SQLite</h1></div>', unsafe_allow_html=True)
     
-    # Récupérer le gestionnaire des données de session
+    # NOUVELLE ARCHITECTURE : Initialisation avec SQLite
+    # Utiliser les gestionnaires de la session principale s'ils existent
+    if 'erp_db' not in st.session_state:
+        st.session_state.erp_db = ERPDatabase("erp_production_dg.db")
+    
     if 'gestionnaire' not in st.session_state:
-        st.session_state.gestionnaire = GestionnaireProjetIA()
+        st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
     
     gestionnaire = st.session_state.gestionnaire
+    
+    # Message de confirmation de l'architecture SQLite
+    st.success("🗄️ Calendrier utilise maintenant SQLite - Architecture unifiée !")
     
     # Initialiser la date sélectionnée si nécessaire
     if 'selected_date' not in st.session_state:
@@ -1293,9 +1230,24 @@ def app():
     <div style="background: linear-gradient(135deg, #e0f7fa 0%, #e8f5e9 100%); 
                 padding: 15px; border-radius: 10px; margin-bottom: 20px;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-        <h3 style="color: #333; text-align: center; margin: 0;">📌 Navigation</h3>
+        <h3 style="color: #333; text-align: center; margin: 0;">📌 Navigation SQLite</h3>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Statistiques SQLite dans la sidebar
+    try:
+        total_projects_sql = st.session_state.erp_db.get_table_count('projects')
+        total_companies = st.session_state.erp_db.get_table_count('companies')
+        
+        st.sidebar.markdown("#### 📊 Base SQLite")
+        st.sidebar.metric("Projets", total_projects_sql)
+        st.sidebar.metric("Entreprises", total_companies)
+        
+        if total_projects_sql == 0:
+            st.sidebar.warning("Base SQLite vide - Créez des projets depuis l'app principale")
+        
+    except Exception as e:
+        st.sidebar.error(f"Erreur stats SQLite: {e}")
     
     # Mois et année actuellement visibles
     current_month = st.session_state.view_month
@@ -1370,7 +1322,7 @@ def app():
                     st.session_state.view_year = current_year - 1
                 else:
                     st.session_state.view_month = current_month - 1
-                st.experimental_rerun()
+                st.rerun()
                 
         with nav_cols[1]:
             if st.button("📅 Aujourd'hui", key="today_mobile"):
@@ -1378,7 +1330,7 @@ def app():
                 st.session_state.view_month = today.month
                 st.session_state.view_year = today.year
                 st.session_state.selected_date = today
-                st.experimental_rerun()
+                st.rerun()
                 
         with nav_cols[2]:
             if st.button("▶️", key="next_month_mobile", help="Mois suivant"):
@@ -1387,7 +1339,7 @@ def app():
                     st.session_state.view_year = current_year + 1
                 else:
                     st.session_state.view_month = current_month + 1
-                st.experimental_rerun()
+                st.rerun()
     else:
         # Version desktop: navigation horizontale
         col1, col2, col3 = st.sidebar.columns([1, 2, 1])
@@ -1399,7 +1351,7 @@ def app():
                     st.session_state.view_year = current_year - 1
                 else:
                     st.session_state.view_month = current_month - 1
-                st.experimental_rerun()
+                st.rerun()
         
         with col2:
             st.markdown(f"""
@@ -1417,7 +1369,7 @@ def app():
                     st.session_state.view_year = current_year + 1
                 else:
                     st.session_state.view_month = current_month + 1
-                st.experimental_rerun()
+                st.rerun()
         
         # Bouton Aujourd'hui dans la sidebar pour version desktop
         if st.sidebar.button("📅 Aujourd'hui", key="today_desktop"):
@@ -1425,15 +1377,15 @@ def app():
             st.session_state.view_month = today.month
             st.session_state.view_year = today.year
             st.session_state.selected_date = today
-            st.experimental_rerun()
+            st.rerun()
     
-    # Récupérer les événements pour le mois en cours
+    # Récupérer les événements pour le mois en cours depuis SQLite
     month_events = get_events_for_month(current_year, current_month, gestionnaire)
     
     # Layout principal - adaptation mobile/desktop
     if is_mobile:
         # Sur mobile, calendrier et détails s'affichent en sections verticales
-        with st.expander("📅 Calendrier du mois", expanded=True):
+        with st.expander("📅 Calendrier du mois (SQLite)", expanded=True):
             display_mini_calendar(current_year, current_month, get_month_calendar, month_events, is_mobile=True)
             
         # Détails du jour sélectionné
@@ -1450,7 +1402,7 @@ def app():
             st.markdown("""
             <div style="background-color: #f7f9fc; padding: 12px; border-radius: 10px; margin-bottom: 20px; 
                        box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                <h3 style="text-align: center; color: #5c7cfa; margin: 0;">📅 Navigation</h3>
+                <h3 style="text-align: center; color: #5c7cfa; margin: 0;">📅 Navigation SQLite</h3>
             </div>
             """, unsafe_allow_html=True)
             display_mini_calendar(current_year, current_month, get_month_calendar, month_events)
