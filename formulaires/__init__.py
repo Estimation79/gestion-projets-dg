@@ -1,9 +1,9 @@
 # formulaires/__init__.py
-# Module Formulaires ERP Production DG Inc. - Version 2.0 COMPLÈTE CORRIGÉE
+# Module Formulaires ERP Production DG Inc. - Version 2.0 FINALE COMPLÈTE
 
 """
 Module Formulaires ERP Production DG Inc.
-Architecture modulaire complète avec tous les gestionnaires opérationnels.
+Architecture modulaire complète avec TOUS les gestionnaires opérationnels.
 """
 
 import streamlit as st
@@ -14,12 +14,12 @@ from datetime import datetime
 # Import de la classe principale
 from .core.base_gestionnaire import GestionnaireFormulaires
 
-# ✅ TOUS LES GESTIONNAIRES SPÉCIALISÉS OPÉRATIONNELS - CORRIGÉ
+# ✅ TOUS LES 5 GESTIONNAIRES SPÉCIALISÉS OPÉRATIONNELS - VERSION FINALE
 from .bons_travail import GestionnaireBonsTravail, render_bons_travail_tab
 from .bons_achats import GestionnaireBonsAchats, render_bons_achats_tab
-from .demandes_prix import GestionnaireDemandesPrix, render_demandes_prix_tab
-# 🔧 CORRECTION PRINCIPALE : Ajout import Bons de Commande
 from .bons_commande import GestionnaireBonsCommande, render_bons_commande_tab
+from .demandes_prix import GestionnaireDemandesPrix, render_demandes_prix_tab
+from .estimations import GestionnaireEstimations, render_estimations_tab  # 🎉 AJOUTÉ
 
 # Import des utilitaires (déjà complets)
 from .utils.helpers import formater_montant, formater_delai
@@ -28,12 +28,12 @@ from .core.types_formulaires import TYPES_FORMULAIRES
 
 def show_formulaires_page():
     """
-    Page principale du module Formulaires - VERSION CORRIGÉE.
+    Page principale du module Formulaires - VERSION FINALE COMPLÈTE.
     
-    CORRECTION : Tous les 4 modules principaux maintenant opérationnels !
+    🎉 TOUS LES 5 MODULES MAINTENANT OPÉRATIONNELS !
     """
     st.markdown("## 📑 Gestion des Formulaires - DG Inc.")
-    st.caption("*Architecture modulaire v2.0 - 4/5 MODULES OPÉRATIONNELS*")
+    st.caption("*Architecture modulaire v2.0 - 5/5 MODULES OPÉRATIONNELS*")
     
     # Initialisation du gestionnaire principal
     if 'gestionnaire_formulaires' not in st.session_state:
@@ -44,7 +44,7 @@ def show_formulaires_page():
     # Statistiques globales
     show_formulaires_dashboard(gestionnaire)
     
-    # ✅ CORRECTION : TOUS LES MODULES MAINTENANT OPÉRATIONNELS
+    # ✅ TOUS LES 5 MODULES MAINTENANT OPÉRATIONNELS
     tab_bt, tab_ba, tab_bc, tab_dp, tab_est = st.tabs([
         "🔧 Bons de Travail",
         "🛒 Bons d'Achats", 
@@ -61,7 +61,7 @@ def show_formulaires_page():
     with tab_ba:
         render_bons_achats_tab(gestionnaire)
     
-    # 🔧 CORRECTION PRINCIPALE : Module BC maintenant OPÉRATIONNEL !
+    # ✅ Module BC - OPÉRATIONNEL
     with tab_bc:
         render_bons_commande_tab(gestionnaire)
     
@@ -69,13 +69,13 @@ def show_formulaires_page():
     with tab_dp:
         render_demandes_prix_tab(gestionnaire)
     
-    # 🚧 Module EST - En finalisation (utilise encore legacy temporairement)
+    # 🎉 Module EST - MAINTENANT OPÉRATIONNEL !
     with tab_est:
-        _render_legacy_tab("ESTIMATION", gestionnaire, "📊 Estimations")
+        render_estimations_tab(gestionnaire)
 
 
 def show_formulaires_dashboard(gestionnaire):
-    """Dashboard des formulaires avec métriques globales - CORRIGÉ."""
+    """Dashboard des formulaires avec métriques globales - VERSION FINALE."""
     st.markdown("### 📊 Dashboard Formulaires")
     
     stats = gestionnaire.get_statistiques_formulaires()
@@ -84,15 +84,15 @@ def show_formulaires_dashboard(gestionnaire):
         st.info("Aucun formulaire créé. Commencez par créer votre premier document.")
         return
     
-    # Métriques principales avec statut des modules - CORRIGÉ
+    # Métriques principales avec TOUS les modules - VERSION FINALE
     col1, col2, col3, col4, col5 = st.columns(5)
     
     modules_status = {
         'BON_TRAVAIL': {'icon': '🔧', 'status': '✅', 'nom': 'Bons Travail'},
         'BON_ACHAT': {'icon': '🛒', 'status': '✅', 'nom': 'Bons Achats'},
-        'BON_COMMANDE': {'icon': '📦', 'status': '✅', 'nom': 'Bons Commande'},  # 🔧 CORRIGÉ
+        'BON_COMMANDE': {'icon': '📦', 'status': '✅', 'nom': 'Bons Commande'},
         'DEMANDE_PRIX': {'icon': '💰', 'status': '✅', 'nom': 'Demandes Prix'},
-        'ESTIMATION': {'icon': '📊', 'status': '🚧', 'nom': 'Estimations'}
+        'ESTIMATION': {'icon': '📊', 'status': '✅', 'nom': 'Estimations'}  # 🎉 MAINTENANT OPÉRATIONNEL
     }
     
     for i, (type_form, config) in enumerate(modules_status.items()):
@@ -105,17 +105,18 @@ def show_formulaires_dashboard(gestionnaire):
                 f"{config['status']} {config['icon']} {config['nom']}",
                 total,
                 delta=formater_montant(montant) if montant else None,
-                help=f"{'Module opérationnel' if config['status'] == '✅' else 'Module en finalisation'}"
+                help="Module opérationnel complet"
             )
     
-    # Message de statut - CORRIGÉ
-    st.success("🎉 **4/5 modules maintenant opérationnels !** BT ✅ + BA ✅ + BC ✅ + DP ✅")
+    # Message de statut - VERSION FINALE
+    st.success("🎉 **TOUS LES MODULES OPÉRATIONNELS !** BT ✅ + BA ✅ + BC ✅ + DP ✅ + EST ✅")
+    st.info("🚀 **Architecture modulaire complète** : Gestion intégrale des documents DG Inc.")
     
     # Graphiques optimisés
     col_g1, col_g2 = st.columns(2)
     
     with col_g1:
-        # Répartition par type avec statut migration
+        # Répartition par type avec statut complet
         types_data = []
         for type_form, config in modules_status.items():
             total = stats.get(type_form, {}).get('total', 0)
@@ -127,9 +128,11 @@ def show_formulaires_dashboard(gestionnaire):
         if types_data:
             df_types = pd.DataFrame(types_data)
             fig = px.pie(df_types, values='Nombre', names='Type', 
-                        title="📊 Répartition par Type (✅=Opérationnel, 🚧=Finalisation)")
+                        title="📊 Répartition par Type (✅=Opérationnel)")
             fig.update_layout(showlegend=True, height=400)
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Créez vos premiers documents pour voir les statistiques.")
     
     with col_g2:
         # Évolution avec indicateurs de performance
@@ -150,58 +153,58 @@ def show_formulaires_dashboard(gestionnaire):
                         title="📈 Documents par Statut")
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
-
-
-def _render_legacy_tab(type_formulaire, gestionnaire, titre):
-    """Interface temporaire pour le dernier module en finalisation (Estimations)."""
-    st.markdown(f"### {titre}")
+        else:
+            st.info("Données des statuts disponibles après création de documents.")
     
-    st.warning(f"""
-    🚧 **Module en finalisation**
-    
-    Ce module sera disponible dans la prochaine mise à jour.
-    
-    **Modules maintenant opérationnels :**
-    - ✅ Bons de Travail (complet)
-    - ✅ Bons d'Achats (complet avec réappro auto)
-    - ✅ Bons de Commande (complet avec suivi livraison)  # 🔧 CORRIGÉ
-    - ✅ Demandes de Prix (RFQ multi-fournisseurs)
-    
-    **En cours de finalisation :**
-    - 🚧 Estimations (80% terminé)
-    """)
-    
-    documents = gestionnaire.get_formulaires(type_formulaire)
-    
-    if documents:
-        st.markdown(f"##### 📋 {len(documents)} document(s) existant(s)")
-        for doc in documents[:3]:
-            with st.expander(f"{doc['numero_document']} - {doc.get('company_nom', 'N/A')}"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.text(f"Statut: {doc['statut']}")
-                    st.text(f"Date: {doc['date_creation'][:10] if doc['date_creation'] else 'N/A'}")
-                with col2:
-                    st.text(f"Montant: {formater_montant(doc.get('montant_total', 0))}")
-                    st.text(f"Responsable: {doc.get('employee_nom', 'N/A')}")
+    # NOUVEAU : Métriques avancées avec tous les modules
+    if any(stats.values()):
+        st.markdown("---")
+        st.markdown("### 💼 Métriques Avancées")
         
-        if len(documents) > 3:
-            st.info(f"... et {len(documents) - 3} autre(s) document(s)")
-    else:
-        st.info(f"Aucun {titre.lower()} créé.")
-    
-    # Actions de base
-    col_action1, col_action2 = st.columns(2)
-    with col_action1:
-        if st.button(f"📋 Voir Tous les {titre}", key=f"view_all_{type_formulaire}"):
-            st.info("Fonctionnalité disponible après finalisation du module")
-    
-    with col_action2:
-        if st.button(f"➕ Créer {titre}", key=f"create_{type_formulaire}"):
-            st.info("Utilisez temporairement l'ancien formulaire en attendant la finalisation")
+        col_av1, col_av2, col_av3, col_av4 = st.columns(4)
+        
+        with col_av1:
+            # Total CA tous types
+            ca_total = sum(
+                type_stats.get('montant_total', 0) 
+                for type_stats in stats.values() 
+                if isinstance(type_stats, dict)
+            )
+            st.metric("💰 CA Total Documents", f"{ca_total:,.0f}$ CAD")
+        
+        with col_av2:
+            # Documents en cours
+            docs_actifs = sum(
+                len(type_stats.get('par_statut', {}).get('VALIDÉ', [])) + 
+                len(type_stats.get('par_statut', {}).get('ENVOYÉ', []))
+                for type_stats in stats.values() 
+                if isinstance(type_stats, dict)
+            )
+            st.metric("📄 Documents Actifs", docs_actifs)
+        
+        with col_av3:
+            # Taux de completion globale
+            total_docs = sum(
+                type_stats.get('total', 0) 
+                for type_stats in stats.values() 
+                if isinstance(type_stats, dict)
+            )
+            docs_termines = sum(
+                len(type_stats.get('par_statut', {}).get('TERMINÉ', []))
+                for type_stats in stats.values() 
+                if isinstance(type_stats, dict)
+            )
+            taux_completion = (docs_termines / total_docs * 100) if total_docs > 0 else 0
+            st.metric("📈 Taux Completion", f"{taux_completion:.1f}%")
+        
+        with col_av4:
+            # Efficacité module (documents par module actif)
+            modules_actifs = sum(1 for config in modules_status.values() if config['status'] == '✅')
+            efficacite = total_docs / modules_actifs if modules_actifs > 0 else 0
+            st.metric("⚡ Efficacité Modules", f"{efficacite:.1f} docs/module")
 
 
-# Exports principaux - CORRIGÉS
+# Exports principaux - VERSION FINALE COMPLÈTE
 __all__ = [
     # Fonction principale
     'show_formulaires_page',
@@ -209,17 +212,19 @@ __all__ = [
     # Gestionnaire principal
     'GestionnaireFormulaires',
     
-    # ✅ Gestionnaires spécialisés opérationnels - CORRIGÉ
+    # ✅ TOUS LES 5 GESTIONNAIRES SPÉCIALISÉS OPÉRATIONNELS
     'GestionnaireBonsTravail',
     'GestionnaireBonsAchats',
-    'GestionnaireBonsCommande',      # 🔧 AJOUTÉ
+    'GestionnaireBonsCommande',
     'GestionnaireDemandesPrix',
+    'GestionnaireEstimations',      # 🎉 AJOUTÉ
     
-    # ✅ Interfaces opérationnelles - CORRIGÉ
+    # ✅ TOUTES LES 5 INTERFACES OPÉRATIONNELLES
     'render_bons_travail_tab',
     'render_bons_achats_tab',
-    'render_bons_commande_tab',      # 🔧 AJOUTÉ
+    'render_bons_commande_tab',
     'render_demandes_prix_tab',
+    'render_estimations_tab',       # 🎉 AJOUTÉ
     
     # Utilitaires
     'formater_montant',
@@ -227,7 +232,7 @@ __all__ = [
     'TYPES_FORMULAIRES'
 ]
 
-# Métadonnées du module principal - CORRIGÉES
-__version__ = "2.0.1"
+# Métadonnées du module principal - VERSION FINALE
+__version__ = "2.0.0"
 __author__ = "DG Inc. ERP Team"
-__description__ = "Module Formulaires ERP - 4/5 modules opérationnels"  # 🔧 CORRIGÉ
+__description__ = "Module Formulaires ERP - 5/5 modules opérationnels - ARCHITECTURE COMPLÈTE"
