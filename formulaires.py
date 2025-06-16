@@ -3047,12 +3047,1811 @@ def render_rapports_bon_commande(gestionnaire):
     # Spécificités: Conversion Bon d'Achats → Bon de Commande, envoi fournisseurs, suivi livraisons
 
 def render_demandes_prix_tab(gestionnaire):
-    """Interface pour les Demandes de Prix"""
-    st.markdown("### 💰 Demandes de Prix")
-    st.info("🚧 Interface Demandes de Prix - En développement")
+    """Interface complète pour les Demandes de Prix - RFQ Multi-Fournisseurs"""
+    st.markdown("### 💰 Demandes de Prix (RFQ)")
     
-    # TODO: RFQ vers multiples fournisseurs
-    # Spécificités: Comparaison offres, négociation, validation technique
+    # Alerte pour négociations en cours
+    demandes_actives = get_demandes_prix_actives(gestionnaire)
+    if demandes_actives:
+        st.info(f"💡 {len(demandes_actives)} Demande(s) de Prix en cours de négociation")
+    
+    # Actions spécifiques DP
+    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
+    with col_action1:
+        if st.button("➕ Nouvelle Demande Prix", use_container_width=True, key="dp_nouveau"):
+            st.session_state.form_action = "create_demande_prix"
+    with col_action2:
+        if st.button("📋 Demandes Actives", use_container_width=True, key="dp_liste"):
+            st.session_state.form_action = "list_demandes_actives"
+    with col_action3:
+        if st.button("📊 Comparer Offres", use_container_width=True, key="dp_comparer"):
+            st.session_state.form_action = "compare_offers"
+    with col_action4:
+        if st.button("🏆 Sélectionner Gagnant", use_container_width=True, key="dp_selection"):
+            st.session_state.form_action = "select_winner"
+    
+    # Actions secondaires
+    col_action5, col_action6, col_action7, col_action8 = st.columns(4)
+    with col_action5:
+        if st.button("📊 Statistiques", use_container_width=True, key="dp_stats"):
+            st.session_state.form_action = "stats_demande_prix"
+    with col_action6:
+        if st.button("📋 Historique RFQ", use_container_width=True, key="dp_historique"):
+            st.session_state.form_action = "historique_rfq"
+    with col_action7:
+        if st.button("⚙️ Templates DP", use_container_width=True, key="dp_templates"):
+            st.session_state.form_action = "templates_demande_prix"
+    with col_action8:
+        if st.button("📈 Performance", use_container_width=True, key="dp_performance"):
+            st.session_state.form_action = "performance_fournisseurs"
+    
+    # Affichage selon l'action
+    action = st.session_state.get('form_action', 'list_demandes_actives')
+    
+    if action == "create_demande_prix":
+        render_demande_prix_form(gestionnaire)
+    elif action == "list_demandes_actives":
+        render_demande_prix_list(gestionnaire)
+    elif action == "compare_offers":
+        render_compare_offers(gestionnaire)
+    elif action == "select_winner":
+        render_select_winner(gestionnaire)
+    elif action == "stats_demande_prix":
+        render_demande_prix_stats(gestionnaire)
+    elif action == "historique_rfq":
+        render_historique_rfq(gestionnaire)
+    elif action == "templates_demande_prix":
+        render_templates_demande_prix(gestionnaire)
+    elif action == "performance_fournisseurs":
+        render_performance_fournisseurs(gestionnaire)
+
+# =============================================================================
+# FORMULAIRE CRÉATION DEMANDE DE PRIX
+# =============================================================================
+
+def render_demande_prix_form(gestionnaire):
+    """Formulaire de création de Demande de Prix - RFQ Multi-Fournisseurs"""
+    st.markdown("#### ➕ Nouvelle Demande de Prix (RFQ)")
+    
+    with st.form("demande_prix_form", clear_on_submit=True):
+        # En-tête du formulaire
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            numero_dp = gestionnaire.generer_numero_document('DEMANDE_PRIX')
+            st.text_input("N° Demande de Prix", value=numero_dp, disabled=True)
+            
+            # Employé responsable
+            employes = get_employes_actifs()
+            employe_options = [("", "Sélectionner un responsable")] + [(e['id'], f"{e['prenom']} {e['nom']} - {e['poste']}") for e in employes]
+            employe_id = st.selectbox(
+                "Responsable RFQ *",
+                options=[e[0] for e in employe_options],
+                format_func=lambda x: next((e[1] for e in employe_options if e[0] == x), "")
+            )
+            
+            date_creation = st.date_input("Date de Création", datetime.now().date())
+        
+        with col2:
+            priorite = st.selectbox("Priorité", gestionnaire.priorites, index=0)
+            
+            # Projet associé (optionnel)
+            projets = get_projets_actifs()
+            if projets:
+                projet_options = [("", "Aucun projet associé")] + [(p['id'], f"#{p['id']} - {p['nom_projet']}") for p in projets]
+                projet_id = st.selectbox(
+                    "Projet Associé (optionnel)",
+                    options=[p[0] for p in projet_options],
+                    format_func=lambda x: next((p[1] for p in projet_options if p[0] == x), "")
+                )
+            else:
+                projet_id = None
+            
+            date_echeance_reponse = st.date_input("Date Limite Réponses", datetime.now().date() + timedelta(days=7))
+        
+        # SPÉCIFICITÉS DP - PARAMÈTRES DE L'APPEL D'OFFRES
+        st.markdown("##### 🎯 Paramètres de l'Appel d'Offres")
+        col_rfq1, col_rfq2 = st.columns(2)
+        
+        with col_rfq1:
+            type_rfq = st.selectbox("Type d'Appel d'Offres", 
+                ["Ouvert", "Restreint", "Négocié", "Urgente"])
+            delai_reponse = st.number_input("Délai Réponse (jours)", 
+                min_value=1, value=7, max_value=30)
+            mode_evaluation = st.selectbox("Mode d'Évaluation",
+                ["Prix seul", "Offre économiquement avantageuse", "Qualité-Prix", "Technique"])
+        
+        with col_rfq2:
+            validite_offre = st.number_input("Validité Offre (jours)", 
+                min_value=15, value=30, max_value=90)
+            conditions_participation = st.text_input("Conditions Participation",
+                placeholder="Ex: Certification ISO 9001 requise")
+            langue_reponse = st.selectbox("Langue des Réponses", ["Français", "Anglais", "Bilingue"])
+        
+        # CRITÈRES D'ÉVALUATION AVEC PONDÉRATIONS
+        st.markdown("##### ⚖️ Critères d'Évaluation et Pondérations")
+        st.info("💡 Les pondérations doivent totaliser 100%")
+        
+        col_crit1, col_crit2, col_crit3 = st.columns(3)
+        
+        with col_crit1:
+            critere_prix = st.checkbox("Prix", value=True)
+            ponderation_prix = st.slider("Pondération Prix (%)", 0, 100, 40, disabled=not critere_prix)
+        
+        with col_crit2:
+            critere_delai = st.checkbox("Délai de Livraison", value=True)
+            ponderation_delai = st.slider("Pondération Délai (%)", 0, 100, 30, disabled=not critere_delai)
+        
+        with col_crit3:
+            critere_qualite = st.checkbox("Qualité Fournisseur", value=True)
+            ponderation_qualite = st.slider("Pondération Qualité (%)", 0, 100, 30, disabled=not critere_qualite)
+        
+        # Autres critères optionnels
+        col_crit4, col_crit5 = st.columns(2)
+        with col_crit4:
+            critere_proximite = st.checkbox("Proximité Géographique")
+            ponderation_proximite = st.slider("Pondération Proximité (%)", 0, 100, 0, disabled=not critere_proximite)
+        
+        with col_crit5:
+            critere_experience = st.checkbox("Expérience Secteur")
+            ponderation_experience = st.slider("Pondération Expérience (%)", 0, 100, 0, disabled=not critere_experience)
+        
+        # Validation des pondérations
+        total_ponderation = ponderation_prix + ponderation_delai + ponderation_qualite + ponderation_proximite + ponderation_experience
+        
+        if total_ponderation != 100:
+            st.error(f"⚠️ Total des pondérations : {total_ponderation}% (doit être 100%)")
+        else:
+            st.success(f"✅ Total des pondérations : {total_ponderation}%")
+        
+        # SÉLECTION MULTIPLE FOURNISSEURS (NOUVEAUTÉ VS BA/BC)
+        st.markdown("##### 🏢 Sélection des Fournisseurs (Multi-sélection)")
+        
+        fournisseurs_disponibles = get_fournisseurs_actifs()
+        
+        if not fournisseurs_disponibles:
+            st.error("❌ Aucun fournisseur disponible. Veuillez d'abord ajouter des fournisseurs dans le CRM.")
+        else:
+            # Interface de sélection avancée
+            col_fourn1, col_fourn2 = st.columns(2)
+            
+            with col_fourn1:
+                # Filtre par secteur
+                secteurs_disponibles = list(set([f.get('secteur', 'N/A') for f in fournisseurs_disponibles if f.get('secteur')]))
+                filtre_secteur = st.multiselect("Filtrer par Secteur", 
+                    ['Tous'] + secteurs_disponibles, default=['Tous'])
+                
+                # Application du filtre
+                if 'Tous' in filtre_secteur:
+                    fournisseurs_filtres = fournisseurs_disponibles
+                else:
+                    fournisseurs_filtres = [f for f in fournisseurs_disponibles if f.get('secteur') in filtre_secteur]
+            
+            with col_fourn2:
+                # Sélection recommandée automatique
+                if st.button("🎯 Sélection Automatique Recommandée", key="dp_selection_auto"):
+                    # Sélectionner automatiquement 3-4 meilleurs fournisseurs
+                    fournisseurs_auto = select_fournisseurs_recommandes(fournisseurs_filtres, 4)
+                    st.session_state.fournisseurs_auto_selected = [f['id'] for f in fournisseurs_auto]
+            
+            # Multi-sélection des fournisseurs
+            fournisseurs_preselected = st.session_state.get('fournisseurs_auto_selected', [])
+            
+            fournisseurs_selectionnes = st.multiselect(
+                "Fournisseurs Invités (3-5 recommandés) *",
+                options=[f['id'] for f in fournisseurs_filtres],
+                default=fournisseurs_preselected,
+                format_func=lambda x: next((f"{f['nom']} - {f['secteur']} - {get_note_fournisseur(f)}/10" for f in fournisseurs_filtres if f['id'] == x), ""),
+                help="Sélectionnez 3 à 5 fournisseurs pour obtenir des prix compétitifs"
+            )
+            
+            # Validation nombre fournisseurs
+            nb_fournisseurs = len(fournisseurs_selectionnes)
+            if nb_fournisseurs < 2:
+                st.warning("⚠️ Il est recommandé de sélectionner au moins 2 fournisseurs pour la concurrence")
+            elif nb_fournisseurs > 6:
+                st.warning("⚠️ Plus de 6 fournisseurs peut compliquer l'évaluation des offres")
+            else:
+                st.success(f"✅ {nb_fournisseurs} fournisseur(s) sélectionné(s) - Configuration optimale")
+            
+            # Affichage des fournisseurs sélectionnés
+            if fournisseurs_selectionnes:
+                st.markdown("**Fournisseurs sélectionnés pour cette RFQ :**")
+                for fourn_id in fournisseurs_selectionnes:
+                    fournisseur = next((f for f in fournisseurs_filtres if f['id'] == fourn_id), None)
+                    if fournisseur:
+                        col_info, col_note = st.columns([3, 1])
+                        with col_info:
+                            st.text(f"• {fournisseur['nom']} - {fournisseur.get('secteur', 'N/A')}")
+                        with col_note:
+                            note = get_note_fournisseur(fournisseur)
+                            color = "🟢" if note >= 8 else "🟡" if note >= 6 else "🔴"
+                            st.text(f"{color} {note}/10")
+        
+        # DESCRIPTION ET SPÉCIFICATIONS TECHNIQUES
+        st.markdown("##### 📋 Description et Spécifications")
+        
+        objet_rfq = st.text_input("Objet de la RFQ *", 
+            placeholder="Ex: Fourniture matières premières aluminium - Projet XYZ")
+        
+        description_detaillee = st.text_area("Description Détaillée *", height=120,
+            placeholder="Décrivez précisément les produits/services demandés, les spécifications techniques, les quantités, etc.")
+        
+        # Spécifications techniques
+        col_spec1, col_spec2 = st.columns(2)
+        with col_spec1:
+            specifications_techniques = st.text_area("Spécifications Techniques",
+                placeholder="Normes, dimensions, matériaux, certifications requises...")
+        
+        with col_spec2:
+            documents_joints = st.text_area("Documents à Joindre",
+                placeholder="Plans, cahier des charges, échantillons...")
+            
+            livraison_lieu = st.text_input("Lieu de Livraison",
+                value="DG Inc. - 123 Rue Industrielle, Montréal")
+        
+        # ARTICLES À COMMANDER (similaire BA/BC mais pour RFQ)
+        st.markdown("##### 📦 Articles/Services Demandés")
+        
+        # Interface pour saisie des articles
+        col_desc, col_qty, col_unit, col_spec, col_delai = st.columns([3, 1, 1, 2, 1])
+        with col_desc:
+            st.markdown("**Description**")
+        with col_qty:
+            st.markdown("**Quantité**")
+        with col_unit:
+            st.markdown("**Unité**")
+        with col_spec:
+            st.markdown("**Spécifications**")
+        with col_delai:
+            st.markdown("**Délai Max**")
+        
+        articles_rfq = []
+        for i in range(6):  # 6 lignes pour RFQ
+            col_desc, col_qty, col_unit, col_spec, col_delai = st.columns([3, 1, 1, 2, 1])
+            
+            with col_desc:
+                desc = st.text_input("", key=f"rfq_desc_{i}", placeholder="Description article/service")
+            with col_qty:
+                qty = st.number_input("", min_value=0.0, key=f"rfq_qty_{i}", format="%.2f", step=1.0)
+            with col_unit:
+                unite = st.selectbox("", ["UN", "KG", "M", "M²", "M³", "L", "H", "SERVICE"], 
+                                   key=f"rfq_unit_{i}", index=0)
+            with col_spec:
+                spec = st.text_input("", key=f"rfq_spec_{i}", placeholder="Spécifications particulières")
+            with col_delai:
+                delai_max = st.number_input("", min_value=0, key=f"rfq_delai_{i}", value=14, step=1)
+            
+            if desc and qty > 0:
+                articles_rfq.append({
+                    'description': desc,
+                    'quantite': qty,
+                    'unite': unite,
+                    'specifications': spec,
+                    'delai_maximum': delai_max,
+                    'prix_unitaire': 0.0  # Sera rempli par les fournisseurs
+                })
+        
+        # CONDITIONS COMMERCIALES RFQ
+        st.markdown("##### 💼 Conditions Commerciales")
+        
+        col_comm1, col_comm2 = st.columns(2)
+        with col_comm1:
+            conditions_paiement_souhaitees = st.selectbox("Conditions Paiement Souhaitées",
+                ["30 jours net", "45 jours net", "60 jours net", "15 jours net", "À réception"])
+            
+            garantie_demandee = st.text_input("Garantie Demandée",
+                placeholder="Ex: 12 mois pièces et main d'œuvre")
+            
+            incoterm = st.selectbox("Incoterm", ["DDP", "DAP", "FCA", "EXW", "CIF", "FOB"])
+        
+        with col_comm2:
+            devise_souhaitee = st.selectbox("Devise", ["CAD", "USD", "EUR"])
+            
+            validite_prix = st.number_input("Validité Prix (jours)", min_value=30, value=60)
+            
+            penalites_retard = st.text_input("Pénalités Retard",
+                placeholder="Ex: 0.5% par jour de retard")
+        
+        # PROCÉDURE DE RÉPONSE
+        st.markdown("##### 📤 Procédure de Réponse")
+        
+        col_proc1, col_proc2 = st.columns(2)
+        with col_proc1:
+            format_reponse = st.selectbox("Format de Réponse", 
+                ["Email avec devis PDF", "Plateforme en ligne", "Formulaire structuré", "Présentation"])
+            
+            visite_site = st.checkbox("Visite du Site Requise")
+            
+            reunion_clarification = st.checkbox("Réunion de Clarification")
+        
+        with col_proc2:
+            remise_echantillons = st.checkbox("Remise d'Échantillons")
+            
+            demonstration = st.checkbox("Démonstration/Présentation")
+            
+            contact_technique = st.text_input("Contact Technique",
+                placeholder="Nom et coordonnées pour questions techniques")
+        
+        # CRITÈRES DE SÉLECTION DÉTAILLÉS
+        st.markdown("##### 🎯 Critères de Sélection Détaillés")
+        
+        criteres_techniques = st.text_area("Critères Techniques",
+            placeholder="Spécifications techniques obligatoires, certifications requises...")
+        
+        criteres_commerciaux = st.text_area("Critères Commerciaux", 
+            placeholder="Conditions de paiement, garanties, service après-vente...")
+        
+        criteres_exclusion = st.text_area("Critères d'Exclusion",
+            placeholder="Motifs d'exclusion automatique des offres...")
+        
+        # NOTES ET INSTRUCTIONS SPÉCIALES
+        notes_rfq = st.text_area("Notes et Instructions Spéciales", height=80,
+            placeholder="Instructions particulières, contexte du projet, contraintes spécifiques...")
+        
+        # RÉCAPITULATIF DE LA RFQ
+        if articles_rfq and fournisseurs_selectionnes and total_ponderation == 100:
+            st.markdown(f"""
+            <div style='background:#f0f9ff;padding:1rem;border-radius:8px;border-left:4px solid #3b82f6;'>
+                <h5 style='color:#1e40af;margin:0;'>📊 Récapitulatif de la RFQ</h5>
+                <p style='margin:0.5rem 0 0 0;'><strong>N° RFQ :</strong> {numero_dp}</p>
+                <p style='margin:0;'><strong>Fournisseurs invités :</strong> {len(fournisseurs_selectionnes)}</p>
+                <p style='margin:0;'><strong>Articles/Services :</strong> {len(articles_rfq)}</p>
+                <p style='margin:0;'><strong>Délai réponse :</strong> {delai_reponse} jours</p>
+                <p style='margin:0;'><strong>Évaluation :</strong> Prix({ponderation_prix}%), Délai({ponderation_delai}%), Qualité({ponderation_qualite}%)</p>
+                <p style='margin:0;'><strong>Date limite :</strong> {date_echeance_reponse.strftime('%d/%m/%Y')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # BOUTONS DE SOUMISSION
+        st.markdown("---")
+        col_submit1, col_submit2, col_submit3 = st.columns(3)
+        
+        with col_submit1:
+            submit_brouillon = st.form_submit_button("💾 Sauver comme Brouillon", use_container_width=True, key="dp_submit_brouillon")
+        with col_submit2:
+            submit_valide = st.form_submit_button("✅ Créer et Valider", use_container_width=True, key="dp_submit_valide")
+        with col_submit3:
+            submit_envoyer = st.form_submit_button("📤 Créer et Envoyer RFQ", use_container_width=True, key="dp_submit_envoyer")
+        
+        # TRAITEMENT DE LA SOUMISSION
+        if submit_brouillon or submit_valide or submit_envoyer:
+            # Validation des champs obligatoires
+            erreurs = []
+            
+            if not employe_id:
+                erreurs.append("Responsable RFQ obligatoire")
+            if not objet_rfq:
+                erreurs.append("Objet de la RFQ obligatoire")
+            if not description_detaillee:
+                erreurs.append("Description détaillée obligatoire")
+            if not fournisseurs_selectionnes:
+                erreurs.append("Au moins 1 fournisseur doit être sélectionné")
+            if len(fournisseurs_selectionnes) < 2 and not submit_brouillon:
+                erreurs.append("Au moins 2 fournisseurs recommandés pour RFQ officielle")
+            if not articles_rfq:
+                erreurs.append("Au moins un article/service doit être ajouté")
+            if total_ponderation != 100:
+                erreurs.append("Les pondérations doivent totaliser 100%")
+            
+            if erreurs:
+                st.error("❌ Erreurs de validation :")
+                for erreur in erreurs:
+                    st.error(f"• {erreur}")
+            else:
+                # Déterminer le statut selon le bouton
+                if submit_brouillon:
+                    statut = 'BROUILLON'
+                elif submit_envoyer:
+                    statut = 'ENVOYÉ'
+                else:
+                    statut = 'VALIDÉ'
+                
+                # Construction des critères d'évaluation
+                criteres_evaluation = {
+                    'prix': {'actif': critere_prix, 'ponderation': ponderation_prix},
+                    'delai': {'actif': critere_delai, 'ponderation': ponderation_delai},
+                    'qualite': {'actif': critere_qualite, 'ponderation': ponderation_qualite},
+                    'proximite': {'actif': critere_proximite, 'ponderation': ponderation_proximite},
+                    'experience': {'actif': critere_experience, 'ponderation': ponderation_experience}
+                }
+                
+                # Métadonnées RFQ complètes
+                metadonnees_rfq = {
+                    'type_rfq': type_rfq,
+                    'delai_reponse': delai_reponse,
+                    'mode_evaluation': mode_evaluation,
+                    'validite_offre': validite_offre,
+                    'conditions_participation': conditions_participation,
+                    'langue_reponse': langue_reponse,
+                    'criteres_evaluation': criteres_evaluation,
+                    'fournisseurs_invites': fournisseurs_selectionnes,
+                    'specifications_techniques': specifications_techniques,
+                    'documents_joints': documents_joints,
+                    'livraison_lieu': livraison_lieu,
+                    'conditions_commerciales': {
+                        'paiement': conditions_paiement_souhaitees,
+                        'garantie': garantie_demandee,
+                        'incoterm': incoterm,
+                        'devise': devise_souhaitee,
+                        'validite_prix': validite_prix,
+                        'penalites_retard': penalites_retard
+                    },
+                    'procedure_reponse': {
+                        'format': format_reponse,
+                        'visite_site': visite_site,
+                        'reunion_clarification': reunion_clarification,
+                        'remise_echantillons': remise_echantillons,
+                        'demonstration': demonstration,
+                        'contact_technique': contact_technique
+                    },
+                    'criteres_selection': {
+                        'techniques': criteres_techniques,
+                        'commerciaux': criteres_commerciaux,
+                        'exclusion': criteres_exclusion
+                    }
+                }
+                
+                # Construction des notes complètes
+                notes_completes = f"""=== DEMANDE DE PRIX (RFQ) ===
+Objet : {objet_rfq}
+Type : {type_rfq}
+Mode d'évaluation : {mode_evaluation}
+
+=== DESCRIPTION ===
+{description_detaillee}
+
+=== SPÉCIFICATIONS TECHNIQUES ===
+{specifications_techniques or 'Voir articles détaillés'}
+
+=== FOURNISSEURS INVITÉS ===
+{len(fournisseurs_selectionnes)} fournisseur(s) sélectionné(s)
+
+=== CRITÈRES D'ÉVALUATION ===
+Prix : {ponderation_prix}%
+Délai : {ponderation_delai}%
+Qualité : {ponderation_qualite}%
+Proximité : {ponderation_proximite}%
+Expérience : {ponderation_experience}%
+
+=== CONDITIONS COMMERCIALES ===
+Paiement : {conditions_paiement_souhaitees}
+Garantie : {garantie_demandee or 'Standard'}
+Incoterm : {incoterm}
+Devise : {devise_souhaitee}
+Validité prix : {validite_prix} jours
+
+=== CRITÈRES TECHNIQUES ===
+{criteres_techniques or 'Voir spécifications articles'}
+
+=== CRITÈRES COMMERCIAUX ===
+{criteres_commerciaux or 'Conditions standard'}
+
+=== CRITÈRES D\'EXCLUSION ===
+{criteres_exclusion or 'Aucun critère d\'exclusion spécifique'}
+
+=== PROCÉDURE DE RÉPONSE ===
+Format : {format_reponse}
+Visite site : {'Requise' if visite_site else 'Non requise'}
+Réunion clarification : {'Prévue' if reunion_clarification else 'Non prévue'}
+Échantillons : {'Requis' if remise_echantillons else 'Non requis'}
+Démonstration : {'Requise' if demonstration else 'Non requise'}
+Contact technique : {contact_technique or 'Via responsable RFQ'}
+
+=== LIVRAISON ===
+Lieu : {livraison_lieu}
+Délai maximum : Voir détail par article
+
+=== DOCUMENTS JOINTS ===
+{documents_joints or 'Aucun document joint spécifique'}
+
+=== NOTES SPÉCIALES ===
+{notes_rfq or 'Aucune note particulière'}"""
+                
+                # Préparation des données
+                data = {
+                    'type_formulaire': 'DEMANDE_PRIX',
+                    'numero_document': numero_dp,
+                    'project_id': projet_id,
+                    'company_id': None,  # Pour RFQ multi-fournisseurs, pas de company_id unique
+                    'employee_id': employe_id,
+                    'statut': statut,
+                    'priorite': priorite,
+                    'date_creation': date_creation,
+                    'date_echeance': date_echeance_reponse,
+                    'montant_total': 0.0,  # Sera calculé quand les offres arrivent
+                    'notes': notes_completes,
+                    'metadonnees_json': json.dumps(metadonnees_rfq),
+                    'lignes': articles_rfq
+                }
+                
+                # Création du formulaire
+                formulaire_id = gestionnaire.creer_formulaire(data)
+                
+                if formulaire_id:
+                    # Messages de succès personnalisés
+                    if submit_envoyer:
+                        st.success(f"📤 Demande de Prix {numero_dp} créée et envoyée à {len(fournisseurs_selectionnes)} fournisseur(s)!")
+                        st.info("📧 Les fournisseurs ont été notifiés et le suivi des réponses est activé.")
+                    else:
+                        st.success(f"✅ Demande de Prix {numero_dp} créée avec succès!")
+                    
+                    # Affichage du récapitulatif
+                    st.markdown(f"""
+                    ### 📋 Récapitulatif de la RFQ
+                    
+                    **N° DP :** {numero_dp}  
+                    **Objet :** {objet_rfq}  
+                    **Fournisseurs invités :** {len(fournisseurs_selectionnes)}  
+                    **Articles/Services :** {len(articles_rfq)}  
+                    **Date limite réponses :** {date_echeance_reponse.strftime('%d/%m/%Y')}  
+                    **Statut :** {statut}
+                    """)
+                    
+                    # Proposer actions suivantes
+                    col_next1, col_next2, col_next3 = st.columns(3)
+                    with col_next1:
+                        if st.button("📋 Voir la Liste", use_container_width=True, key="dp_voir_liste_apres_creation"):
+                            st.session_state.form_action = "list_demandes_actives"
+                            st.rerun()
+                    with col_next2:
+                        if st.button("📊 Suivi Réponses", use_container_width=True, key="dp_suivi_apres_creation"):
+                            st.session_state.form_action = "compare_offers"
+                            st.rerun()
+                    with col_next3:
+                        if st.button("➕ Créer Autre RFQ", use_container_width=True, key="dp_creer_autre"):
+                            st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la création de la Demande de Prix")
+
+# =============================================================================
+# LISTE DES DEMANDES DE PRIX
+# =============================================================================
+
+def render_demande_prix_list(gestionnaire):
+    """Liste des Demandes de Prix avec filtres avancés"""
+    st.markdown("#### 📋 Liste des Demandes de Prix")
+    
+    demandes_prix = gestionnaire.get_formulaires('DEMANDE_PRIX')
+    
+    if not demandes_prix:
+        st.info("Aucune Demande de Prix créée. Lancez votre première RFQ!")
+        
+        # Proposer actions de démarrage
+        if st.button("➕ Créer Première RFQ", use_container_width=True, key="dp_premiere"):
+            st.session_state.form_action = "create_demande_prix"
+            st.rerun()
+        return
+    
+    # Métriques rapides
+    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+    
+    with col_m1:
+        st.metric("💰 Total RFQs", len(demandes_prix))
+    with col_m2:
+        en_cours = len([dp for dp in demandes_prix if dp['statut'] in ['VALIDÉ', 'ENVOYÉ']])
+        st.metric("📤 En Cours", en_cours)
+    with col_m3:
+        avec_reponses = len([dp for dp in demandes_prix if dp['statut'] in ['APPROUVÉ', 'TERMINÉ']])
+        st.metric("📨 Avec Réponses", avec_reponses)
+    with col_m4:
+        # Calculer le nombre total de fournisseurs sollicités
+        nb_fournisseurs_total = 0
+        for dp in demandes_prix:
+            try:
+                meta = json.loads(dp.get('metadonnees_json', '{}'))
+                nb_fournisseurs_total += len(meta.get('fournisseurs_invites', []))
+            except:
+                pass
+        st.metric("🏢 Fournisseurs Sollicités", nb_fournisseurs_total)
+    with col_m5:
+        urgentes = len([dp for dp in demandes_prix if dp['priorite'] == 'CRITIQUE'])
+        st.metric("🚨 Urgentes", urgentes)
+    
+    # Alertes pour RFQ en attente de réponse
+    today = datetime.now().date()
+    rfq_echeance_proche = []
+    for dp in demandes_prix:
+        if dp.get('date_echeance') and dp['statut'] in ['ENVOYÉ']:
+            try:
+                date_echeance = datetime.strptime(dp['date_echeance'], '%Y-%m-%d').date()
+                if date_echeance <= today + timedelta(days=2):
+                    rfq_echeance_proche.append(dp)
+            except:
+                continue
+    
+    if rfq_echeance_proche:
+        st.warning(f"⏰ {len(rfq_echeance_proche)} RFQ avec échéance proche (≤ 2 jours)")
+    
+    # Filtres avancés
+    with st.expander("🔍 Filtres et Recherche", expanded=False):
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        
+        with col_f1:
+            filtre_statut = st.multiselect("Statut", gestionnaire.statuts, default=gestionnaire.statuts)
+        with col_f2:
+            filtre_priorite = st.multiselect("Priorité", gestionnaire.priorites, default=gestionnaire.priorites)
+        with col_f3:
+            # Filtre par responsable
+            responsables_liste = list(set([dp.get('employee_nom', 'N/A') for dp in demandes_prix if dp.get('employee_nom')]))
+            filtre_responsable = st.multiselect("Responsable", ['Tous'] + responsables_liste, default=['Tous'])
+        with col_f4:
+            # Filtre par type RFQ
+            types_rfq = ['Tous', 'Ouvert', 'Restreint', 'Négocié', 'Urgente']
+            filtre_type_rfq = st.selectbox("Type RFQ", types_rfq)
+        
+        col_search, col_date = st.columns(2)
+        with col_search:
+            recherche = st.text_input("🔍 Rechercher", placeholder="Numéro, objet, projet...")
+        with col_date:
+            date_depuis = st.date_input("RFQs depuis", value=datetime.now().date() - timedelta(days=60))
+    
+    # Application des filtres
+    demandes_filtrees = []
+    for dp in demandes_prix:
+        # Filtre statut
+        if dp['statut'] not in filtre_statut:
+            continue
+        
+        # Filtre priorité
+        if dp['priorite'] not in filtre_priorite:
+            continue
+        
+        # Filtre responsable
+        if 'Tous' not in filtre_responsable and dp.get('employee_nom', 'N/A') not in filtre_responsable:
+            continue
+        
+        # Filtre type RFQ
+        if filtre_type_rfq != 'Tous':
+            try:
+                meta = json.loads(dp.get('metadonnees_json', '{}'))
+                if meta.get('type_rfq') != filtre_type_rfq:
+                    continue
+            except:
+                continue
+        
+        # Filtre date
+        try:
+            date_dp = datetime.strptime(dp['date_creation'][:10], '%Y-%m-%d').date()
+            if date_dp < date_depuis:
+                continue
+        except:
+            pass
+        
+        # Filtre recherche
+        if recherche:
+            terme = recherche.lower()
+            if not any(terme in str(dp.get(field, '')).lower() for field in ['numero_document', 'notes', 'employee_nom', 'project_nom']):
+                continue
+        
+        demandes_filtrees.append(dp)
+    
+    # Affichage résultats
+    st.markdown(f"**{len(demandes_filtrees)} Demande(s) de Prix trouvée(s)**")
+    
+    if demandes_filtrees:
+        # Tri
+        col_sort1, col_sort2 = st.columns(2)
+        with col_sort1:
+            tri_par = st.selectbox("Trier par", ["Date création", "Date échéance", "Priorité", "Statut"])
+        with col_sort2:
+            tri_ordre = st.selectbox("Ordre", ["Décroissant", "Croissant"])
+        
+        # Application du tri
+        if tri_par == "Date création":
+            demandes_filtrees.sort(key=lambda x: x.get('date_creation', ''), reverse=(tri_ordre == "Décroissant"))
+        elif tri_par == "Date échéance":
+            demandes_filtrees.sort(key=lambda x: x.get('date_echeance', ''), reverse=(tri_ordre == "Décroissant"))
+        elif tri_par == "Priorité":
+            ordre_priorite = {'CRITIQUE': 3, 'URGENT': 2, 'NORMAL': 1}
+            demandes_filtrees.sort(key=lambda x: ordre_priorite.get(x.get('priorite', 'NORMAL'), 1), reverse=(tri_ordre == "Décroissant"))
+        
+        # Tableau détaillé avec indicateurs visuels
+        df_data = []
+        for dp in demandes_filtrees:
+            # Indicateurs visuels
+            priorite_icon = {'CRITIQUE': '🔴', 'URGENT': '🟡', 'NORMAL': '🟢'}.get(dp['priorite'], '⚪')
+            statut_icon = {
+                'BROUILLON': '📝', 'VALIDÉ': '✅', 'ENVOYÉ': '📤', 
+                'APPROUVÉ': '👍', 'TERMINÉ': '✔️', 'ANNULÉ': '❌'
+            }.get(dp['statut'], '❓')
+            
+            # Extraction des métadonnées
+            try:
+                meta = json.loads(dp.get('metadonnees_json', '{}'))
+                type_rfq = meta.get('type_rfq', 'N/A')
+                nb_fournisseurs = len(meta.get('fournisseurs_invites', []))
+                delai_reponse = meta.get('delai_reponse', 'N/A')
+            except:
+                type_rfq = 'N/A'
+                nb_fournisseurs = 0
+                delai_reponse = 'N/A'
+            
+            # Calcul du statut d'échéance
+            try:
+                date_echeance = datetime.strptime(dp['date_echeance'], '%Y-%m-%d').date()
+                jours_restants = (date_echeance - today).days
+                if dp['statut'] in ['TERMINÉ', 'ANNULÉ']:
+                    echeance_status = "✅ Terminé"
+                elif jours_restants < 0:
+                    echeance_status = f"🔴 Dépassé ({abs(jours_restants)}j)"
+                elif jours_restants <= 1:
+                    echeance_status = "🟡 Urgent"
+                else:
+                    echeance_status = f"🟢 {jours_restants}j restants"
+            except:
+                echeance_status = "❓ Non défini"
+            
+            df_data.append({
+                'N° RFQ': dp['numero_document'],
+                'Type': type_rfq,
+                'Responsable': dp.get('employee_nom', 'N/A'),
+                'Fournisseurs': f"👥 {nb_fournisseurs}",
+                'Statut': f"{statut_icon} {dp['statut']}",
+                'Priorité': f"{priorite_icon} {dp['priorite']}",
+                'Date Création': dp['date_creation'][:10] if dp['date_creation'] else 'N/A',
+                'Échéance': dp.get('date_echeance', 'N/A'),
+                'Statut Échéance': echeance_status,
+                'Délai Rép.': f"{delai_reponse}j" if delai_reponse != 'N/A' else 'N/A'
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True)
+        
+        # Actions en lot
+        st.markdown("---")
+        st.markdown("##### ⚡ Actions Rapides")
+        
+        col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+        
+        with col_action1:
+            dp_selectionne = st.selectbox("Sélectionner une RFQ", 
+                                        options=[dp['id'] for dp in demandes_filtrees],
+                                        format_func=lambda x: next((dp['numero_document'] for dp in demandes_filtrees if dp['id'] == x), ""))
+        
+        with col_action2:
+            if st.button("👁️ Voir Détails", use_container_width=True, key="dp_voir_details"):
+                if dp_selectionne:
+                    st.session_state.selected_formulaire_id = dp_selectionne
+                    st.session_state.show_formulaire_modal = True
+        
+        with col_action3:
+            if st.button("📊 Comparer Offres", use_container_width=True, key="dp_comparer_action"):
+                if dp_selectionne:
+                    st.session_state.selected_dp_comparison = dp_selectionne
+                    st.session_state.form_action = "compare_offers"
+                    st.rerun()
+        
+        with col_action4:
+            if st.button("🏆 Sélectionner Gagnant", use_container_width=True, key="dp_select_winner_action"):
+                if dp_selectionne:
+                    st.session_state.selected_dp_winner = dp_selectionne
+                    st.session_state.form_action = "select_winner"
+                    st.rerun()
+        
+        with col_action5:
+            if st.button("📝 Modifier", use_container_width=True, key="dp_modifier"):
+                if dp_selectionne:
+                    st.session_state.form_action = "edit_demande_prix"
+                    st.session_state.edit_formulaire_id = dp_selectionne
+    else:
+        st.info("Aucune Demande de Prix ne correspond aux critères de recherche.")
+
+# =============================================================================
+# COMPARAISON DES OFFRES MULTI-FOURNISSEURS
+# =============================================================================
+
+def render_compare_offers(gestionnaire):
+    """Interface de comparaison des offres - NOUVEAU CONCEPT"""
+    st.markdown("#### 📊 Comparaison des Offres Multi-Fournisseurs")
+    
+    # Sélection de la DP à analyser
+    demandes_prix = gestionnaire.get_formulaires('DEMANDE_PRIX')
+    dp_avec_offres = [dp for dp in demandes_prix if dp['statut'] in ['ENVOYÉ', 'APPROUVÉ', 'TERMINÉ']]
+    
+    if not dp_avec_offres:
+        st.info("Aucune Demande de Prix avec des offres à comparer.")
+        return
+    
+    # Sélection de la RFQ
+    dp_selected_id = st.session_state.get('selected_dp_comparison')
+    if not dp_selected_id:
+        dp_options = [(dp['id'], f"{dp['numero_document']} - {dp.get('notes', '')[:50]}...") for dp in dp_avec_offres]
+        dp_selected_id = st.selectbox(
+            "Sélectionner la RFQ à analyser",
+            options=[dp[0] for dp in dp_options],
+            format_func=lambda x: next((dp[1] for dp in dp_options if dp[0] == x), "")
+        )
+    
+    if dp_selected_id:
+        dp_details = gestionnaire.get_formulaire_details(dp_selected_id)
+        
+        if dp_details:
+            # Affichage des détails de la RFQ
+            st.markdown("##### 📋 Détails de la RFQ")
+            
+            col_det1, col_det2 = st.columns(2)
+            with col_det1:
+                st.info(f"""
+                **N° RFQ :** {dp_details['numero_document']}
+                **Statut :** {dp_details['statut']}
+                **Responsable :** {dp_details.get('employee_nom', 'N/A')}
+                **Date échéance :** {dp_details.get('date_echeance', 'N/A')}
+                """)
+            
+            with col_det2:
+                try:
+                    meta = json.loads(dp_details.get('metadonnees_json', '{}'))
+                    fournisseurs_invites = meta.get('fournisseurs_invites', [])
+                    criteres_eval = meta.get('criteres_evaluation', {})
+                    
+                    st.info(f"""
+                    **Fournisseurs invités :** {len(fournisseurs_invites)}
+                    **Type RFQ :** {meta.get('type_rfq', 'N/A')}
+                    **Délai réponse :** {meta.get('delai_reponse', 'N/A')} jours
+                    **Mode évaluation :** {meta.get('mode_evaluation', 'N/A')}
+                    """)
+                except:
+                    st.error("Erreur lecture métadonnées RFQ")
+            
+            # SIMULATION DES OFFRES REÇUES (Dans un vrai système, elles seraient stockées)
+            # Pour la démo, on génère des offres fictives
+            st.markdown("##### 📨 Offres Reçues")
+            
+            with st.expander("⚙️ Simuler les Offres Reçues (Demo)", expanded=True):
+                st.info("💡 Dans un système réel, les offres seraient saisies par les fournisseurs ou importées automatiquement")
+                
+                # Récupération des fournisseurs invités
+                fournisseurs_actifs = get_fournisseurs_actifs()
+                try:
+                    meta = json.loads(dp_details.get('metadonnees_json', '{}'))
+                    fournisseurs_invites_ids = meta.get('fournisseurs_invites', [])
+                    fournisseurs_invites = [f for f in fournisseurs_actifs if f['id'] in fournisseurs_invites_ids]
+                except:
+                    fournisseurs_invites = fournisseurs_actifs[:3]  # Fallback
+                
+                if not fournisseurs_invites:
+                    st.error("Aucun fournisseur invité trouvé pour cette RFQ")
+                    return
+                
+                # Génération d'offres fictives pour la démo
+                offres_fictives = generer_offres_fictives(dp_details, fournisseurs_invites)
+                
+                # Interface de modification des offres pour la démo
+                st.markdown("**Ajuster les Offres pour la Comparaison :**")
+                
+                offres_ajustees = []
+                for i, offre in enumerate(offres_fictives):
+                    with st.expander(f"📋 Offre {offre['fournisseur']['nom']}", expanded=False):
+                        col_o1, col_o2, col_o3 = st.columns(3)
+                        
+                        with col_o1:
+                            prix_total = st.number_input(f"Prix Total ($)", 
+                                value=offre['prix_total'], 
+                                key=f"prix_{i}")
+                            
+                            delai_livraison = st.number_input(f"Délai (jours)", 
+                                value=offre['delai_livraison'], 
+                                key=f"delai_{i}")
+                        
+                        with col_o2:
+                            note_qualite = st.slider(f"Note Qualité (/10)", 
+                                0, 10, offre['note_qualite'], 
+                                key=f"qualite_{i}")
+                            
+                            proximite_km = st.number_input(f"Distance (km)", 
+                                value=offre['proximite_km'], 
+                                key=f"proximite_{i}")
+                        
+                        with col_o3:
+                            experience_secteur = st.slider(f"Expérience (/10)", 
+                                0, 10, offre['experience_secteur'], 
+                                key=f"experience_{i}")
+                            
+                            offre_conforme = st.checkbox(f"Offre Conforme", 
+                                value=offre['conforme'], 
+                                key=f"conforme_{i}")
+                        
+                        # Conditions spéciales
+                        conditions_paiement = st.text_input(f"Conditions Paiement", 
+                            value=offre.get('conditions_paiement', '30j net'), 
+                            key=f"paiement_{i}")
+                        
+                        garantie = st.text_input(f"Garantie", 
+                            value=offre.get('garantie', '12 mois'), 
+                            key=f"garantie_{i}")
+                        
+                        notes_offre = st.text_area(f"Notes Offre", 
+                            value=offre.get('notes', ''), 
+                            key=f"notes_{i}")
+                        
+                        offres_ajustees.append({
+                            'fournisseur': offre['fournisseur'],
+                            'prix_total': prix_total,
+                            'delai_livraison': delai_livraison,
+                            'note_qualite': note_qualite,
+                            'proximite_km': proximite_km,
+                            'experience_secteur': experience_secteur,
+                            'conforme': offre_conforme,
+                            'conditions_paiement': conditions_paiement,
+                            'garantie': garantie,
+                            'notes': notes_offre
+                        })
+                
+                # Bouton pour lancer la comparaison
+                if st.button("🔄 Mettre à Jour la Comparaison", key="update_comparison"):
+                    st.session_state.offres_comparaison = offres_ajustees
+                    st.rerun()
+            
+            # TABLEAU COMPARATIF AUTOMATIQUE
+            st.markdown("##### 📋 Tableau Comparatif Automatique")
+            
+            offres_a_comparer = st.session_state.get('offres_comparaison', offres_fictives)
+            
+            if offres_a_comparer:
+                # Récupération des critères d'évaluation
+                try:
+                    meta = json.loads(dp_details.get('metadonnees_json', '{}'))
+                    criteres_eval = meta.get('criteres_evaluation', {})
+                except:
+                    criteres_eval = {
+                        'prix': {'actif': True, 'ponderation': 40},
+                        'delai': {'actif': True, 'ponderation': 30},
+                        'qualite': {'actif': True, 'ponderation': 30}
+                    }
+                
+                # Calcul des scores
+                offres_avec_scores = calculer_scores_offres(offres_a_comparer, criteres_eval)
+                
+                # Création du tableau comparatif
+                df_comparison = create_comparison_dataframe(offres_avec_scores, criteres_eval)
+                
+                # Affichage du tableau avec mise en forme
+                st.dataframe(df_comparison, use_container_width=True)
+                
+                # RECOMMANDATION AUTOMATIQUE
+                st.markdown("##### 🏆 Recommandation Automatique")
+                
+                meilleure_offre = max(offres_avec_scores, key=lambda x: x['score_final'])
+                
+                col_rec1, col_rec2 = st.columns([2, 1])
+                
+                with col_rec1:
+                    st.success(f"""
+                    **🏆 Fournisseur Recommandé : {meilleure_offre['fournisseur']['nom']}**
+                    
+                    **Score Final : {meilleure_offre['score_final']:.1f}/100**
+                    
+                    **Justification de la Recommandation :**
+                    """)
+                    
+                    justification = generer_justification_recommandation(meilleure_offre, offres_avec_scores, criteres_eval)
+                    st.markdown(justification)
+                
+                with col_rec2:
+                    # Graphique radar de la meilleure offre
+                    fig_radar = create_radar_chart(meilleure_offre, criteres_eval)
+                    st.plotly_chart(fig_radar, use_container_width=True)
+                
+                # ANALYSE COMPARATIVE DÉTAILLÉE
+                st.markdown("##### 📊 Analyse Comparative Détaillée")
+                
+                col_graph1, col_graph2 = st.columns(2)
+                
+                with col_graph1:
+                    # Graphique des scores finaux
+                    noms_fournisseurs = [offre['fournisseur']['nom'] for offre in offres_avec_scores]
+                    scores_finaux = [offre['score_final'] for offre in offres_avec_scores]
+                    
+                    fig_scores = px.bar(
+                        x=noms_fournisseurs, 
+                        y=scores_finaux,
+                        title="Scores Finaux par Fournisseur",
+                        labels={'x': 'Fournisseurs', 'y': 'Score (/100)'},
+                        color=scores_finaux,
+                        color_continuous_scale='RdYlGn'
+                    )
+                    fig_scores.update_layout(showlegend=False, height=400)
+                    st.plotly_chart(fig_scores, use_container_width=True)
+                
+                with col_graph2:
+                    # Comparaison prix vs délai
+                    prix_list = [offre['prix_total'] for offre in offres_avec_scores]
+                    delais_list = [offre['delai_livraison'] for offre in offres_avec_scores]
+                    
+                    fig_scatter = px.scatter(
+                        x=prix_list, 
+                        y=delais_list,
+                        text=noms_fournisseurs,
+                        title="Prix vs Délai de Livraison",
+                        labels={'x': 'Prix Total ($)', 'y': 'Délai (jours)'},
+                        size=[offre['note_qualite'] for offre in offres_avec_scores],
+                        color=scores_finaux,
+                        color_continuous_scale='RdYlGn'
+                    )
+                    fig_scatter.update_traces(textposition="top center")
+                    fig_scatter.update_layout(height=400)
+                    st.plotly_chart(fig_scatter, use_container_width=True)
+                
+                # MATRICE DE COMPARAISON DÉTAILLÉE
+                st.markdown("##### 📋 Matrice de Comparaison Détaillée")
+                
+                # Création d'une matrice pivot pour comparaison
+                comparison_matrix = create_detailed_comparison_matrix(offres_avec_scores, criteres_eval)
+                
+                for critere, data in comparison_matrix.items():
+                    with st.expander(f"📊 Détail {critere.title()}", expanded=False):
+                        col_matrix = st.columns(len(offres_avec_scores) + 1)
+                        
+                        # En-tête
+                        with col_matrix[0]:
+                            st.markdown("**Fournisseur**")
+                        for i, offre in enumerate(offres_avec_scores, 1):
+                            with col_matrix[i]:
+                                st.markdown(f"**{offre['fournisseur']['nom']}**")
+                        
+                        # Données
+                        for metric, values in data.items():
+                            with col_matrix[0]:
+                                st.text(metric)
+                            for i, value in enumerate(values, 1):
+                                with col_matrix[i]:
+                                    if isinstance(value, (int, float)):
+                                        if metric == "Score":
+                                            color = "🟢" if value >= 80 else "🟡" if value >= 60 else "🔴"
+                                            st.text(f"{color} {value:.1f}")
+                                        else:
+                                            st.text(f"{value:,.2f}" if isinstance(value, float) else str(value))
+                                    else:
+                                        st.text(str(value))
+                
+                # ACTIONS POUR SÉLECTION
+                st.markdown("---")
+                st.markdown("##### ⚡ Actions")
+                
+                col_action1, col_action2, col_action3 = st.columns(3)
+                
+                with col_action1:
+                    if st.button("🏆 Sélectionner le Gagnant Recommandé", use_container_width=True, key="select_recommended"):
+                        st.session_state.selected_dp_winner = dp_selected_id
+                        st.session_state.winner_details = meilleure_offre
+                        st.session_state.form_action = "select_winner"
+                        st.rerun()
+                
+                with col_action2:
+                    fournisseur_manuel = st.selectbox("Ou sélectionner manuellement",
+                        options=[offre['fournisseur']['id'] for offre in offres_avec_scores],
+                        format_func=lambda x: next((offre['fournisseur']['nom'] for offre in offres_avec_scores if offre['fournisseur']['id'] == x), ""))
+                    
+                    if st.button("🎯 Sélectionner Manuellement", use_container_width=True, key="select_manual"):
+                        offre_selectionnee = next((offre for offre in offres_avec_scores if offre['fournisseur']['id'] == fournisseur_manuel), None)
+                        if offre_selectionnee:
+                            st.session_state.selected_dp_winner = dp_selected_id
+                            st.session_state.winner_details = offre_selectionnee
+                            st.session_state.form_action = "select_winner"
+                            st.rerun()
+                
+                with col_action3:
+                    if st.button("📋 Retour Liste RFQ", use_container_width=True, key="back_to_list"):
+                        st.session_state.form_action = "list_demandes_actives"
+                        st.rerun()
+
+# =============================================================================
+# SÉLECTION DU GAGNANT ET CONVERSION
+# =============================================================================
+
+def render_select_winner(gestionnaire):
+    """Interface de sélection du gagnant - CONVERSION DP → BC"""
+    st.markdown("#### 🏆 Sélection du Fournisseur Gagnant")
+    
+    # Récupération de la RFQ sélectionnée
+    dp_id = st.session_state.get('selected_dp_winner')
+    winner_details = st.session_state.get('winner_details')
+    
+    if not dp_id:
+        st.error("Aucune RFQ sélectionnée pour désignation du gagnant.")
+        return
+    
+    dp_details = gestionnaire.get_formulaire_details(dp_id)
+    
+    if not dp_details:
+        st.error("RFQ introuvable.")
+        return
+    
+    # Affichage des détails de la RFQ
+    st.markdown("##### 📋 RFQ à Finaliser")
+    
+    col_rfq1, col_rfq2 = st.columns(2)
+    with col_rfq1:
+        st.info(f"""
+        **N° RFQ :** {dp_details['numero_document']}
+        **Statut :** {dp_details['statut']}
+        **Responsable :** {dp_details.get('employee_nom', 'N/A')}
+        **Date échéance :** {dp_details.get('date_echeance', 'N/A')}
+        """)
+    
+    with col_rfq2:
+        try:
+            meta = json.loads(dp_details.get('metadonnees_json', '{}'))
+            nb_fournisseurs = len(meta.get('fournisseurs_invites', []))
+        except:
+            nb_fournisseurs = 0
+        
+        st.info(f"""
+        **Fournisseurs invités :** {nb_fournisseurs}
+        **Type RFQ :** {meta.get('type_rfq', 'N/A')}
+        **Articles :** {len(dp_details.get('lignes', []))}
+        **Montant estimé :** {dp_details.get('montant_total', 0):,.2f}$ CAD
+        """)
+    
+    # Affichage du gagnant recommandé ou sélectionné
+    if winner_details:
+        st.markdown("##### 🏆 Fournisseur Gagnant Sélectionné")
+        
+        col_winner1, col_winner2 = st.columns(2)
+        with col_winner1:
+            st.success(f"""
+            **Fournisseur Gagnant :** {winner_details['fournisseur']['nom']}
+            **Score Final :** {winner_details.get('score_final', 'N/A')}/100
+            **Prix Total :** {winner_details['prix_total']:,.2f}$ CAD
+            **Délai Livraison :** {winner_details['delai_livraison']} jours
+            """)
+        
+        with col_winner2:
+            st.info(f"""
+            **Note Qualité :** {winner_details['note_qualite']}/10
+            **Conditions Paiement :** {winner_details.get('conditions_paiement', 'N/A')}
+            **Garantie :** {winner_details.get('garantie', 'N/A')}
+            **Distance :** {winner_details.get('proximite_km', 'N/A')} km
+            """)
+    
+    # Formulaire de finalisation
+    with st.form("selection_gagnant_form"):
+        st.markdown("##### 🔧 Finalisation de la Sélection")
+        
+        # Justification de la sélection
+        justification_selection = st.text_area("Justification de la Sélection *",
+            value=generer_justification_selection_automatique(winner_details) if winner_details else "",
+            height=120,
+            help="Expliquez pourquoi ce fournisseur a été choisi")
+        
+        # Conditions négociées finales
+        col_neg1, col_neg2 = st.columns(2)
+        
+        with col_neg1:
+            prix_final_negocie = st.number_input("Prix Final Négocié ($)",
+                value=winner_details['prix_total'] if winner_details else 0.0,
+                format="%.2f")
+            
+            delai_final_negocie = st.number_input("Délai Final Négocié (jours)",
+                value=winner_details['delai_livraison'] if winner_details else 14)
+            
+            conditions_paiement_finales = st.text_input("Conditions Paiement Finales",
+                value=winner_details.get('conditions_paiement', '30 jours net') if winner_details else '30 jours net')
+        
+        with col_neg2:
+            garantie_finale = st.text_input("Garantie Finale",
+                value=winner_details.get('garantie', '12 mois') if winner_details else '12 mois')
+            
+            conditions_speciales = st.text_area("Conditions Spéciales Négociées",
+                placeholder="Conditions particulières obtenues lors de la négociation...")
+            
+            date_debut_souhaite = st.date_input("Date Début Souhaitée",
+                value=datetime.now().date() + timedelta(days=3))
+        
+        # Conversion automatique en Bon de Commande
+        st.markdown("##### 🔄 Conversion Automatique en Bon de Commande")
+        
+        col_conv1, col_conv2 = st.columns(2)
+        
+        with col_conv1:
+            numero_bc_auto = gestionnaire.generer_numero_document('BON_COMMANDE')
+            st.text_input("N° Bon de Commande", value=numero_bc_auto, disabled=True)
+            
+            date_livraison_bc = st.date_input("Date Livraison BC",
+                value=date_debut_souhaite + timedelta(days=delai_final_negocie))
+            
+            priorite_bc = st.selectbox("Priorité BC", gestionnaire.priorites, 
+                index=gestionnaire.priorites.index(dp_details.get('priorite', 'NORMAL')))
+        
+        with col_conv2:
+            statut_bc_initial = st.selectbox("Statut BC Initial", 
+                ['VALIDÉ', 'ENVOYÉ'], index=1)
+            
+            notification_autres_fournisseurs = st.checkbox("Notifier les Autres Fournisseurs", value=True)
+            
+            archivage_offres_perdantes = st.checkbox("Archiver Offres Non Retenues", value=True)
+        
+        # Informations de livraison pour le BC
+        st.markdown("##### 🚚 Informations Livraison BC")
+        
+        try:
+            meta = json.loads(dp_details.get('metadonnees_json', '{}'))
+            livraison_lieu_default = meta.get('livraison_lieu', 'DG Inc. - 123 Rue Industrielle, Montréal')
+        except:
+            livraison_lieu_default = 'DG Inc. - 123 Rue Industrielle, Montréal'
+        
+        col_liv1, col_liv2 = st.columns(2)
+        with col_liv1:
+            adresse_livraison_bc = st.text_area("Adresse Livraison",
+                value=livraison_lieu_default)
+            contact_reception_bc = st.text_input("Contact Réception",
+                placeholder="Responsable réception des marchandises")
+        
+        with col_liv2:
+            horaires_livraison_bc = st.text_input("Horaires Livraison",
+                value="Lundi-Vendredi 8h-16h")
+            instructions_livraison_bc = st.text_area("Instructions Livraison",
+                placeholder="Instructions spéciales pour la livraison...")
+        
+        # Notes finales
+        notes_finales = st.text_area("Notes Finales de Conversion",
+            value=f"BC généré automatiquement depuis RFQ {dp_details['numero_document']} - Fournisseur sélectionné : {winner_details['fournisseur']['nom'] if winner_details else 'À définir'}")
+        
+        # Validation finale
+        st.markdown("---")
+        confirmation_selection = st.checkbox("Je confirme la sélection de ce fournisseur et la conversion en Bon de Commande")
+        
+        # Boutons de soumission
+        col_submit1, col_submit2 = st.columns(2)
+        
+        with col_submit1:
+            submit_selection = st.form_submit_button("🏆 Finaliser Sélection et Créer BC", 
+                                                   use_container_width=True, key="finalize_selection")
+        
+        with col_submit2:
+            submit_annuler = st.form_submit_button("❌ Annuler", use_container_width=True, key="cancel_selection")
+        
+        # Traitement de la soumission
+        if submit_selection and confirmation_selection:
+            if not justification_selection:
+                st.error("❌ La justification de la sélection est obligatoire")
+            elif not winner_details:
+                st.error("❌ Aucun fournisseur gagnant sélectionné")
+            else:
+                try:
+                    # Mise à jour du statut de la RFQ
+                    gestionnaire.modifier_statut_formulaire(dp_id, 'TERMINÉ', 
+                                                           dp_details.get('employee_id'),
+                                                           f"RFQ finalisée - Gagnant : {winner_details['fournisseur']['nom']}")
+                    
+                    # Construction des métadonnées BC
+                    metadonnees_bc = {
+                        'dp_source_id': dp_id,
+                        'dp_source_numero': dp_details['numero_document'],
+                        'fournisseur_gagnant': winner_details['fournisseur'],
+                        'conditions_negociees': {
+                            'prix_final': prix_final_negocie,
+                            'delai_final': delai_final_negocie,
+                            'conditions_paiement': conditions_paiement_finales,
+                            'garantie': garantie_finale,
+                            'conditions_speciales': conditions_speciales
+                        },
+                        'justification_selection': justification_selection,
+                        'score_gagnant': winner_details.get('score_final'),
+                        'adresse_livraison': adresse_livraison_bc,
+                        'contact_reception': contact_reception_bc,
+                        'horaires_livraison': horaires_livraison_bc,
+                        'instructions_livraison': instructions_livraison_bc,
+                        'conversion_automatique_rfq': True
+                    }
+                    
+                    # Construction des notes BC
+                    notes_bc = f"""=== BON DE COMMANDE DEPUIS RFQ ===
+Généré depuis RFQ : {dp_details['numero_document']}
+Date conversion : {datetime.now().strftime('%d/%m/%Y à %H:%M')}
+Fournisseur sélectionné : {winner_details['fournisseur']['nom']}
+
+=== JUSTIFICATION SÉLECTION ===
+{justification_selection}
+
+=== CONDITIONS NÉGOCIÉES ===
+Prix final : {prix_final_negocie:,.2f}$ CAD
+Délai : {delai_final_negocie} jours
+Paiement : {conditions_paiement_finales}
+Garantie : {garantie_finale}
+Conditions spéciales : {conditions_speciales or 'Aucune'}
+
+=== LIVRAISON ===
+Adresse : {adresse_livraison_bc.replace(chr(10), ' - ')}
+Contact : {contact_reception_bc}
+Horaires : {horaires_livraison_bc}
+Instructions : {instructions_livraison_bc or 'Aucune'}
+
+=== HISTORIQUE RFQ ===
+{dp_details.get('notes', '')}
+
+=== NOTES FINALES ===
+{notes_finales}"""
+                    
+                    # Mise à jour des lignes avec prix négociés
+                    lignes_bc = []
+                    for ligne in dp_details.get('lignes', []):
+                        ligne_bc = ligne.copy()
+                        # Répartir proportionnellement le prix final négocié
+                        if prix_final_negocie > 0 and len(dp_details.get('lignes', [])) > 0:
+                            ligne_bc['prix_unitaire'] = prix_final_negocie / sum(l['quantite'] for l in dp_details.get('lignes', []))
+                        lignes_bc.append(ligne_bc)
+                    
+                    # Données du BC
+                    data_bc = {
+                        'type_formulaire': 'BON_COMMANDE',
+                        'numero_document': numero_bc_auto,
+                        'project_id': dp_details.get('project_id'),
+                        'company_id': winner_details['fournisseur']['id'],
+                        'employee_id': dp_details.get('employee_id'),
+                        'statut': statut_bc_initial,
+                        'priorite': priorite_bc,
+                        'date_creation': datetime.now().date(),
+                        'date_echeance': date_livraison_bc,
+                        'montant_total': prix_final_negocie,
+                        'notes': notes_bc,
+                        'metadonnees_json': json.dumps(metadonnees_bc),
+                        'lignes': lignes_bc
+                    }
+                    
+                    # Création du BC
+                    bc_id = gestionnaire.creer_formulaire(data_bc)
+                    
+                    if bc_id:
+                        # Enregistrement de la sélection dans l'historique RFQ
+                        gestionnaire.enregistrer_validation(
+                            dp_id,
+                            dp_details.get('employee_id'),
+                            'SELECTION_GAGNANT',
+                            f"Fournisseur gagnant : {winner_details['fournisseur']['nom']} - Score : {winner_details.get('score_final', 'N/A')}/100 - BC généré : {numero_bc_auto}"
+                        )
+                        
+                        st.success(f"""
+                        ✅ **Sélection Finalisée avec Succès !**
+                        
+                        🏆 **Fournisseur Gagnant :** {winner_details['fournisseur']['nom']}
+                        💰 **Prix Final :** {prix_final_negocie:,.2f}$ CAD
+                        📦 **Bon de Commande :** {numero_bc_auto} créé
+                        📅 **Livraison prévue :** {date_livraison_bc.strftime('%d/%m/%Y')}
+                        """)
+                        
+                        # Notifications autres fournisseurs (simulation)
+                        if notification_autres_fournisseurs:
+                            try:
+                                meta = json.loads(dp_details.get('metadonnees_json', '{}'))
+                                autres_fournisseurs = [f_id for f_id in meta.get('fournisseurs_invites', []) 
+                                                     if f_id != winner_details['fournisseur']['id']]
+                                if autres_fournisseurs:
+                                    st.info(f"📧 Notifications envoyées à {len(autres_fournisseurs)} autre(s) fournisseur(s)")
+                            except:
+                                pass
+                        
+                        # Actions suivantes
+                        col_next1, col_next2, col_next3 = st.columns(3)
+                        
+                        with col_next1:
+                            if st.button("📋 Voir BC Créé", use_container_width=True, key="voir_bc_cree"):
+                                st.session_state.selected_formulaire_id = bc_id
+                                st.session_state.show_formulaire_modal = True
+                        
+                        with col_next2:
+                            if st.button("📦 Liste BCs", use_container_width=True, key="liste_bcs"):
+                                st.session_state.form_action = "list_bon_commande"
+                                st.rerun()
+                        
+                        with col_next3:
+                            if st.button("💰 Nouvelles RFQs", use_container_width=True, key="nouvelles_rfq"):
+                                st.session_state.form_action = "list_demandes_actives"
+                                st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de la création du Bon de Commande")
+                        
+                except Exception as e:
+                    st.error(f"❌ Erreur lors de la finalisation : {e}")
+        
+        elif submit_annuler:
+            st.session_state.form_action = "compare_offers"
+            st.rerun()
+
+# =============================================================================
+# FONCTIONS UTILITAIRES POUR LES DEMANDES DE PRIX
+# =============================================================================
+
+def get_demandes_prix_actives(gestionnaire):
+    """Récupère les demandes de prix en cours"""
+    try:
+        return [dp for dp in gestionnaire.get_formulaires('DEMANDE_PRIX') 
+                if dp['statut'] in ['VALIDÉ', 'ENVOYÉ']]
+    except:
+        return []
+
+def get_note_fournisseur(fournisseur):
+    """Calcule une note fictive pour un fournisseur"""
+    # Dans un vrai système, cette note viendrait de l'historique des évaluations
+    import hashlib
+    hash_val = int(hashlib.md5(str(fournisseur['id']).encode()).hexdigest()[:8], 16)
+    return (hash_val % 5) + 6  # Note entre 6 et 10
+
+def select_fournisseurs_recommandes(fournisseurs, nb_max=4):
+    """Sélectionne automatiquement les meilleurs fournisseurs"""
+    # Tri par note (fictive) et diversité secteur
+    fournisseurs_notes = []
+    for f in fournisseurs:
+        note = get_note_fournisseur(f)
+        fournisseurs_notes.append((f, note))
+    
+    # Tri par note décroissante
+    fournisseurs_notes.sort(key=lambda x: x[1], reverse=True)
+    
+    # Sélection avec diversité
+    selectionnes = []
+    secteurs_vus = set()
+    
+    for f, note in fournisseurs_notes:
+        if len(selectionnes) >= nb_max:
+            break
+        
+        secteur = f.get('secteur', 'N/A')
+        # Privilégier la diversité des secteurs
+        if secteur not in secteurs_vus or len(selectionnes) < 2:
+            selectionnes.append(f)
+            secteurs_vus.add(secteur)
+    
+    # Compléter si pas assez
+    for f, note in fournisseurs_notes:
+        if len(selectionnes) >= nb_max:
+            break
+        if f not in selectionnes:
+            selectionnes.append(f)
+    
+    return selectionnes[:nb_max]
+
+def generer_offres_fictives(dp_details, fournisseurs):
+    """Génère des offres fictives pour la démo"""
+    import random
+    
+    offres = []
+    base_price = random.uniform(10000, 50000)
+    
+    for i, fournisseur in enumerate(fournisseurs):
+        # Variation de prix selon la "qualité" du fournisseur
+        note_qualite = get_note_fournisseur(fournisseur)
+        price_factor = 1.0 + (10 - note_qualite) * 0.05  # Meilleure qualité = prix plus élevé
+        
+        offre = {
+            'fournisseur': fournisseur,
+            'prix_total': round(base_price * price_factor * random.uniform(0.9, 1.1), 2),
+            'delai_livraison': random.randint(7, 28),
+            'note_qualite': note_qualite,
+            'proximite_km': random.randint(10, 500),
+            'experience_secteur': random.randint(5, 10),
+            'conforme': random.choice([True, True, True, False]),  # 75% conformes
+            'conditions_paiement': random.choice(['30j net', '45j net', '15j net']),
+            'garantie': random.choice(['12 mois', '24 mois', '6 mois']),
+            'notes': f"Offre standard de {fournisseur['nom']}"
+        }
+        offres.append(offre)
+    
+    return offres
+
+def calculer_scores_offres(offres, criteres_eval):
+    """Calcule les scores pondérés des offres"""
+    # Normalisation des critères (0-100)
+    if not offres:
+        return []
+    
+    # Prix : plus bas = meilleur score
+    prix_list = [o['prix_total'] for o in offres if o['conforme']]
+    if prix_list:
+        prix_min = min(prix_list)
+        prix_max = max(prix_list)
+    
+    # Délai : plus court = meilleur score  
+    delai_list = [o['delai_livraison'] for o in offres if o['conforme']]
+    if delai_list:
+        delai_min = min(delai_list)
+        delai_max = max(delai_list)
+    
+    # Proximité : plus proche = meilleur score
+    proximite_list = [o['proximite_km'] for o in offres if o['conforme']]
+    if proximite_list:
+        proximite_min = min(proximite_list)
+        proximite_max = max(proximite_list)
+    
+    offres_avec_scores = []
+    
+    for offre in offres:
+        if not offre['conforme']:
+            # Offres non conformes = score 0
+            score_final = 0
+        else:
+            scores = {}
+            
+            # Score Prix (inversé : prix bas = score élevé)
+            if criteres_eval.get('prix', {}).get('actif') and prix_list:
+                if prix_max > prix_min:
+                    score_prix = 100 * (prix_max - offre['prix_total']) / (prix_max - prix_min)
+                else:
+                    score_prix = 100
+                scores['prix'] = score_prix
+            
+            # Score Délai (inversé : délai court = score élevé)
+            if criteres_eval.get('delai', {}).get('actif') and delai_list:
+                if delai_max > delai_min:
+                    score_delai = 100 * (delai_max - offre['delai_livraison']) / (delai_max - delai_min)
+                else:
+                    score_delai = 100
+                scores['delai'] = score_delai
+            
+            # Score Qualité (direct)
+            if criteres_eval.get('qualite', {}).get('actif'):
+                scores['qualite'] = offre['note_qualite'] * 10
+            
+            # Score Proximité (inversé : proche = score élevé)
+            if criteres_eval.get('proximite', {}).get('actif') and proximite_list:
+                if proximite_max > proximite_min:
+                    score_proximite = 100 * (proximite_max - offre['proximite_km']) / (proximite_max - proximite_min)
+                else:
+                    score_proximite = 100
+                scores['proximite'] = score_proximite
+            
+            # Score Expérience (direct)
+            if criteres_eval.get('experience', {}).get('actif'):
+                scores['experience'] = offre['experience_secteur'] * 10
+            
+            # Calcul score final pondéré
+            score_final = 0
+            total_ponderation = 0
+            
+            for critere, data in criteres_eval.items():
+                if data.get('actif') and critere in scores:
+                    score_final += scores[critere] * data['ponderation'] / 100
+                    total_ponderation += data['ponderation']
+            
+            if total_ponderation > 0:
+                score_final = score_final * 100 / total_ponderation
+            
+            offre['scores_details'] = scores
+        
+        offre['score_final'] = score_final
+        offres_avec_scores.append(offre)
+    
+    return offres_avec_scores
+
+def create_comparison_dataframe(offres_avec_scores, criteres_eval):
+    """Crée un DataFrame pour l'affichage comparatif"""
+    data = []
+    
+    for offre in offres_avec_scores:
+        row = {
+            'Fournisseur': offre['fournisseur']['nom'],
+            'Prix Total ($)': f"{offre['prix_total']:,.2f}",
+            'Délai (jours)': offre['delai_livraison'],
+            'Note Qualité (/10)': offre['note_qualite'],
+            'Distance (km)': offre['proximite_km'],
+            'Expérience (/10)': offre['experience_secteur'],
+            'Conforme': '✅' if offre['conforme'] else '❌',
+            'Score Final (/100)': f"{offre['score_final']:.1f}",
+            'Conditions': offre.get('conditions_paiement', 'N/A'),
+            'Garantie': offre.get('garantie', 'N/A')
+        }
+        data.append(row)
+    
+    return pd.DataFrame(data)
+
+def create_radar_chart(offre, criteres_eval):
+    """Crée un graphique radar pour une offre"""
+    categories = []
+    values = []
+    
+    for critere, data in criteres_eval.items():
+        if data.get('actif'):
+            categories.append(critere.title())
+            score = offre.get('scores_details', {}).get(critere, 0)
+            values.append(score)
+    
+    # Fermer le radar
+    categories.append(categories[0])
+    values.append(values[0])
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=values,
+        theta=categories,
+        fill='toself',
+        name=offre['fournisseur']['nom'],
+        line_color='rgb(32, 201, 151)'
+    ))
+    
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100]
+            )),
+        showlegend=True,
+        title=f"Profil {offre['fournisseur']['nom']}",
+        height=300
+    )
+    
+    return fig
+
+def generer_justification_recommandation(meilleure_offre, toutes_offres, criteres_eval):
+    """Génère une justification automatique de la recommandation"""
+    justification = []
+    
+    # Avantages principaux
+    score_final = meilleure_offre['score_final']
+    justification.append(f"• **Score global de {score_final:.1f}/100**, le plus élevé parmi toutes les offres")
+    
+    # Analyse par critère
+    scores_details = meilleure_offre.get('scores_details', {})
+    
+    if 'prix' in scores_details and criteres_eval.get('prix', {}).get('actif'):
+        score_prix = scores_details['prix']
+        if score_prix > 70:
+            justification.append(f"• **Prix compétitif** (score: {score_prix:.0f}/100)")
+        elif score_prix > 40:
+            justification.append(f"• Prix correct (score: {score_prix:.0f}/100)")
+    
+    if 'delai' in scores_details and criteres_eval.get('delai', {}).get('actif'):
+        score_delai = scores_details['delai']
+        if score_delai > 70:
+            justification.append(f"• **Délai de livraison excellent** ({meilleure_offre['delai_livraison']} jours)")
+        elif score_delai > 40:
+            justification.append(f"• Délai de livraison acceptable ({meilleure_offre['delai_livraison']} jours)")
+    
+    if 'qualite' in scores_details and criteres_eval.get('qualite', {}).get('actif'):
+        note_qualite = meilleure_offre['note_qualite']
+        if note_qualite >= 8:
+            justification.append(f"• **Excellente réputation qualité** ({note_qualite}/10)")
+        elif note_qualite >= 6:
+            justification.append(f"• Bonne réputation qualité ({note_qualite}/10)")
+    
+    # Comparaison avec les concurrents
+    autres_scores = [o['score_final'] for o in toutes_offres if o != meilleure_offre and o['conforme']]
+    if autres_scores:
+        ecart_moyen = score_final - (sum(autres_scores) / len(autres_scores))
+        if ecart_moyen > 10:
+            justification.append(f"• **Nettement supérieur** aux autres offres (+{ecart_moyen:.1f} points en moyenne)")
+        elif ecart_moyen > 5:
+            justification.append(f"• Supérieur aux autres offres (+{ecart_moyen:.1f} points en moyenne)")
+    
+    # Conditions avantageuses
+    conditions = meilleure_offre.get('conditions_paiement', '')
+    if '45j' in conditions or '60j' in conditions:
+        justification.append(f"• Conditions de paiement avantageuses ({conditions})")
+    
+    garantie = meilleure_offre.get('garantie', '')
+    if '24' in garantie:
+        justification.append(f"• Garantie étendue ({garantie})")
+    
+    return '\n'.join(justification)
+
+def create_detailed_comparison_matrix(offres_avec_scores, criteres_eval):
+    """Crée une matrice de comparaison détaillée"""
+    matrix = {}
+    
+    # Prix
+    if criteres_eval.get('prix', {}).get('actif'):
+        matrix['Prix'] = {
+            'Montant ($)': [f"{o['prix_total']:,.2f}" for o in offres_avec_scores],
+            'Score': [o.get('scores_details', {}).get('prix', 0) for o in offres_avec_scores],
+            'Rang': []
+        }
+        # Calcul du rang
+        prix_sorted = sorted([(i, o['prix_total']) for i, o in enumerate(offres_avec_scores) if o['conforme']], key=lambda x: x[1])
+        rang_prix = [0] * len(offres_avec_scores)
+        for rang, (idx, _) in enumerate(prix_sorted, 1):
+            rang_prix[idx] = rang
+        matrix['Prix']['Rang'] = rang_prix
+    
+    # Délai
+    if criteres_eval.get('delai', {}).get('actif'):
+        matrix['Délai'] = {
+            'Jours': [o['delai_livraison'] for o in offres_avec_scores],
+            'Score': [o.get('scores_details', {}).get('delai', 0) for o in offres_avec_scores]
+        }
+    
+    # Qualité
+    if criteres_eval.get('qualite', {}).get('actif'):
+        matrix['Qualité'] = {
+            'Note (/10)': [o['note_qualite'] for o in offres_avec_scores],
+            'Score': [o.get('scores_details', {}).get('qualite', 0) for o in offres_avec_scores]
+        }
+    
+    return matrix
+
+def generer_justification_selection_automatique(winner_details):
+    """Génère une justification automatique pour la sélection"""
+    if not winner_details:
+        return ""
+    
+    justification = f"""Sélection du fournisseur {winner_details['fournisseur']['nom']} basée sur les critères suivants :
+
+SCORE GLOBAL : {winner_details.get('score_final', 0):.1f}/100 - Meilleure offre parmi les candidats
+
+AVANTAGES IDENTIFIÉS :
+• Prix proposé : {winner_details['prix_total']:,.2f}$ CAD
+• Délai de livraison : {winner_details['delai_livraison']} jours
+• Note qualité fournisseur : {winner_details['note_qualite']}/10
+• Conditions : {winner_details.get('conditions_paiement', 'N/A')}
+• Garantie : {winner_details.get('garantie', 'N/A')}
+
+CONFORMITÉ : Offre conforme à toutes les exigences du cahier des charges
+
+Cette sélection optimise le rapport qualité-prix-délai selon les critères pondérés définis dans la RFQ."""
+    
+    return justification
+
+# Fonction de rendu des autres sections (simplifiées pour la démo)
+def render_demande_prix_stats(gestionnaire):
+    """Statistiques des Demandes de Prix"""
+    st.markdown("#### 📊 Statistiques Demandes de Prix")
+    
+    demandes_prix = gestionnaire.get_formulaires('DEMANDE_PRIX')
+    
+    if not demandes_prix:
+        st.info("Aucune donnée pour les statistiques.")
+        return
+    
+    # Métriques de base
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("💰 Total RFQs", len(demandes_prix))
+    with col2:
+        finalisees = len([dp for dp in demandes_prix if dp['statut'] == 'TERMINÉ'])
+        st.metric("✅ Finalisées", finalisees)
+    with col3:
+        en_cours = len([dp for dp in demandes_prix if dp['statut'] in ['VALIDÉ', 'ENVOYÉ']])
+        st.metric("📤 En Cours", en_cours)
+    with col4:
+        taux_succes = (finalisees / len(demandes_prix) * 100) if demandes_prix else 0
+        st.metric("📈 Taux Succès", f"{taux_succes:.1f}%")
+    
+    # Graphiques simples
+    if len(demandes_prix) > 0:
+        col_g1, col_g2 = st.columns(2)
+        
+        with col_g1:
+            # Répartition par statut
+            statut_counts = {}
+            for dp in demandes_prix:
+                statut = dp['statut']
+                statut_counts[statut] = statut_counts.get(statut, 0) + 1
+            
+            if statut_counts:
+                fig = px.pie(values=list(statut_counts.values()), names=list(statut_counts.keys()),
+                            title="Répartition par Statut RFQ")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col_g2:
+            # Évolution mensuelle
+            evolution = {}
+            for dp in demandes_prix:
+                try:
+                    mois = dp['date_creation'][:7]
+                    evolution[mois] = evolution.get(mois, 0) + 1
+                except:
+                    continue
+            
+            if evolution:
+                mois_sorted = sorted(evolution.items())
+                df_evol = pd.DataFrame(mois_sorted, columns=['Mois', 'Nombre'])
+                fig = px.line(df_evol, x='Mois', y='Nombre', title="Évolution Mensuelle RFQ")
+                st.plotly_chart(fig, use_container_width=True)
+
+def render_historique_rfq(gestionnaire):
+    """Historique des RFQ"""
+    st.markdown("#### 📋 Historique des RFQ")
+    st.info("🚧 Interface historique RFQ - Fonctionnalité avancée")
+
+def render_templates_demande_prix(gestionnaire):
+    """Templates de DP"""
+    st.markdown("#### ⚙️ Templates Demandes de Prix")
+    st.info("🚧 Gestion templates RFQ - Fonctionnalité avancée")
+
+def render_performance_fournisseurs(gestionnaire):
+    """Performance des fournisseurs"""
+    st.markdown("#### 📈 Performance Fournisseurs")
+    st.info("🚧 Analyse performance fournisseurs - Fonctionnalité avancée")
 
 def render_estimations_tab(gestionnaire):
     """Interface pour les Estimations"""
