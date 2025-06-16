@@ -659,7 +659,7 @@ def show_dashboard():
     
     # Affichage notification migration
     if st.session_state.get('migration_completed'):
-        st.success("🎉 Migration SQLite complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée.")
+        st.success("🎉 Migration complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée.")
     
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
@@ -669,12 +669,12 @@ def show_dashboard():
     form_stats = gestionnaire_formulaires.get_statistiques_formulaires()
     
     if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
-        st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🏭 Bienvenue dans l'ERP Production DG Inc. SQLite !</h3><p>Architecture unifiée avec base de données relationnelle. Créez votre premier projet ou explorez les données migrées.</p></div>", unsafe_allow_html=True)
+        st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3><p>Architecture unifiée avec base de données relationnelle. Créez votre premier projet ou explorez les données migrées.</p></div>", unsafe_allow_html=True)
         return
 
     # Métriques Projets
     if stats['total'] > 0:
-        st.markdown("### 🚀 Aperçu Projets (SQLite)")
+        st.markdown("### 🚀 Aperçu Projets")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.metric("📊 Total Projets", stats['total'])
@@ -773,7 +773,7 @@ def show_dashboard():
             st.markdown("<div class='section-card'>", unsafe_allow_html=True)
             if stats['par_statut']:
                 colors_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
-                fig = px.pie(values=list(stats['par_statut'].values()), names=list(stats['par_statut'].keys()), title="📈 Projets par Statut (SQLite)", color_discrete_map=colors_statut)
+                fig = px.pie(values=list(stats['par_statut'].values()), names=list(stats['par_statut'].keys()), title="📈 Projets par Statut", color_discrete_map=colors_statut)
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
                 st.plotly_chart(fig, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
@@ -791,7 +791,7 @@ def show_dashboard():
 
         # Projets récents depuis SQLite
         st.markdown("---")
-        st.markdown("### 🕒 Projets Récents (SQLite)")
+        st.markdown("### 🕒 Projets Récents")
         projets_recents = sorted(gestionnaire.projets, key=lambda x: x.get('id', 0), reverse=True)[:5]
         if not projets_recents:
             st.info("Aucun projet récent.")
@@ -832,7 +832,7 @@ def show_dashboard():
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
-    st.markdown("## 📋 Liste des Projets (SQLite)")
+    st.markdown("## 📋 Liste des Projets")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
@@ -843,7 +843,7 @@ def show_liste_projets():
     st.markdown("---")
     
     if not gestionnaire.projets and not st.session_state.get('show_create_project'):
-        st.info("Aucun projet en base SQLite. Cliquez sur 'Nouveau Projet' pour commencer.")
+        st.info("Aucun projet en base. Cliquez sur 'Nouveau Projet' pour commencer.")
 
     if gestionnaire.projets:
         # Interface de filtrage identique
@@ -873,7 +873,7 @@ def show_liste_projets():
                                terme in str(p.get('client_legacy', '')).lower()
                               ]
 
-        st.markdown(f"**{len(projets_filtres)} projet(s) trouvé(s) en SQLite**")
+        st.markdown(f"**{len(projets_filtres)} projet(s) trouvé(s)**")
         if projets_filtres:
             # Tableau des projets (logique identique)
             df_data = []
@@ -931,7 +931,7 @@ def render_create_project_form(gestionnaire, crm_manager):
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.markdown("### ➕ Créer Projet DG Inc. (SQLite)")
+    st.markdown("### ➕ Créer Projet DG Inc.")
     
     # VALIDATION PRÉALABLE des données de base
     companies_count = st.session_state.erp_db.get_table_count('companies')
@@ -989,7 +989,7 @@ def render_create_project_form(gestionnaire, crm_manager):
         st.markdown("<small>* Obligatoire</small>", unsafe_allow_html=True)
         s_btn, c_btn = st.columns(2)
         with s_btn:
-            submit = st.form_submit_button("💾 Créer en SQLite", use_container_width=True)
+            submit = st.form_submit_button("💾 Créer le Projet", use_container_width=True)
         with c_btn:
             cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
         
@@ -1065,11 +1065,11 @@ def render_create_project_form(gestionnaire, crm_manager):
                                         projets_existants.append(pid)
                                         gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
                         
-                        st.success(f"✅ Projet #{pid} créé en SQLite avec {len(employes_valides)} employé(s) assigné(s) !")
+                        st.success(f"✅ Projet #{pid} créé avec {len(employes_valides)} employé(s) assigné(s) !")
                         st.session_state.show_create_project = False
                         st.rerun()
                     else:
-                        st.error("❌ Erreur lors de la création en SQLite")
+                        st.error("❌ Erreur lors de la création du projet")
                         
                 except Exception as e:
                     st.error(f"❌ Erreur création projet: {str(e)}")
@@ -1085,7 +1085,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.markdown(f"### ✏️ Modifier Projet #{project_data.get('id')} (SQLite)")
+    st.markdown(f"### ✏️ Modifier Projet #{project_data.get('id')}")
     
     with st.form("edit_form", clear_on_submit=True):
         fc1, fc2 = st.columns(2)
@@ -1175,7 +1175,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
         # Boutons d'action
         s_btn, c_btn = st.columns(2)
         with s_btn:
-            submit = st.form_submit_button("💾 Sauvegarder SQLite", use_container_width=True)
+            submit = st.form_submit_button("💾 Sauvegarder", use_container_width=True)
         with c_btn:
             cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
         
@@ -1236,12 +1236,12 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
                                         projets_existants.append(project_data['id'])
                                         gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
                     
-                    st.success(f"✅ Projet #{project_data['id']} modifié en SQLite !")
+                    st.success(f"✅ Projet #{project_data['id']} modifié avec succès !")
                     st.session_state.show_edit_project = False
                     st.session_state.edit_project_data = None
                     st.rerun()
                 else:
-                    st.error("❌ Erreur lors de la modification SQLite.")
+                    st.error("❌ Erreur lors de la modification.")
         
         # Traitement de l'annulation
         if cancel:
@@ -1253,44 +1253,44 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
 
 def render_delete_confirmation(gestionnaire):
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.markdown("### 🗑️ Confirmation de Suppression (SQLite)")
+    st.markdown("### 🗑️ Confirmation de Suppression")
     project_id = st.session_state.delete_project_id
     project = next((p for p in gestionnaire.projets if p.get('id') == project_id), None)
     
     if project:
-        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer le projet **#{project.get('id')} - {project.get('nom_projet', 'N/A')}** de la base SQLite ?")
+        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer le projet **#{project.get('id')} - {project.get('nom_projet', 'N/A')}** ?")
         st.markdown("Cette action est **irréversible** et supprimera toutes les données associées (opérations, matériaux, assignations).")
         
         dcol1, dcol2 = st.columns(2)
         with dcol1:
-            if st.button("🗑️ Confirmer Suppression SQLite", use_container_width=True):
+            if st.button("🗑️ Confirmer Suppression", use_container_width=True):
                 if gestionnaire.supprimer_projet(project_id):
-                    st.success(f"✅ Projet #{project_id} supprimé de SQLite !")
+                    st.success(f"✅ Projet #{project_id} supprimé avec succès !")
                     st.session_state.show_delete_confirmation = False
                     st.session_state.delete_project_id = None
                     st.rerun()
                 else:
-                    st.error("❌ Erreur lors de la suppression SQLite")
+                    st.error("❌ Erreur lors de la suppression")
         with dcol2:
             if st.button("❌ Annuler", use_container_width=True):
                 st.session_state.show_delete_confirmation = False
                 st.session_state.delete_project_id = None
                 st.rerun()
     else:
-        st.error("Projet non trouvé en SQLite.")
+        st.error("Projet non trouvé.")
         st.session_state.show_delete_confirmation = False
         st.session_state.delete_project_id = None
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_itineraire():
     """Version améliorée avec vrais postes de travail - SQLite"""
-    st.markdown("## 🛠️ Itinéraire Fabrication - DG Inc. (SQLite)")
+    st.markdown("## 🛠️ Itinéraire Fabrication - DG Inc.")
     gestionnaire = st.session_state.gestionnaire
     gestionnaire_postes = st.session_state.gestionnaire_postes
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
     if not gestionnaire.projets:
-        st.warning("Aucun projet en SQLite.")
+        st.warning("Aucun projet disponible.")
         return
     
     opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
@@ -1298,7 +1298,7 @@ def show_itineraire():
     proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
     
     if not proj:
-        st.error("Projet non trouvé en SQLite.")
+        st.error("Projet non trouvé.")
         return
     
     st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
@@ -1306,7 +1306,7 @@ def show_itineraire():
     # Bouton de régénération de gamme
     col_regen1, col_regen2 = st.columns([3, 1])
     with col_regen2:
-        if st.button("🔄 Régénérer Gamme SQLite", help="Régénérer avec les vrais postes DG Inc."):
+        if st.button("🔄 Régénérer Gamme", help="Régénérer avec les postes DG Inc."):
             # Déterminer le type de produit
             nom_projet = proj.get('nom_projet', '').lower()
             if any(mot in nom_projet for mot in ['chassis', 'structure', 'assemblage']):
@@ -1335,13 +1335,13 @@ def show_itineraire():
             # Mise à jour via SQLite
             proj['operations'] = nouvelles_operations
             gestionnaire.modifier_projet(proj['id'], {'operations': nouvelles_operations})
-            st.success("✅ Gamme régénérée avec les postes DG Inc. en SQLite !")
+            st.success("✅ Gamme régénérée avec les postes DG Inc. !")
             st.rerun()
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     operations = proj.get('operations', [])
     if not operations:
-        st.info("Aucune opération en SQLite.")
+        st.info("Aucune opération définie.")
     else:
         total_time = sum(op.get('temps_estime', 0) for op in operations)
         finished_ops = sum(1 for op in operations if op.get('statut') == 'TERMINÉ')
@@ -1372,7 +1372,7 @@ def show_itineraire():
         st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
         
         st.markdown("---")
-        st.markdown("##### 📈 Analyse Opérations SQLite")
+        st.markdown("##### 📈 Analyse Opérations")
         ac1, ac2 = st.columns(2)
         with ac1:
             counts = {}
@@ -1398,11 +1398,11 @@ def show_itineraire():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_nomenclature():
-    st.markdown("## 📊 Nomenclature (BOM) - SQLite")
+    st.markdown("## 📊 Nomenclature (BOM)")
     gestionnaire = st.session_state.gestionnaire
     
     if not gestionnaire.projets:
-        st.warning("Aucun projet en SQLite.")
+        st.warning("Aucun projet disponible.")
         return
     
     opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
@@ -1410,7 +1410,7 @@ def show_nomenclature():
     proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
     
     if not proj:
-        st.error("Projet non trouvé en SQLite.")
+        st.error("Projet non trouvé.")
         return
     
     st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
@@ -1419,7 +1419,7 @@ def show_nomenclature():
     materiaux = proj.get('materiaux', [])
     
     if not materiaux:
-        st.info("Aucun matériau en SQLite.")
+        st.info("Aucun matériau défini.")
     else:
         total_cost = 0
         data_bom = []
@@ -1449,7 +1449,7 @@ def show_nomenclature():
         
         if len(materiaux) > 1:
             st.markdown("---")
-            st.markdown("##### 📈 Analyse Coûts Matériaux SQLite")
+            st.markdown("##### 📈 Analyse Coûts Matériaux")
             costs = [(item.get('quantite', 0) or 0) * (item.get('prix_unitaire', 0) or 0) for item in materiaux]
             labels = [item.get('designation', 'N/A') for item in materiaux]
             fig = px.pie(values=costs, names=labels, title="Répartition coûts par matériau")
@@ -1459,12 +1459,12 @@ def show_nomenclature():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_gantt():
-    st.markdown("## 📈 Diagramme de Gantt - SQLite")
+    st.markdown("## 📈 Diagramme de Gantt")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
     
     if not gestionnaire.projets:
-        st.info("Aucun projet SQLite pour Gantt.")
+        st.info("Aucun projet disponible pour le Gantt.")
         return
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -1495,7 +1495,7 @@ def show_gantt():
             continue
     
     if not gantt_data:
-        st.warning("Données de dates invalides pour Gantt SQLite.")
+        st.warning("Données de dates invalides pour le Gantt.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
     
@@ -1509,7 +1509,7 @@ def show_gantt():
         y="Projet", 
         color="Statut", 
         color_discrete_map=colors_gantt, 
-        title="📊 Planning Projets SQLite", 
+        title="📊 Planning Projets", 
         hover_data=['Client', 'Priorité']
     )
     
@@ -1527,7 +1527,7 @@ def show_gantt():
     st.plotly_chart(fig, use_container_width=True)
     
     st.markdown("---")
-    st.markdown("##### 📊 Stats Planning SQLite")
+    st.markdown("##### 📊 Statistiques Planning")
     durees = [(item['Fin'] - item['Début']).days for item in gantt_data if item['Fin'] and item['Début']]
     if durees:
         gsc1, gsc2, gsc3 = st.columns(3)
@@ -1541,7 +1541,7 @@ def show_gantt():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_calendrier():
-    st.markdown("## 📅 Vue Calendrier - SQLite")
+    st.markdown("## 📅 Vue Calendrier")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
     curr_date = st.session_state.selected_date
@@ -1641,7 +1641,7 @@ def show_calendrier():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_kanban():
-    st.markdown("## 🔄 Vue Kanban (Style Planner) - SQLite")
+    st.markdown("## 🔄 Vue Kanban (Style Planner)")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
@@ -1652,7 +1652,7 @@ def show_kanban():
         st.session_state.dragged_from_status = None
 
     if not gestionnaire.projets:
-        st.info("Aucun projet à afficher dans le Kanban SQLite.")
+        st.info("Aucun projet à afficher dans le Kanban.")
         return
 
     # Logique de filtrage
@@ -1717,9 +1717,9 @@ def show_kanban():
                 if st.button(f"⤵️ Déposer ici", key=f"drop_in_{sk}", use_container_width=True, help=f"Déplacer vers {sk}"):
                     proj_id_to_move = st.session_state.dragged_project_id
                     if gestionnaire.modifier_projet(proj_id_to_move, {'statut': sk}):
-                        st.success(f"Projet #{proj_id_to_move} déplacé vers '{sk}' en SQLite!")
+                        st.success(f"Projet #{proj_id_to_move} déplacé vers '{sk}' !")
                     else:
-                        st.error("Erreur lors du déplacement SQLite.")
+                        st.error("Erreur lors du déplacement.")
 
                     st.session_state.dragged_project_id = None
                     st.session_state.dragged_from_status = None
@@ -1780,7 +1780,7 @@ def show_project_modal():
     
     proj_mod = st.session_state.selected_project
     
-    with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')} (SQLite)", expanded=True):
+    with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')}", expanded=True):
         if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
             st.session_state.show_project_modal = False
             st.rerun()
@@ -1819,7 +1819,7 @@ def show_project_modal():
         with tabs_mod[0]:
             sts_mod = proj_mod.get('sous_taches', [])
             if not sts_mod:
-                st.info("Aucune sous-tâche en SQLite.")
+                st.info("Aucune sous-tâche définie.")
             else:
                 for st_item in sts_mod:
                     st_color = {
@@ -1839,7 +1839,7 @@ def show_project_modal():
         with tabs_mod[1]:
             mats_mod = proj_mod.get('materiaux', [])
             if not mats_mod:
-                st.info("Aucun matériau en SQLite.")
+                st.info("Aucun matériau défini.")
             else:
                 total_c_mod = 0
                 for mat in mats_mod:
@@ -1871,7 +1871,7 @@ def show_project_modal():
         with tabs_mod[2]:
             ops_mod = proj_mod.get('operations', [])
             if not ops_mod:
-                st.info("Aucune opération en SQLite.")
+                st.info("Aucune opération définie.")
             else:
                 total_t_mod = 0
                 for op_item in ops_mod:
@@ -1908,7 +1908,7 @@ def show_project_modal():
             st.rerun()
 
 def show_inventory_management_page():
-    st.markdown("## 📦 Gestion de l'Inventaire (SQLite)")
+    st.markdown("## 📦 Gestion de l'Inventaire")
 
     # Adaptation pour utiliser SQLite
     if 'inventory_manager_sql' not in st.session_state:
@@ -1920,9 +1920,9 @@ def show_inventory_management_page():
     action_mode = st.session_state.get('inv_action_mode', "Voir Liste")
 
     if action_mode == "Ajouter Article":
-        st.subheader("➕ Ajouter un Nouvel Article (SQLite)")
+        st.subheader("➕ Ajouter un Nouvel Article")
         with st.form("add_inventory_item_form", clear_on_submit=True):
-            st.info("Les données seront sauvegardées directement en SQLite")
+            st.info("Les données seront sauvegardées automatiquement")
             nom = st.text_input("Nom de l'article *:")
             type_art = st.selectbox("Type *:", TYPES_PRODUITS_INVENTAIRE)
             quantite_imp = st.text_input("Quantité Stock (Impérial) *:", "0' 0\"")
@@ -1930,7 +1930,7 @@ def show_inventory_management_page():
             description = st.text_area("Description:")
             notes = st.text_area("Notes Internes:")
 
-            submitted_add = st.form_submit_button("💾 Ajouter Article SQLite")
+            submitted_add = st.form_submit_button("💾 Ajouter Article")
             if submitted_add:
                 if not nom or not quantite_imp:
                     st.error("Le nom et la quantité sont obligatoires.")
@@ -1955,15 +1955,15 @@ def show_inventory_management_page():
                         
                         item_id = inventory_manager.add_inventory_item(new_item)
                         if item_id:
-                            st.success(f"Article '{nom}' (ID: {item_id}) ajouté avec succès en SQLite!")
+                            st.success(f"Article '{nom}' (ID: {item_id}) ajouté avec succès !")
                             st.rerun()
                         else:
-                            st.error("Erreur lors de la sauvegarde en SQLite.")
+                            st.error("Erreur lors de la sauvegarde.")
 
     elif action_mode == "Voir Liste" or not inventory_data:
-        st.subheader("📋 Liste des Articles en Inventaire (SQLite)")
+        st.subheader("📋 Liste des Articles en Inventaire")
         if not inventory_data:
-            st.info("L'inventaire SQLite est vide. Cliquez sur 'Ajouter Article' pour commencer.")
+            st.info("L'inventaire est vide. Cliquez sur 'Ajouter Article' pour commencer.")
         else:
             search_term_inv = st.text_input("Rechercher dans l'inventaire (nom, ID):", key="inv_search").lower()
 
@@ -1988,12 +1988,12 @@ def show_inventory_management_page():
             if items_display_list:
                 df_inventory = pd.DataFrame(items_display_list)
                 st.dataframe(df_inventory, use_container_width=True)
-                st.info(f"📊 {len(items_display_list)} articles en base SQLite")
+                st.info(f"📊 {len(items_display_list)} articles en inventaire")
             else:
-                st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire SQLite est vide.")
+                st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire est vide.")
 
 def show_crm_page():
-    st.markdown("## 🤝 Gestion de la Relation Client (CRM) - SQLite")
+    st.markdown("## 🤝 Gestion de la Relation Client (CRM)")
     gestionnaire_crm = st.session_state.gestionnaire_crm
     gestionnaire_projets = st.session_state.gestionnaire
 
@@ -2050,7 +2050,7 @@ def show_crm_page():
         render_crm_interaction_details(gestionnaire_crm, gestionnaire_projets, interaction_data)
 
 def show_employees_page():
-    st.markdown("## 👥 Gestion des Employés - SQLite")
+    st.markdown("## 👥 Gestion des Employés")
     gestionnaire_employes = st.session_state.gestionnaire_employes
     gestionnaire_projets = st.session_state.gestionnaire
     
@@ -2396,19 +2396,19 @@ def main():
 
     apply_global_styles()
 
-    st.markdown('<div class="main-title"><h1>🏭 ERP Production DG Inc. - SQLite Unifié avec Assistant IA</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title"><h1>🏭 ERP Production DG Inc. - Système de Gestion Intégré</h1></div>', unsafe_allow_html=True)
 
     if not st.session_state.welcome_seen:
-        welcome_msg = "🎉 Architecture SQLite unifiée ! ERP Production DG Inc. utilise maintenant une base relationnelle. 61 postes de travail intégrés."
+        welcome_msg = "🎉 Système unifié ! ERP Production DG Inc. avec base de données intégrée. 61 postes de travail configurés."
         if TIMETRACKER_AVAILABLE:
-            welcome_msg += " ⏱️ TimeTracker synchronisé avec SQLite !"
+            welcome_msg += " ⏱️ TimeTracker synchronisé !"
         welcome_msg += " 📑 Module Formulaires opérationnel !"
         if ASSISTANT_IA_AVAILABLE:
             welcome_msg += " 🤖 Assistant IA Métallurgie intégré !"
         st.success(welcome_msg)
         st.session_state.welcome_seen = True
 
-    st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧭 Navigation SQLite</h3>", unsafe_allow_html=True)
+    st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧭 Navigation</h3>", unsafe_allow_html=True)
 
     # MENU PRINCIPAL MODIFIÉ avec module Formulaires et Assistant IA
     pages = {
@@ -2444,7 +2444,7 @@ def main():
 
     if page_to_show_val == "inventory_management":
         st.sidebar.markdown("---")
-        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Actions Inventaire SQLite</h4>", unsafe_allow_html=True)
+        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Actions Inventaire</h4>", unsafe_allow_html=True)
         st.session_state.inv_action_mode = st.sidebar.radio(
             "Mode:",
             ["Voir Liste", "Ajouter Article", "Modifier Article"],
@@ -2454,14 +2454,14 @@ def main():
 
     st.sidebar.markdown("---")
 
-    # Statistiques SQLite dans la sidebar
+    # Statistiques dans la sidebar
     try:
         total_projects_sql = st.session_state.erp_db.get_table_count('projects')
         total_companies = st.session_state.erp_db.get_table_count('companies')
         total_employees = st.session_state.erp_db.get_table_count('employees')
         total_work_centers = st.session_state.erp_db.get_table_count('work_centers')
         
-        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Base SQLite</h3>", unsafe_allow_html=True)
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Base de Données</h3>", unsafe_allow_html=True)
         st.sidebar.metric("Base: Projets", total_projects_sql)
         st.sidebar.metric("Base: Entreprises", total_companies)
         st.sidebar.metric("Base: Employés", total_employees)
@@ -2474,7 +2474,7 @@ def main():
             st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
         
     except Exception as e:
-        st.sidebar.error(f"Erreur stats SQLite: {e}")
+        st.sidebar.error(f"Erreur stats base: {e}")
 
     # NOUVEAU : Statistiques Formulaires dans la sidebar
     try:
@@ -2549,7 +2549,7 @@ def main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture SQLite Unifiée<br/>📑 Module Formulaires Actif"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += "<br/>🤖 Assistant IA Métallurgie"
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
@@ -2610,20 +2610,20 @@ def main():
 
 def show_footer():
     st.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc. - Architecture SQLite Unifiée • 61 Postes • CRM • Inventaire • 📑 Formulaires"
+    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • 61 Postes • CRM • Inventaire • 📑 Formulaires"
     if TIMETRACKER_AVAILABLE:
         footer_text += " • ⏱️ TimeTracker"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += " • 🤖 Assistant IA"
     
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Migration JSON → SQLite complétée • Module Formulaires Intégré • Assistant IA Métallurgie</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
         main()
         show_footer()
     except Exception as e_main:
-        st.error(f"Une erreur majeure est survenue dans l'application SQLite: {str(e_main)}")
+        st.error(f"Une erreur majeure est survenue dans l'application: {str(e_main)}")
         st.info("Veuillez essayer de rafraîchir la page ou de redémarrer l'application.")
         import traceback
         st.code(traceback.format_exc())
