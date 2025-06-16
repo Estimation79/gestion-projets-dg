@@ -18,9 +18,10 @@ from ..utils.helpers import (
     get_fournisseurs_actifs,
     search_articles_inventaire,
     get_articles_inventaire_critique,
-    calculer_quantite_recommandee,
-    convertir_ba_vers_bc
+    calculer_quantite_recommandee
 )
+# ✅ CORRECTION: Import depuis conversions
+from ..utils.conversions import convertir_ba_vers_bc
 
 class GestionnaireBonsAchats:
     """
@@ -180,11 +181,7 @@ class GestionnaireBonsAchats:
                     COUNT(CASE WHEN f.priorite = 'CRITIQUE' THEN 1 END) as ba_urgents,
                     COUNT(CASE WHEN f.metadonnees_json LIKE '%"auto_generated": true%' THEN 1 END) as ba_automatiques,
                     AVG(f.montant_total) as montant_moyen_ba,
-                    COUNT(CASE WHEN EXISTS(
-                        SELECT 1 FROM formulaires f2 
-                        WHERE f2.type_formulaire = 'BON_COMMANDE' 
-                        AND f2.metadonnees_json LIKE '%"ba_source_id": ' || f.id || '%'
-                    ) THEN 1 END) as ba_convertis
+                    COUNT(DISTINCT f.company_id) as fournisseurs_uniques
                 FROM formulaires f
                 WHERE f.type_formulaire = 'BON_ACHAT'
             """
@@ -192,21 +189,88 @@ class GestionnaireBonsAchats:
             result = self.db.execute_query(query)
             if result:
                 stats_enrichies = dict(result[0])
+                
+                # Calculs avancés BA
+                stats_enrichies['taux_conversion_bc'] = self._calculer_taux_conversion_bc()
+                stats_enrichies['delai_moyen_reponse'] = self._calculer_delai_moyen_reponse()
+                stats_enrichies['fournisseurs_les_plus_performants'] = self._get_top_fournisseurs()
+                
                 stats_base.update(stats_enrichies)
-            
-            # Calcul taux de conversion
-            total_ba = stats_base.get('total', 0)
-            ba_convertis = stats_base.get('ba_convertis', 0)
-            if total_ba > 0:
-                stats_base['taux_conversion_bc'] = (ba_convertis / total_ba) * 100
-            else:
-                stats_base['taux_conversion_bc'] = 0
             
             return stats_base
             
         except Exception as e:
             st.error(f"Erreur stats BA: {e}")
             return {}
+    
+    def _calculer_taux_conversion_bc(self) -> float:
+        """Calcule le taux de conversion BA → BC."""
+        try:
+            query_total = "SELECT COUNT(*) as total FROM formulaires WHERE type_formulaire = 'BON_ACHAT'"
+            query_converties = """
+                SELECT COUNT(*) as converties FROM formulaires 
+                WHERE type_formulaire = 'BON_COMMANDE' 
+                AND metadonnees_json LIKE '%ba_source_id%'
+            """
+            
+            total_result = self.db.execute_query(query_total)
+            converties_result = self.db.execute_query(query_converties)
+            
+            if total_result and converties_result:
+                total = total_result[0]['total']
+                converties = converties_result[0]['converties']
+                return (converties / total * 100) if total > 0 else 0.0
+            
+            return 0.0
+            
+        except Exception:
+            return 0.0
+    
+    def _calculer_delai_moyen_reponse(self) -> int:
+        """Calcule le délai moyen de réponse des fournisseurs."""
+        try:
+            # Simulation basée sur les métadonnées
+            query = """
+                SELECT metadonnees_json FROM formulaires 
+                WHERE type_formulaire = 'BON_ACHAT' 
+                AND statut IN ('APPROUVÉ', 'TERMINÉ')
+            """
+            
+            result = self.db.execute_query(query)
+            delais = []
+            
+            for row in result:
+                try:
+                    meta = json.loads(row['metadonnees_json'] or '{}')
+                    delai_reponse = meta.get('delai_reponse', 7)
+                    delais.append(delai_reponse)
+                except:
+                    continue
+            
+            return int(sum(delais) / len(delais)) if delais else 7
+            
+        except Exception:
+            return 7
+    
+    def _get_top_fournisseurs(self) -> List[Dict]:
+        """Récupère les fournisseurs les plus performants."""
+        try:
+            # Analyse basée sur les participations aux BA
+            query = """
+                SELECT c.nom, COUNT(f.id) as participations, AVG(f.montant_total) as montant_moyen
+                FROM formulaires f
+                JOIN companies c ON f.company_id = c.id
+                WHERE f.type_formulaire = 'BON_ACHAT'
+                GROUP BY c.id, c.nom
+                ORDER BY participations DESC, montant_moyen ASC
+                LIMIT 5
+            """
+            
+            rows = self.db.execute_query(query)
+            return [dict(row) for row in rows]
+            
+        except Exception:
+            return []
     
     def creer_ba_automatique_stocks_critiques(self, 
                                             fournisseur_id: int, 
@@ -234,6 +298,10 @@ class GestionnaireBonsAchats:
                 
                 montant_total += qty_recommandee * prix_estime
             
+            # ✅ CORRECTION: Séparer le formatage de date
+            date_detection = datetime.now().strftime("%d/%m/%Y à %H:%M")
+            notes_par_defaut = f'Réapprovisionnement automatique de {len(articles_critiques)} article(s) en stock critique détecté le {date_detection}'
+            
             # Données du BA automatique
             data = {
                 'company_id': fournisseur_id,
@@ -243,7 +311,7 @@ class GestionnaireBonsAchats:
                 'date_creation': datetime.now().date(),
                 'date_echeance': datetime.now().date() + timedelta(days=7),
                 'montant_total': montant_total,
-                'notes': f"=== RÉAPPROVISIONNEMENT AUTOMATIQUE ===\n{notes or f'Réapprovisionnement automatique de {len(articles_critiques)} article(s) en stock critique détecté le {datetime.now().strftime(\"%d/%m/%Y à %H:%M\")}'}",
+                'notes': f"=== RÉAPPROVISIONNEMENT AUTOMATIQUE ===\n{notes or notes_par_defaut}",
                 'auto_generated': True,
                 'articles_critiques': [a['id'] for a in articles_critiques],
                 'lignes': articles_commande
