@@ -1,5 +1,5 @@
 # erp_database.py - Gestionnaire Base de Données SQLite Unifié
-# ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires
+# ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet
 
 import sqlite3
 import json
@@ -25,10 +25,12 @@ class ERPDatabase:
     - inventaire_v2.json → tables inventory_items, inventory_history
     - timetracker.db → intégration dans base principale
     
-    NOUVEAU : Module Formulaires
+    NOUVEAU : Module Formulaires Complet
     - formulaires → table formulaires (BT, BA, BC, DP, EST)
     - formulaire_lignes → détails des documents
     - formulaire_validations → historique et traçabilité
+    - formulaire_pieces_jointes → gestion fichiers
+    - formulaire_templates → standardisation
     """
     
     def __init__(self, db_path: str = "erp_production_dg.db"):
@@ -38,7 +40,7 @@ class ERPDatabase:
         logger.info(f"ERPDatabase initialisé : {db_path}")
     
     def init_database(self):
-        """Initialise toutes les tables de la base de données ERP avec module Formulaires"""
+        """Initialise toutes les tables de la base de données ERP avec module Formulaires complet"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
@@ -55,6 +57,7 @@ class ERPDatabase:
                     site_web TEXT,
                     contact_principal_id INTEGER,
                     notes TEXT,
+                    type_company TEXT DEFAULT 'CLIENT',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -151,6 +154,8 @@ class ERPDatabase:
                     operateurs_requis INTEGER,
                     cout_horaire REAL,
                     competences_requises TEXT,
+                    statut TEXT DEFAULT 'ACTIF',
+                    localisation TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -206,6 +211,8 @@ class ERPDatabase:
                     statut TEXT,
                     description TEXT,
                     notes TEXT,
+                    fournisseur_principal TEXT,
+                    code_interne TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -220,8 +227,10 @@ class ERPDatabase:
                     quantite_avant TEXT,
                     quantite_apres TEXT,
                     notes TEXT,
+                    employee_id INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id)
+                    FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id),
+                    FOREIGN KEY (employee_id) REFERENCES employees(id)
                 )
             ''')
             
@@ -277,7 +286,7 @@ class ERPDatabase:
             ''')
             
             # =========================================================================
-            # NOUVEAU MODULE FORMULAIRES - TABLES PRINCIPALES
+            # MODULE FORMULAIRES - TABLES PRINCIPALES COMPLÈTES
             # =========================================================================
             
             # 14. FORMULAIRES PRINCIPAUX (BT, BA, BC, DP, EST)
@@ -347,7 +356,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 17. PIÈCES JOINTES AUX FORMULAIRES (pour futures fonctionnalités)
+            # 17. PIÈCES JOINTES AUX FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_pieces_jointes (
                     id INTEGER PRIMARY KEY,
@@ -364,7 +373,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 18. TEMPLATES DE FORMULAIRES (pour standardisation)
+            # 18. TEMPLATES DE FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_templates (
                     id INTEGER PRIMARY KEY,
@@ -376,6 +385,47 @@ class ERPDatabase:
                     created_by INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (created_by) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 19. FOURNISSEURS (Extension companies pour meilleure gestion)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS fournisseurs (
+                    id INTEGER PRIMARY KEY,
+                    company_id INTEGER NOT NULL,
+                    code_fournisseur TEXT UNIQUE,
+                    categorie_produits TEXT,
+                    delai_livraison_moyen INTEGER,
+                    conditions_paiement TEXT DEFAULT '30 jours net',
+                    evaluation_qualite INTEGER DEFAULT 5,
+                    contact_commercial TEXT,
+                    contact_technique TEXT,
+                    certifications TEXT,
+                    notes_evaluation TEXT,
+                    est_actif BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (company_id) REFERENCES companies(id)
+                )
+            ''')
+            
+            # 20. APPROVISIONNEMENTS (Suivi des commandes et livraisons)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS approvisionnements (
+                    id INTEGER PRIMARY KEY,
+                    formulaire_id INTEGER,
+                    fournisseur_id INTEGER,
+                    statut_livraison TEXT DEFAULT 'EN_ATTENTE' CHECK(statut_livraison IN 
+                        ('EN_ATTENTE', 'CONFIRMÉ', 'EN_PRODUCTION', 'EXPÉDIÉ', 'LIVRÉ', 'ANNULÉ')),
+                    date_commande DATE,
+                    date_livraison_prevue DATE,
+                    date_livraison_reelle DATE,
+                    numero_bon_livraison TEXT,
+                    quantite_commandee REAL,
+                    quantite_livree REAL,
+                    notes_livraison TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (formulaire_id) REFERENCES formulaires(id),
+                    FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
                 )
             ''')
             
@@ -391,6 +441,10 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_time_entries_project ON time_entries(project_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_competences_employee ON employee_competences(employee_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_companies_secteur ON companies(secteur)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_companies_type ON companies(type_company)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_statut ON inventory_items(statut)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_type ON inventory_items(type_produit)')
             
             # Index pour module formulaires
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_type ON formulaires(type_formulaire)')
@@ -411,6 +465,11 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_validations_date ON formulaire_validations(date_validation)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_validations_type ON formulaire_validations(type_validation)')
             
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_fournisseurs_company ON fournisseurs(company_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_fournisseurs_code ON fournisseurs(code_fournisseur)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_approvisionnements_formulaire ON approvisionnements(formulaire_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_approvisionnements_statut ON approvisionnements(statut_livraison)')
+            
             # =========================================================================
             # VUES POUR REQUÊTES COMPLEXES FRÉQUENTES
             # =========================================================================
@@ -423,6 +482,7 @@ class ERPDatabase:
                     c.nom as company_nom,
                     c.secteur as company_secteur,
                     c.adresse as company_adresse,
+                    c.type_company as company_type,
                     e.prenom || ' ' || e.nom as employee_nom,
                     e.poste as employee_poste,
                     e.departement as employee_departement,
@@ -467,6 +527,50 @@ class ERPDatabase:
                         WHEN 'NORMAL' THEN 3
                     END,
                     f.date_echeance ASC
+            ''')
+            
+            # Vue des fournisseurs avec statistiques
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_fournisseurs_stats AS
+                SELECT 
+                    c.*,
+                    f.code_fournisseur,
+                    f.categorie_produits,
+                    f.delai_livraison_moyen,
+                    f.conditions_paiement,
+                    f.evaluation_qualite,
+                    f.est_actif as fournisseur_actif,
+                    COUNT(form.id) as nombre_commandes,
+                    COALESCE(SUM(form.montant_total), 0) as montant_total_commandes,
+                    MAX(form.date_creation) as derniere_commande
+                FROM companies c
+                LEFT JOIN fournisseurs f ON c.id = f.company_id
+                LEFT JOIN formulaires form ON c.id = form.company_id AND form.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')
+                WHERE c.type_company = 'FOURNISSEUR' OR f.id IS NOT NULL
+                GROUP BY c.id
+            ''')
+            
+            # Vue des stocks critiques
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_stocks_critiques AS
+                SELECT 
+                    i.*,
+                    CASE 
+                        WHEN i.quantite_metric <= 0.001 THEN 'ÉPUISÉ'
+                        WHEN i.quantite_metric <= i.limite_minimale_metric THEN 'CRITIQUE'
+                        WHEN i.quantite_metric <= (i.limite_minimale_metric * 1.5) THEN 'FAIBLE'
+                        ELSE 'DISPONIBLE'
+                    END as statut_calcule,
+                    (i.limite_minimale_metric * 2) as quantite_recommandee
+                FROM inventory_items i
+                WHERE i.limite_minimale_metric > 0
+                ORDER BY 
+                    CASE 
+                        WHEN i.quantite_metric <= 0.001 THEN 1
+                        WHEN i.quantite_metric <= i.limite_minimale_metric THEN 2
+                        WHEN i.quantite_metric <= (i.limite_minimale_metric * 1.5) THEN 3
+                        ELSE 4
+                    END, i.nom
             ''')
             
             # =========================================================================
@@ -565,8 +669,38 @@ class ERPDatabase:
                 END;
             ''')
             
+            # Trigger pour mise à jour automatique du statut inventaire
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trigger_update_inventory_status
+                AFTER UPDATE OF quantite_metric ON inventory_items
+                FOR EACH ROW
+                BEGIN
+                    UPDATE inventory_items 
+                    SET statut = CASE
+                        WHEN NEW.quantite_metric <= 0.001 THEN 'ÉPUISÉ'
+                        WHEN NEW.quantite_metric <= NEW.limite_minimale_metric THEN 'CRITIQUE'
+                        WHEN NEW.quantite_metric <= (NEW.limite_minimale_metric * 1.5) THEN 'FAIBLE'
+                        ELSE 'DISPONIBLE'
+                    END,
+                    updated_at = CURRENT_TIMESTAMP
+                    WHERE id = NEW.id AND NEW.limite_minimale_metric > 0;
+                END;
+            ''')
+            
+            # Trigger pour enregistrement automatique des modifications d'inventaire
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trigger_inventory_history
+                AFTER UPDATE OF quantite_metric ON inventory_items
+                FOR EACH ROW
+                WHEN OLD.quantite_metric != NEW.quantite_metric
+                BEGIN
+                    INSERT INTO inventory_history (inventory_item_id, action, quantite_avant, quantite_apres, notes)
+                    VALUES (NEW.id, 'MODIFICATION', CAST(OLD.quantite_metric AS TEXT), CAST(NEW.quantite_metric AS TEXT), 'Modification automatique');
+                END;
+            ''')
+            
             conn.commit()
-            logger.info("Base de données ERP initialisée avec succès - Module Formulaires inclus")
+            logger.info("Base de données ERP initialisée avec succès - Module Formulaires complet inclus")
     
     def backup_json_files(self):
         """Sauvegarde tous les fichiers JSON avant migration"""
@@ -642,9 +776,10 @@ class ERPDatabase:
             'employee_competences', 'work_centers', 'operations',
             'materials', 'inventory_items', 'interactions',
             'project_assignments', 'time_entries',
-            # Nouvelles tables formulaires
+            # Tables formulaires
             'formulaires', 'formulaire_lignes', 'formulaire_validations',
-            'formulaire_pieces_jointes', 'formulaire_templates'
+            'formulaire_pieces_jointes', 'formulaire_templates',
+            'fournisseurs', 'approvisionnements'
         ]
         
         status = {}
@@ -692,7 +827,7 @@ class ERPDatabase:
                 ''')
                 checks['employees_hierarchy_fk'] = cursor.fetchone()['orphans'] == 0
                 
-                # NOUVELLES VÉRIFICATIONS MODULE FORMULAIRES
+                # VÉRIFICATIONS MODULE FORMULAIRES
                 
                 # Formulaires → Projects
                 cursor.execute('''
@@ -732,6 +867,13 @@ class ERPDatabase:
                 ''')
                 checks['formulaire_validations_formulaires_fk'] = cursor.fetchone()['orphans'] == 0
                 
+                # Fournisseurs → Companies
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM fournisseurs f
+                    WHERE f.company_id NOT IN (SELECT id FROM companies)
+                ''')
+                checks['fournisseurs_companies_fk'] = cursor.fetchone()['orphans'] == 0
+                
         except Exception as e:
             logger.error(f"Erreur validation intégrité: {e}")
             checks['error'] = str(e)
@@ -745,7 +887,9 @@ class ERPDatabase:
             'file_size_mb': round(os.path.getsize(self.db_path) / (1024*1024), 2) if os.path.exists(self.db_path) else 0,
             'tables': {},
             'total_records': 0,
-            'formulaires_info': {}
+            'formulaires_info': {},
+            'fournisseurs_info': {},
+            'stocks_critiques': 0
         }
         
         with self.get_connection() as conn:
@@ -770,6 +914,18 @@ class ERPDatabase:
                 ''')
                 for row in cursor.fetchall():
                     info['formulaires_info'][row['type_formulaire']] = row['count']
+            
+            # Informations sur les fournisseurs
+            if 'fournisseurs' in tables:
+                cursor.execute('SELECT COUNT(*) as count FROM fournisseurs WHERE est_actif = TRUE')
+                result = cursor.fetchone()
+                info['fournisseurs_info']['actifs'] = result['count'] if result else 0
+            
+            # Stocks critiques
+            if 'inventory_items' in tables:
+                cursor.execute("SELECT COUNT(*) as count FROM inventory_items WHERE statut IN ('CRITIQUE', 'FAIBLE', 'ÉPUISÉ')")
+                result = cursor.fetchone()
+                info['stocks_critiques'] = result['count'] if result else 0
         
         return info
     
@@ -787,7 +943,9 @@ class ERPDatabase:
                 'montant_total': 0.0,
                 'tendances_mensuelles': {},
                 'en_retard': 0,
-                'en_attente_validation': 0
+                'en_attente_validation': 0,
+                'top_fournisseurs': [],
+                'conversion_ba_bc': {'total_ba': 0, 'convertis_bc': 0, 'taux_conversion': 0.0}
             }
             
             # Statistiques globales
@@ -847,6 +1005,37 @@ class ERPDatabase:
             '''
             result = self.execute_query(query_attente)
             stats['en_attente_validation'] = result[0]['count'] if result else 0
+            
+            # Top fournisseurs
+            query_fournisseurs = '''
+                SELECT c.nom, COUNT(f.id) as nb_commandes, SUM(f.montant_total) as montant_total
+                FROM formulaires f
+                JOIN companies c ON f.company_id = c.id
+                WHERE f.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')
+                GROUP BY c.id, c.nom
+                ORDER BY montant_total DESC
+                LIMIT 5
+            '''
+            rows_fournisseurs = self.execute_query(query_fournisseurs)
+            stats['top_fournisseurs'] = [dict(row) for row in rows_fournisseurs]
+            
+            # Statistiques conversion BA → BC
+            query_ba = "SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'BON_ACHAT'"
+            result_ba = self.execute_query(query_ba)
+            stats['conversion_ba_bc']['total_ba'] = result_ba[0]['count'] if result_ba else 0
+            
+            query_bc = '''
+                SELECT COUNT(*) as count FROM formulaires 
+                WHERE type_formulaire = 'BON_COMMANDE' 
+                AND metadonnees_json LIKE '%ba_source_id%'
+            '''
+            result_bc = self.execute_query(query_bc)
+            stats['conversion_ba_bc']['convertis_bc'] = result_bc[0]['count'] if result_bc else 0
+            
+            if stats['conversion_ba_bc']['total_ba'] > 0:
+                stats['conversion_ba_bc']['taux_conversion'] = (
+                    stats['conversion_ba_bc']['convertis_bc'] / stats['conversion_ba_bc']['total_ba'] * 100
+                )
             
             return stats
             
@@ -1090,6 +1279,287 @@ class ERPDatabase:
             self.execute_insert(query, (formulaire_id, employee_id, type_validation, commentaires))
         except Exception as e:
             logger.error(f"Erreur enregistrement validation: {e}")
+    
+    # =========================================================================
+    # MÉTHODES SPÉCIFIQUES AUX BONS D'ACHATS
+    # =========================================================================
+    
+    def get_companies_by_type(self, company_type: str = None) -> List[Dict]:
+        """Récupère les entreprises par type (CLIENT, FOURNISSEUR, etc.)"""
+        try:
+            if company_type:
+                # Recherche par secteur, type_company ou notes
+                query = """
+                    SELECT * FROM companies 
+                    WHERE UPPER(secteur) LIKE UPPER(?) 
+                       OR UPPER(type_company) LIKE UPPER(?)
+                       OR UPPER(notes) LIKE UPPER(?)
+                    ORDER BY nom
+                """
+                pattern = f"%{company_type}%"
+                rows = self.execute_query(query, (pattern, pattern, pattern))
+            else:
+                rows = self.execute_query("SELECT * FROM companies ORDER BY nom")
+            
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération companies: {e}")
+            return []
+    
+    def get_fournisseurs_with_stats(self) -> List[Dict]:
+        """Récupère les fournisseurs avec leurs statistiques"""
+        try:
+            query = "SELECT * FROM view_fournisseurs_stats ORDER BY nombre_commandes DESC, nom"
+            rows = self.execute_query(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération fournisseurs: {e}")
+            return []
+    
+    def add_fournisseur(self, company_id: int, fournisseur_data: Dict) -> int:
+        """Ajoute un fournisseur basé sur une entreprise existante"""
+        try:
+            query = '''
+                INSERT INTO fournisseurs 
+                (company_id, code_fournisseur, categorie_produits, delai_livraison_moyen,
+                 conditions_paiement, evaluation_qualite, contact_commercial, contact_technique,
+                 certifications, notes_evaluation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            fournisseur_id = self.execute_insert(query, (
+                company_id,
+                fournisseur_data.get('code_fournisseur'),
+                fournisseur_data.get('categorie_produits'),
+                fournisseur_data.get('delai_livraison_moyen', 14),
+                fournisseur_data.get('conditions_paiement', '30 jours net'),
+                fournisseur_data.get('evaluation_qualite', 5),
+                fournisseur_data.get('contact_commercial'),
+                fournisseur_data.get('contact_technique'),
+                fournisseur_data.get('certifications'),
+                fournisseur_data.get('notes_evaluation')
+            ))
+            
+            # Mettre à jour le type de l'entreprise
+            self.execute_update(
+                "UPDATE companies SET type_company = 'FOURNISSEUR' WHERE id = ?",
+                (company_id,)
+            )
+            
+            return fournisseur_id
+            
+        except Exception as e:
+            logger.error(f"Erreur ajout fournisseur: {e}")
+            return None
+    
+    def update_inventory_status_all(self):
+        """Met à jour automatiquement le statut de tous les articles d'inventaire"""
+        try:
+            query = """
+                UPDATE inventory_items 
+                SET statut = CASE
+                    WHEN quantite_metric <= 0.001 THEN 'ÉPUISÉ'
+                    WHEN quantite_metric <= limite_minimale_metric THEN 'CRITIQUE'
+                    WHEN quantite_metric <= (limite_minimale_metric * 1.5) THEN 'FAIBLE'
+                    ELSE 'DISPONIBLE'
+                END,
+                updated_at = CURRENT_TIMESTAMP
+                WHERE limite_minimale_metric > 0
+            """
+            
+            affected = self.execute_update(query)
+            logger.info(f"Statuts inventaire mis à jour: {affected} articles")
+            return affected
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour statuts inventaire: {e}")
+            return 0
+    
+    def get_stocks_critiques(self) -> List[Dict]:
+        """Retourne les articles avec stock critique"""
+        try:
+            query = "SELECT * FROM view_stocks_critiques WHERE statut_calcule IN ('ÉPUISÉ', 'CRITIQUE', 'FAIBLE')"
+            rows = self.execute_query(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération stocks critiques: {e}")
+            return []
+    
+    def create_approvisionnement(self, formulaire_id: int, fournisseur_id: int, data: Dict) -> int:
+        """Crée un enregistrement d'approvisionnement"""
+        try:
+            query = '''
+                INSERT INTO approvisionnements
+                (formulaire_id, fournisseur_id, statut_livraison, date_commande,
+                 date_livraison_prevue, quantite_commandee, notes_livraison)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            appro_id = self.execute_insert(query, (
+                formulaire_id,
+                fournisseur_id,
+                data.get('statut_livraison', 'EN_ATTENTE'),
+                data.get('date_commande'),
+                data.get('date_livraison_prevue'),
+                data.get('quantite_commandee', 0),
+                data.get('notes_livraison')
+            ))
+            
+            return appro_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création approvisionnement: {e}")
+            return None
+    
+    def update_approvisionnement_status(self, appro_id: int, nouveau_statut: str, notes: str = ""):
+        """Met à jour le statut d'un approvisionnement"""
+        try:
+            query = '''
+                UPDATE approvisionnements 
+                SET statut_livraison = ?, notes_livraison = ?, 
+                    date_livraison_reelle = CASE WHEN ? = 'LIVRÉ' THEN CURRENT_DATE ELSE date_livraison_reelle END
+                WHERE id = ?
+            '''
+            
+            affected = self.execute_update(query, (nouveau_statut, notes, nouveau_statut, appro_id))
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour approvisionnement: {e}")
+            return False
+    
+    # =========================================================================
+    # MÉTHODES D'ANALYSE ET REPORTING
+    # =========================================================================
+    
+    def get_dashboard_metrics(self) -> Dict[str, Any]:
+        """Retourne les métriques principales pour le dashboard"""
+        try:
+            metrics = {
+                'projects': {'total': 0, 'actifs': 0, 'ca_total': 0.0},
+                'formulaires': {'total': 0, 'en_attente': 0, 'montant_total': 0.0},
+                'inventory': {'total_items': 0, 'stocks_critiques': 0},
+                'fournisseurs': {'total': 0, 'actifs': 0},
+                'employees': {'total': 0, 'actifs': 0}
+            }
+            
+            # Métriques projets
+            result = self.execute_query("SELECT COUNT(*) as total, SUM(prix_estime) as ca FROM projects")
+            if result:
+                metrics['projects']['total'] = result[0]['total']
+                metrics['projects']['ca_total'] = result[0]['ca'] or 0.0
+            
+            result = self.execute_query("SELECT COUNT(*) as actifs FROM projects WHERE statut NOT IN ('TERMINÉ', 'ANNULÉ')")
+            if result:
+                metrics['projects']['actifs'] = result[0]['actifs']
+            
+            # Métriques formulaires
+            result = self.execute_query("SELECT COUNT(*) as total, SUM(montant_total) as montant FROM formulaires")
+            if result:
+                metrics['formulaires']['total'] = result[0]['total']
+                metrics['formulaires']['montant_total'] = result[0]['montant'] or 0.0
+            
+            result = self.execute_query("SELECT COUNT(*) as en_attente FROM formulaires WHERE statut IN ('BROUILLON', 'VALIDÉ')")
+            if result:
+                metrics['formulaires']['en_attente'] = result[0]['en_attente']
+            
+            # Métriques inventaire
+            result = self.execute_query("SELECT COUNT(*) as total FROM inventory_items")
+            if result:
+                metrics['inventory']['total_items'] = result[0]['total']
+            
+            result = self.execute_query("SELECT COUNT(*) as critiques FROM inventory_items WHERE statut IN ('CRITIQUE', 'FAIBLE', 'ÉPUISÉ')")
+            if result:
+                metrics['inventory']['stocks_critiques'] = result[0]['critiques']
+            
+            # Métriques fournisseurs
+            result = self.execute_query("SELECT COUNT(*) as total FROM companies WHERE type_company = 'FOURNISSEUR'")
+            if result:
+                metrics['fournisseurs']['total'] = result[0]['total']
+            
+            result = self.execute_query("SELECT COUNT(*) as actifs FROM fournisseurs WHERE est_actif = TRUE")
+            if result:
+                metrics['fournisseurs']['actifs'] = result[0]['actifs']
+            
+            # Métriques employés
+            result = self.execute_query("SELECT COUNT(*) as total FROM employees")
+            if result:
+                metrics['employees']['total'] = result[0]['total']
+            
+            result = self.execute_query("SELECT COUNT(*) as actifs FROM employees WHERE statut = 'ACTIF'")
+            if result:
+                metrics['employees']['actifs'] = result[0]['actifs']
+            
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Erreur métriques dashboard: {e}")
+            return {}
+    
+    def generate_monthly_report(self, year: int, month: int) -> Dict[str, Any]:
+        """Génère un rapport mensuel complet"""
+        try:
+            report = {
+                'periode': f"{year}-{month:02d}",
+                'formulaires_crees': 0,
+                'montant_commandes': 0.0,
+                'projets_livres': 0,
+                'stocks_mouvements': 0,
+                'performances_fournisseurs': [],
+                'alertes': []
+            }
+            
+            # Formulaires créés dans le mois
+            query = '''
+                SELECT COUNT(*) as count, SUM(montant_total) as montant
+                FROM formulaires 
+                WHERE strftime('%Y-%m', date_creation) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['formulaires_crees'] = result[0]['count']
+                report['montant_commandes'] = result[0]['montant'] or 0.0
+            
+            # Projets livrés
+            query = '''
+                SELECT COUNT(*) as livres
+                FROM projects 
+                WHERE statut = 'TERMINÉ' 
+                AND strftime('%Y-%m', updated_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['projets_livres'] = result[0]['livres']
+            
+            # Mouvements d'inventaire
+            query = '''
+                SELECT COUNT(*) as mouvements
+                FROM inventory_history 
+                WHERE strftime('%Y-%m', created_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['stocks_mouvements'] = result[0]['mouvements']
+            
+            # Performances fournisseurs (basique)
+            query = '''
+                SELECT c.nom, COUNT(f.id) as commandes, SUM(f.montant_total) as montant
+                FROM formulaires f
+                JOIN companies c ON f.company_id = c.id
+                WHERE f.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')
+                AND strftime('%Y-%m', f.date_creation) = ?
+                GROUP BY c.id, c.nom
+                ORDER BY montant DESC
+                LIMIT 10
+            '''
+            rows = self.execute_query(query, (f"{year}-{month:02d}",))
+            report['performances_fournisseurs'] = [dict(row) for row in rows]
+            
+            return report
+            
+        except Exception as e:
+            logger.error(f"Erreur génération rapport mensuel: {e}")
+            return {}
 
 # Utilitaires pour conversion mesures impériales (préservation fonction existante)
 def convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_str: str) -> float:
