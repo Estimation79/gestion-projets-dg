@@ -233,7 +233,8 @@ def render_bon_commande_form(gestionnaire_bc):
             search_inventaire = st.text_input("🔍 Rechercher dans l'inventaire", 
                                             placeholder="Nom d'article, type...")
         with col_add:
-            if st.form_submit_button("🔍 Rechercher", use_container_width=True, key="bc_search_inv"):
+            # CORRECTION: Suppression du paramètre 'key' pour form_submit_button
+            if st.form_submit_button("🔍 Rechercher", use_container_width=True):
                 if search_inventaire:
                     st.session_state.inventaire_search_results = search_articles_inventaire(search_inventaire)
         
@@ -247,7 +248,8 @@ def render_bon_commande_form(gestionnaire_bc):
                 with col_stock:
                     st.text(f"Stock: {article.get('quantite_imperial', 'N/A')}")
                 with col_btn:
-                    if st.form_submit_button("➕", key=f"add_art_bc_{article['id']}"):
+                    # CORRECTION: Suppression du paramètre 'key' pour form_submit_button
+                    if st.form_submit_button("➕"):
                         # Ajouter l'article aux lignes
                         pass
         
@@ -360,11 +362,11 @@ def render_bon_commande_form(gestionnaire_bc):
         st.markdown("---")
         col_submit1, col_submit2, col_submit3 = st.columns(3)
         with col_submit1:
-            submit_brouillon = st.form_submit_button("💾 Sauver comme Brouillon", use_container_width=True, key="bc_submit_brouillon")
+            submit_brouillon = st.form_submit_button("💾 Sauver comme Brouillon", use_container_width=True)
         with col_submit2:
-            submit_valide = st.form_submit_button("✅ Créer et Valider", use_container_width=True, key="bc_submit_valide")
+            submit_valide = st.form_submit_button("✅ Créer et Valider", use_container_width=True)
         with col_submit3:
-            submit_envoyer = st.form_submit_button("📤 Créer et Envoyer", use_container_width=True, key="bc_submit_envoyer")
+            submit_envoyer = st.form_submit_button("📤 Créer et Envoyer", use_container_width=True)
         
         # Traitement de la soumission
         if submit_brouillon or submit_valide or submit_envoyer:
