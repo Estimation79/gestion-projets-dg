@@ -428,8 +428,12 @@ def render_bon_achat_form_auto(gestionnaire_ba):
         employe_id = st.selectbox("Demandeur", [e['id'] for e in employes], 
                                 format_func=lambda x: next((f"{e['prenom']} {e['nom']}" for e in employes if e['id'] == x), ""))
         
+        # ✅ CORRECTION: Séparer le formatage de date
+        date_detection = datetime.now().strftime('%d/%m/%Y à %H:%M')
+        notes_auto_default = f"Réapprovisionnement automatique de {len(stocks_critiques)} article(s) en stock critique détecté le {date_detection}"
+        
         notes_auto = st.text_area("Notes sur le Réapprovisionnement", 
-                                value=f"Réapprovisionnement automatique de {len(stocks_critiques)} article(s) en stock critique détecté le {datetime.now().strftime('%d/%m/%Y à %H:%M')}")
+                                value=notes_auto_default)
         
         submit_auto = st.form_submit_button("🚀 Créer Bon d'Achats Automatique", use_container_width=True)
         
@@ -465,7 +469,7 @@ def render_bon_achat_list(gestionnaire_ba):
         montant_total = sum(ba.get('montant_total', 0) for ba in bons_achats)
         st.metric("💰 Montant Total", f"{montant_total:,.0f}$")
     with col_m4:
-        urgents = len([ba for ba in bons_achats if ba['priorite'] == 'CRITIQUE'])
+        urgents = len([ba for ba in bons_achats if ba['priorité'] == 'CRITIQUE'])
         st.metric("🚨 Urgents", urgents)
     
     # Filtres
