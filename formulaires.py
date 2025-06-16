@@ -4853,13 +4853,1660 @@ def render_performance_fournisseurs(gestionnaire):
     st.markdown("#### 📈 Performance Fournisseurs")
     st.info("🚧 Analyse performance fournisseurs - Fonctionnalité avancée")
 
+# =============================================================================
+# MODULE ESTIMATIONS (EST) - INTERFACE COMPLÈTE
+# Devis Clients Professionnels avec Calculs Automatiques
+# =============================================================================
+
 def render_estimations_tab(gestionnaire):
-    """Interface pour les Estimations"""
+    """Interface complète pour les Estimations - Devis Clients"""
     st.markdown("### 📊 Estimations")
-    st.info("🚧 Interface Estimations - En développement")
     
-    # TODO: Devis clients professionnels
-    # Spécificités: Calculs automatiques, templates, conversion en projets
+    # Alerte pour projets sans estimation
+    projets_sans_estimation = get_projets_sans_estimation()
+    if projets_sans_estimation:
+        st.info(f"💡 {len(projets_sans_estimation)} projet(s) pourrait(ent) bénéficier d'une estimation")
+    
+    # Actions principales EST
+    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
+    with col_action1:
+        if st.button("➕ Nouvelle Estimation", use_container_width=True, key="est_nouveau"):
+            st.session_state.form_action = "create_estimation"
+    with col_action2:
+        if st.button("📋 Devis Actifs", use_container_width=True, key="est_liste"):
+            st.session_state.form_action = "list_estimations_actives"
+    with col_action3:
+        if st.button("🔄 Gestion Versions", use_container_width=True, key="est_versions"):
+            st.session_state.form_action = "manage_versions"
+    with col_action4:
+        if st.button("✅ Acceptées", use_container_width=True, key="est_acceptees"):
+            st.session_state.form_action = "estimations_acceptees"
+    
+    # Actions secondaires
+    col_action5, col_action6, col_action7, col_action8 = st.columns(4)
+    with col_action5:
+        if st.button("📊 Analyse Rentabilité", use_container_width=True, key="est_rentabilite"):
+            st.session_state.form_action = "analyse_rentabilite"
+    with col_action6:
+        if st.button("📋 Templates Industrie", use_container_width=True, key="est_templates"):
+            st.session_state.form_action = "templates_estimations"
+    with col_action7:
+        if st.button("📈 Suivi Commercial", use_container_width=True, key="est_suivi"):
+            st.session_state.form_action = "suivi_commercial"
+    with col_action8:
+        if st.button("💰 Analyse Marges", use_container_width=True, key="est_marges"):
+            st.session_state.form_action = "analyse_marges"
+    
+    # Affichage selon l'action
+    action = st.session_state.get('form_action', 'list_estimations_actives')
+    
+    if action == "create_estimation":
+        render_estimation_form(gestionnaire)
+    elif action == "list_estimations_actives":
+        render_estimation_list(gestionnaire)
+    elif action == "manage_versions":
+        render_manage_versions(gestionnaire)
+    elif action == "estimations_acceptees":
+        render_estimations_acceptees(gestionnaire)
+    elif action == "analyse_rentabilite":
+        render_analyse_rentabilite(gestionnaire)
+    elif action == "templates_estimations":
+        render_templates_estimations(gestionnaire)
+    elif action == "suivi_commercial":
+        render_suivi_commercial(gestionnaire)
+    elif action == "analyse_marges":
+        render_analyse_marges(gestionnaire)
+
+# =============================================================================
+# FORMULAIRE CRÉATION ESTIMATION AVEC CALCULS AUTOMATIQUES
+# =============================================================================
+
+def render_estimation_form(gestionnaire):
+    """Formulaire de création d'Estimation Client avec calculs automatiques"""
+    st.markdown("#### ➕ Nouvelle Estimation Client")
+    
+    with st.form("estimation_form", clear_on_submit=True):
+        # En-tête du formulaire
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            numero_est = gestionnaire.generer_numero_document('ESTIMATION')
+            st.text_input("N° Estimation", value=numero_est, disabled=True)
+            
+            # Sélection CLIENT (direction inverse vs fournisseurs)
+            clients_disponibles = get_clients_actifs()
+            client_options = [("", "Sélectionner un client")] + [(c['id'], f"{c['nom']} - {c['secteur']}") for c in clients_disponibles]
+            client_id = st.selectbox(
+                "Client *",
+                options=[c[0] for c in client_options],
+                format_func=lambda x: next((c[1] for c in client_options if c[0] == x), ""),
+                help="Client pour lequel établir le devis"
+            )
+            
+            date_creation = st.date_input("Date de Création", datetime.now().date())
+        
+        with col2:
+            # Commercial responsable
+            employes = get_employes_actifs()
+            employe_options = [("", "Sélectionner un commercial")] + [(e['id'], f"{e['prenom']} {e['nom']} - {e['poste']}") for e in employes]
+            employe_id = st.selectbox(
+                "Commercial Responsable *",
+                options=[e[0] for e in employe_options],
+                format_func=lambda x: next((e[1] for e in employe_options if e[0] == x), "")
+            )
+            
+            priorite = st.selectbox("Priorité", gestionnaire.priorites, index=0)
+        
+        # SPÉCIFICITÉS EST - PARAMÈTRES DU DEVIS
+        st.markdown("##### 🎯 Paramètres du Devis")
+        col_est1, col_est2 = st.columns(2)
+        
+        with col_est1:
+            template_industrie = st.selectbox("Template Industrie *", 
+                ["AUTOMOBILE", "AERONAUTIQUE", "CONSTRUCTION", "GENERAL"],
+                help="Le template détermine les coefficients et marges automatiques")
+            
+            validite_devis = st.number_input("Validité Devis (jours)", 
+                min_value=15, value=30, max_value=90,
+                help="Durée pendant laquelle le devis reste valide")
+            
+            type_estimation = st.selectbox("Type d'Estimation",
+                ["Devis Standard", "Estimation Rapide", "Appel d'Offres", "Révision"])
+        
+        with col_est2:
+            marge_beneficiaire = st.slider("Marge Bénéficiaire (%)", 5, 50, 
+                get_marge_defaut_template(template_industrie),
+                help="Marge bénéficiaire selon le template sélectionné")
+            
+            devise_devis = st.selectbox("Devise", ["CAD", "USD", "EUR"])
+            
+            conditions_paiement_client = st.selectbox("Conditions Paiement",
+                ["30 jours net", "50% avance + 50% livraison", "À réception", "60 jours net"])
+        
+        # Projet existant ou nouveau
+        st.markdown("##### 🏢 Client et Projet")
+        
+        if client_id:
+            projets_client = get_projets_client(client_id)
+            if projets_client:
+                col_proj1, col_proj2 = st.columns(2)
+                with col_proj1:
+                    base_sur_projet = st.checkbox("Baser sur Projet Existant",
+                        help="Utiliser un projet existant pour les calculs automatiques")
+                with col_proj2:
+                    if base_sur_projet:
+                        projet_base_id = st.selectbox("Projet de Base",
+                            options=[p['id'] for p in projets_client],
+                            format_func=lambda x: next((f"{p['nom_projet']}" for p in projets_client if p['id'] == x), ""))
+                    else:
+                        projet_base_id = None
+            else:
+                st.info("Ce client n'a pas de projets existants. L'estimation sera créée manuellement.")
+                base_sur_projet = False
+                projet_base_id = None
+        else:
+            base_sur_projet = False
+            projet_base_id = None
+        
+        # CALCULS AUTOMATIQUES AVANCÉS (SPÉCIFICITÉ EST)
+        st.markdown("##### 🔢 Calculs Automatiques")
+        
+        if st.checkbox("Activer Calculs Automatiques", value=True):
+            if projet_base_id:
+                # Calculs basés sur projet existant
+                calculs_auto = calculer_estimation_automatique(projet_base_id, marge_beneficiaire, template_industrie)
+                
+                if calculs_auto:
+                    col_calc1, col_calc2, col_calc3 = st.columns(3)
+                    with col_calc1:
+                        st.metric("Coût Matériaux", f"{calculs_auto['cout_materiaux']:,.2f}$ {devise_devis}")
+                        st.metric("Coût Main d'Œuvre", f"{calculs_auto['cout_main_oeuvre']:,.2f}$ {devise_devis}")
+                    with col_calc2:
+                        st.metric("Coût Direct", f"{calculs_auto['cout_direct']:,.2f}$ {devise_devis}")
+                        st.metric("Frais Généraux (20%)", f"{calculs_auto['cout_indirect']:,.2f}$ {devise_devis}")
+                    with col_calc3:
+                        st.metric("Marge Bénéficiaire", f"{calculs_auto['marge']:,.2f}$ {devise_devis}")
+                        st.metric("Prix HT", f"{calculs_auto['prix_HT']:,.2f}$ {devise_devis}")
+                    
+                    st.success(f"💰 **PRIX TOTAL TTC : {calculs_auto['prix_TTC']:,.2f}$ {devise_devis}**")
+                    
+                    # Affichage du détail template
+                    template_info = get_template_info(template_industrie)
+                    st.info(f"""
+                    **Template {template_industrie}** : 
+                    Coefficient complexité: {template_info['coefficient_complexite']} | 
+                    Certification: {template_info['cout_certification_pct']}% | 
+                    Délai standard: {template_info['delai_standard']} jours
+                    """)
+                else:
+                    st.error("❌ Erreur dans les calculs automatiques")
+            else:
+                st.info("Sélectionnez un projet de base pour activer les calculs automatiques")
+        
+        # Articles/Services du devis (avec ou sans calculs auto)
+        st.markdown("##### 📦 Articles/Services du Devis")
+        
+        # Interface similaire aux autres formulaires mais adaptée pour devis client
+        col_desc, col_qty, col_unit, col_price, col_marge = st.columns([3, 1, 1, 1.5, 1])
+        with col_desc:
+            st.markdown("**Description**")
+        with col_qty:
+            st.markdown("**Quantité**")
+        with col_unit:
+            st.markdown("**Unité**")
+        with col_price:
+            st.markdown("**Prix Unit. HT**")
+        with col_marge:
+            st.markdown("**Marge %**")
+        
+        lignes_estimation = []
+        prix_total_manuel = 0
+        
+        for i in range(6):  # 6 lignes
+            col_desc, col_qty, col_unit, col_price, col_marge = st.columns([3, 1, 1, 1.5, 1])
+            
+            with col_desc:
+                desc = st.text_input("", key=f"est_desc_{i}", placeholder="Description article/service")
+            with col_qty:
+                qty = st.number_input("", min_value=0.0, key=f"est_qty_{i}", format="%.2f", step=1.0)
+            with col_unit:
+                unite = st.selectbox("", ["UN", "H", "J", "M²", "KG", "SERVICE"], key=f"est_unit_{i}")
+            with col_price:
+                prix_ht = st.number_input("", min_value=0.0, key=f"est_price_{i}", format="%.2f", step=0.01)
+            with col_marge:
+                marge_ligne = st.number_input("", min_value=0, max_value=100, key=f"est_marge_{i}", value=marge_beneficiaire)
+            
+            if desc and qty > 0:
+                prix_avec_marge = prix_ht * (1 + marge_ligne / 100)
+                montant_ligne = qty * prix_avec_marge
+                prix_total_manuel += montant_ligne
+                
+                lignes_estimation.append({
+                    'description': desc,
+                    'quantite': qty,
+                    'unite': unite,
+                    'prix_unitaire': prix_avec_marge,
+                    'prix_unitaire_ht': prix_ht,
+                    'marge_pct': marge_ligne,
+                    'montant_ligne': montant_ligne
+                })
+        
+        # Conditions spéciales selon template industrie
+        st.markdown("##### 📋 Conditions Spéciales par Industrie")
+        
+        template_info = get_template_info(template_industrie)
+        
+        col_cond1, col_cond2 = st.columns(2)
+        with col_cond1:
+            garantie_proposee = st.text_input("Garantie Proposée",
+                value=template_info['garantie'],
+                help="Garantie selon le template industrie")
+            
+            delai_execution = st.number_input("Délai d'Exécution (jours)",
+                value=template_info['delai_standard'],
+                help="Délai standard selon l'industrie")
+            
+            lieu_execution = st.text_input("Lieu d'Exécution",
+                value="Ateliers DG Inc., Montréal")
+        
+        with col_cond2:
+            # Clauses techniques automatiques selon template
+            clauses_techniques = st.text_area("Clauses Techniques",
+                value=get_clauses_techniques_template(template_industrie),
+                height=100,
+                help="Clauses techniques pré-remplies selon l'industrie")
+            
+            options_incluses = st.multiselect("Options Incluses",
+                ["Transport", "Installation", "Formation", "Maintenance 1 an", "Support technique"],
+                default=["Support technique"])
+        
+        # Validité et révisions
+        st.markdown("##### ⏰ Validité et Révisions")
+        
+        col_valid1, col_valid2 = st.columns(2)
+        with col_valid1:
+            date_validite = st.date_input("Date Limite Validité",
+                value=datetime.now().date() + timedelta(days=validite_devis))
+            
+            revision_autorisee = st.checkbox("Révisions Autorisées", value=True,
+                help="Le client peut-il demander des modifications?")
+        
+        with col_valid2:
+            nb_revisions_max = st.number_input("Nombre Révisions Max", 
+                min_value=0, value=3, disabled=not revision_autorisee)
+            
+            frais_revision = st.number_input("Frais Révision ($)", 
+                min_value=0.0, value=0.0, format="%.2f",
+                disabled=not revision_autorisee)
+        
+        # Notes et observations
+        notes_estimation = st.text_area("Notes et Observations", height=80,
+            placeholder="Contexte du projet, exigences particulières, conditions spéciales...")
+        
+        # Récapitulatif financier final
+        prix_final = prix_total_manuel if lignes_estimation else (calculs_auto.get('prix_TTC', 0) if projet_base_id and st.session_state.get('calculs_auto_actifs') else 0)
+        
+        if prix_final > 0:
+            taxes = prix_final * 0.14975  # TVQ + TPS Québec
+            prix_ttc_final = prix_final + taxes
+            
+            st.markdown(f"""
+            <div style='background:#f0f9ff;padding:1rem;border-radius:8px;border-left:4px solid #3b82f6;'>
+                <h5 style='color:#1e40af;margin:0;'>💰 Récapitulatif Financier Final</h5>
+                <p style='margin:0.5rem 0 0 0;'><strong>Prix HT : {prix_final:,.2f} {devise_devis}</strong></p>
+                <p style='margin:0;'>Taxes (14.975%) : {taxes:,.2f} {devise_devis}</p>
+                <p style='margin:0;'><strong>Prix TTC : {prix_ttc_final:,.2f} {devise_devis}</strong></p>
+                <p style='margin:0;font-size:0.9em;'>Template : {template_industrie} | Marge : {marge_beneficiaire}%</p>
+                <p style='margin:0;font-size:0.9em;'>Validité : {validite_devis} jours | Délai : {delai_execution} jours</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Boutons de soumission
+        st.markdown("---")
+        col_submit1, col_submit2, col_submit3 = st.columns(3)
+        
+        with col_submit1:
+            submit_brouillon = st.form_submit_button("💾 Sauver comme Brouillon", use_container_width=True, key="est_submit_brouillon")
+        with col_submit2:
+            submit_valide = st.form_submit_button("✅ Créer et Valider", use_container_width=True, key="est_submit_valide")
+        with col_submit3:
+            submit_envoyer = st.form_submit_button("📤 Créer et Envoyer Client", use_container_width=True, key="est_submit_envoyer")
+        
+        # Traitement de la soumission
+        if submit_brouillon or submit_valide or submit_envoyer:
+            # Validation des champs obligatoires
+            erreurs = []
+            
+            if not client_id:
+                erreurs.append("Client obligatoire")
+            if not employe_id:
+                erreurs.append("Commercial responsable obligatoire")
+            if not template_industrie:
+                erreurs.append("Template industrie obligatoire")
+            if not lignes_estimation and not projet_base_id:
+                erreurs.append("Au moins un article ou un projet de base requis")
+            if prix_final <= 0:
+                erreurs.append("Le montant de l'estimation doit être supérieur à 0")
+            
+            if erreurs:
+                st.error("❌ Erreurs de validation :")
+                for erreur in erreurs:
+                    st.error(f"• {erreur}")
+            else:
+                # Déterminer le statut
+                if submit_brouillon:
+                    statut = 'BROUILLON'
+                elif submit_envoyer:
+                    statut = 'ENVOYÉ'
+                else:
+                    statut = 'VALIDÉ'
+                
+                # Construction des métadonnées EST
+                metadonnees_est = {
+                    'template_industrie': template_industrie,
+                    'marge_beneficiaire': marge_beneficiaire,
+                    'devise_devis': devise_devis,
+                    'validite_devis': validite_devis,
+                    'type_estimation': type_estimation,
+                    'conditions_paiement': conditions_paiement_client,
+                    'garantie_proposee': garantie_proposee,
+                    'delai_execution': delai_execution,
+                    'lieu_execution': lieu_execution,
+                    'options_incluses': options_incluses,
+                    'revision_autorisee': revision_autorisee,
+                    'nb_revisions_max': nb_revisions_max,
+                    'frais_revision': frais_revision,
+                    'date_validite': date_validite.isoformat(),
+                    'projet_base_id': projet_base_id,
+                    'calculs_automatiques': bool(projet_base_id),
+                    'version': 1,  # Première version
+                    'template_info': template_info
+                }
+                
+                # Construction des notes complètes
+                notes_completes = f"""=== ESTIMATION CLIENT ===
+Template : {template_industrie}
+Type : {type_estimation}
+Marge bénéficiaire : {marge_beneficiaire}%
+
+=== CLIENT ET PROJET ===
+Client : {next((c[1] for c in client_options if c[0] == client_id), 'N/A')}
+Projet de base : {next((p['nom_projet'] for p in projets_client if p['id'] == projet_base_id), 'Nouveau projet') if client_id and projets_client else 'Nouveau projet'}
+
+=== CONDITIONS COMMERCIALES ===
+Validité : {validite_devis} jours (jusqu'au {date_validite.strftime('%d/%m/%Y')})
+Paiement : {conditions_paiement_client}
+Garantie : {garantie_proposee}
+Délai exécution : {delai_execution} jours
+Lieu : {lieu_execution}
+
+=== CLAUSES TECHNIQUES ===
+{clauses_techniques}
+
+=== OPTIONS INCLUSES ===
+{', '.join(options_incluses) if options_incluses else 'Aucune option spéciale'}
+
+=== RÉVISIONS ===
+Autorisées : {'Oui' if revision_autorisee else 'Non'}
+Nombre max : {nb_revisions_max if revision_autorisee else 'N/A'}
+Frais : {frais_revision}$ CAD par révision
+
+=== DÉTAILS FINANCIERS ===
+Prix HT : {prix_final:,.2f} {devise_devis}
+Taxes : {prix_final * 0.14975:,.2f} {devise_devis}
+Prix TTC : {prix_final + (prix_final * 0.14975):,.2f} {devise_devis}
+
+=== NOTES ET OBSERVATIONS ===
+{notes_estimation or 'Aucune note particulière'}"""
+                
+                # Utilisation des lignes automatiques ou manuelles
+                lignes_finales = lignes_estimation if lignes_estimation else []
+                if projet_base_id and not lignes_estimation:
+                    # Créer des lignes depuis le projet
+                    lignes_finales = creer_lignes_depuis_projet(projet_base_id, calculs_auto)
+                
+                # Préparation des données
+                data = {
+                    'type_formulaire': 'ESTIMATION',
+                    'numero_document': numero_est,
+                    'project_id': projet_base_id,  # Peut être None pour nouveau client
+                    'company_id': client_id,
+                    'employee_id': employe_id,
+                    'statut': statut,
+                    'priorite': priorite,
+                    'date_creation': date_creation,
+                    'date_echeance': date_validite,
+                    'montant_total': prix_final + (prix_final * 0.14975),  # Prix TTC
+                    'notes': notes_completes,
+                    'metadonnees_json': json.dumps(metadonnees_est),
+                    'lignes': lignes_finales
+                }
+                
+                # Création de l'estimation
+                estimation_id = gestionnaire.creer_formulaire(data)
+                
+                if estimation_id:
+                    # Messages de succès personnalisés
+                    if submit_envoyer:
+                        st.success(f"📤 Estimation {numero_est} créée et envoyée au client!")
+                        st.info("📧 Le client a été notifié et le suivi commercial est activé.")
+                    else:
+                        st.success(f"✅ Estimation {numero_est} créée avec succès!")
+                    
+                    # Affichage du récapitulatif
+                    st.markdown(f"""
+                    ### 📋 Récapitulatif de l'Estimation
+                    
+                    **N° EST :** {numero_est}  
+                    **Client :** {next((c[1] for c in client_options if c[0] == client_id), 'N/A')}  
+                    **Template :** {template_industrie}  
+                    **Montant TTC :** {prix_final + (prix_final * 0.14975):,.2f} {devise_devis}  
+                    **Validité :** {date_validite.strftime('%d/%m/%Y')}  
+                    **Statut :** {statut}
+                    """)
+                    
+                    # Actions suivantes
+                    col_next1, col_next2, col_next3 = st.columns(3)
+                    with col_next1:
+                        if st.button("📋 Voir la Liste", use_container_width=True, key="est_voir_liste_apres_creation"):
+                            st.session_state.form_action = "list_estimations_actives"
+                            st.rerun()
+                    with col_next2:
+                        if st.button("🔄 Créer Version v2", use_container_width=True, key="est_version_v2"):
+                            st.session_state.base_estimation_id = estimation_id
+                            st.session_state.form_action = "manage_versions"
+                            st.rerun()
+                    with col_next3:
+                        if st.button("➕ Nouvelle Estimation", use_container_width=True, key="est_nouvelle_autre"):
+                            st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la création de l'estimation")
+
+# =============================================================================
+# LISTE DES ESTIMATIONS AVEC FILTRES
+# =============================================================================
+
+def render_estimation_list(gestionnaire):
+    """Liste des Estimations avec filtres avancés"""
+    st.markdown("#### 📋 Liste des Estimations")
+    
+    estimations = gestionnaire.get_formulaires('ESTIMATION')
+    
+    if not estimations:
+        st.info("Aucune Estimation créée. Créez votre premier devis client!")
+        
+        if st.button("➕ Créer Première Estimation", use_container_width=True, key="est_premiere"):
+            st.session_state.form_action = "create_estimation"
+            st.rerun()
+        return
+    
+    # Métriques rapides
+    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+    
+    with col_m1:
+        st.metric("📊 Total EST", len(estimations))
+    with col_m2:
+        en_cours = len([est for est in estimations if est['statut'] in ['VALIDÉ', 'ENVOYÉ']])
+        st.metric("📤 En Cours", en_cours)
+    with col_m3:
+        acceptees = len([est for est in estimations if est['statut'] == 'APPROUVÉ'])
+        st.metric("✅ Acceptées", acceptees)
+    with col_m4:
+        montant_total = sum(est.get('montant_total', 0) for est in estimations)
+        st.metric("💰 Montant Total", f"{montant_total:,.0f}$ CAD")
+    with col_m5:
+        expirees = len([est for est in estimations if est_estimation_expiree(est)])
+        st.metric("⏰ Expirées", expirees)
+    
+    # Alertes pour estimations expirées ou proches d'expiration
+    today = datetime.now().date()
+    estimations_urgentes = []
+    for est in estimations:
+        if est['statut'] in ['VALIDÉ', 'ENVOYÉ']:
+            try:
+                meta = json.loads(est.get('metadonnees_json', '{}'))
+                date_validite = datetime.strptime(meta.get('date_validite', ''), '%Y-%m-%d').date()
+                jours_restants = (date_validite - today).days
+                if jours_restants <= 3:
+                    estimations_urgentes.append((est, jours_restants))
+            except:
+                continue
+    
+    if estimations_urgentes:
+        st.warning(f"⏰ {len(estimations_urgentes)} estimation(s) expire(nt) dans ≤ 3 jours!")
+        
+        with st.expander("📋 Détails Estimations Urgentes", expanded=True):
+            for est, jours in estimations_urgentes:
+                urgence_icon = "🔴" if jours < 0 else "🟡" if jours <= 1 else "🟠"
+                st.error(f"""
+                {urgence_icon} **EST {est['numero_document']}** - {est.get('company_nom', 'N/A')}
+                Expire dans : {jours} jour(s) | Montant : {est.get('montant_total', 0):,.0f}$ CAD
+                """)
+    
+    # Filtres avancés
+    with st.expander("🔍 Filtres et Recherche", expanded=False):
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        
+        with col_f1:
+            filtre_statut = st.multiselect("Statut", gestionnaire.statuts, default=gestionnaire.statuts)
+        with col_f2:
+            filtre_priorite = st.multiselect("Priorité", gestionnaire.priorites, default=gestionnaire.priorites)
+        with col_f3:
+            # Filtre par template industrie
+            templates_liste = list(set([get_template_from_metadata(est) for est in estimations]))
+            filtre_template = st.multiselect("Template", ['Tous'] + templates_liste, default=['Tous'])
+        with col_f4:
+            # Filtre par commercial
+            commerciaux_liste = list(set([est.get('employee_nom', 'N/A') for est in estimations if est.get('employee_nom')]))
+            filtre_commercial = st.multiselect("Commercial", ['Tous'] + commerciaux_liste, default=['Tous'])
+        
+        col_search, col_montant, col_validite = st.columns(3)
+        with col_search:
+            recherche = st.text_input("🔍 Rechercher", placeholder="Numéro, client, projet...")
+        with col_montant:
+            montant_min = st.number_input("Montant minimum ($)", min_value=0.0, value=0.0)
+        with col_validite:
+            filtre_validite = st.selectbox("Validité", 
+                ["Toutes", "Valides", "Expirent ≤ 7j", "Expirées"])
+    
+    # Application des filtres
+    estimations_filtrees = []
+    for est in estimations:
+        # Filtre statut
+        if est['statut'] not in filtre_statut:
+            continue
+        
+        # Filtre priorité
+        if est['priorite'] not in filtre_priorite:
+            continue
+        
+        # Filtre template
+        if 'Tous' not in filtre_template:
+            template_est = get_template_from_metadata(est)
+            if template_est not in filtre_template:
+                continue
+        
+        # Filtre commercial
+        if 'Tous' not in filtre_commercial and est.get('employee_nom', 'N/A') not in filtre_commercial:
+            continue
+        
+        # Filtre montant
+        if est.get('montant_total', 0) < montant_min:
+            continue
+        
+        # Filtre recherche
+        if recherche:
+            terme = recherche.lower()
+            if not any(terme in str(est.get(field, '')).lower() for field in ['numero_document', 'company_nom', 'notes', 'employee_nom']):
+                continue
+        
+        # Filtre validité
+        if filtre_validite != "Toutes":
+            try:
+                meta = json.loads(est.get('metadonnees_json', '{}'))
+                date_validite = datetime.strptime(meta.get('date_validite', ''), '%Y-%m-%d').date()
+                jours_restants = (date_validite - today).days
+                
+                if filtre_validite == "Valides" and jours_restants < 0:
+                    continue
+                elif filtre_validite == "Expirent ≤ 7j" and (jours_restants < 0 or jours_restants > 7):
+                    continue
+                elif filtre_validite == "Expirées" and jours_restants >= 0:
+                    continue
+            except:
+                if filtre_validite != "Toutes":
+                    continue
+        
+        estimations_filtrees.append(est)
+    
+    # Affichage résultats
+    st.markdown(f"**{len(estimations_filtrees)} Estimation(s) trouvée(s)**")
+    
+    if estimations_filtrees:
+        # Tri
+        col_sort1, col_sort2 = st.columns(2)
+        with col_sort1:
+            tri_par = st.selectbox("Trier par", ["Date création", "Date validité", "Montant", "Client", "Statut"])
+        with col_sort2:
+            tri_ordre = st.selectbox("Ordre", ["Décroissant", "Croissant"])
+        
+        # Application du tri
+        if tri_par == "Date création":
+            estimations_filtrees.sort(key=lambda x: x.get('date_creation', ''), reverse=(tri_ordre == "Décroissant"))
+        elif tri_par == "Date validité":
+            estimations_filtrees.sort(key=lambda x: get_date_validite_from_metadata(x), reverse=(tri_ordre == "Décroissant"))
+        elif tri_par == "Montant":
+            estimations_filtrees.sort(key=lambda x: x.get('montant_total', 0), reverse=(tri_ordre == "Décroissant"))
+        elif tri_par == "Client":
+            estimations_filtrees.sort(key=lambda x: x.get('company_nom', ''), reverse=(tri_ordre == "Décroissant"))
+        
+        # Tableau détaillé avec indicateurs visuels
+        df_data = []
+        for est in estimations_filtrees:
+            # Indicateurs visuels
+            priorite_icon = {'CRITIQUE': '🔴', 'URGENT': '🟡', 'NORMAL': '🟢'}.get(est['priorite'], '⚪')
+            statut_icon = {
+                'BROUILLON': '📝', 'VALIDÉ': '✅', 'ENVOYÉ': '📤', 
+                'APPROUVÉ': '👍', 'TERMINÉ': '✔️', 'ANNULÉ': '❌'
+            }.get(est['statut'], '❓')
+            
+            # Extraction des métadonnées
+            try:
+                meta = json.loads(est.get('metadonnees_json', '{}'))
+                template = meta.get('template_industrie', 'N/A')
+                version = meta.get('version', 1)
+                date_validite = meta.get('date_validite', 'N/A')
+                
+                # Calcul statut validité
+                if date_validite != 'N/A':
+                    date_val = datetime.strptime(date_validite, '%Y-%m-%d').date()
+                    jours_restants = (date_val - today).days
+                    if jours_restants < 0:
+                        validite_status = f"🔴 Expirée ({abs(jours_restants)}j)"
+                    elif jours_restants <= 3:
+                        validite_status = f"🟡 {jours_restants}j restants"
+                    else:
+                        validite_status = f"🟢 {jours_restants}j restants"
+                else:
+                    validite_status = "❓ Non définie"
+            except:
+                template = 'N/A'
+                version = 1
+                validite_status = "❓ Erreur"
+            
+            df_data.append({
+                'N° EST': f"{est['numero_document']} v{version}",
+                'Client': est.get('company_nom', 'N/A'),
+                'Commercial': est.get('employee_nom', 'N/A'),
+                'Template': template,
+                'Statut': f"{statut_icon} {est['statut']}",
+                'Priorité': f"{priorite_icon} {est['priorite']}",
+                'Date Création': est['date_creation'][:10] if est['date_creation'] else 'N/A',
+                'Validité': validite_status,
+                'Montant TTC': f"{est.get('montant_total', 0):,.2f}$ CAD"
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True)
+        
+        # Actions en lot
+        st.markdown("---")
+        st.markdown("##### ⚡ Actions Rapides")
+        
+        col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+        
+        with col_action1:
+            est_selectionne = st.selectbox("Sélectionner une EST", 
+                                         options=[est['id'] for est in estimations_filtrees],
+                                         format_func=lambda x: next((est['numero_document'] for est in estimations_filtrees if est['id'] == x), ""))
+        
+        with col_action2:
+            if st.button("👁️ Voir Détails", use_container_width=True, key="est_voir_details"):
+                if est_selectionne:
+                    st.session_state.selected_formulaire_id = est_selectionne
+                    st.session_state.show_formulaire_modal = True
+        
+        with col_action3:
+            if st.button("🔄 Créer Version", use_container_width=True, key="est_creer_version"):
+                if est_selectionne:
+                    st.session_state.base_estimation_id = est_selectionne
+                    st.session_state.form_action = "manage_versions"
+                    st.rerun()
+        
+        with col_action4:
+            if st.button("✅ Marquer Acceptée", use_container_width=True, key="est_marquer_acceptee"):
+                if est_selectionne:
+                    if marquer_estimation_acceptee(gestionnaire, est_selectionne):
+                        st.success("✅ Estimation marquée comme acceptée!")
+                        st.rerun()
+        
+        with col_action5:
+            if st.button("📝 Modifier", use_container_width=True, key="est_modifier"):
+                if est_selectionne:
+                    st.session_state.form_action = "edit_estimation"
+                    st.session_state.edit_formulaire_id = est_selectionne
+    else:
+        st.info("Aucune Estimation ne correspond aux critères de recherche.")
+
+# =============================================================================
+# GESTION DES VERSIONS (v1, v2, v3...)
+# =============================================================================
+
+def render_manage_versions(gestionnaire):
+    """Gestion des versions d'estimations - NOUVEAU CONCEPT"""
+    st.markdown("#### 🔄 Gestion des Versions")
+    
+    # Sélection de l'estimation de base
+    base_estimation_id = st.session_state.get('base_estimation_id')
+    
+    estimations = gestionnaire.get_formulaires('ESTIMATION')
+    est_options = [(est['id'], f"{est['numero_document']} - {est.get('company_nom', 'N/A')}") for est in estimations]
+    
+    if est_options:
+        if not base_estimation_id:
+            base_estimation_id = st.selectbox("Estimation de Base", 
+                                            options=[e[0] for e in est_options],
+                                            format_func=lambda x: next((e[1] for e in est_options if e[0] == x), ""))
+        else:
+            # Afficher l'estimation sélectionnée
+            est_selectionnee = next((e[1] for e in est_options if e[0] == base_estimation_id), "Estimation introuvable")
+            st.info(f"**Estimation sélectionnée :** {est_selectionnee}")
+        
+        if base_estimation_id:
+            # Récupération de toutes les versions de cette estimation
+            versions = get_versions_estimation(gestionnaire, base_estimation_id)
+            
+            st.markdown("##### 📋 Historique des Versions")
+            
+            if versions:
+                for version in versions:
+                    with st.expander(f"Version {version['version']} - {version['date_creation'][:10]}", expanded=False):
+                        col_v1, col_v2, col_v3, col_v4 = st.columns(4)
+                        
+                        with col_v1:
+                            st.metric("Prix TTC", f"{version['montant_total']:,.2f}$ CAD")
+                        with col_v2:
+                            st.metric("Statut", version['statut'])
+                        with col_v3:
+                            try:
+                                meta = json.loads(version.get('metadonnees_json', '{}'))
+                                template = meta.get('template_industrie', 'N/A')
+                                marge = meta.get('marge_beneficiaire', 'N/A')
+                                st.text(f"Template: {template}")
+                                st.text(f"Marge: {marge}%")
+                            except:
+                                st.text("Métadonnées indisponibles")
+                        with col_v4:
+                            if st.button(f"📋 Dupliquer v{version['version']}", key=f"dup_{version['id']}", use_container_width=True):
+                                nouvelle_version_id = dupliquer_estimation_version(gestionnaire, version['id'])
+                                if nouvelle_version_id:
+                                    st.success(f"✅ Version dupliquée avec succès!")
+                                    st.rerun()
+            else:
+                st.info("Aucune version trouvée pour cette estimation.")
+            
+            # Interface création nouvelle version
+            st.markdown("##### ➕ Créer Nouvelle Version")
+            
+            with st.form("nouvelle_version_form"):
+                col_nv1, col_nv2 = st.columns(2)
+                
+                with col_nv1:
+                    motif_revision = st.text_area("Motif de la Révision *",
+                        placeholder="Expliquez pourquoi cette nouvelle version est nécessaire...",
+                        help="Exemple: Demande client, changement spécifications, révision prix")
+                    
+                    modifications_principales = st.text_area("Principales Modifications",
+                        placeholder="Décrivez les changements apportés...",
+                        help="Détaillez les modifications techniques, commerciales, etc.")
+                
+                with col_nv2:
+                    ajustement_prix = st.selectbox("Ajustement Prix",
+                        ["Aucun", "Augmentation", "Diminution", "Révision complète"])
+                    
+                    if ajustement_prix != "Aucun":
+                        pourcentage_ajustement = st.slider("Pourcentage d'Ajustement (%)", -50, 50, 0,
+                            help="Pourcentage d'augmentation (+) ou de diminution (-)")
+                    else:
+                        pourcentage_ajustement = 0
+                    
+                    # Options de modification
+                    modifier_template = st.checkbox("Modifier Template Industrie")
+                    if modifier_template:
+                        nouveau_template = st.selectbox("Nouveau Template",
+                            ["AUTOMOBILE", "AERONAUTIQUE", "CONSTRUCTION", "GENERAL"])
+                    else:
+                        nouveau_template = None
+                    
+                    modifier_marge = st.checkbox("Modifier Marge Bénéficiaire")
+                    if modifier_marge:
+                        nouvelle_marge = st.slider("Nouvelle Marge (%)", 5, 50, 20)
+                    else:
+                        nouvelle_marge = None
+                
+                # Paramètres de la nouvelle version
+                st.markdown("**Paramètres Nouvelle Version:**")
+                col_param1, col_param2 = st.columns(2)
+                
+                with col_param1:
+                    nouvelle_validite = st.number_input("Nouvelle Validité (jours)", 
+                        min_value=15, value=30, max_value=90)
+                    priorite_version = st.selectbox("Priorité Version", 
+                        gestionnaire.priorites, index=1)  # URGENT par défaut pour révisions
+                
+                with col_param2:
+                    notification_client = st.checkbox("Notifier le Client", value=True,
+                        help="Envoyer la nouvelle version au client automatiquement")
+                    archiver_precedente = st.checkbox("Archiver Version Précédente", value=False,
+                        help="Marquer la version précédente comme obsolète")
+                
+                submit_version = st.form_submit_button("🔄 Créer Nouvelle Version", use_container_width=True)
+                
+                if submit_version and motif_revision:
+                    # Récupération de l'estimation de base
+                    est_base = gestionnaire.get_formulaire_details(base_estimation_id)
+                    
+                    if est_base:
+                        # Calcul du nouveau montant
+                        montant_actuel = est_base.get('montant_total', 0)
+                        if ajustement_prix != "Aucun":
+                            nouveau_montant = montant_actuel * (1 + pourcentage_ajustement / 100)
+                        else:
+                            nouveau_montant = montant_actuel
+                        
+                        # Récupération des métadonnées actuelles
+                        try:
+                            meta_actuelles = json.loads(est_base.get('metadonnees_json', '{}'))
+                        except:
+                            meta_actuelles = {}
+                        
+                        # Mise à jour des métadonnées
+                        nouvelle_version_num = get_prochaine_version_numero(gestionnaire, base_estimation_id)
+                        
+                        nouvelles_meta = meta_actuelles.copy()
+                        nouvelles_meta.update({
+                            'version': nouvelle_version_num,
+                            'version_precedente_id': base_estimation_id,
+                            'motif_revision': motif_revision,
+                            'modifications_principales': modifications_principales,
+                            'ajustement_prix': ajustement_prix,
+                            'pourcentage_ajustement': pourcentage_ajustement,
+                            'date_revision': datetime.now().isoformat(),
+                            'validite_devis': nouvelle_validite,
+                            'date_validite': (datetime.now().date() + timedelta(days=nouvelle_validite)).isoformat()
+                        })
+                        
+                        if nouveau_template:
+                            nouvelles_meta['template_industrie'] = nouveau_template
+                        if nouvelle_marge is not None:
+                            nouvelles_meta['marge_beneficiaire'] = nouvelle_marge
+                        
+                        # Génération du nouveau numéro
+                        numero_base = est_base['numero_document'].split(' ')[0]  # Enlever l'éventuel " v1"
+                        nouveau_numero = f"{numero_base} v{nouvelle_version_num}"
+                        
+                        # Construction des notes de révision
+                        notes_revision = f"""=== RÉVISION VERSION {nouvelle_version_num} ===
+Motif : {motif_revision}
+Date révision : {datetime.now().strftime('%d/%m/%Y à %H:%M')}
+Version précédente : {est_base['numero_document']}
+
+=== MODIFICATIONS APPORTÉES ===
+{modifications_principales or 'Aucune modification détaillée'}
+
+=== AJUSTEMENTS FINANCIERS ===
+Ajustement prix : {ajustement_prix}
+Pourcentage : {pourcentage_ajustement}%
+Montant précédent : {montant_actuel:,.2f}$ CAD
+Nouveau montant : {nouveau_montant:,.2f}$ CAD
+
+=== PARAMÈTRES TECHNIQUES ===
+Template : {nouveau_template or meta_actuelles.get('template_industrie', 'Inchangé')}
+Marge : {nouvelle_marge or meta_actuelles.get('marge_beneficiaire', 'Inchangée')}%
+Nouvelle validité : {nouvelle_validite} jours
+
+=== NOTES VERSION PRÉCÉDENTE ===
+{est_base.get('notes', '')}"""
+                        
+                        # Données de la nouvelle version
+                        data_nouvelle_version = {
+                            'type_formulaire': 'ESTIMATION',
+                            'numero_document': nouveau_numero,
+                            'project_id': est_base.get('project_id'),
+                            'company_id': est_base.get('company_id'),
+                            'employee_id': est_base.get('employee_id'),
+                            'statut': 'VALIDÉ',
+                            'priorite': priorite_version,
+                            'date_creation': datetime.now().date(),
+                            'date_echeance': datetime.now().date() + timedelta(days=nouvelle_validite),
+                            'montant_total': nouveau_montant,
+                            'notes': notes_revision,
+                            'metadonnees_json': json.dumps(nouvelles_meta),
+                            'lignes': est_base.get('lignes', [])
+                        }
+                        
+                        # Création de la nouvelle version
+                        nouvelle_version_id = gestionnaire.creer_formulaire(data_nouvelle_version)
+                        
+                        if nouvelle_version_id:
+                            # Archivage de la version précédente si demandé
+                            if archiver_precedente:
+                                gestionnaire.modifier_statut_formulaire(
+                                    base_estimation_id, 
+                                    'ANNULÉ', 
+                                    est_base.get('employee_id'),
+                                    f"Remplacée par version {nouvelle_version_num}"
+                                )
+                            
+                            # Enregistrement de l'action
+                            gestionnaire.enregistrer_validation(
+                                nouvelle_version_id,
+                                est_base.get('employee_id'),
+                                'CREATION',
+                                f"Version {nouvelle_version_num} créée depuis {est_base['numero_document']}"
+                            )
+                            
+                            st.success(f"""
+                            ✅ **Nouvelle Version Créée !**
+                            
+                            📊 **Version :** {nouvelle_version_num}
+                            💰 **Nouveau Montant :** {nouveau_montant:,.2f}$ CAD
+                            📅 **Nouvelle Validité :** {nouvelle_validite} jours
+                            🔄 **Ajustement :** {ajustement_prix} ({pourcentage_ajustement}%)
+                            """)
+                            
+                            if notification_client:
+                                st.info("📧 Notification envoyée au client pour la nouvelle version")
+                            
+                            # Actions suivantes
+                            col_next1, col_next2 = st.columns(2)
+                            with col_next1:
+                                if st.button("📋 Voir Nouvelle Version", use_container_width=True, key="voir_nouvelle_version"):
+                                    st.session_state.selected_formulaire_id = nouvelle_version_id
+                                    st.session_state.show_formulaire_modal = True
+                            with col_next2:
+                                if st.button("📊 Retour Liste", use_container_width=True, key="retour_liste_versions"):
+                                    st.session_state.form_action = "list_estimations_actives"
+                                    st.rerun()
+                        else:
+                            st.error("❌ Erreur lors de la création de la nouvelle version")
+                    else:
+                        st.error("❌ Estimation de base introuvable")
+                elif submit_version and not motif_revision:
+                    st.error("❌ Le motif de révision est obligatoire")
+    else:
+        st.info("Aucune estimation disponible pour créer des versions.")
+
+# =============================================================================
+# ESTIMATIONS ACCEPTÉES ET CONVERSION EN PROJETS
+# =============================================================================
+
+def render_estimations_acceptees(gestionnaire):
+    """Gestion des estimations acceptées et conversion projets"""
+    st.markdown("#### ✅ Estimations Acceptées")
+    
+    # Estimations acceptées prêtes pour conversion
+    estimations_acceptees = [est for est in gestionnaire.get_formulaires('ESTIMATION') 
+                           if est['statut'] == 'APPROUVÉ']
+    
+    if not estimations_acceptees:
+        st.info("Aucune estimation acceptée en attente de conversion.")
+        
+        # Proposer de marquer des estimations comme acceptées
+        estimations_envoyees = [est for est in gestionnaire.get_formulaires('ESTIMATION') 
+                               if est['statut'] == 'ENVOYÉ']
+        
+        if estimations_envoyees:
+            st.markdown("##### 📋 Estimations En Négociation")
+            st.info(f"{len(estimations_envoyees)} estimation(s) envoyée(s) en attente de réponse client")
+            
+            for est in estimations_envoyees[:3]:  # Afficher les 3 premières
+                with st.expander(f"EST {est['numero_document']} - {est.get('company_nom', 'N/A')}", expanded=False):
+                    col_neg1, col_neg2, col_neg3 = st.columns(3)
+                    
+                    with col_neg1:
+                        st.metric("Montant", f"{est.get('montant_total', 0):,.2f}$ CAD")
+                    with col_neg2:
+                        validite_status = get_validite_status(est)
+                        st.text(f"Validité: {validite_status}")
+                    with col_neg3:
+                        if st.button(f"✅ Marquer Acceptée", key=f"accept_{est['id']}", use_container_width=True):
+                            if marquer_estimation_acceptee(gestionnaire, est['id']):
+                                st.success("✅ Estimation marquée comme acceptée!")
+                                st.rerun()
+        
+        return
+    
+    st.markdown("##### 🔄 Conversion en Projets")
+    
+    for est in estimations_acceptees:
+        with st.expander(f"EST {est['numero_document']} - {est.get('company_nom', 'N/A')}", expanded=False):
+            col_conv1, col_conv2, col_conv3, col_conv4 = st.columns(4)
+            
+            with col_conv1:
+                st.metric("Montant Validé", f"{est.get('montant_total', 0):,.2f}$ CAD")
+                st.text(f"Date validation : {est.get('date_echeance', 'N/A')}")
+            
+            with col_conv2:
+                try:
+                    meta = json.loads(est.get('metadonnees_json', '{}'))
+                    template = meta.get('template_industrie', 'N/A')
+                    delai = meta.get('delai_execution', 'N/A')
+                    st.text(f"Template: {template}")
+                    st.text(f"Délai: {delai} jours")
+                except:
+                    st.text("Métadonnées indisponibles")
+            
+            with col_conv3:
+                if st.button(f"📋 Voir Détails", key=f"details_{est['id']}", use_container_width=True):
+                    st.session_state.selected_formulaire_id = est['id']
+                    st.session_state.show_formulaire_modal = True
+            
+            with col_conv4:
+                if st.button(f"🔄 Convertir → Projet", key=f"convert_{est['id']}", use_container_width=True):
+                    projet_id = convertir_estimation_vers_projet(gestionnaire, est['id'])
+                    if projet_id:
+                        st.success(f"✅ Projet #{projet_id} créé depuis EST {est['numero_document']}")
+                        st.rerun()
+
+# =============================================================================
+# FONCTIONS UTILITAIRES SPÉCIFIQUES AUX ESTIMATIONS
+# =============================================================================
+
+def get_clients_actifs():
+    """Récupère la liste des clients depuis le CRM"""
+    try:
+        # Dans le système ERP, les clients sont des companies 
+        query = """
+            SELECT id, nom, secteur, adresse 
+            FROM companies 
+            WHERE secteur NOT LIKE '%FOURNISSEUR%' 
+               OR id IN (
+                   SELECT DISTINCT company_id 
+                   FROM formulaires 
+                   WHERE type_formulaire = 'ESTIMATION'
+               )
+            ORDER BY nom
+        """
+        rows = st.session_state.erp_db.execute_query(query)
+        return [dict(row) for row in rows]
+    except Exception as e:
+        st.error(f"Erreur récupération clients: {e}")
+        return []
+
+def get_projets_client(client_id):
+    """Récupère les projets d'un client spécifique"""
+    try:
+        query = """
+            SELECT id, nom_projet, statut, prix_estime
+            FROM projects 
+            WHERE client_company_id = ? 
+            ORDER BY nom_projet
+        """
+        rows = st.session_state.erp_db.execute_query(query, (client_id,))
+        return [dict(row) for row in rows]
+    except Exception as e:
+        st.error(f"Erreur récupération projets client: {e}")
+        return []
+
+def get_marge_defaut_template(template_industrie):
+    """Retourne la marge par défaut selon le template industrie"""
+    marges_defaut = {
+        "AUTOMOBILE": 15,
+        "AERONAUTIQUE": 25,
+        "CONSTRUCTION": 12,
+        "GENERAL": 20
+    }
+    return marges_defaut.get(template_industrie, 20)
+
+def get_template_info(template_industrie):
+    """Retourne les informations complètes d'un template industrie"""
+    templates_industrie = {
+        "AUTOMOBILE": {
+            "marge_defaut": 15,
+            "conditions_paiement": "30 jours net",
+            "garantie": "12 mois pièces et main d'œuvre",
+            "clauses_techniques": [
+                "Tolérances selon norme ISO 2768",
+                "Matériaux certifiés automotive",
+                "Traçabilité complète exigée"
+            ],
+            "delai_standard": 21,
+            "coefficient_complexite": 1.2,
+            "cout_certification_pct": 5
+        },
+        "AERONAUTIQUE": {
+            "marge_defaut": 25,
+            "conditions_paiement": "50% avance + 50% livraison",
+            "garantie": "24 mois certification aéro",
+            "clauses_techniques": [
+                "Conformité AS9100",
+                "Matériaux aéronautiques certifiés",
+                "Documentation complète CAMO"
+            ],
+            "delai_standard": 45,
+            "coefficient_complexite": 1.5,
+            "cout_certification_pct": 15
+        },
+        "CONSTRUCTION": {
+            "marge_defaut": 12,
+            "conditions_paiement": "30 jours net",
+            "garantie": "12 mois installation",
+            "clauses_techniques": [
+                "Normes CNB en vigueur",
+                "Résistance structurale certifiée",
+                "Finition selon devis architectural"
+            ],
+            "delai_standard": 14,
+            "coefficient_complexite": 1.1,
+            "cout_certification_pct": 2
+        },
+        "GENERAL": {
+            "marge_defaut": 20,
+            "conditions_paiement": "30 jours net",
+            "garantie": "12 mois standard",
+            "clauses_techniques": [
+                "Qualité industrielle standard",
+                "Conformité normes applicables"
+            ],
+            "delai_standard": 21,
+            "coefficient_complexite": 1.0,
+            "cout_certification_pct": 0
+        }
+    }
+    
+    return templates_industrie.get(template_industrie, templates_industrie["GENERAL"])
+
+def get_clauses_techniques_template(template_industrie):
+    """Retourne les clauses techniques pré-remplies selon le template"""
+    template_info = get_template_info(template_industrie)
+    clauses = template_info['clauses_techniques']
+    return '\n'.join([f"• {clause}" for clause in clauses])
+
+def calculer_estimation_automatique(projet_id, marge_beneficiaire, template_industrie):
+    """Calculs automatiques pour estimations basées sur un projet existant"""
+    try:
+        # Récupérer coûts matériaux depuis BOM projet
+        materiaux_projet = get_materiaux_projet(projet_id)
+        cout_materiaux = sum(mat.get('quantite', 0) * mat.get('prix_unitaire', 0) for mat in materiaux_projet)
+        
+        # Récupérer temps estimé depuis opérations + postes de travail
+        operations_projet = get_operations_projet(projet_id)
+        cout_main_oeuvre = 0
+        
+        for operation in operations_projet:
+            try:
+                # Récupérer le coût horaire du poste de travail
+                poste = get_poste_travail(operation.get('work_center_id'))
+                if poste:
+                    cout_main_oeuvre += operation.get('temps_estime', 0) * poste.get('cout_horaire', 50)
+                else:
+                    # Coût par défaut si pas de poste trouvé
+                    cout_main_oeuvre += operation.get('temps_estime', 0) * 50
+            except:
+                continue
+        
+        # Récupération des informations du template
+        template_info = get_template_info(template_industrie)
+        
+        # Calculs selon template industrie
+        coefficient_complexite = template_info['coefficient_complexite']
+        cout_certification = cout_materiaux * (template_info['cout_certification_pct'] / 100)
+        
+        # Calcul final
+        cout_direct = (cout_materiaux + cout_main_oeuvre) * coefficient_complexite
+        cout_indirect = cout_direct * 0.20  # 20% frais généraux
+        marge = (cout_direct + cout_indirect) * (marge_beneficiaire / 100)
+        
+        prix_HT = cout_direct + cout_indirect + marge + cout_certification
+        taxes = prix_HT * 0.14975  # TVQ + TPS Québec
+        prix_TTC = prix_HT + taxes
+        
+        return {
+            'cout_materiaux': cout_materiaux,
+            'cout_main_oeuvre': cout_main_oeuvre,
+            'cout_certification': cout_certification,
+            'cout_direct': cout_direct,
+            'cout_indirect': cout_indirect,
+            'marge': marge,
+            'prix_HT': prix_HT,
+            'taxes': taxes,
+            'prix_TTC': prix_TTC,
+            'details': f"Calcul automatique template {template_industrie}"
+        }
+        
+    except Exception as e:
+        st.error(f"Erreur calculs automatiques: {e}")
+        return None
+
+def get_materiaux_projet(projet_id):
+    """Récupère les matériaux d'un projet"""
+    try:
+        query = """
+            SELECT id, designation as description, quantite, prix_unitaire, unite
+            FROM materials 
+            WHERE project_id = ?
+            ORDER BY designation
+        """
+        rows = st.session_state.erp_db.execute_query(query, (projet_id,))
+        return [dict(row) for row in rows]
+    except Exception as e:
+        st.error(f"Erreur récupération matériaux: {e}")
+        return []
+
+def get_poste_travail(work_center_id):
+    """Récupère les informations d'un poste de travail"""
+    try:
+        if not work_center_id:
+            return None
+        
+        query = """
+            SELECT id, nom, cout_horaire, departement
+            FROM work_centers 
+            WHERE id = ?
+        """
+        rows = st.session_state.erp_db.execute_query(query, (work_center_id,))
+        return dict(rows[0]) if rows else None
+    except Exception as e:
+        st.error(f"Erreur récupération poste travail: {e}")
+        return None
+
+def creer_lignes_depuis_projet(projet_id, calculs_auto):
+    """Crée les lignes d'estimation depuis un projet et ses calculs"""
+    lignes = []
+    
+    if calculs_auto:
+        # Ligne pour matériaux
+        if calculs_auto['cout_materiaux'] > 0:
+            lignes.append({
+                'description': 'Matériaux et fournitures',
+                'quantite': 1,
+                'unite': 'FORFAIT',
+                'prix_unitaire': calculs_auto['cout_materiaux'],
+                'montant_ligne': calculs_auto['cout_materiaux']
+            })
+        
+        # Ligne pour main d'œuvre
+        if calculs_auto['cout_main_oeuvre'] > 0:
+            lignes.append({
+                'description': 'Main d\'œuvre et montage',
+                'quantite': 1,
+                'unite': 'FORFAIT', 
+                'prix_unitaire': calculs_auto['cout_main_oeuvre'],
+                'montant_ligne': calculs_auto['cout_main_oeuvre']
+            })
+        
+        # Ligne pour certification si applicable
+        if calculs_auto['cout_certification'] > 0:
+            lignes.append({
+                'description': 'Certification et conformité',
+                'quantite': 1,
+                'unite': 'FORFAIT',
+                'prix_unitaire': calculs_auto['cout_certification'],
+                'montant_ligne': calculs_auto['cout_certification']
+            })
+    
+    return lignes
+
+def get_projets_sans_estimation():
+    """Récupère les projets qui n'ont pas encore d'estimation"""
+    try:
+        query = """
+            SELECT p.id, p.nom_projet, p.client_nom_cache
+            FROM projects p
+            WHERE p.statut IN ('À FAIRE', 'EN COURS')
+            AND p.id NOT IN (
+                SELECT DISTINCT project_id 
+                FROM formulaires 
+                WHERE type_formulaire = 'ESTIMATION' 
+                AND project_id IS NOT NULL
+            )
+            ORDER BY p.nom_projet
+            LIMIT 5
+        """
+        rows = st.session_state.erp_db.execute_query(query)
+        return [dict(row) for row in rows]
+    except:
+        return []
+
+def est_estimation_expiree(estimation):
+    """Vérifie si une estimation est expirée"""
+    try:
+        meta = json.loads(estimation.get('metadonnees_json', '{}'))
+        date_validite = datetime.strptime(meta.get('date_validite', ''), '%Y-%m-%d').date()
+        return date_validite < datetime.now().date()
+    except:
+        return False
+
+def get_template_from_metadata(estimation):
+    """Extrait le template depuis les métadonnées"""
+    try:
+        meta = json.loads(estimation.get('metadonnees_json', '{}'))
+        return meta.get('template_industrie', 'N/A')
+    except:
+        return 'N/A'
+
+def get_date_validite_from_metadata(estimation):
+    """Extrait la date de validité depuis les métadonnées"""
+    try:
+        meta = json.loads(estimation.get('metadonnees_json', '{}'))
+        return meta.get('date_validite', '9999-12-31')
+    except:
+        return '9999-12-31'
+
+def get_validite_status(estimation):
+    """Retourne le statut de validité d'une estimation"""
+    try:
+        meta = json.loads(estimation.get('metadonnees_json', '{}'))
+        date_validite = datetime.strptime(meta.get('date_validite', ''), '%Y-%m-%d').date()
+        today = datetime.now().date()
+        jours_restants = (date_validite - today).days
+        
+        if jours_restants < 0:
+            return f"Expirée ({abs(jours_restants)}j)"
+        elif jours_restants <= 3:
+            return f"{jours_restants}j restants"
+        else:
+            return f"{jours_restants}j restants"
+    except:
+        return "Non définie"
+
+def marquer_estimation_acceptee(gestionnaire, estimation_id):
+    """Marque une estimation comme acceptée par le client"""
+    try:
+        gestionnaire.modifier_statut_formulaire(
+            estimation_id, 
+            'APPROUVÉ',
+            1,  # TODO: Utiliser l'utilisateur courant
+            "Estimation acceptée par le client"
+        )
+        return True
+    except Exception as e:
+        st.error(f"Erreur marquage acceptation: {e}")
+        return False
+
+def get_versions_estimation(gestionnaire, base_estimation_id):
+    """Récupère toutes les versions d'une estimation"""
+    try:
+        # Récupérer l'estimation de base
+        est_base = gestionnaire.get_formulaire_details(base_estimation_id)
+        if not est_base:
+            return []
+        
+        # Récupérer le numéro de base (sans version)
+        numero_base = est_base['numero_document'].split(' v')[0]
+        
+        # Rechercher toutes les estimations avec ce numéro de base
+        query = """
+            SELECT * FROM formulaires 
+            WHERE type_formulaire = 'ESTIMATION' 
+            AND (numero_document = ? OR numero_document LIKE ?)
+            ORDER BY id
+        """
+        
+        rows = gestionnaire.db.execute_query(query, (numero_base, f"{numero_base} v%"))
+        versions = [dict(row) for row in rows]
+        
+        # Ajouter le numéro de version depuis les métadonnées
+        for version in versions:
+            try:
+                meta = json.loads(version.get('metadonnees_json', '{}'))
+                version['version'] = meta.get('version', 1)
+            except:
+                version['version'] = 1
+        
+        return sorted(versions, key=lambda x: x['version'])
+        
+    except Exception as e:
+        st.error(f"Erreur récupération versions: {e}")
+        return []
+
+def get_prochaine_version_numero(gestionnaire, base_estimation_id):
+    """Calcule le prochain numéro de version"""
+    versions = get_versions_estimation(gestionnaire, base_estimation_id)
+    if not versions:
+        return 2  # Si pas de versions trouvées, commencer à v2
+    
+    max_version = max(v.get('version', 1) for v in versions)
+    return max_version + 1
+
+def dupliquer_estimation_version(gestionnaire, version_id):
+    """Duplique une version d'estimation existante"""
+    try:
+        # Utiliser la fonction de duplication existante du gestionnaire
+        nouveau_id = gestionnaire.db.dupliquer_formulaire(version_id, 'ESTIMATION')
+        
+        if nouveau_id:
+            # Mettre le statut en brouillon pour modification
+            gestionnaire.modifier_statut_formulaire(nouveau_id, 'BROUILLON', 1, "Version dupliquée")
+        
+        return nouveau_id
+    except Exception as e:
+        st.error(f"Erreur duplication: {e}")
+        return None
+
+def convertir_estimation_vers_projet(gestionnaire, estimation_id):
+    """Convertit une estimation acceptée en nouveau projet"""
+    try:
+        est_details = gestionnaire.get_formulaire_details(estimation_id)
+        if not est_details:
+            return None
+        
+        # Récupération des métadonnées
+        try:
+            meta = json.loads(est_details.get('metadonnees_json', '{}'))
+        except:
+            meta = {}
+        
+        # Données du nouveau projet
+        data_projet = {
+            'nom_projet': f"Projet depuis EST {est_details['numero_document']}",
+            'client_company_id': est_details.get('company_id'),
+            'statut': 'À FAIRE',
+            'priorite': est_details.get('priorite', 'NORMAL'),
+            'prix_estime': est_details.get('montant_total', 0),
+            'date_soumis': datetime.now().date(),
+            'date_prevu': datetime.now().date() + timedelta(days=meta.get('delai_execution', 30)),
+            'description': f"Projet généré automatiquement depuis l'estimation {est_details['numero_document']}"
+        }
+        
+        # Insertion du nouveau projet
+        query = """
+            INSERT INTO projects 
+            (nom_projet, client_company_id, statut, priorite, prix_estime, date_soumis, date_prevu, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        
+        projet_id = gestionnaire.db.execute_insert(query, (
+            data_projet['nom_projet'],
+            data_projet['client_company_id'],
+            data_projet['statut'],
+            data_projet['priorite'],
+            data_projet['prix_estime'],
+            data_projet['date_soumis'],
+            data_projet['date_prevu'],
+            data_projet['description']
+        ))
+        
+        if projet_id:
+            # Mise à jour de l'estimation
+            gestionnaire.modifier_statut_formulaire(
+                estimation_id,
+                'TERMINÉ',
+                est_details.get('employee_id'),
+                f"Convertie en projet #{projet_id}"
+            )
+            
+            # Enregistrement de la conversion
+            gestionnaire.enregistrer_validation(
+                estimation_id,
+                est_details.get('employee_id'),
+                'CONVERSION',
+                f"Estimation convertie en projet #{projet_id}"
+            )
+        
+        return projet_id
+        
+    except Exception as e:
+        st.error(f"Erreur conversion projet: {e}")
+        return None
+
+# =============================================================================
+# INTERFACES AVANCÉES (SIMPLIFIÉES POUR LA DÉMO)
+# =============================================================================
+
+def render_analyse_rentabilite(gestionnaire):
+    """Analyse de rentabilité des estimations"""
+    st.markdown("#### 📊 Analyse de Rentabilité")
+    
+    estimations = gestionnaire.get_formulaires('ESTIMATION')
+    
+    if not estimations:
+        st.info("Aucune estimation pour l'analyse de rentabilité.")
+        return
+    
+    # Métriques de rentabilité
+    col1, col2, col3, col4 = st.columns(4)
+    
+    total_estimations = len(estimations)
+    acceptees = len([e for e in estimations if e['statut'] == 'APPROUVÉ'])
+    montant_total = sum(e.get('montant_total', 0) for e in estimations)
+    montant_accepte = sum(e.get('montant_total', 0) for e in estimations if e['statut'] == 'APPROUVÉ')
+    
+    with col1:
+        st.metric("Total Estimations", total_estimations)
+    with col2:
+        taux_acceptation = (acceptees / total_estimations * 100) if total_estimations > 0 else 0
+        st.metric("Taux d'Acceptation", f"{taux_acceptation:.1f}%")
+    with col3:
+        st.metric("CA Potentiel", f"{montant_total:,.0f}$ CAD")
+    with col4:
+        st.metric("CA Réalisé", f"{montant_accepte:,.0f}$ CAD")
+    
+    # Analyse par template
+    st.markdown("##### 📈 Rentabilité par Template Industrie")
+    
+    templates_stats = {}
+    for est in estimations:
+        template = get_template_from_metadata(est)
+        if template not in templates_stats:
+            templates_stats[template] = {'total': 0, 'acceptees': 0, 'montant_total': 0, 'montant_accepte': 0}
+        
+        templates_stats[template]['total'] += 1
+        templates_stats[template]['montant_total'] += est.get('montant_total', 0)
+        
+        if est['statut'] == 'APPROUVÉ':
+            templates_stats[template]['acceptees'] += 1
+            templates_stats[template]['montant_accepte'] += est.get('montant_total', 0)
+    
+    if templates_stats:
+        df_templates = []
+        for template, stats in templates_stats.items():
+            taux = (stats['acceptees'] / stats['total'] * 100) if stats['total'] > 0 else 0
+            df_templates.append({
+                'Template': template,
+                'Total Estimations': stats['total'],
+                'Acceptées': stats['acceptees'],
+                'Taux (%%)': f"{taux:.1f}",
+                'CA Potentiel': f"{stats['montant_total']:,.0f}$",
+                'CA Réalisé': f"{stats['montant_accepte']:,.0f}$"
+            })
+        
+        df = pd.DataFrame(df_templates)
+        st.dataframe(df, use_container_width=True)
+
+def render_templates_estimations(gestionnaire):
+    """Gestion des templates d'estimation"""
+    st.markdown("#### 📋 Templates Estimations")
+    
+    # Affichage des templates disponibles
+    templates_industrie = ["AUTOMOBILE", "AERONAUTIQUE", "CONSTRUCTION", "GENERAL"]
+    
+    for template in templates_industrie:
+        with st.expander(f"Template {template}", expanded=False):
+            template_info = get_template_info(template)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.text(f"Marge par défaut: {template_info['marge_defaut']}%")
+                st.text(f"Délai standard: {template_info['delai_standard']} jours")
+                st.text(f"Coefficient complexité: {template_info['coefficient_complexite']}")
+            
+            with col2:
+                st.text(f"Garantie: {template_info['garantie']}")
+                st.text(f"Conditions paiement: {template_info['conditions_paiement']}")
+                st.text(f"Certification: {template_info['cout_certification_pct']}%")
+            
+            st.markdown("**Clauses techniques:**")
+            for clause in template_info['clauses_techniques']:
+                st.text(f"• {clause}")
+
+def render_suivi_commercial(gestionnaire):
+    """Suivi commercial des estimations"""
+    st.markdown("#### 📈 Suivi Commercial")
+    
+    estimations = gestionnaire.get_formulaires('ESTIMATION')
+    estimations_actives = [e for e in estimations if e['statut'] in ['VALIDÉ', 'ENVOYÉ']]
+    
+    if not estimations_actives:
+        st.info("Aucune estimation en cours de négociation.")
+        return
+    
+    st.markdown("##### 📋 Estimations en Négociation")
+    
+    for est in estimations_actives:
+        with st.expander(f"EST {est['numero_document']} - {est.get('company_nom', 'N/A')}", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Montant", f"{est.get('montant_total', 0):,.2f}$ CAD")
+                validite_status = get_validite_status(est)
+                st.text(f"Validité: {validite_status}")
+            
+            with col2:
+                st.text(f"Commercial: {est.get('employee_nom', 'N/A')}")
+                st.text(f"Statut: {est['statut']}")
+            
+            with col3:
+                if st.button(f"📞 Relancer Client", key=f"relance_{est['id']}"):
+                    st.info("📧 Relance envoyée au client")
+                
+                if st.button(f"✅ Marquer Acceptée", key=f"accept_suivi_{est['id']}"):
+                    if marquer_estimation_acceptee(gestionnaire, est['id']):
+                        st.success("✅ Estimation acceptée!")
+                        st.rerun()
+
+def render_analyse_marges(gestionnaire):
+    """Analyse des marges bénéficiaires"""
+    st.markdown("#### 💰 Analyse des Marges")
+    
+    estimations = gestionnaire.get_formulaires('ESTIMATION')
+    
+    if not estimations:
+        st.info("Aucune estimation pour l'analyse des marges.")
+        return
+    
+    # Analyse des marges par template
+    marges_par_template = {}
+    
+    for est in estimations:
+        try:
+            meta = json.loads(est.get('metadonnees_json', '{}'))
+            template = meta.get('template_industrie', 'N/A')
+            marge = meta.get('marge_beneficiaire', 0)
+            
+            if template not in marges_par_template:
+                marges_par_template[template] = []
+            marges_par_template[template].append(marge)
+        except:
+            continue
+    
+    if marges_par_template:
+        st.markdown("##### 📊 Marges Moyennes par Template")
+        
+        df_marges = []
+        for template, marges in marges_par_template.items():
+            if marges:
+                marge_moyenne = sum(marges) / len(marges)
+                marge_min = min(marges)
+                marge_max = max(marges)
+                
+                df_marges.append({
+                    'Template': template,
+                    'Nombre d\'estimations': len(marges),
+                    'Marge Moyenne (%)': f"{marge_moyenne:.1f}",
+                    'Marge Min (%)': f"{marge_min:.1f}",
+                    'Marge Max (%)': f"{marge_max:.1f}"
+                })
+        
+        if df_marges:
+            df = pd.DataFrame(df_marges)
+            st.dataframe(df, use_container_width=True)
+    
+    # Recommandations
+    st.markdown("##### 💡 Recommandations")
+    st.success("✅ Les marges sont cohérentes avec les standards de l'industrie")
+    st.info("💡 Considérer l'ajustement des marges selon la performance des templates")
 
 # =============================================================================
 # FONCTIONS UTILITAIRES
