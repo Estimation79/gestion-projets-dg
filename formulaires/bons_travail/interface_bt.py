@@ -290,11 +290,11 @@ def render_bon_travail_form(gestionnaire_bt):
         col_submit1, col_submit2, col_submit3 = st.columns(3)
         
         with col_submit1:
-            submit_brouillon = st.form_submit_button("💾 Sauver comme Brouillon", use_container_width=True, key="bt_submit_brouillon")
+            submit_brouillon = st.form_submit_button("💾 Sauver comme Brouillon", use_container_width=True)
         with col_submit2:
-            submit_valide = st.form_submit_button("✅ Créer et Valider", use_container_width=True, key="bt_submit_valide")
+            submit_valide = st.form_submit_button("✅ Créer et Valider", use_container_width=True)
         with col_submit3:
-            submit_urgent = st.form_submit_button("🚨 Urgent - Démarrer Immédiatement", use_container_width=True, key="bt_submit_urgent")
+            submit_urgent = st.form_submit_button("🚨 Urgent - Démarrer Immédiatement", use_container_width=True)
         
         # Traitement de la soumission
         if submit_brouillon or submit_valide or submit_urgent:
