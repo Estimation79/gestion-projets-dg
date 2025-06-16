@@ -181,7 +181,8 @@ def render_bon_achat_form(gestionnaire_ba):
                 with col_stock:
                     st.text(f"Stock: {article.get('quantite_imperial', 'N/A')}")
                 with col_btn:
-                    if st.form_submit_button("➕", key=f"add_art_{article['id']}"):
+                    # CORRECTION: Suppression du paramètre 'key' pour form_submit_button
+                    if st.form_submit_button("➕"):
                         # Logique pour ajouter l'article aux lignes
                         pass
         
