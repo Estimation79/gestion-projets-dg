@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ET ASSISTANT IA ---
 
 import streamlit as st
 import pandas as pd
@@ -56,6 +56,15 @@ from formulaires import (
     GestionnaireFormulaires,
     show_formulaires_page
 )
+
+# NOUVEAU : Importation du module Assistant IA
+try:
+    from assistant_ia.expert_logic import ExpertAdvisor, ExpertProfileManager
+    from assistant_ia.conversation_manager import ConversationManager
+    ASSISTANT_IA_AVAILABLE = True
+except ImportError as e:
+    ASSISTANT_IA_AVAILABLE = False
+    print(f"Assistant IA non disponible: {e}")
 
 # INTÉGRATION TIMETRACKER : Importation du module TimeTracker unifié
 try:
@@ -2074,7 +2083,179 @@ def show_employees_page():
         employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
         render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
 
-# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE AVEC MODULE FORMULAIRES -----
+# NOUVELLE FONCTION : Page Assistant IA intégrée dans l'ERP
+def show_assistant_ia_page():
+    """Page intégrée de l'Assistant IA dans l'ERP"""
+    st.markdown("## 🤖 Assistant IA Desmarais & Gagné")
+    
+    if not ASSISTANT_IA_AVAILABLE:
+        st.error("❌ Module Assistant IA non disponible")
+        st.info("📋 Vérifiez que le dossier 'assistant_ia' existe avec tous les fichiers requis")
+        return
+    
+    if not st.session_state.get('assistant_ia_initialized'):
+        st.error("❌ Assistant IA non initialisé")
+        st.info("💡 Vérifiez la configuration ANTHROPIC_API_KEY")
+        return
+    
+    # Interface intégrée de l'Assistant IA
+    if 'ia_expert_advisor' not in st.session_state:
+        st.error("Expert Advisor non disponible")
+        return
+    
+    # Sidebar pour les contrôles IA (dans une expander pour ne pas encombrer)
+    with st.expander("🔧 Contrôles Assistant IA", expanded=True):
+        ia_col1, ia_col2, ia_col3 = st.columns(3)
+        
+        with ia_col1:
+            # Sélection du profil expert
+            if st.session_state.get('ia_profile_manager'):
+                profiles = st.session_state.ia_profile_manager.get_profile_names()
+                if profiles:
+                    current_profile = st.session_state.get('ia_selected_profile', profiles[0])
+                    selected_profile = st.selectbox(
+                        "Profil Expert:", 
+                        profiles, 
+                        index=profiles.index(current_profile) if current_profile in profiles else 0,
+                        key="ia_profile_select"
+                    )
+                    if selected_profile != current_profile:
+                        st.session_state.ia_expert_advisor.set_current_profile_by_name(selected_profile)
+                        st.session_state.ia_selected_profile = selected_profile
+                        st.success(f"Profil changé: {selected_profile}")
+                        st.rerun()
+        
+        with ia_col2:
+            # Nouvelle consultation
+            if st.button("✨ Nouvelle Consultation", key="ia_new_consult"):
+                st.session_state.ia_messages = []
+                st.session_state.ia_current_conversation_id = None
+                st.session_state.ia_processed_messages = set()
+                # Message d'accueil
+                current_profile = st.session_state.ia_expert_advisor.get_current_profile()
+                profile_name = current_profile.get('name', 'Expert') if current_profile else 'Expert'
+                st.session_state.ia_messages.append({
+                    "role": "assistant",
+                    "content": f"Bonjour! Je suis votre expert {profile_name}. Comment puis-je vous aider aujourd'hui?\n\nPour effectuer une recherche web, tapez `/search votre question`"
+                })
+                st.rerun()
+        
+        with ia_col3:
+            # Upload de fichiers pour analyse
+            if hasattr(st.session_state.ia_expert_advisor, 'get_supported_filetypes_flat'):
+                supported_types = st.session_state.ia_expert_advisor.get_supported_filetypes_flat()
+                uploaded_files = st.file_uploader(
+                    "📄 Analyser fichiers:",
+                    type=supported_types,
+                    accept_multiple_files=True,
+                    key="ia_file_upload"
+                )
+                if uploaded_files and st.button("🔍 Analyser", key="ia_analyze"):
+                    # Traitement des fichiers uploadés
+                    file_names = ', '.join([f.name for f in uploaded_files])
+                    analysis_prompt = f"Analyse de {len(uploaded_files)} fichier(s): {file_names}"
+                    st.session_state.ia_messages.append({"role": "user", "content": analysis_prompt})
+                    st.session_state.ia_files_to_analyze = uploaded_files
+                    st.rerun()
+    
+    # Affichage des messages de conversation
+    st.markdown("---")
+    
+    # Interface de chat
+    for i, message in enumerate(st.session_state.get('ia_messages', [])):
+        role = message.get("role", "unknown")
+        content = message.get("content", "")
+        
+        if role == "system":
+            continue
+            
+        avatar = "🤖"
+        if role == "user": 
+            avatar = "👤"
+        elif role == "assistant": 
+            avatar = "🏗️"
+        elif role == "search_result": 
+            avatar = "🔎"
+        
+        with st.chat_message(role, avatar=avatar):
+            st.markdown(content)
+    
+    # Zone de saisie
+    ia_prompt = st.chat_input("💬 Posez votre question à l'expert IA...")
+    
+    if ia_prompt:
+        # Ajouter le message utilisateur
+        st.session_state.ia_messages.append({"role": "user", "content": ia_prompt})
+        
+        # Sauvegarder la conversation
+        if st.session_state.get('ia_conversation_manager'):
+            try:
+                conv_id = st.session_state.ia_conversation_manager.save_conversation(
+                    st.session_state.ia_current_conversation_id,
+                    st.session_state.ia_messages
+                )
+                if conv_id and not st.session_state.ia_current_conversation_id:
+                    st.session_state.ia_current_conversation_id = conv_id
+            except Exception as e:
+                st.warning(f"Erreur sauvegarde: {e}")
+        
+        st.rerun()
+    
+    # Traitement des réponses (simplifié pour l'intégration)
+    if st.session_state.get('ia_messages'):
+        last_message = st.session_state.ia_messages[-1]
+        if (last_message.get("role") == "user" and 
+            last_message.get("content") not in st.session_state.get('ia_processed_messages', set())):
+            
+            st.session_state.ia_processed_messages.add(last_message.get("content"))
+            user_content = last_message.get("content", "")
+            
+            # Traitement des commandes de recherche
+            if user_content.strip().lower().startswith("/search "):
+                search_query = user_content[8:].strip()
+                with st.spinner("🔎 Recherche web..."):
+                    try:
+                        search_result = st.session_state.ia_expert_advisor.perform_web_search(search_query)
+                        st.session_state.ia_messages.append({
+                            "role": "search_result", 
+                            "content": search_result
+                        })
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur recherche: {e}")
+            
+            # Traitement de l'analyse de fichiers
+            elif st.session_state.get('ia_files_to_analyze'):
+                with st.spinner("📄 Analyse des documents..."):
+                    try:
+                        files = st.session_state.ia_files_to_analyze
+                        history = [m for m in st.session_state.ia_messages[:-1] if m.get("role") != "system"]
+                        analysis_response, _ = st.session_state.ia_expert_advisor.analyze_documents(files, history)
+                        st.session_state.ia_messages.append({
+                            "role": "assistant", 
+                            "content": analysis_response
+                        })
+                        del st.session_state.ia_files_to_analyze
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur analyse: {e}")
+            
+            # Traitement normal du chat
+            else:
+                with st.spinner("🤖 L'expert réfléchit..."):
+                    try:
+                        history = [m for m in st.session_state.ia_messages[:-1] 
+                                 if m.get("role") in ["user", "assistant", "search_result"]]
+                        response = st.session_state.ia_expert_advisor.obtenir_reponse(user_content, history)
+                        st.session_state.ia_messages.append({
+                            "role": "assistant", 
+                            "content": response
+                        })
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur IA: {e}")
+
+# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE AVEC MODULE FORMULAIRES ET ASSISTANT IA -----
 def main():
     # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec correction FK
     if 'erp_db' not in st.session_state:
@@ -2116,7 +2297,59 @@ def main():
         except Exception as e:
             print(f"Erreur initialisation TimeTracker: {e}")
 
-    # Initialisation des variables de session (MISES À JOUR avec module Formulaires)
+    # NOUVEAU : Initialisation Assistant IA
+    if ASSISTANT_IA_AVAILABLE and 'assistant_ia_initialized' not in st.session_state:
+        try:
+            # Initialisation du gestionnaire de profils
+            profile_dir_path = os.path.join("assistant_ia", "profiles")
+            if not os.path.exists(profile_dir_path):
+                os.makedirs(profile_dir_path, exist_ok=True)
+                # Créer un profil par défaut si aucun n'existe
+                default_profile_path = os.path.join(profile_dir_path, "expert_metallurgie.txt")
+                if not os.path.exists(default_profile_path):
+                    with open(default_profile_path, "w", encoding="utf-8") as f:
+                        f.write("Expert en Métallurgie DG Inc.\nJe suis un expert spécialisé en fabrication métallique, soudure, et processus industriels chez Desmarais & Gagné.")
+            
+            st.session_state.ia_profile_manager = ExpertProfileManager(profile_dir=profile_dir_path)
+            
+            # Initialisation de l'expert advisor
+            ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+            if not ANTHROPIC_API_KEY:
+                try:
+                    ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY")
+                except Exception:
+                    pass
+            
+            if ANTHROPIC_API_KEY:
+                st.session_state.ia_expert_advisor = ExpertAdvisor(api_key=ANTHROPIC_API_KEY)
+                st.session_state.ia_expert_advisor.profile_manager = st.session_state.ia_profile_manager
+                
+                # Chargement du profil initial
+                available_profiles = st.session_state.ia_profile_manager.get_profile_names()
+                if available_profiles:
+                    initial_profile = available_profiles[0]
+                    st.session_state.ia_selected_profile = initial_profile
+                    st.session_state.ia_expert_advisor.set_current_profile_by_name(initial_profile)
+                else:
+                    st.session_state.ia_selected_profile = "Expert par défaut"
+            
+            # Gestionnaire de conversations IA
+            ia_db_path = os.path.join("assistant_ia", "conversations.db")
+            os.makedirs(os.path.dirname(ia_db_path), exist_ok=True)
+            st.session_state.ia_conversation_manager = ConversationManager(db_path=ia_db_path)
+            
+            # Variables de session IA
+            st.session_state.ia_messages = []
+            st.session_state.ia_current_conversation_id = None
+            st.session_state.ia_processed_messages = set()
+            
+            st.session_state.assistant_ia_initialized = True
+            
+        except Exception as e:
+            st.warning(f"Assistant IA non initialisé: {e}")
+            st.session_state.assistant_ia_initialized = False
+
+    # Initialisation des variables de session (MISES À JOUR avec module Formulaires et Assistant IA)
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
         'show_create_project': False, 'show_edit_project': False,
@@ -2140,7 +2373,13 @@ def main():
         'formulaire_filter_statut': 'TOUS',  # Filtre par statut
         'show_formulaire_modal': False,  # Modal détails formulaire
         'formulaire_project_preselect': None,  # Projet présélectionné pour BT
-        'page_redirect': None  # Redirection entre pages
+        'page_redirect': None,  # Redirection entre pages
+        # NOUVEAU ASSISTANT IA : Variables de session
+        'ia_messages': [],  # Messages de l'Assistant IA
+        'ia_current_conversation_id': None,  # ID conversation IA
+        'ia_processed_messages': set(),  # Messages traités IA
+        'ia_selected_profile': None,  # Profil expert sélectionné
+        'ia_files_to_analyze': None  # Fichiers à analyser par IA
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
@@ -2157,25 +2396,28 @@ def main():
 
     apply_global_styles()
 
-    st.markdown('<div class="main-title"><h1>🏭 ERP Production DG Inc. - SQLite Unifié avec Formulaires</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title"><h1>🏭 ERP Production DG Inc. - SQLite Unifié avec Assistant IA</h1></div>', unsafe_allow_html=True)
 
     if not st.session_state.welcome_seen:
         welcome_msg = "🎉 Architecture SQLite unifiée ! ERP Production DG Inc. utilise maintenant une base relationnelle. 61 postes de travail intégrés."
         if TIMETRACKER_AVAILABLE:
             welcome_msg += " ⏱️ TimeTracker synchronisé avec SQLite !"
         welcome_msg += " 📑 Module Formulaires opérationnel !"
+        if ASSISTANT_IA_AVAILABLE:
+            welcome_msg += " 🤖 Assistant IA Métallurgie intégré !"
         st.success(welcome_msg)
         st.session_state.welcome_seen = True
 
     st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧭 Navigation SQLite</h3>", unsafe_allow_html=True)
 
-    # MENU PRINCIPAL MODIFIÉ avec module Formulaires
+    # MENU PRINCIPAL MODIFIÉ avec module Formulaires et Assistant IA
     pages = {
         "🏠 Tableau de Bord": "dashboard",
         "📋 Liste des Projets": "liste",
         "🤝 CRM": "crm_page",
         "👥 Employés": "employees_page",
-        "📑 Formulaires": "formulaires_page",  # ← NOUVEAU MODULE
+        "📑 Formulaires": "formulaires_page",
+        "🤖 Assistant IA": "assistant_ia_page",  # ← NOUVEAU MODULE IA
         "🏭 Postes de Travail": "work_centers_page",
         "⚙️ Gammes Fabrication": "manufacturing_routes",
         "📊 Capacité Production": "capacity_analysis",
@@ -2188,9 +2430,11 @@ def main():
         "🔄 Kanban": "kanban",
     }
     
-    # Gestion redirection automatique vers formulaires
+    # Gestion redirection automatique vers formulaires ou IA
     if redirect_target == "formulaires_page":
         default_page_index = list(pages.keys()).index("📑 Formulaires")
+    elif redirect_target == "assistant_ia_page":
+        default_page_index = list(pages.keys()).index("🤖 Assistant IA")
     else:
         default_page_index = 0
     
@@ -2260,6 +2504,31 @@ def main():
     except Exception:
         pass  # Silencieux si erreur
 
+    # NOUVEAU : Statistiques Assistant IA dans la sidebar
+    if ASSISTANT_IA_AVAILABLE and st.session_state.get('assistant_ia_initialized'):
+        try:
+            # Statistiques conversations IA
+            if st.session_state.get('ia_conversation_manager'):
+                conversations_ia = st.session_state.ia_conversation_manager.list_conversations(limit=100)
+                total_conversations_ia = len(conversations_ia)
+                
+                if total_conversations_ia > 0 or st.session_state.get('ia_messages'):
+                    st.sidebar.markdown("---")
+                    st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🤖 Assistant IA</h3>", unsafe_allow_html=True)
+                    st.sidebar.metric("Conversations IA", total_conversations_ia)
+                    
+                    # Messages dans la conversation actuelle
+                    current_messages = len(st.session_state.get('ia_messages', []))
+                    if current_messages > 0:
+                        st.sidebar.metric("Messages Actuels", current_messages)
+                    
+                    # Profil actuel
+                    current_profile = st.session_state.get('ia_selected_profile', 'Expert')
+                    if current_profile:
+                        st.sidebar.caption(f"Profil: {current_profile}")
+        except Exception:
+            pass  # Silencieux si erreur
+
     # Statistiques des postes de travail dans la sidebar
     update_sidebar_with_work_centers()
 
@@ -2280,9 +2549,12 @@ def main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🏭 ERP Production DG Inc.<br/>🗄️ Architecture SQLite Unifiée<br/>📑 Module Formulaires Actif</p></div>", unsafe_allow_html=True)
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture SQLite Unifiée<br/>📑 Module Formulaires Actif"
+    if ASSISTANT_IA_AVAILABLE:
+        footer_text += "<br/>🤖 Assistant IA Métallurgie"
+    st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # PAGES (MODIFIÉES avec module Formulaires)
+    # PAGES (MODIFIÉES avec module Formulaires et Assistant IA)
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -2293,6 +2565,21 @@ def main():
         show_employees_page()
     elif page_to_show_val == "formulaires_page":  # ← NOUVELLE PAGE
         show_formulaires_page()
+    elif page_to_show_val == "assistant_ia_page":  # ← NOUVELLE PAGE IA
+        if ASSISTANT_IA_AVAILABLE:
+            show_assistant_ia_page()
+        else:
+            st.error("❌ Module Assistant IA non disponible")
+            st.info("📋 Vérifiez que le dossier 'assistant_ia' existe avec tous les fichiers requis")
+            st.markdown("### 📁 Structure requise:")
+            st.code("""
+📁 assistant_ia/
+├── 📄 expert_logic.py
+├── 📄 conversation_manager.py
+├── 📄 style.css
+└── 📁 profiles/
+    └── 📄 expert_metallurgie.txt
+            """)
     elif page_to_show_val == "work_centers_page":
         show_work_centers_page()
     elif page_to_show_val == "manufacturing_routes":
@@ -2326,8 +2613,10 @@ def show_footer():
     footer_text = "🏭 ERP Production DG Inc. - Architecture SQLite Unifiée • 61 Postes • CRM • Inventaire • 📑 Formulaires"
     if TIMETRACKER_AVAILABLE:
         footer_text += " • ⏱️ TimeTracker"
+    if ASSISTANT_IA_AVAILABLE:
+        footer_text += " • 🤖 Assistant IA"
     
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Migration JSON → SQLite complétée • Module Formulaires Intégré</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Migration JSON → SQLite complétée • Module Formulaires Intégré • Assistant IA Métallurgie</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
@@ -2339,4 +2628,4 @@ if __name__ == "__main__":
         import traceback
         st.code(traceback.format_exc())
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ET ASSISTANT IA ---
