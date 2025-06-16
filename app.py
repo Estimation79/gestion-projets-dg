@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ---
 
 import streamlit as st
 import pandas as pd
@@ -49,6 +49,12 @@ from postes_travail import (
     show_manufacturing_routes_page,
     show_capacity_analysis_page,
     update_sidebar_with_work_centers
+)
+
+# NOUVEAU : Importation du module Formulaires
+from formulaires import (
+    GestionnaireFormulaires,
+    show_formulaires_page
 )
 
 # INTÉGRATION TIMETRACKER : Importation du module TimeTracker unifié
@@ -637,6 +643,11 @@ def show_dashboard():
     gestionnaire_employes = st.session_state.gestionnaire_employes
     gestionnaire_postes = st.session_state.gestionnaire_postes
     
+    # NOUVEAU : Gestionnaire formulaires pour métriques
+    if 'gestionnaire_formulaires' not in st.session_state:
+        st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
+    gestionnaire_formulaires = st.session_state.gestionnaire_formulaires
+    
     # Affichage notification migration
     if st.session_state.get('migration_completed'):
         st.success("🎉 Migration SQLite complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée.")
@@ -644,6 +655,9 @@ def show_dashboard():
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
     postes_stats = gestionnaire_postes.get_statistiques_postes()
+    
+    # NOUVEAU : Statistiques formulaires
+    form_stats = gestionnaire_formulaires.get_statistiques_formulaires()
     
     if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
         st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🏭 Bienvenue dans l'ERP Production DG Inc. SQLite !</h3><p>Architecture unifiée avec base de données relationnelle. Créez votre premier projet ou explorez les données migrées.</p></div>", unsafe_allow_html=True)
@@ -661,6 +675,36 @@ def show_dashboard():
             st.metric("✅ Taux Completion", f"{stats['taux_completion']:.1f}%")
         with c4:
             st.metric("💰 CA Total", format_currency(stats['ca_total']))
+
+    # NOUVEAU : Métriques Formulaires
+    if any(form_stats.values()):
+        st.markdown("### 📑 Aperçu Formulaires DG Inc.")
+        form_c1, form_c2, form_c3, form_c4, form_c5 = st.columns(5)
+        
+        with form_c1:
+            total_bt = form_stats.get('BON_TRAVAIL', {}).get('total', 0) if isinstance(form_stats.get('BON_TRAVAIL'), dict) else 0
+            st.metric("🔧 Bons Travail", total_bt)
+        with form_c2:
+            total_ba = form_stats.get('BON_ACHAT', {}).get('total', 0) if isinstance(form_stats.get('BON_ACHAT'), dict) else 0
+            st.metric("🛒 Bons Achats", total_ba)
+        with form_c3:
+            total_bc = form_stats.get('BON_COMMANDE', {}).get('total', 0) if isinstance(form_stats.get('BON_COMMANDE'), dict) else 0
+            st.metric("📦 Bons Commande", total_bc)
+        with form_c4:
+            total_dp = form_stats.get('DEMANDE_PRIX', {}).get('total', 0) if isinstance(form_stats.get('DEMANDE_PRIX'), dict) else 0
+            st.metric("💰 Demandes Prix", total_dp)
+        with form_c5:
+            total_est = form_stats.get('ESTIMATION', {}).get('total', 0) if isinstance(form_stats.get('ESTIMATION'), dict) else 0
+            st.metric("📊 Estimations", total_est)
+        
+        # Montant total des formulaires
+        montant_total_forms = sum(
+            type_stats.get('montant_total', 0) 
+            for type_stats in form_stats.values() 
+            if isinstance(type_stats, dict)
+        )
+        if montant_total_forms > 0:
+            st.markdown(f"**💼 Valeur Documents: {montant_total_forms:,.0f}$ CAD**")
 
     # Métriques postes de travail
     if postes_stats['total_postes'] > 0:
@@ -712,7 +756,7 @@ def show_dashboard():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Graphiques combinés (inchangés)
+    # Graphiques combinés
     if stats['total'] > 0 or postes_stats['total_postes'] > 0:
         gc1, gc2 = st.columns(2)
         
@@ -770,6 +814,12 @@ def show_dashboard():
                 if st.button("👁️", key=f"view_rec_{p.get('id')}", help="Voir détails"):
                     st.session_state.selected_project = p
                     st.session_state.show_project_modal = True
+                # NOUVEAU : Bouton création BT depuis projet récent
+                if st.button("🔧", key=f"bt_rec_{p.get('id')}", help="Créer Bon de Travail"):
+                    st.session_state.form_action = "create_bon_travail"
+                    st.session_state.formulaire_project_preselect = p.get('id')
+                    st.session_state.page_redirect = "formulaires_page"
+                    st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
@@ -830,13 +880,14 @@ def show_liste_projets():
                 df_data.append({'🆔': p.get('id', '?'), '📋 Projet': p.get('nom_projet', 'N/A'), '👤 Client': client_display_name_df, '🚦 Statut': p.get('statut', 'N/A'), '⭐ Priorité': p.get('priorite', 'N/A'), '📅 Début': p.get('date_soumis', 'N/A'), '🏁 Fin': p.get('date_prevu', 'N/A'), '💰 Prix': format_currency(p.get('prix_estime', 0))})
             st.dataframe(pd.DataFrame(df_data), use_container_width=True)
             
-            # Actions sur projets (interface identique)
+            # Actions sur projets - MODIFIÉ avec intégration Formulaires
             st.markdown("---")
             st.markdown("### 🔧 Actions sur un projet")
             selected_id_actions = st.selectbox("Projet:", options=[p.get('id') for p in projets_filtres], format_func=lambda pid: f"#{pid} - {next((p.get('nom_projet', '') for p in projets_filtres if p.get('id') == pid), '')}", key="proj_actions_sel")
             sel_proj_action = next((p for p in gestionnaire.projets if p.get('id') == selected_id_actions), None)
             if sel_proj_action:
-                acol1, acol2, acol3 = st.columns(3)
+                # NOUVEAU : 4 colonnes au lieu de 3 pour intégrer BT
+                acol1, acol2, acol3, acol4 = st.columns(4)
                 with acol1:
                     if st.button("👁️ Voir Détails", use_container_width=True, key=f"view_act_{selected_id_actions}"):
                         st.session_state.selected_project = sel_proj_action
@@ -846,6 +897,14 @@ def show_liste_projets():
                         st.session_state.edit_project_data = sel_proj_action
                         st.session_state.show_edit_project = True
                 with acol3:
+                    # NOUVEAU : Création Bon de Travail depuis projet
+                    if st.button("🔧 Bon Travail", use_container_width=True, key=f"bt_act_{selected_id_actions}"):
+                        st.session_state.form_action = "create_bon_travail"
+                        st.session_state.formulaire_project_preselect = selected_id_actions
+                        # Redirection vers page formulaires
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
+                with acol4:
                     if st.button("🗑️ Supprimer", use_container_width=True, key=f"del_act_{selected_id_actions}"):
                         st.session_state.delete_project_id = selected_id_actions
                         st.session_state.show_delete_confirmation = True
@@ -1683,15 +1742,22 @@ def show_kanban():
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Boutons d'action pour la carte
-                col1, col2 = st.columns(2)
+                # Boutons d'action pour la carte - MODIFIÉ avec BT
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("👁️ Voir", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
+                    if st.button("👁️", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
                         st.session_state.selected_project = pk
                         st.session_state.show_project_modal = True
                         st.rerun()
                 with col2:
-                    if st.button("➡️ Déplacer", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
+                    # NOUVEAU : Bouton création BT dans Kanban
+                    if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
+                        st.session_state.form_action = "create_bon_travail"
+                        st.session_state.formulaire_project_preselect = pk['id']
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
+                with col3:
+                    if st.button("➡️", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
                         st.session_state.dragged_project_id = pk['id']
                         st.session_state.dragged_from_status = sk
                         st.rerun()
@@ -2008,7 +2074,7 @@ def show_employees_page():
         employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
         render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
 
-# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE -----
+# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE AVEC MODULE FORMULAIRES -----
 def main():
     # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec correction FK
     if 'erp_db' not in st.session_state:
@@ -2021,6 +2087,10 @@ def main():
     # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite
     if 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
+    
+    # NOUVEAU : Gestionnaire formulaires
+    if 'gestionnaire_formulaires' not in st.session_state:
+        st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
     
     # Les autres gestionnaires restent inchangés pour l'instant
     if 'gestionnaire_crm' not in st.session_state:
@@ -2046,7 +2116,7 @@ def main():
         except Exception as e:
             print(f"Erreur initialisation TimeTracker: {e}")
 
-    # Initialisation des variables de session (inchangées)
+    # Initialisation des variables de session (MISES À JOUR avec module Formulaires)
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
         'show_create_project': False, 'show_edit_project': False,
@@ -2062,31 +2132,50 @@ def main():
         # INTÉGRATION TIMETRACKER : Variables de session
         'timetracker_employee_id': None, 'timetracker_project_id': None,
         'timetracker_task_id': None, 'timetracker_is_clocked_in': False,
-        'timetracker_current_entry_id': None, 'timetracker_view_mode': 'employee'
+        'timetracker_current_entry_id': None, 'timetracker_view_mode': 'employee',
+        # NOUVEAU MODULE FORMULAIRES : Variables de session
+        'form_action': None,  # Action courante dans les formulaires
+        'selected_formulaire_id': None,  # Formulaire sélectionné
+        'formulaire_filter_type': 'TOUS',  # Filtre par type
+        'formulaire_filter_statut': 'TOUS',  # Filtre par statut
+        'show_formulaire_modal': False,  # Modal détails formulaire
+        'formulaire_project_preselect': None,  # Projet présélectionné pour BT
+        'page_redirect': None  # Redirection entre pages
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
             st.session_state[k] = v_def
 
+    # Gestion redirection entre pages
+    if st.session_state.get('page_redirect'):
+        # Stockage temporaire pour la redirection
+        redirect_target = st.session_state.page_redirect
+        st.session_state.page_redirect = None
+        # Redirection sera gérée dans la section des pages
+    else:
+        redirect_target = None
+
     apply_global_styles()
 
-    st.markdown('<div class="main-title"><h1>🏭 ERP Production DG Inc. - SQLite Unifié</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title"><h1>🏭 ERP Production DG Inc. - SQLite Unifié avec Formulaires</h1></div>', unsafe_allow_html=True)
 
     if not st.session_state.welcome_seen:
         welcome_msg = "🎉 Architecture SQLite unifiée ! ERP Production DG Inc. utilise maintenant une base relationnelle. 61 postes de travail intégrés."
         if TIMETRACKER_AVAILABLE:
             welcome_msg += " ⏱️ TimeTracker synchronisé avec SQLite !"
+        welcome_msg += " 📑 Module Formulaires opérationnel !"
         st.success(welcome_msg)
         st.session_state.welcome_seen = True
 
     st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧭 Navigation SQLite</h3>", unsafe_allow_html=True)
 
-    # MENU INTÉGRÉ avec TimeTracker (inchangé)
+    # MENU PRINCIPAL MODIFIÉ avec module Formulaires
     pages = {
         "🏠 Tableau de Bord": "dashboard",
         "📋 Liste des Projets": "liste",
         "🤝 CRM": "crm_page",
         "👥 Employés": "employees_page",
+        "📑 Formulaires": "formulaires_page",  # ← NOUVEAU MODULE
         "🏭 Postes de Travail": "work_centers_page",
         "⚙️ Gammes Fabrication": "manufacturing_routes",
         "📊 Capacité Production": "capacity_analysis",
@@ -2099,7 +2188,14 @@ def main():
         "🔄 Kanban": "kanban",
     }
     
-    sel_page_key = st.sidebar.radio("Menu Principal:", list(pages.keys()), key="main_nav_radio")
+    # Gestion redirection automatique vers formulaires
+    if redirect_target == "formulaires_page":
+        default_page_index = list(pages.keys()).index("📑 Formulaires")
+    else:
+        default_page_index = 0
+    
+    sel_page_key = st.sidebar.radio("Menu Principal:", list(pages.keys()), 
+                                   index=default_page_index, key="main_nav_radio")
     page_to_show_val = pages[sel_page_key]
 
     if page_to_show_val == "inventory_management":
@@ -2136,6 +2232,34 @@ def main():
     except Exception as e:
         st.sidebar.error(f"Erreur stats SQLite: {e}")
 
+    # NOUVEAU : Statistiques Formulaires dans la sidebar
+    try:
+        if 'gestionnaire_formulaires' in st.session_state:
+            form_stats = st.session_state.gestionnaire_formulaires.get_statistiques_formulaires()
+            total_formulaires = sum(
+                type_stats.get('total', 0) 
+                for type_stats in form_stats.values() 
+                if isinstance(type_stats, dict)
+            )
+            
+            if total_formulaires > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📑 Formulaires</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("Total Documents", total_formulaires)
+                
+                # Formulaires en attente
+                en_attente = form_stats.get('en_attente_validation', 0)
+                if en_attente > 0:
+                    st.sidebar.metric("⏳ En Attente", en_attente)
+                
+                # Formulaires en retard
+                en_retard = form_stats.get('en_retard', 0)
+                if en_retard > 0:
+                    st.sidebar.metric("🚨 En Retard", en_retard)
+                
+    except Exception:
+        pass  # Silencieux si erreur
+
     # Statistiques des postes de travail dans la sidebar
     update_sidebar_with_work_centers()
 
@@ -2156,9 +2280,9 @@ def main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🏭 ERP Production DG Inc.<br/>🗄️ Architecture SQLite Unifiée</p></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>🏭 ERP Production DG Inc.<br/>🗄️ Architecture SQLite Unifiée<br/>📑 Module Formulaires Actif</p></div>", unsafe_allow_html=True)
 
-    # PAGES (inchangées)
+    # PAGES (MODIFIÉES avec module Formulaires)
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -2167,6 +2291,8 @@ def main():
         show_crm_page()
     elif page_to_show_val == "employees_page":
         show_employees_page()
+    elif page_to_show_val == "formulaires_page":  # ← NOUVELLE PAGE
+        show_formulaires_page()
     elif page_to_show_val == "work_centers_page":
         show_work_centers_page()
     elif page_to_show_val == "manufacturing_routes":
@@ -2197,11 +2323,11 @@ def main():
 
 def show_footer():
     st.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc. - Architecture SQLite Unifiée • 61 Postes • CRM • Inventaire"
+    footer_text = "🏭 ERP Production DG Inc. - Architecture SQLite Unifiée • 61 Postes • CRM • Inventaire • 📑 Formulaires"
     if TIMETRACKER_AVAILABLE:
         footer_text += " • ⏱️ TimeTracker"
     
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Migration JSON → SQLite complétée • Architecture Relationnelle</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Migration JSON → SQLite complétée • Module Formulaires Intégré</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
@@ -2213,4 +2339,4 @@ if __name__ == "__main__":
         import traceback
         st.code(traceback.format_exc())
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ---
