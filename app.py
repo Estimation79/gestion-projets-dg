@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ET ASSISTANT IA ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES, ASSISTANT IA ET FOURNISSEURS ---
 
 import streamlit as st
 import pandas as pd
@@ -55,6 +55,12 @@ from postes_travail import (
 from formulaires import (
     GestionnaireFormulaires,
     show_formulaires_page
+)
+
+# NOUVEAU : Importation du module Fournisseurs
+from fournisseurs import (
+    GestionnaireFournisseurs,
+    show_fournisseurs_page
 )
 
 # NOUVEAU : Importation du module Assistant IA
@@ -652,6 +658,11 @@ def show_dashboard():
     gestionnaire_employes = st.session_state.gestionnaire_employes
     gestionnaire_postes = st.session_state.gestionnaire_postes
     
+    # NOUVEAU : Gestionnaire fournisseurs pour métriques
+    if 'gestionnaire_fournisseurs' not in st.session_state:
+        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
+    gestionnaire_fournisseurs = st.session_state.gestionnaire_fournisseurs
+    
     # NOUVEAU : Gestionnaire formulaires pour métriques
     if 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
@@ -667,6 +678,9 @@ def show_dashboard():
     
     # NOUVEAU : Statistiques formulaires
     form_stats = gestionnaire_formulaires.get_statistiques_formulaires()
+    
+    # NOUVEAU : Statistiques fournisseurs
+    fournisseurs_stats = gestionnaire_fournisseurs.get_fournisseurs_statistics()
     
     if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
         st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3><p>Architecture unifiée avec base de données relationnelle. Créez votre premier projet ou explorez les données migrées.</p></div>", unsafe_allow_html=True)
@@ -714,6 +728,27 @@ def show_dashboard():
         )
         if montant_total_forms > 0:
             st.markdown(f"**💼 Valeur Documents: {montant_total_forms:,.0f}$ CAD**")
+
+    # NOUVEAU : Métriques Fournisseurs DG Inc.
+    if fournisseurs_stats and fournisseurs_stats.get('total_fournisseurs', 0) > 0:
+        st.markdown("### 🏪 Aperçu Fournisseurs DG Inc.")
+        fournisseur_c1, fournisseur_c2, fournisseur_c3, fournisseur_c4 = st.columns(4)
+        
+        with fournisseur_c1:
+            st.metric("🏪 Total Fournisseurs", fournisseurs_stats.get('total_fournisseurs', 0))
+        with fournisseur_c2:
+            st.metric("✅ Fournisseurs Actifs", fournisseurs_stats.get('fournisseurs_actifs', 0))
+        with fournisseur_c3:
+            eval_moyenne = fournisseurs_stats.get('evaluation_moyenne', 0)
+            st.metric("⭐ Évaluation Moy.", f"{eval_moyenne}/10")
+        with fournisseur_c4:
+            delai_moyen = fournisseurs_stats.get('delai_moyen', 0)
+            st.metric("📦 Délai Moyen", f"{delai_moyen}j")
+        
+        # Montant total fournisseurs
+        montant_total_fournisseurs = fournisseurs_stats.get('montant_total_commandes', 0)
+        if montant_total_fournisseurs > 0:
+            st.markdown(f"**💰 Volume Total Commandes: {montant_total_fournisseurs:,.0f}$ CAD**")
 
     # Métriques postes de travail
     if postes_stats['total_postes'] > 0:
@@ -829,6 +864,12 @@ def show_dashboard():
                     st.session_state.formulaire_project_preselect = p.get('id')
                     st.session_state.page_redirect = "formulaires_page"
                     st.rerun()
+                # NOUVEAU : Bouton création BA depuis projet récent
+                if st.button("🛒", key=f"ba_rec_{p.get('id')}", help="Créer Bon d'Achat"):
+                    st.session_state.form_action = "create_bon_achat"
+                    st.session_state.formulaire_project_preselect = p.get('id')
+                    st.session_state.page_redirect = "formulaires_page"
+                    st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
@@ -889,14 +930,14 @@ def show_liste_projets():
                 df_data.append({'🆔': p.get('id', '?'), '📋 Projet': p.get('nom_projet', 'N/A'), '👤 Client': client_display_name_df, '🚦 Statut': p.get('statut', 'N/A'), '⭐ Priorité': p.get('priorite', 'N/A'), '📅 Début': p.get('date_soumis', 'N/A'), '🏁 Fin': p.get('date_prevu', 'N/A'), '💰 Prix': format_currency(p.get('prix_estime', 0))})
             st.dataframe(pd.DataFrame(df_data), use_container_width=True)
             
-            # Actions sur projets - MODIFIÉ avec intégration Formulaires
+            # Actions sur projets - MODIFIÉ avec intégration Formulaires et Fournisseurs
             st.markdown("---")
             st.markdown("### 🔧 Actions sur un projet")
             selected_id_actions = st.selectbox("Projet:", options=[p.get('id') for p in projets_filtres], format_func=lambda pid: f"#{pid} - {next((p.get('nom_projet', '') for p in projets_filtres if p.get('id') == pid), '')}", key="proj_actions_sel")
             sel_proj_action = next((p for p in gestionnaire.projets if p.get('id') == selected_id_actions), None)
             if sel_proj_action:
-                # NOUVEAU : 4 colonnes au lieu de 3 pour intégrer BT
-                acol1, acol2, acol3, acol4 = st.columns(4)
+                # NOUVEAU : 5 colonnes au lieu de 4 pour intégrer BT et BA
+                acol1, acol2, acol3, acol4, acol5 = st.columns(5)
                 with acol1:
                     if st.button("👁️ Voir Détails", use_container_width=True, key=f"view_act_{selected_id_actions}"):
                         st.session_state.selected_project = sel_proj_action
@@ -914,6 +955,13 @@ def show_liste_projets():
                         st.session_state.page_redirect = "formulaires_page"
                         st.rerun()
                 with acol4:
+                    # NOUVEAU : Création Bon d'Achat depuis projet
+                    if st.button("🛒 Bon Achat", use_container_width=True, key=f"ba_act_{selected_id_actions}"):
+                        st.session_state.form_action = "create_bon_achat"
+                        st.session_state.formulaire_project_preselect = selected_id_actions
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
+                with acol5:
                     if st.button("🗑️ Supprimer", use_container_width=True, key=f"del_act_{selected_id_actions}"):
                         st.session_state.delete_project_id = selected_id_actions
                         st.session_state.show_delete_confirmation = True
@@ -1751,8 +1799,8 @@ def show_kanban():
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Boutons d'action pour la carte - MODIFIÉ avec BT
-                col1, col2, col3 = st.columns(3)
+                # Boutons d'action pour la carte - MODIFIÉ avec BT et BA
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     if st.button("👁️", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
                         st.session_state.selected_project = pk
@@ -1766,6 +1814,13 @@ def show_kanban():
                         st.session_state.page_redirect = "formulaires_page"
                         st.rerun()
                 with col3:
+                    # NOUVEAU : Bouton création BA dans Kanban
+                    if st.button("🛒", key=f"ba_kanban_{pk['id']}", help="Créer Bon d'Achat", use_container_width=True):
+                        st.session_state.form_action = "create_bon_achat"
+                        st.session_state.formulaire_project_preselect = pk['id']
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
+                with col4:
                     if st.button("➡️", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
                         st.session_state.dragged_project_id = pk['id']
                         st.session_state.dragged_from_status = sk
@@ -2255,7 +2310,7 @@ def show_assistant_ia_page():
                     except Exception as e:
                         st.error(f"Erreur IA: {e}")
 
-# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE AVEC MODULE FORMULAIRES ET ASSISTANT IA -----
+# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE AVEC MODULE FORMULAIRES, ASSISTANT IA ET FOURNISSEURS -----
 def main():
     # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec correction FK
     if 'erp_db' not in st.session_state:
@@ -2272,6 +2327,10 @@ def main():
     # NOUVEAU : Gestionnaire formulaires
     if 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
+    
+    # NOUVEAU : Gestionnaire fournisseurs
+    if 'gestionnaire_fournisseurs' not in st.session_state:
+        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
     
     # CORRECTION CRITIQUE : CRM avec base SQLite unifiée
     if 'gestionnaire_crm' not in st.session_state:
@@ -2351,7 +2410,7 @@ def main():
             st.warning(f"Assistant IA non initialisé: {e}")
             st.session_state.assistant_ia_initialized = False
 
-    # Initialisation des variables de session (MISES À JOUR avec module Formulaires et Assistant IA)
+    # Initialisation des variables de session (MISES À JOUR avec module Formulaires, Assistant IA et Fournisseurs)
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
         'show_create_project': False, 'show_edit_project': False,
@@ -2381,7 +2440,13 @@ def main():
         'ia_current_conversation_id': None,  # ID conversation IA
         'ia_processed_messages': set(),  # Messages traités IA
         'ia_selected_profile': None,  # Profil expert sélectionné
-        'ia_files_to_analyze': None  # Fichiers à analyser par IA
+        'ia_files_to_analyze': None,  # Fichiers à analyser par IA
+        # NOUVEAU MODULE FOURNISSEURS : Variables de session
+        'fournisseur_action': None,  # Action courante dans les fournisseurs
+        'selected_fournisseur_id': None,  # Fournisseur sélectionné
+        'fournisseur_filter_category': 'TOUS',  # Filtre par catégorie fournisseurs
+        'fournisseur_confirm_delete_id': None,  # Confirmation suppression fournisseur
+        'fournisseur_performance_period': 365  # Période analyse performance fournisseurs
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
@@ -2407,17 +2472,19 @@ def main():
         welcome_msg += " 📑 Module Formulaires opérationnel !"
         if ASSISTANT_IA_AVAILABLE:
             welcome_msg += " 🤖 Assistant IA Métallurgie intégré !"
+        welcome_msg += " 🏪 Module Fournisseurs intégré !"
         st.success(welcome_msg)
         st.session_state.welcome_seen = True
 
     st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧭 Navigation</h3>", unsafe_allow_html=True)
 
-    # MENU PRINCIPAL MODIFIÉ avec module Formulaires et Assistant IA
+    # MENU PRINCIPAL MODIFIÉ avec module Formulaires, Assistant IA et Fournisseurs
     pages = {
         "🏠 Tableau de Bord": "dashboard",
         "📋 Liste des Projets": "liste",
         "🤝 CRM": "crm_page",
         "👥 Employés": "employees_page",
+        "🏪 Fournisseurs": "fournisseurs_page",  # ← NOUVEAU MODULE FOURNISSEURS
         "📑 Formulaires": "formulaires_page",
         "🤖 Assistant IA": "assistant_ia_page",  # ← NOUVEAU MODULE IA
         "🏭 Postes de Travail": "work_centers_page",
@@ -2432,11 +2499,13 @@ def main():
         "🔄 Kanban": "kanban",
     }
     
-    # Gestion redirection automatique vers formulaires ou IA
+    # Gestion redirection automatique vers formulaires, IA ou fournisseurs
     if redirect_target == "formulaires_page":
         default_page_index = list(pages.keys()).index("📑 Formulaires")
     elif redirect_target == "assistant_ia_page":
         default_page_index = list(pages.keys()).index("🤖 Assistant IA")
+    elif redirect_target == "fournisseurs_page":
+        default_page_index = list(pages.keys()).index("🏪 Fournisseurs")
     else:
         default_page_index = 0
     
@@ -2506,6 +2575,31 @@ def main():
     except Exception:
         pass  # Silencieux si erreur
 
+    # NOUVEAU : Statistiques Fournisseurs dans la sidebar
+    try:
+        if 'gestionnaire_fournisseurs' not in st.session_state:
+            st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
+        
+        fournisseurs_stats = st.session_state.gestionnaire_fournisseurs.get_fournisseurs_statistics()
+        
+        if fournisseurs_stats and fournisseurs_stats.get('total_fournisseurs', 0) > 0:
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏪 Fournisseurs</h3>", unsafe_allow_html=True)
+            st.sidebar.metric("Total Fournisseurs", fournisseurs_stats.get('total_fournisseurs', 0))
+            st.sidebar.metric("Fournisseurs Actifs", fournisseurs_stats.get('fournisseurs_actifs', 0))
+            
+            # Évaluation moyenne
+            eval_moyenne = fournisseurs_stats.get('evaluation_moyenne', 0)
+            if eval_moyenne > 0:
+                st.sidebar.metric("⭐ Éval. Moyenne", f"{eval_moyenne}/10")
+            
+            # Montant total commandes si significatif
+            montant_total = fournisseurs_stats.get('montant_total_commandes', 0)
+            if montant_total > 0:
+                st.sidebar.metric("💰 Total Commandes", f"{montant_total:,.0f}$")
+    except Exception:
+        pass  # Silencieux si erreur
+
     # NOUVEAU : Statistiques Assistant IA dans la sidebar
     if ASSISTANT_IA_AVAILABLE and st.session_state.get('assistant_ia_initialized'):
         try:
@@ -2551,12 +2645,12 @@ def main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += "<br/>🤖 Assistant IA Métallurgie"
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # PAGES (MODIFIÉES avec module Formulaires et Assistant IA)
+    # PAGES (MODIFIÉES avec module Formulaires, Assistant IA et Fournisseurs)
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -2565,6 +2659,8 @@ def main():
         show_crm_page()
     elif page_to_show_val == "employees_page":
         show_employees_page()
+    elif page_to_show_val == "fournisseurs_page":  # ← NOUVELLE PAGE FOURNISSEURS
+        show_fournisseurs_page()
     elif page_to_show_val == "formulaires_page":  # ← NOUVELLE PAGE
         show_formulaires_page()
     elif page_to_show_val == "assistant_ia_page":  # ← NOUVELLE PAGE IA
@@ -2612,13 +2708,13 @@ def main():
 
 def show_footer():
     st.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • 61 Postes • CRM • Inventaire • 📑 Formulaires"
+    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • 61 Postes • CRM • Inventaire • 📑 Formulaires • 🏪 Fournisseurs"
     if TIMETRACKER_AVAILABLE:
         footer_text += " • ⏱️ TimeTracker"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += " • 🤖 Assistant IA"
     
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
@@ -2630,4 +2726,4 @@ if __name__ == "__main__":
         import traceback
         st.code(traceback.format_exc())
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES ET ASSISTANT IA ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES, ASSISTANT IA ET FOURNISSEURS ---
