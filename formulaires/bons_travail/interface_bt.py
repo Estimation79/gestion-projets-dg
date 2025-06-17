@@ -788,6 +788,33 @@ def render_bon_travail_form_dg(gestionnaire_bt):
         
         return
     
+    # Gestion des opérations/matériaux AVANT le formulaire (pour éviter les erreurs Streamlit)
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">⚙️ Configuration du Bon de Travail</h3>', unsafe_allow_html=True)
+    
+    col_config1, col_config2 = st.columns(2)
+    
+    with col_config1:
+        if st.button("🔄 Réinitialiser Formulaire", use_container_width=True, key="bt_reset_form"):
+            # Supprimer toutes les clés de session liées au formulaire BT
+            keys_to_remove = [key for key in st.session_state.keys() if key.startswith('bt_op_') or key.startswith('bt_mat_')]
+            for key in keys_to_remove:
+                del st.session_state[key]
+            st.success("✅ Formulaire réinitialisé!")
+            st.rerun()
+    
+    with col_config2:
+        if st.button("📋 Aide Formulaire", use_container_width=True, key="bt_help"):
+            st.info("""
+            💡 **Conseils de remplissage:**
+            - Sélectionnez un projet actif pour lier le BT
+            - Définissez jusqu'à 5 opérations avec temps estimés
+            - Ajoutez les matériaux nécessaires avec disponibilité
+            - Complétez les instructions pour l'équipe
+            """)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     # Container principal style DG
     st.markdown('<div class="dg-main-container">', unsafe_allow_html=True)
     
@@ -869,116 +896,87 @@ def render_bon_travail_form_dg(gestionnaire_bt):
         st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
         st.markdown('<h3 class="dg-info-title">📋 Tâches et Opérations</h3>', unsafe_allow_html=True)
         
-        # Initialiser compteurs d'opérations
-        if 'bt_operations_count' not in st.session_state:
-            st.session_state.bt_operations_count = 1
-        
-        # Tableau des opérations - Style HTML
-        st.markdown('<div class="table-container">', unsafe_allow_html=True)
-        st.markdown("""
-        <table class="dg-operations-table">
-            <thead>
-                <tr>
-                    <th>Opération</th>
-                    <th>Description</th>
-                    <th class="qty-col">Quantité</th>
-                    <th class="time-col">Temps prévu (h)</th>
-                    <th class="time-col">Temps réel (h)</th>
-                    <th>Assigné à</th>
-                    <th class="status-col">Statut</th>
-                    <th class="date-col">Date début</th>
-                    <th class="date-col">Date fin</th>
-                    <th width="50px">Action</th>
-                </tr>
-            </thead>
-        </table>
-        """, unsafe_allow_html=True)
-        
-        # Interface pour opérations
+        # Interface pour opérations (nombre fixe pour éviter les erreurs de formulaire)
         operations_data = []
         total_temps_prevu = 0
         total_temps_reel = 0
         
-        st.markdown("**Lignes d'opérations :**")
+        st.markdown("**Opérations à réaliser :**")
+        st.info("📋 Jusqu'à 5 opérations peuvent être définies pour ce Bon de Travail")
         
-        for i in range(st.session_state.bt_operations_count):
-            st.markdown(f"**Opération {i+1} :**")
-            cols = st.columns([2, 3, 1, 1, 1, 2, 1, 1, 1, 1])
-            
-            with cols[0]:
-                operation_type = st.selectbox(
-                    "Type", 
-                    ["", "Programmation CNC", "Découpe plasma", "Poinçonnage", "Soudage TIG", 
-                     "Assemblage", "Meulage", "Polissage", "Emballage"],
-                    key=f"bt_op_type_{i}"
-                )
-            
-            with cols[1]:
-                description = st.text_input("Description", key=f"bt_op_desc_{i}", placeholder="Description détaillée de la tâche")
-            
-            with cols[2]:
-                quantite = st.number_input("Quantité", min_value=1, value=1, key=f"bt_op_qty_{i}")
-            
-            with cols[3]:
-                temps_prevu = st.number_input("Temps prévu", min_value=0.0, step=0.25, key=f"bt_op_temps_{i}", format="%.2f")
-                total_temps_prevu += temps_prevu
-            
-            with cols[4]:
-                temps_reel = st.number_input("Temps réel", min_value=0.0, step=0.25, key=f"bt_op_reel_{i}", format="%.2f")
-                total_temps_reel += temps_reel
-            
-            with cols[5]:
-                assigne = st.selectbox(
-                    "Assigné à",
-                    ["", "Technicien 1", "Technicien 2", "Soudeur 1", "Soudeur 2", "Programmeur CNC"],
-                    key=f"bt_op_assign_{i}"
-                )
-            
-            with cols[6]:
-                statut_op = st.selectbox("Statut", ["En attente", "En cours", "Terminé", "En pause"], key=f"bt_op_status_{i}")
-            
-            with cols[7]:
-                date_debut_op = st.date_input("Date début", key=f"bt_op_start_{i}")
-            
-            with cols[8]:
-                date_fin_op = st.date_input("Date fin", key=f"bt_op_end_{i}")
-            
-            with cols[9]:
-                if st.button("✕", key=f"bt_op_delete_{i}", help="Supprimer ligne"):
-                    if st.session_state.bt_operations_count > 1:
-                        st.session_state.bt_operations_count -= 1
-                        st.rerun()
-            
-            if operation_type and description and temps_prevu > 0:
-                operations_data.append({
-                    'operation': operation_type,
-                    'description': description,
-                    'quantite': quantite,
-                    'temps_prevu': temps_prevu,
-                    'temps_reel': temps_reel,
-                    'assigne': assigne,
-                    'statut': statut_op,
-                    'date_debut': date_debut_op,
-                    'date_fin': date_fin_op
-                })
+        # Nombre fixe d'opérations (5 lignes maximum)
+        for i in range(5):
+            with st.expander(f"Opération {i+1}", expanded=(i == 0)):
+                cols = st.columns([2, 3, 1, 1, 1, 2])
+                
+                with cols[0]:
+                    operation_type = st.selectbox(
+                        "Type d'opération", 
+                        ["", "Programmation CNC", "Découpe plasma", "Poinçonnage", "Soudage TIG", 
+                         "Assemblage", "Meulage", "Polissage", "Emballage"],
+                        key=f"bt_op_type_{i}"
+                    )
+                
+                with cols[1]:
+                    description = st.text_input("Description", key=f"bt_op_desc_{i}", 
+                                               placeholder="Description détaillée de la tâche")
+                
+                with cols[2]:
+                    quantite = st.number_input("Quantité", min_value=0, value=1 if i == 0 else 0, key=f"bt_op_qty_{i}")
+                
+                with cols[3]:
+                    temps_prevu = st.number_input("Temps prévu (h)", min_value=0.0, step=0.25, 
+                                                 key=f"bt_op_temps_{i}", format="%.2f")
+                    if temps_prevu > 0:
+                        total_temps_prevu += temps_prevu
+                
+                with cols[4]:
+                    temps_reel = st.number_input("Temps réel (h)", min_value=0.0, step=0.25, 
+                                               key=f"bt_op_reel_{i}", format="%.2f")
+                    if temps_reel > 0:
+                        total_temps_reel += temps_reel
+                
+                with cols[5]:
+                    assigne = st.selectbox(
+                        "Assigné à",
+                        ["", "Technicien 1", "Technicien 2", "Soudeur 1", "Soudeur 2", "Programmeur CNC"],
+                        key=f"bt_op_assign_{i}"
+                    )
+                
+                # Dates et statut en ligne séparée
+                cols2 = st.columns([1, 1, 1])
+                with cols2[0]:
+                    statut_op = st.selectbox("Statut", ["En attente", "En cours", "Terminé", "En pause"], 
+                                           key=f"bt_op_status_{i}")
+                with cols2[1]:
+                    date_debut_op = st.date_input("Date début", key=f"bt_op_start_{i}")
+                with cols2[2]:
+                    date_fin_op = st.date_input("Date fin", key=f"bt_op_end_{i}")
+                
+                # Ajouter à la liste si rempli
+                if operation_type and description and quantite > 0:
+                    operations_data.append({
+                        'operation': operation_type,
+                        'description': description,
+                        'quantite': quantite,
+                        'temps_prevu': temps_prevu,
+                        'temps_reel': temps_reel,
+                        'assigne': assigne,
+                        'statut': statut_op,
+                        'date_debut': date_debut_op,
+                        'date_fin': date_fin_op
+                    })
         
-        # Bouton ajouter opération + totaux - Style DG
-        col_add_op, col_totals = st.columns([1, 2])
-        
-        with col_add_op:
-            if st.button("+ Ajouter une tâche", key="bt_add_operation", help="Ajouter une nouvelle opération"):
-                st.session_state.bt_operations_count += 1
-                st.rerun()
-        
-        with col_totals:
-            if operations_data:
-                st.markdown(f"""
-                <div class="total-row" style="padding: 10px; border-radius: 6px; margin-top: 10px;">
-                    <strong>TOTAUX:</strong><br>
-                    Temps prévu: {total_temps_prevu:.2f}h<br>
-                    Temps réel: {total_temps_reel:.2f}h
-                </div>
-                """, unsafe_allow_html=True)
+        # Affichage des totaux
+        if total_temps_prevu > 0 or total_temps_reel > 0:
+            st.markdown(f"""
+            <div class="total-row" style="padding: 15px; border-radius: 6px; margin-top: 15px; background: linear-gradient(135deg, #e6f7f1 0%, #d0f0e6 100%);">
+                <strong>📊 TOTAUX OPÉRATIONS:</strong><br>
+                ⏱️ Temps prévu total: <strong>{total_temps_prevu:.2f}h</strong><br>
+                ⏱️ Temps réel total: <strong>{total_temps_reel:.2f}h</strong><br>
+                📋 Opérations définies: <strong>{len(operations_data)}</strong>
+            </div>
+            """, unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -987,64 +985,68 @@ def render_bon_travail_form_dg(gestionnaire_bt):
         st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
         st.markdown('<h3 class="dg-info-title">📝 Matériaux et Outils Requis</h3>', unsafe_allow_html=True)
         
-        # Initialiser compteurs matériaux
-        if 'bt_materiaux_count' not in st.session_state:
-            st.session_state.bt_materiaux_count = 1
-        
+        # Interface pour matériaux (nombre fixe pour éviter les erreurs de formulaire)
         materiaux_data = []
         
-        st.markdown("**Lignes de matériaux :**")
+        st.markdown("**Matériaux et outils requis :**")
+        st.info("📦 Jusqu'à 5 matériaux/outils peuvent être définis pour ce Bon de Travail")
         
-        for i in range(st.session_state.bt_materiaux_count):
-            st.markdown(f"**Matériau {i+1} :**")
-            cols = st.columns([3, 3, 1, 1, 1, 2, 1])
-            
-            with cols[0]:
-                nom_materiau = st.text_input("Nom", key=f"bt_mat_nom_{i}", placeholder="Nom du matériau/outil")
-            
-            with cols[1]:
-                desc_materiau = st.text_input("Description", key=f"bt_mat_desc_{i}", placeholder="Description détaillée")
-            
-            with cols[2]:
-                qty_materiau = st.number_input("Quantité", min_value=0.0, step=0.1, key=f"bt_mat_qty_{i}", format="%.1f")
-            
-            with cols[3]:
-                unite_materiau = st.selectbox(
-                    "Unité",
-                    ["Pièces", "Kilogrammes", "Mètres", "Mètres²", "Litres", "Heures"],
-                    key=f"bt_mat_unit_{i}"
-                )
-            
-            with cols[4]:
-                disponible = st.selectbox(
-                    "Disponible",
-                    ["✅ Disponible", "❌ Non disponible", "⚠️ Partiellement", "📦 Commandé"],
-                    key=f"bt_mat_dispo_{i}"
-                )
-            
-            with cols[5]:
-                notes_materiau = st.text_input("Notes", key=f"bt_mat_notes_{i}", placeholder="Notes spéciales")
-            
-            with cols[6]:
-                if st.button("✕", key=f"bt_mat_delete_{i}", help="Supprimer ligne"):
-                    if st.session_state.bt_materiaux_count > 1:
-                        st.session_state.bt_materiaux_count -= 1
-                        st.rerun()
-            
-            if nom_materiau and qty_materiau > 0:
-                materiaux_data.append({
-                    'nom': nom_materiau,
-                    'description': desc_materiau,
-                    'quantite': qty_materiau,
-                    'unite': unite_materiau,
-                    'disponible': disponible,
-                    'notes': notes_materiau
-                })
+        # Nombre fixe de matériaux (5 lignes maximum)
+        for i in range(5):
+            with st.expander(f"Matériau/Outil {i+1}", expanded=(i == 0)):
+                cols = st.columns([3, 3, 1, 1, 2])
+                
+                with cols[0]:
+                    nom_materiau = st.text_input("Nom du matériau/outil", key=f"bt_mat_nom_{i}", 
+                                               placeholder="Ex: Tôle acier, Électrodes...")
+                
+                with cols[1]:
+                    desc_materiau = st.text_input("Description", key=f"bt_mat_desc_{i}", 
+                                                 placeholder="Description détaillée")
+                
+                with cols[2]:
+                    qty_materiau = st.number_input("Quantité", min_value=0.0, step=0.1, 
+                                                  value=1.0 if i == 0 else 0.0, key=f"bt_mat_qty_{i}", format="%.1f")
+                
+                with cols[3]:
+                    unite_materiau = st.selectbox(
+                        "Unité",
+                        ["Pièces", "Kilogrammes", "Mètres", "Mètres²", "Litres", "Heures"],
+                        key=f"bt_mat_unit_{i}"
+                    )
+                
+                with cols[4]:
+                    disponible = st.selectbox(
+                        "Disponibilité",
+                        ["✅ Disponible", "❌ Non disponible", "⚠️ Partiellement", "📦 Commandé"],
+                        key=f"bt_mat_dispo_{i}"
+                    )
+                
+                # Notes en ligne séparée
+                notes_materiau = st.text_input("Notes spéciales", key=f"bt_mat_notes_{i}", 
+                                             placeholder="Instructions particulières, contraintes...")
+                
+                # Ajouter à la liste si rempli
+                if nom_materiau and qty_materiau > 0:
+                    materiaux_data.append({
+                        'nom': nom_materiau,
+                        'description': desc_materiau,
+                        'quantite': qty_materiau,
+                        'unite': unite_materiau,
+                        'disponible': disponible,
+                        'notes': notes_materiau
+                    })
         
-        # Bouton ajouter matériau
-        if st.button("+ Ajouter un matériau/outil", key="bt_add_materiau"):
-            st.session_state.bt_materiaux_count += 1
-            st.rerun()
+        # Résumé des matériaux
+        if materiaux_data:
+            st.markdown(f"""
+            <div class="total-row" style="padding: 15px; border-radius: 6px; margin-top: 15px; background: linear-gradient(135deg, #fef3e7 0%, #fefaf3 100%);">
+                <strong>📦 RÉSUMÉ MATÉRIAUX:</strong><br>
+                📋 Éléments définis: <strong>{len(materiaux_data)}</strong><br>
+                ✅ Disponibles: <strong>{len([m for m in materiaux_data if '✅' in m['disponible']])}</strong><br>
+                ❌ Non disponibles: <strong>{len([m for m in materiaux_data if '❌' in m['disponible']])}</strong>
+            </div>
+            """, unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -1128,9 +1130,8 @@ Instructions : {instructions}
                 st.rerun()
         
         elif submit_nouveau:
-            # Réinitialiser les compteurs
-            st.session_state.bt_operations_count = 1
-            st.session_state.bt_materiaux_count = 1
+            # Réinitialiser le formulaire (les champs seront vides au prochain chargement)
+            st.info("🗑️ Formulaire réinitialisé. Rechargez la page pour un nouveau BT.")
             st.rerun()
         
         elif submit_imprimer:
