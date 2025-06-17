@@ -1,10 +1,10 @@
 # formulaires/bons_travail/interface_bt.py
-# Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE CORRIGÉE
+# Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE DG INC.
 
 """
-Interface utilisateur pour les Bons de Travail.
+Interface utilisateur pour les Bons de Travail - Style DG Inc.
 Contient tous les composants d'affichage et d'interaction pour les BT.
-VERSION CORRIGÉE : Boutons hors formulaire pour éviter erreurs Streamlit
+VERSION COMPLÈTE : Design professionnel DG Inc. fidèle au HTML
 """
 
 import streamlit as st
@@ -26,14 +26,633 @@ from ..utils.helpers import (
 from ..core.types_formulaires import UNITES_MESURE
 
 
+def apply_dg_style():
+    """
+    Applique le style DG Inc. professionnel fidèle au HTML
+    """
+    st.markdown("""
+    <style>
+    /* Variables de couleur DG Inc. - Fidèles au HTML */
+    :root {
+        --primary-color: #00A971;
+        --primary-color-darker: #00673D;
+        --primary-color-darkest: #004C2E;
+        --background-color: #F9FAFB;
+        --secondary-background-color: #FFFFFF;
+        --text-color: #374151;
+        --text-color-light: #6B7280;
+        --border-color: #E5E7EB;
+        --border-color-light: #F3F4F6;
+        --border-radius-sm: 0.375rem;
+        --border-radius-md: 0.5rem;
+        --box-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        --animation-speed: 0.3s;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --error-color: #ef4444;
+    }
+
+    /* Header DG Inc. - Identique au HTML */
+    .dg-header {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+        color: white;
+        padding: 25px 30px;
+        border-radius: 12px 12px 0 0;
+        margin-bottom: 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 3px solid var(--primary-color-darkest);
+        box-shadow: var(--box-shadow-md);
+    }
+
+    .dg-logo-container {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .dg-logo-box {
+        background-color: white;
+        width: 60px;
+        height: 40px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .dg-logo-text {
+        font-weight: 800;
+        font-size: 20px;
+        color: var(--primary-color);
+        letter-spacing: 1px;
+        margin: 0;
+    }
+
+    .dg-company-name {
+        font-weight: 600;
+        font-size: 24px;
+        color: white;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        margin: 0;
+    }
+
+    .dg-contact {
+        text-align: right;
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 14px;
+        line-height: 1.4;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .dg-contact p {
+        margin: 0;
+        line-height: 1.3;
+    }
+
+    /* Section cards - Style DG */
+    .dg-section-card {
+        background: var(--secondary-background-color);
+        border-radius: var(--border-radius-md);
+        box-shadow: var(--box-shadow-md);
+        margin: 20px 0;
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+        animation: fadeIn 0.6s ease-out;
+    }
+
+    .dg-info-section {
+        background: linear-gradient(to right, #e6f7f1, #ffffff);
+        padding: 20px;
+        border-left: 5px solid var(--primary-color);
+        margin: 20px 0;
+        border-radius: var(--border-radius-md);
+        box-shadow: var(--box-shadow-sm);
+    }
+
+    .dg-info-title {
+        color: var(--primary-color-darker);
+        margin: 0 0 15px 0;
+        font-size: 20px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* Tableaux DG style - Fidèles au HTML */
+    .dg-table-container {
+        background: white;
+        border-radius: var(--border-radius-md);
+        overflow: hidden;
+        box-shadow: var(--box-shadow-sm);
+        border: 1px solid var(--border-color);
+        margin: 15px 0;
+    }
+
+    .dg-table-header {
+        background: linear-gradient(135deg, #e6f7f1 0%, #d0f0e6 100%);
+        color: var(--primary-color-darker);
+        font-weight: 600;
+        padding: 12px;
+        border-bottom: 2px solid var(--primary-color);
+    }
+
+    .dg-table-row {
+        padding: 12px;
+        border-bottom: 1px solid var(--border-color-light);
+        transition: background-color var(--animation-speed);
+    }
+
+    .dg-table-row:hover {
+        background-color: #e6f7f1;
+    }
+
+    .dg-table-row:nth-child(even) {
+        background-color: #f8f9fa;
+    }
+
+    /* Grille de formulaire */
+    .dg-form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 15px;
+        margin: 15px 0;
+    }
+
+    .dg-form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .dg-form-field label {
+        font-weight: 500;
+        color: var(--text-color);
+        font-size: 14px;
+    }
+
+    /* Boutons DG style - Identiques au HTML */
+    .dg-btn-primary {
+        background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+        color: white !important;
+        border: none;
+        padding: 12px 24px;
+        border-radius: var(--border-radius-md);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--animation-speed);
+        box-shadow: var(--box-shadow-sm);
+        text-decoration: none;
+    }
+
+    .dg-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--box-shadow-md);
+    }
+
+    .dg-btn-secondary {
+        background: linear-gradient(90deg, #60a5fa 0%, #3b82f6 100%);
+        color: white !important;
+        border: none;
+        padding: 12px 24px;
+        border-radius: var(--border-radius-md);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--animation-speed);
+        box-shadow: var(--box-shadow-sm);
+    }
+
+    .dg-btn-success {
+        background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+        color: white !important;
+        border: none;
+        padding: 12px 24px;
+        border-radius: var(--border-radius-md);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--animation-speed);
+        box-shadow: var(--box-shadow-sm);
+    }
+
+    .dg-btn-danger {
+        background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+        color: white !important;
+        border: none;
+        padding: 12px 24px;
+        border-radius: var(--border-radius-md);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--animation-speed);
+        box-shadow: var(--box-shadow-sm);
+    }
+
+    .dg-btn-add {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: var(--border-radius-sm);
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 14px;
+        margin: 10px 0;
+        transition: all var(--animation-speed);
+    }
+
+    .dg-btn-delete {
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-size: 12px;
+        margin-left: 5px;
+    }
+
+    /* Status badges - Identiques au HTML */
+    .dg-status-badge {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: inline-block;
+    }
+
+    .status-draft { background: #fef3c7; color: #92400e; }
+    .status-pending { background: #dbeafe; color: #1e40af; }
+    .status-approved { background: #d1fae5; color: #065f46; }
+    .status-in-progress { background: #e0e7ff; color: #3730a3; }
+    .status-completed { background: #d1fae5; color: #065f46; }
+    .status-cancelled { background: #fee2e2; color: #991b1b; }
+
+    /* Footer DG - Identique au HTML */
+    .dg-footer {
+        background: linear-gradient(135deg, #f3f4f6 0%, #ffffff 100%);
+        padding: 20px;
+        border-top: 1px solid var(--border-color);
+        border-radius: 0 0 12px 12px;
+        margin-top: 20px;
+    }
+
+    .dg-footer p {
+        margin: 8px 0;
+        color: var(--text-color);
+        font-size: 14px;
+    }
+
+    /* Métriques DG style */
+    .dg-metric {
+        background: white;
+        padding: 20px;
+        border-radius: var(--border-radius-md);
+        box-shadow: var(--box-shadow-sm);
+        border: 1px solid var(--border-color);
+        text-align: center;
+        transition: all var(--animation-speed);
+    }
+
+    .dg-metric:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--box-shadow-md);
+    }
+
+    .dg-metric-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--primary-color-darker);
+        margin: 0;
+    }
+
+    .dg-metric-label {
+        font-size: 14px;
+        color: var(--text-color-light);
+        margin: 5px 0 0 0;
+    }
+
+    /* Couleurs priorité - Identiques au HTML */
+    .priority-high { border-left: 4px solid #ef4444; }
+    .priority-medium { border-left: 4px solid #f59e0b; }
+    .priority-low { border-left: 4px solid #10b981; }
+    .priority-critical { border-left: 4px solid #dc2626; }
+
+    /* Input styles DG */
+    .stTextInput input, .stTextArea textarea, .stSelectbox select, .stNumberInput input {
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--border-radius-sm) !important;
+        transition: all var(--animation-speed) !important;
+        padding: 6px 8px !important;
+        font-family: 'Inter', sans-serif !important;
+    }
+
+    .stTextInput input:focus, .stTextArea textarea:focus, .stSelectbox select:focus, .stNumberInput input:focus {
+        border-color: var(--primary-color) !important;
+        box-shadow: 0 0 0 2px rgba(0, 169, 113, 0.2) !important;
+        outline: none !important;
+    }
+
+    /* Navigation principale DG */
+    .dg-nav {
+        background: white;
+        padding: 15px 0;
+        border-bottom: 2px solid var(--border-color);
+        margin-bottom: 20px;
+        box-shadow: var(--box-shadow-sm);
+    }
+
+    .dg-nav-btn {
+        padding: 10px 20px;
+        background: #f8f9fa;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--animation-speed);
+        text-decoration: none;
+        color: var(--text-color);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 5px;
+    }
+
+    .dg-nav-btn.active {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    .dg-nav-btn:hover:not(.active) {
+        background: #e9ecef;
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+    }
+
+    /* Responsive - Identique au HTML */
+    @media (max-width: 768px) {
+        .dg-header {
+            flex-direction: column;
+            text-align: center;
+            gap: 15px;
+            padding: 20px;
+        }
+        
+        .dg-logo-container {
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .dg-company-name {
+            font-size: 20px;
+        }
+        
+        .dg-contact {
+            text-align: center;
+        }
+        
+        .dg-form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .dg-metric {
+            margin-bottom: 10px;
+        }
+    }
+
+    /* Animations - Identiques au HTML */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .dg-section-card {
+        animation: fadeIn 0.6s ease-out;
+    }
+
+    /* Styles spécifiques tableaux */
+    .dg-operations-table {
+        margin-bottom: 25px;
+    }
+
+    .dg-operations-table th {
+        background: linear-gradient(135deg, #e6f7f1 0%, #d0f0e6 100%);
+        color: var(--primary-color-darker);
+        font-weight: 600;
+        font-size: 13px;
+        border-bottom: 2px solid var(--primary-color);
+        padding: 8px 6px;
+        text-align: left;
+    }
+
+    .dg-operations-table td {
+        border: 1px solid var(--border-color);
+        padding: 8px 6px;
+        text-align: left;
+    }
+
+    .dg-operations-table tbody tr:nth-child(even) {
+        background-color: #f8f9fa;
+    }
+
+    .dg-operations-table tbody tr:hover {
+        background-color: #e6f7f1;
+        transition: background-color var(--animation-speed);
+    }
+
+    .total-row {
+        background: linear-gradient(135deg, #e6f7f1 0%, #d0f0e6 100%);
+        font-weight: 600;
+        color: var(--primary-color-darker);
+    }
+
+    /* Colonnes spécifiques */
+    .qty-col { width: 80px; text-align: center; }
+    .price-col { width: 100px; text-align: right; }
+    .time-col { width: 100px; text-align: center; }
+    .date-col { width: 120px; text-align: center; }
+    .status-col { width: 120px; text-align: center; }
+
+    /* Styles pour les sélecteurs spécialisés */
+    .priority-select { 
+        background-color: #fff7ed; 
+        border: 2px solid #fb923c; 
+        font-weight: 500; 
+    }
+    
+    .status-select { 
+        background-color: #f0f9ff; 
+        border: 2px solid #3b82f6; 
+        font-weight: 500; 
+    }
+
+    /* Conteneur principal DG */
+    .dg-main-container {
+        border: 1px solid #bbb;
+        margin-bottom: 40px;
+        padding: 0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        border-radius: 12px;
+        overflow: hidden;
+        background: white;
+    }
+
+    /* Titre de section */
+    .dg-section-title {
+        background-color: var(--primary-color-darkest);
+        color: white;
+        padding: 15px 20px;
+        margin: 0;
+        text-align: center;
+        font-size: 1.5em;
+        border-bottom: 1px solid var(--primary-color-darkest);
+    }
+
+    /* Contenu principal */
+    .dg-main-content {
+        padding: 30px;
+    }
+
+    /* Notification style DG */
+    .dg-notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: var(--border-radius-md);
+        box-shadow: var(--box-shadow-md);
+        z-index: 1000;
+        transform: translateX(400px);
+        transition: transform 0.3s ease;
+    }
+
+    .dg-notification.show {
+        transform: translateX(0);
+    }
+
+    /* Style Streamlit overrides pour cohérence DG */
+    .stButton > button {
+        border-radius: var(--border-radius-md) !important;
+        border: 1px solid var(--border-color) !important;
+        transition: all var(--animation-speed) !important;
+    }
+
+    .stButton > button:hover {
+        border-color: var(--primary-color) !important;
+        transform: translateY(-1px) !important;
+    }
+
+    /* Métriques dashboard style DG */
+    .dg-dashboard-metric {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+        box-shadow: var(--box-shadow-sm);
+        transition: all var(--animation-speed);
+    }
+
+    .dg-dashboard-metric:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--box-shadow-md);
+    }
+
+    .dg-dashboard-metric.success {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    }
+
+    .dg-dashboard-metric.warning {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
+
+    .dg-dashboard-metric.danger {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    }
+
+    .dg-dashboard-value {
+        font-size: 24px;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    .dg-dashboard-label {
+        font-size: 14px;
+        opacity: 0.9;
+        margin: 0;
+    }
+
+    /* Contrôles de formulaire */
+    .dg-form-controls {
+        padding: 20px 30px;
+        text-align: center;
+        background: linear-gradient(135deg, #f3f4f6 0%, #ffffff 100%);
+        border-top: 1px solid var(--border-color);
+    }
+
+    /* Progress bar style DG */
+    .dg-progress {
+        background-color: #e5e7eb;
+        border-radius: 10px;
+        overflow: hidden;
+        height: 20px;
+        margin: 5px 0;
+    }
+
+    .dg-progress-bar {
+        background: linear-gradient(90deg, var(--primary-color) 0%, var(--success-color) 100%);
+        height: 100%;
+        transition: width var(--animation-speed);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def render_dg_header():
+    """
+    Affiche l'en-tête DG Inc. professionnel identique au HTML
+    """
+    st.markdown("""
+    <div class="dg-header">
+        <div class="dg-logo-container">
+            <div class="dg-logo-box">
+                <div class="dg-logo-text">DG</div>
+            </div>
+            <h2 class="dg-company-name">Desmarais & Gagné inc.</h2>
+        </div>
+        <div class="dg-contact">
+            <p>565 rue Maisonneuve<br>
+            Granby, QC J2G 3H5<br>
+            Tél.: (450) 372-9630<br>
+            Téléc.: (450) 372-8122</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def render_bons_travail_tab(gestionnaire):
     """
-    Interface principale pour les Bons de Travail.
+    Interface principale pour les Bons de Travail - Style DG Inc.
     
     Args:
         gestionnaire: Instance du gestionnaire de formulaires de base
     """
-    st.markdown("### 🔧 Bons de Travail")
+    # Appliquer le style DG
+    apply_dg_style()
+    
+    st.markdown("### 🔧 Bons de Travail - DG Inc.")
     
     # Initialiser le gestionnaire spécialisé
     if 'gestionnaire_bt' not in st.session_state:
@@ -41,84 +660,104 @@ def render_bons_travail_tab(gestionnaire):
     
     gestionnaire_bt = st.session_state.gestionnaire_bt
     
-    # Actions rapides avec métriques
-    _render_actions_rapides_bt(gestionnaire_bt)
+    # Navigation style DG
+    _render_navigation_dg(gestionnaire_bt)
     
     # Affichage selon l'action sélectionnée
     action = st.session_state.get('form_action', 'list_bon_travail')
     
     if action == "create_bon_travail":
-        render_bon_travail_form(gestionnaire_bt)
+        render_bon_travail_form_dg(gestionnaire_bt)
     elif action == "list_bon_travail":
-        render_bon_travail_list(gestionnaire_bt)
+        render_bon_travail_list_dg(gestionnaire_bt)
     elif action == "stats_bon_travail":
-        render_bon_travail_stats(gestionnaire_bt)
+        render_bon_travail_stats_dg(gestionnaire_bt)
     elif action == "productivite_bt":
-        render_rapport_productivite(gestionnaire_bt)
+        render_rapport_productivite_dg(gestionnaire_bt)
 
 
-def _render_actions_rapides_bt(gestionnaire_bt):
+def _render_navigation_dg(gestionnaire_bt):
     """
-    Affiche les actions rapides avec métriques en temps réel.
+    Navigation style DG Inc. avec métriques identiques au HTML
     
     Args:
         gestionnaire_bt: Instance du gestionnaire BT
     """
-    # Métriques rapides
+    # Métriques rapides style DG - Identiques au HTML
     stats = gestionnaire_bt.get_statistiques_bt()
     
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
     
     with col_m1:
         total_bt = stats.get('total', 0)
-        st.metric("🔧 Total BT", total_bt)
+        st.markdown(f"""
+        <div class="dg-dashboard-metric">
+            <div class="dg-dashboard-value">🔧 {total_bt}</div>
+            <div class="dg-dashboard-label">Total BT</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col_m2:
         en_cours = stats.get('en_cours', 0)
-        st.metric("⚡ En Cours", en_cours)
+        st.markdown(f"""
+        <div class="dg-dashboard-metric success">
+            <div class="dg-dashboard-value">⚡ {en_cours}</div>
+            <div class="dg-dashboard-label">En Cours</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col_m3:
         termines = stats.get('par_statut', {}).get('TERMINÉ', 0)
-        st.metric("✅ Terminés", termines)
+        st.markdown(f"""
+        <div class="dg-dashboard-metric warning">
+            <div class="dg-dashboard-value">✅ {termines}</div>
+            <div class="dg-dashboard-label">Terminés</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col_m4:
         montant_total = stats.get('montant_total', 0)
-        st.metric("💰 Montant Total", formater_montant(montant_total))
+        st.markdown(f"""
+        <div class="dg-dashboard-metric danger">
+            <div class="dg-dashboard-value">💰 {formater_montant(montant_total)}</div>
+            <div class="dg-dashboard-label">Montant Total</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Actions rapides
-    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    with col_action1:
+    # Navigation principale - Style DG
+    col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
+    
+    with col_nav1:
         if st.button("➕ Nouveau BT", use_container_width=True, key="bt_nouveau"):
             st.session_state.form_action = "create_bon_travail"
             st.rerun()
     
-    with col_action2:
+    with col_nav2:
         if st.button("📋 Liste Complète", use_container_width=True, key="bt_liste"):
             st.session_state.form_action = "list_bon_travail"
             st.rerun()
     
-    with col_action3:
+    with col_nav3:
         if st.button("📊 Statistiques", use_container_width=True, key="bt_stats"):
             st.session_state.form_action = "stats_bon_travail"
             st.rerun()
     
-    with col_action4:
+    with col_nav4:
         if st.button("📈 Productivité", use_container_width=True, key="bt_productivite"):
             st.session_state.form_action = "productivite_bt"
             st.rerun()
 
 
-def render_bon_travail_form(gestionnaire_bt):
+def render_bon_travail_form_dg(gestionnaire_bt):
     """
-    Formulaire de création de Bon de Travail - VERSION CORRIGÉE
+    Formulaire de création de Bon de Travail - Style DG Inc. fidèle au HTML
     
     Args:
         gestionnaire_bt: Instance du gestionnaire BT spécialisé
     """
-    st.markdown("#### ➕ Nouveau Bon de Travail")
-    
-    # CORRECTION CRITIQUE : Gérer le succès de création AVANT le formulaire
+    # Gestion du succès AVANT le formulaire
     if st.session_state.get('bt_creation_success'):
         success_info = st.session_state.bt_creation_success
         
@@ -127,7 +766,6 @@ def render_bon_travail_form(gestionnaire_bt):
         if success_info.get('urgent'):
             st.warning("🚨 **BT URGENT** - Équipe notifiée pour démarrage immédiat")
         
-        # Actions suivantes - HORS FORMULAIRE (CORRECTION PRINCIPALE)
         col_next1, col_next2, col_next3 = st.columns(3)
         
         with col_next1:
@@ -148,18 +786,38 @@ def render_bon_travail_form(gestionnaire_bt):
                 st.session_state.bt_creation_success = None
                 st.rerun()
         
-        return  # IMPORTANT : Arrêter ici si on affiche le succès
+        return
     
-    # FORMULAIRE PRINCIPAL - Commence ici seulement si pas de succès
-    with st.form("bon_travail_form", clear_on_submit=True):
-        # En-tête du formulaire
-        col1, col2 = st.columns(2)
+    # Container principal style DG
+    st.markdown('<div class="dg-main-container">', unsafe_allow_html=True)
+    
+    # En-tête DG
+    render_dg_header()
+    
+    # Titre de section
+    st.markdown('<h2 class="dg-section-title">Bon de Travail</h2>', unsafe_allow_html=True)
+    
+    # Contenu principal
+    st.markdown('<div class="dg-main-content">', unsafe_allow_html=True)
+    
+    # Formulaire principal avec style DG
+    with st.form("bon_travail_form_dg", clear_on_submit=True):
+        # Section informations de base - Style DG
+        st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+        st.markdown('<h3 class="dg-info-title">🔧 BON DE TRAVAIL</h3>', unsafe_allow_html=True)
         
-        with col1:
+        # Informations de base
+        col_info1, col_info2 = st.columns(2)
+        
+        with col_info1:
             numero_bt = gestionnaire_bt.base.generer_numero_document('BON_TRAVAIL')
-            st.text_input("N° Bon de Travail", value=numero_bt, disabled=True)
+            st.markdown(f"**Date de création:** {datetime.now().strftime('%Y-%m-%d')}")
+            st.markdown(f"**N° Bon de Travail:** {numero_bt}")
             
-            # Sélection projet (OBLIGATOIRE pour BT)
+            # Grille de formulaire DG
+            st.markdown('<div class="dg-form-grid">', unsafe_allow_html=True)
+            
+            # Nom du projet (OBLIGATOIRE pour BT)
             projets = get_projets_actifs()
             if not projets:
                 st.error("❌ Aucun projet actif. Créez d'abord un projet dans le module Projets.")
@@ -168,450 +826,613 @@ def render_bon_travail_form(gestionnaire_bt):
             
             projet_options = [("", "Sélectionner un projet")] + [(p['id'], f"#{p['id']} - {p['nom_projet']}") for p in projets]
             projet_id = st.selectbox(
-                "Projet *",
+                "Nom du projet *",
                 options=[p[0] for p in projet_options],
                 format_func=lambda x: next((p[1] for p in projet_options if p[0] == x), ""),
                 help="Projet obligatoire pour les Bons de Travail"
             )
             
-            date_creation = st.date_input("Date de Création", datetime.now().date())
-        
-        with col2:
-            priorite = st.selectbox("Priorité", gestionnaire_bt.base.priorites, index=0)
+            # Client du projet
+            if projet_id:
+                projet_selectionne = next((p for p in projets if p['id'] == projet_id), None)
+                if projet_selectionne:
+                    client_nom = projet_selectionne.get('client_nom_cache', 'N/A')
+                    st.text_input("Client", value=client_nom, disabled=True)
             
-            # Employé responsable
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col_info2:
+            # Chargé de projet (responsable)
             employes = get_employes_actifs()
             if not employes:
                 st.error("❌ Aucun employé actif trouvé.")
                 employe_id = ""
             else:
-                employe_options = [("", "Sélectionner un responsable")] + [(e['id'], f"{e['prenom']} {e['nom']} - {e['poste']}") for e in employes]
+                employe_options = [("", "Sélectionner...")] + [(e['id'], f"{e['prenom']} {e['nom']}") for e in employes]
                 employe_id = st.selectbox(
-                    "Responsable *",
+                    "Chargé de projet *",
                     options=[e[0] for e in employe_options],
                     format_func=lambda x: next((e[1] for e in employe_options if e[0] == x), "")
                 )
             
-            date_echeance = st.date_input("Date d'Échéance", datetime.now().date() + timedelta(days=7))
-        
-        # Description du travail
-        description = st.text_area("Description du Travail *", height=100,
-                                  placeholder="Décrivez précisément le travail à effectuer...")
-        
-        # SPÉCIFICITÉ BT : Opérations à réaliser depuis le projet
-        st.markdown("##### 🔧 Opérations à Réaliser")
-        
-        operations_selectionnees = []
-        temps_total_estime = 0
-        
-        if projet_id:
-            operations_projet = get_operations_projet(projet_id)
+            priorite = st.selectbox("Priorité", ["🟢 Basse", "🟡 Moyenne", "🔴 Haute", "🚨 Urgente"], index=1)
             
-            if operations_projet:
-                st.info(f"📋 {len(operations_projet)} opération(s) disponible(s) pour ce projet")
-                
-                operations_selectionnees = st.multiselect(
-                    "Opérations à inclure dans ce BT",
-                    options=[op['id'] for op in operations_projet],
-                    format_func=lambda x: next((f"#{op['sequence']} - {op['description']}" for op in operations_projet if op['id'] == x), ""),
-                    help="Sélectionnez les opérations que ce BT doit couvrir"
+            col_dates = st.columns(2)
+            with col_dates[0]:
+                date_debut = st.date_input("Date de début prévue", datetime.now().date())
+            with col_dates[1]:
+                date_fin = st.date_input("Date de fin prévue", datetime.now().date() + timedelta(days=7))
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Section Tâches et Opérations - Style DG identique au HTML
+        st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+        st.markdown('<h3 class="dg-info-title">📋 Tâches et Opérations</h3>', unsafe_allow_html=True)
+        
+        # Initialiser compteurs d'opérations
+        if 'bt_operations_count' not in st.session_state:
+            st.session_state.bt_operations_count = 1
+        
+        # Tableau des opérations - Style HTML
+        st.markdown('<div class="table-container">', unsafe_allow_html=True)
+        st.markdown("""
+        <table class="dg-operations-table">
+            <thead>
+                <tr>
+                    <th>Opération</th>
+                    <th>Description</th>
+                    <th class="qty-col">Quantité</th>
+                    <th class="time-col">Temps prévu (h)</th>
+                    <th class="time-col">Temps réel (h)</th>
+                    <th>Assigné à</th>
+                    <th class="status-col">Statut</th>
+                    <th class="date-col">Date début</th>
+                    <th class="date-col">Date fin</th>
+                    <th width="50px">Action</th>
+                </tr>
+            </thead>
+        </table>
+        """, unsafe_allow_html=True)
+        
+        # Interface pour opérations
+        operations_data = []
+        total_temps_prevu = 0
+        total_temps_reel = 0
+        
+        st.markdown("**Lignes d'opérations :**")
+        
+        for i in range(st.session_state.bt_operations_count):
+            st.markdown(f"**Opération {i+1} :**")
+            cols = st.columns([2, 3, 1, 1, 1, 2, 1, 1, 1, 1])
+            
+            with cols[0]:
+                operation_type = st.selectbox(
+                    "Type", 
+                    ["", "Programmation CNC", "Découpe plasma", "Poinçonnage", "Soudage TIG", 
+                     "Assemblage", "Meulage", "Polissage", "Emballage"],
+                    key=f"bt_op_type_{i}"
                 )
-                
-                # Affichage détaillé des opérations sélectionnées
-                if operations_selectionnees:
-                    st.markdown("**Opérations sélectionnées :**")
-                    
-                    for op_id in operations_selectionnees:
-                        operation = next((op for op in operations_projet if op['id'] == op_id), None)
-                        if operation:
-                            col_op1, col_op2, col_op3 = st.columns([2, 1, 1])
-                            with col_op1:
-                                st.text(f"#{operation['sequence']} - {operation['description']}")
-                            with col_op2:
-                                temps_estime = operation.get('temps_estime', 0) or 0
-                                st.text(f"{temps_estime}h estimées")
-                                temps_total_estime += temps_estime
-                            with col_op3:
-                                st.text(f"Statut: {operation.get('statut', 'À FAIRE')}")
-                    
-                    st.success(f"⏱️ Temps total estimé: {temps_total_estime}h")
-            else:
-                st.info("Ce projet n'a pas encore d'opérations définies. Le BT sera créé sans opérations spécifiques.")
-        else:
-            st.info("Sélectionnez un projet pour voir les opérations disponibles")
-        
-        # SPÉCIFICITÉ BT : Équipe assignée
-        st.markdown("##### 👥 Équipe Assignée")
-        
-        employes_assignes = []
-        if employes:
-            employes_assignes = st.multiselect(
-                "Employés Assignés à ce BT",
-                options=[e['id'] for e in employes],
-                format_func=lambda x: next((f"{e['prenom']} {e['nom']} - {e['poste']}" for e in employes if e['id'] == x), ""),
-                help="Employés qui travailleront sur ce BT (en plus du responsable)"
-            )
             
-            # Affichage de l'équipe
-            if employes_assignes:
-                st.markdown("**Équipe assignée :**")
-                for emp_id in employes_assignes:
-                    employe = next((e for e in employes if e['id'] == emp_id), None)
-                    if employe:
-                        st.text(f"• {employe['prenom']} {employe['nom']} ({employe['poste']})")
-        
-        # SPÉCIFICITÉ BT : Matériaux requis
-        st.markdown("##### 📦 Matériaux Requis")
-        
-        # Interface dynamique pour matériaux
-        col_mat_header = st.columns([3, 1, 1, 1.5])
-        with col_mat_header[0]:
-            st.markdown("**Description**")
-        with col_mat_header[1]:
-            st.markdown("**Quantité**")
-        with col_mat_header[2]:
-            st.markdown("**Unité**")
-        with col_mat_header[3]:
-            st.markdown("**Coût Unit. Estimé**")
-        
-        materiaux_lines = []
-        montant_total_estime = 0
-        
-        for i in range(5):  # 5 lignes de matériaux
-            col_mat = st.columns([3, 1, 1, 1.5])
+            with cols[1]:
+                description = st.text_input("Description", key=f"bt_op_desc_{i}", placeholder="Description détaillée de la tâche")
             
-            with col_mat[0]:
-                desc = st.text_input("", key=f"bt_mat_desc_{i}", placeholder="Description matériau")
-            with col_mat[1]:
-                qty = st.number_input("", min_value=0.0, key=f"bt_mat_qty_{i}", format="%.2f", step=0.1)
-            with col_mat[2]:
-                unite = st.selectbox("", UNITES_MESURE, key=f"bt_mat_unit_{i}", index=0)
-            with col_mat[3]:
-                cout = st.number_input("", min_value=0.0, key=f"bt_mat_cost_{i}", format="%.2f", step=0.01)
+            with cols[2]:
+                quantite = st.number_input("Quantité", min_value=1, value=1, key=f"bt_op_qty_{i}")
             
-            if desc and qty > 0:
-                montant_ligne = qty * cout
-                montant_total_estime += montant_ligne
-                
-                materiaux_lines.append({
-                    'description': desc,
-                    'quantite': qty,
-                    'unite': unite,
-                    'prix_unitaire': cout,
-                    'montant_ligne': montant_ligne
+            with cols[3]:
+                temps_prevu = st.number_input("Temps prévu", min_value=0.0, step=0.25, key=f"bt_op_temps_{i}", format="%.2f")
+                total_temps_prevu += temps_prevu
+            
+            with cols[4]:
+                temps_reel = st.number_input("Temps réel", min_value=0.0, step=0.25, key=f"bt_op_reel_{i}", format="%.2f")
+                total_temps_reel += temps_reel
+            
+            with cols[5]:
+                assigne = st.selectbox(
+                    "Assigné à",
+                    ["", "Technicien 1", "Technicien 2", "Soudeur 1", "Soudeur 2", "Programmeur CNC"],
+                    key=f"bt_op_assign_{i}"
+                )
+            
+            with cols[6]:
+                statut_op = st.selectbox("Statut", ["En attente", "En cours", "Terminé", "En pause"], key=f"bt_op_status_{i}")
+            
+            with cols[7]:
+                date_debut_op = st.date_input("Date début", key=f"bt_op_start_{i}")
+            
+            with cols[8]:
+                date_fin_op = st.date_input("Date fin", key=f"bt_op_end_{i}")
+            
+            with cols[9]:
+                if st.button("✕", key=f"bt_op_delete_{i}", help="Supprimer ligne"):
+                    if st.session_state.bt_operations_count > 1:
+                        st.session_state.bt_operations_count -= 1
+                        st.rerun()
+            
+            if operation_type and description and temps_prevu > 0:
+                operations_data.append({
+                    'operation': operation_type,
+                    'description': description,
+                    'quantite': quantite,
+                    'temps_prevu': temps_prevu,
+                    'temps_reel': temps_reel,
+                    'assigne': assigne,
+                    'statut': statut_op,
+                    'date_debut': date_debut_op,
+                    'date_fin': date_fin_op
                 })
         
-        # Affichage du montant total estimé
-        if montant_total_estime > 0:
-            st.success(f"💰 Coût matériaux estimé: {formater_montant(montant_total_estime)}")
+        # Bouton ajouter opération + totaux - Style DG
+        col_add_op, col_totals = st.columns([1, 2])
         
-        # Notes spéciales et instructions
-        notes_speciales = st.text_area("Notes et Instructions Spéciales", height=80,
-                                      placeholder="Consignes de sécurité, instructions particulières, contraintes...")
+        with col_add_op:
+            if st.button("+ Ajouter une tâche", key="bt_add_operation", help="Ajouter une nouvelle opération"):
+                st.session_state.bt_operations_count += 1
+                st.rerun()
         
-        # Récapitulatif avant soumission
-        if projet_id and employe_id and description:
-            projet_selectionne = next((p for p in projets if p['id'] == projet_id), None)
-            responsable_selectionne = next((e for e in employes if e['id'] == employe_id), None)
+        with col_totals:
+            if operations_data:
+                st.markdown(f"""
+                <div class="total-row" style="padding: 10px; border-radius: 6px; margin-top: 10px;">
+                    <strong>TOTAUX:</strong><br>
+                    Temps prévu: {total_temps_prevu:.2f}h<br>
+                    Temps réel: {total_temps_reel:.2f}h
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Section Matériaux et Outils - Style DG identique au HTML
+        st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+        st.markdown('<h3 class="dg-info-title">📝 Matériaux et Outils Requis</h3>', unsafe_allow_html=True)
+        
+        # Initialiser compteurs matériaux
+        if 'bt_materiaux_count' not in st.session_state:
+            st.session_state.bt_materiaux_count = 1
+        
+        materiaux_data = []
+        
+        st.markdown("**Lignes de matériaux :**")
+        
+        for i in range(st.session_state.bt_materiaux_count):
+            st.markdown(f"**Matériau {i+1} :**")
+            cols = st.columns([3, 3, 1, 1, 1, 2, 1])
             
-            st.markdown(f"""
-            <div style='background:#f0f9ff;padding:1rem;border-radius:8px;border-left:4px solid #3b82f6;'>
-                <h5 style='color:#1e40af;margin:0;'>📋 Récapitulatif BT</h5>
-                <p style='margin:0.5rem 0 0 0;'><strong>N° BT:</strong> {numero_bt}</p>
-                <p style='margin:0;'><strong>Projet:</strong> {projet_selectionne['nom_projet'] if projet_selectionne else 'N/A'}</p>
-                <p style='margin:0;'><strong>Responsable:</strong> {f"{responsable_selectionne['prenom']} {responsable_selectionne['nom']}" if responsable_selectionne else 'N/A'}</p>
-                <p style='margin:0;'><strong>Équipe:</strong> {len(employes_assignes)} employé(s) assigné(s)</p>
-                <p style='margin:0;'><strong>Opérations:</strong> {len(operations_selectionnees)} opération(s)</p>
-                <p style='margin:0;'><strong>Matériaux:</strong> {len(materiaux_lines)} ligne(s) - {formater_montant(montant_total_estime)}</p>
-                <p style='margin:0;'><strong>Échéance:</strong> {date_echeance.strftime('%d/%m/%Y')}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            with cols[0]:
+                nom_materiau = st.text_input("Nom", key=f"bt_mat_nom_{i}", placeholder="Nom du matériau/outil")
+            
+            with cols[1]:
+                desc_materiau = st.text_input("Description", key=f"bt_mat_desc_{i}", placeholder="Description détaillée")
+            
+            with cols[2]:
+                qty_materiau = st.number_input("Quantité", min_value=0.0, step=0.1, key=f"bt_mat_qty_{i}", format="%.1f")
+            
+            with cols[3]:
+                unite_materiau = st.selectbox(
+                    "Unité",
+                    ["Pièces", "Kilogrammes", "Mètres", "Mètres²", "Litres", "Heures"],
+                    key=f"bt_mat_unit_{i}"
+                )
+            
+            with cols[4]:
+                disponible = st.selectbox(
+                    "Disponible",
+                    ["✅ Disponible", "❌ Non disponible", "⚠️ Partiellement", "📦 Commandé"],
+                    key=f"bt_mat_dispo_{i}"
+                )
+            
+            with cols[5]:
+                notes_materiau = st.text_input("Notes", key=f"bt_mat_notes_{i}", placeholder="Notes spéciales")
+            
+            with cols[6]:
+                if st.button("✕", key=f"bt_mat_delete_{i}", help="Supprimer ligne"):
+                    if st.session_state.bt_materiaux_count > 1:
+                        st.session_state.bt_materiaux_count -= 1
+                        st.rerun()
+            
+            if nom_materiau and qty_materiau > 0:
+                materiaux_data.append({
+                    'nom': nom_materiau,
+                    'description': desc_materiau,
+                    'quantite': qty_materiau,
+                    'unite': unite_materiau,
+                    'disponible': disponible,
+                    'notes': notes_materiau
+                })
         
-        # Boutons de soumission - DANS LE FORMULAIRE (OK)
-        st.markdown("---")
-        col_submit1, col_submit2, col_submit3 = st.columns(3)
+        # Bouton ajouter matériau
+        if st.button("+ Ajouter un matériau/outil", key="bt_add_materiau"):
+            st.session_state.bt_materiaux_count += 1
+            st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Section Instructions et Notes - Style DG
+        st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+        st.markdown('<h3 class="dg-info-title">📄 Instructions et Notes</h3>', unsafe_allow_html=True)
+        
+        instructions = st.text_area("Instructions de travail", height=100,
+                                   placeholder="Instructions détaillées pour l'exécution du travail...")
+        
+        notes_securite = st.text_area("Notes de sécurité", height=80,
+                                     placeholder="Consignes de sécurité particulières...")
+        
+        qualite = st.text_area("Exigences qualité", height=80,
+                              placeholder="Standards et contrôles qualité requis...")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Boutons de soumission - Style DG identique au HTML
+        st.markdown('<div class="dg-form-controls">', unsafe_allow_html=True)
+        col_submit1, col_submit2, col_submit3, col_submit4 = st.columns(4)
         
         with col_submit1:
-            submit_brouillon = st.form_submit_button("💾 Sauver comme Brouillon", use_container_width=True)
+            submit_sauvegarder = st.form_submit_button("💾 Sauvegarder Bon de Travail", use_container_width=True)
         with col_submit2:
-            submit_valide = st.form_submit_button("✅ Créer et Valider", use_container_width=True)
+            submit_imprimer = st.form_submit_button("🖨️ Imprimer", use_container_width=True)
         with col_submit3:
-            submit_urgent = st.form_submit_button("🚨 Urgent - Démarrer Immédiatement", use_container_width=True)
+            submit_pdf = st.form_submit_button("📄 Exporter PDF", use_container_width=True)
+        with col_submit4:
+            submit_nouveau = st.form_submit_button("🗑️ Nouveau Bon", use_container_width=True)
         
-        # Traitement de la soumission - DANS LE FORMULAIRE (OK)
-        if submit_brouillon or submit_valide or submit_urgent:
-            # Validation
-            if not projet_id or not employe_id or not description:
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Traitement de la soumission
+        if submit_sauvegarder:
+            if not projet_id or not employe_id or not instructions:
                 st.error("❌ Veuillez remplir tous les champs obligatoires (*)")
                 return
             
-            # Déterminer le statut
-            if submit_brouillon:
-                statut = 'BROUILLON'
-            elif submit_urgent:
-                statut = 'VALIDÉ'
-                priorite = 'CRITIQUE'
-            else:
-                statut = 'VALIDÉ'
+            # Construction des données
+            notes_completes = f"""=== BON DE TRAVAIL DG INC. ===
+Instructions : {instructions}
+
+=== OPÉRATIONS ===
+{len(operations_data)} opération(s) définies
+
+=== MATÉRIAUX ET OUTILS ===
+{len(materiaux_data)} élément(s) requis
+
+=== NOTES DE SÉCURITÉ ===
+{notes_securite or 'Aucune consigne particulière'}
+
+=== EXIGENCES QUALITÉ ===
+{qualite or 'Standards DG Inc. standards'}"""
             
-            # Construction des notes complètes avec contexte BT
-            notes_completes = f"""=== BON DE TRAVAIL ===
-Description : {description}
-
-=== OPÉRATIONS SÉLECTIONNÉES ===
-{len(operations_selectionnees)} opération(s) : {', '.join(map(str, operations_selectionnees)) if operations_selectionnees else 'Aucune opération spécifique'}
-
-=== ÉQUIPE ASSIGNÉE ===
-Responsable : {next((f"{e['prenom']} {e['nom']}" for e in employes if e['id'] == employe_id), 'N/A')}
-Équipe : {len(employes_assignes)} employé(s) assigné(s)
-
-=== MATÉRIAUX REQUIS ===
-{len(materiaux_lines)} ligne(s) de matériaux
-Coût estimé : {formater_montant(montant_total_estime)}
-
-=== NOTES ET INSTRUCTIONS ===
-{notes_speciales or 'Aucune instruction particulière'}"""
-            
-            # Préparation des données BT
             data = {
                 'type_formulaire': 'BON_TRAVAIL',
                 'numero_document': numero_bt,
                 'project_id': projet_id,
                 'employee_id': employe_id,
-                'statut': statut,
-                'priorite': priorite,
-                'date_creation': date_creation,
-                'date_echeance': date_echeance,
-                'montant_total': montant_total_estime,
+                'statut': 'BROUILLON',
+                'priorite': priorite.split(' ')[1] if ' ' in priorite else priorite,  # Extraire le texte après l'emoji
+                'date_creation': date_debut,
+                'date_echeance': date_fin,
+                'montant_total': 0,  # Calculé plus tard si nécessaire
                 'notes': notes_completes,
-                'lignes': materiaux_lines,
-                # Données spécifiques BT
-                'operations_selectionnees': operations_selectionnees,
-                'employes_assignes': employes_assignes,
-                'description': description,  # Pour validation
-                'temps_estime_total': temps_total_estime
+                'operations_selectionnees': [op['operation'] for op in operations_data],
+                'employes_assignes': [op['assigne'] for op in operations_data if op['assigne']],
+                'description': instructions,
+                'temps_estime_total': sum(op['temps_prevu'] for op in operations_data)
             }
             
-            # Création du BT via le gestionnaire spécialisé
             bt_id = gestionnaire_bt.creer_bon_travail(data)
             
             if bt_id:
-                # CORRECTION CRITIQUE : Stocker dans session_state et forcer rerun
                 st.session_state.bt_creation_success = {
                     'bt_id': bt_id,
                     'numero': numero_bt,
-                    'urgent': submit_urgent
+                    'urgent': False
                 }
-                st.rerun()  # Force la sortie du formulaire
+                st.rerun()
+        
+        elif submit_nouveau:
+            # Réinitialiser les compteurs
+            st.session_state.bt_operations_count = 1
+            st.session_state.bt_materiaux_count = 1
+            st.rerun()
+        
+        elif submit_imprimer:
+            st.info("🖨️ Fonction d'impression en développement. Utilisez l'export PDF pour l'instant.")
+        
+        elif submit_pdf:
+            st.info("📄 Fonction PDF en développement. Utilisez l'impression pour l'instant.")
+    
+    # Footer DG - Identique au HTML
+    st.markdown("""
+    <div class="dg-footer">
+        <p><strong>📋 Statut:</strong> <span class="dg-status-badge status-draft">Brouillon</span></p>
+        <p><strong>👤 Créé par:</strong> Utilisateur</p>
+        <p><strong>📞 Contact urgence:</strong> (450) 372-9630</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)  # Fin main-content
+    st.markdown('</div>', unsafe_allow_html=True)  # Fin main-container
 
 
-def render_bon_travail_list(gestionnaire_bt):
+def render_bon_travail_list_dg(gestionnaire_bt):
     """
-    Liste des Bons de Travail avec fonctionnalités avancées BT.
+    Liste des Bons de Travail avec style DG Inc. fidèle au HTML
     
     Args:
         gestionnaire_bt: Instance du gestionnaire BT spécialisé
     """
-    st.markdown("#### 📋 Liste des Bons de Travail")
+    st.markdown("#### 📋 Gestion des Bons de Travail - DG Inc.")
     
     bons_travail = gestionnaire_bt.get_bons_travail()
     
     if not bons_travail:
-        st.info("Aucun Bon de Travail créé.")
+        st.markdown("""
+        <div class="dg-info-section" style="text-align:center;">
+            <h3>🏭 Bienvenue dans le système de Bons de Travail DG Inc.</h3>
+            <p>Aucun Bon de Travail créé. Cliquez sur 'Nouveau BT' pour commencer.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         if st.button("➕ Créer le Premier BT", use_container_width=True, key="bt_premier"):
             st.session_state.form_action = "create_bon_travail"
             st.rerun()
         return
     
-    # Métriques rapides de la liste
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    # Tableau de bord rapide - Style DG identique au HTML
+    col_dash1, col_dash2, col_dash3, col_dash4 = st.columns(4)
     
-    with col_m1:
-        st.metric("📋 Total BT", len(bons_travail))
-    with col_m2:
+    with col_dash1:
+        total_bt = len(bons_travail)
+        st.markdown(f"""
+        <div class="dg-dashboard-metric">
+            <div class="dg-dashboard-value">{total_bt}</div>
+            <div class="dg-dashboard-label">Bons de Travail</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_dash2:
         en_cours = len([bt for bt in bons_travail if bt['statut'] in ['VALIDÉ', 'EN COURS']])
-        st.metric("⚡ En Cours", en_cours)
-    with col_m3:
+        st.markdown(f"""
+        <div class="dg-dashboard-metric success">
+            <div class="dg-dashboard-value">{en_cours}</div>
+            <div class="dg-dashboard-label">En Cours</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_dash3:
         termines = len([bt for bt in bons_travail if bt['statut'] == 'TERMINÉ'])
-        st.metric("✅ Terminés", termines)
-    with col_m4:
-        montant_total = sum(bt.get('montant_total', 0) for bt in bons_travail)
-        st.metric("💰 Montant Total", formater_montant(montant_total))
+        st.markdown(f"""
+        <div class="dg-dashboard-metric warning">
+            <div class="dg-dashboard-value">{termines}</div>
+            <div class="dg-dashboard-label">Terminés</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Filtres spécifiques BT
-    with st.expander("🔍 Filtres Avancés", expanded=False):
-        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-        
-        with col_f1:
-            filtre_statut = st.multiselect("Statut", gestionnaire_bt.base.statuts, default=gestionnaire_bt.base.statuts)
-        with col_f2:
-            filtre_priorite = st.multiselect("Priorité", gestionnaire_bt.base.priorites, default=gestionnaire_bt.base.priorites)
-        with col_f3:
-            # Filtre par projet
-            projets_liste = list(set([bt.get('project_nom', 'N/A') for bt in bons_travail if bt.get('project_nom')]))
-            filtre_projet = st.multiselect("Projet", ['Tous'] + projets_liste, default=['Tous'])
-        with col_f4:
-            # Filtre par responsable
-            responsables_liste = list(set([bt.get('employee_nom', 'N/A') for bt in bons_travail if bt.get('employee_nom')]))
-            filtre_responsable = st.multiselect("Responsable", ['Tous'] + responsables_liste, default=['Tous'])
-        
-        col_search, col_avancement = st.columns(2)
-        with col_search:
-            recherche = st.text_input("🔍 Rechercher", placeholder="Numéro, projet, description...")
-        with col_avancement:
-            filtre_avancement = st.selectbox("Avancement", ["Tous", "0%", "1-50%", "51-99%", "100%"])
+    with col_dash4:
+        urgents = len([bt for bt in bons_travail if bt.get('priorite') in ['CRITIQUE', 'URGENT']])
+        st.markdown(f"""
+        <div class="dg-dashboard-metric danger">
+            <div class="dg-dashboard-value">{urgents}</div>
+            <div class="dg-dashboard-label">Urgents</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Application des filtres
-    bts_filtres = []
-    for bt in bons_travail:
-        # Filtres de base
-        if bt['statut'] not in filtre_statut:
-            continue
-        if bt['priorite'] not in filtre_priorite:
-            continue
-        
-        # Filtre projet
-        if 'Tous' not in filtre_projet and bt.get('project_nom', 'N/A') not in filtre_projet:
-            continue
-        
-        # Filtre responsable
-        if 'Tous' not in filtre_responsable and bt.get('employee_nom', 'N/A') not in filtre_responsable:
-            continue
-        
-        # Filtre recherche
-        if recherche:
-            terme = recherche.lower()
-            if not any(terme in str(bt.get(field, '')).lower() for field in ['numero_document', 'project_nom', 'notes', 'employee_nom']):
-                continue
-        
-        # Filtre avancement
-        if filtre_avancement != "Tous":
-            avancement = bt.get('avancement', {}).get('pourcentage', 0)
-            if filtre_avancement == "0%" and avancement != 0:
-                continue
-            elif filtre_avancement == "1-50%" and not (1 <= avancement <= 50):
-                continue
-            elif filtre_avancement == "51-99%" and not (51 <= avancement <= 99):
-                continue
-            elif filtre_avancement == "100%" and avancement != 100:
-                continue
-        
-        bts_filtres.append(bt)
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    # Affichage des résultats
-    st.markdown(f"**{len(bts_filtres)} Bon(s) de Travail trouvé(s)**")
+    # Liste des BT récents style DG - Identique au HTML
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">🔧 Bons de Travail Récents</h3>', unsafe_allow_html=True)
     
-    if bts_filtres:
-        # Tri
-        col_sort1, col_sort2 = st.columns(2)
-        with col_sort1:
-            tri_par = st.selectbox("Trier par", ["Date création", "Priorité", "Avancement", "Projet", "Responsable"])
-        with col_sort2:
-            tri_ordre = st.selectbox("Ordre", ["Décroissant", "Croissant"])
-        
-        # Application du tri
-        if tri_par == "Date création":
-            bts_filtres.sort(key=lambda x: x.get('date_creation', ''), reverse=(tri_ordre == "Décroissant"))
-        elif tri_par == "Priorité":
-            ordre_priorite = {'CRITIQUE': 3, 'URGENT': 2, 'NORMAL': 1}
-            bts_filtres.sort(key=lambda x: ordre_priorite.get(x.get('priorite', 'NORMAL'), 1), reverse=(tri_ordre == "Décroissant"))
-        elif tri_par == "Avancement":
-            bts_filtres.sort(key=lambda x: x.get('avancement', {}).get('pourcentage', 0), reverse=(tri_ordre == "Décroissant"))
-        
-        # Affichage liste enrichie BT
-        for bt in bts_filtres:
-            with st.container():
-                col_info, col_avancement, col_equipe, col_actions = st.columns([3, 1, 1, 1])
-                
-                with col_info:
-                    # Indicateurs visuels
-                    priorite_color = generer_couleur_priorite(bt['priorite'])
-                    statut_color = generer_couleur_statut(bt['statut'])
-                    
-                    st.markdown(f"""
-                    **BT {bt['numero_document']}** 
-                    <span style='color:{priorite_color}'>●</span> {bt['priorite']} | 
-                    <span style='color:{statut_color}'>●</span> {bt['statut']}
-                    
-                    **Projet:** {bt.get('project_nom', 'N/A')}  
-                    **Responsable:** {bt.get('employee_nom', 'N/A')}  
-                    **Échéance:** {bt.get('date_echeance', 'N/A')}
-                    """, unsafe_allow_html=True)
-                
-                with col_avancement:
-                    avancement = bt.get('avancement', {})
-                    pourcentage = avancement.get('pourcentage', 0)
-                    
-                    # Barre de progression
-                    st.progress(pourcentage / 100)
-                    st.text(f"{pourcentage}%")
-                    st.text(f"{avancement.get('operations_terminees', 0)}/{avancement.get('operations_totales', 0)} ops")
-                
-                with col_equipe:
-                    assignations = bt.get('assignations', [])
-                    st.text(f"👥 {len(assignations)} assigné(s)")
-                    
-                    reservations = bt.get('reservations_postes', [])
-                    if reservations:
-                        st.text(f"🏭 {len(reservations)} poste(s)")
-                
-                with col_actions:
-                    if st.button("👁️ Détails", key=f"bt_details_{bt['id']}", use_container_width=True):
-                        st.session_state.selected_formulaire_id = bt['id']
-                        st.session_state.show_formulaire_modal = True
-                    
-                    if bt['statut'] in ['VALIDÉ', 'EN COURS'] and pourcentage == 100:
-                        if st.button("✅ Terminer", key=f"bt_terminer_{bt['id']}", use_container_width=True):
-                            if gestionnaire_bt.marquer_bt_termine(bt['id'], 1, "Marqué terminé depuis la liste"):
-                                st.success("✅ BT terminé!")
-                                st.rerun()
-                
-                st.markdown("---")
+    # Afficher les BT avec style HTML
+    bts_recents = sorted(bons_travail, key=lambda x: x.get('date_creation', ''), reverse=True)[:10]
     
-    else:
-        st.info("Aucun Bon de Travail ne correspond aux critères de recherche.")
+    for bt in bts_recents:
+        priorite_class = "priority-critical" if bt.get('priorite') == 'CRITIQUE' else "priority-high" if bt.get('priorite') == 'URGENT' else "priority-medium"
+        priorite_color = "#ef4444" if bt.get('priorite') == 'CRITIQUE' else "#f59e0b" if bt.get('priorite') == 'URGENT' else "#10b981"
+        statut_color = "#059669" if bt['statut'] == 'TERMINÉ' else "#3b82f6" if bt['statut'] == 'EN COURS' else "#f59e0b"
+        
+        avancement = bt.get('avancement', {}).get('pourcentage', 0)
+        assignations = bt.get('assignations', [])
+        reservations = bt.get('reservations_postes', [])
+        
+        st.markdown(f"""
+        <div class="dg-table-container {priorite_class}" style="margin:15px 0;">
+            <div style="padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                    <div>
+                        <h4 style="margin:0;color:var(--primary-color-darker);">BT {bt['numero_document']}</h4>
+                        <span style="color:{priorite_color};font-weight:600;">● {bt.get('priorite', 'NORMAL')}</span>
+                        <span style="color:{statut_color};font-weight:600;margin-left:15px;">● {bt['statut']}</span>
+                    </div>
+                    <div style="text-align:right;">
+                        <div class="dg-progress">
+                            <div class="dg-progress-bar" style="width:{avancement}%">
+                                {avancement}%
+                            </div>
+                        </div>
+                        <small>{bt.get('avancement', {}).get('operations_terminees', 0)}/{bt.get('avancement', {}).get('operations_totales', 0)} ops</small>
+                    </div>
+                </div>
+                
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin-bottom:15px;">
+                    <div>
+                        <strong>📋 Projet:</strong><br>
+                        <span>{bt.get('project_nom', 'N/A')}</span>
+                    </div>
+                    <div>
+                        <strong>👤 Responsable:</strong><br>
+                        <span>{bt.get('employee_nom', 'N/A')}</span>
+                    </div>
+                    <div>
+                        <strong>📅 Création:</strong><br>
+                        <span>{bt.get('date_creation', 'N/A')}</span>
+                    </div>
+                    <div>
+                        <strong>🏁 Échéance:</strong><br>
+                        <span>{bt.get('date_echeance', 'N/A')}</span>
+                    </div>
+                </div>
+                
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:15px;background:#f8f9fa;padding:10px;border-radius:6px;">
+                    <div>
+                        <strong>👥 Équipe:</strong><br>
+                        <span>{len(assignations)} assigné(s)</span>
+                    </div>
+                    <div>
+                        <strong>🏭 Postes:</strong><br>
+                        <span>{len(reservations)} réservé(s)</span>
+                    </div>
+                    <div>
+                        <strong>💰 Montant:</strong><br>
+                        <span>{formater_montant(bt.get('montant_total', 0))}</span>
+                    </div>
+                </div>
+                
+                <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;">
+                    <button style="background:var(--primary-color);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">👁️ Voir</button>
+                    <button style="background:#3b82f6;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">✏️ Modifier</button>
+                    <button style="background:#8b5cf6;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">📊 Avancement</button>
+                    <button style="background:#059669;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">✅ Terminer</button>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Actions rapides - Style DG
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">🔧 Actions sur un BT</h3>', unsafe_allow_html=True)
+    
+    # Sélection d'un BT pour actions
+    if bons_travail:
+        bt_options = [(bt['id'], f"BT {bt['numero_document']} - {bt.get('project_nom', 'N/A')}") for bt in bons_travail]
+        selected_bt_id = st.selectbox(
+            "Sélectionner un BT:",
+            options=[bt[0] for bt in bt_options],
+            format_func=lambda x: next((bt[1] for bt in bt_options if bt[0] == x), ""),
+            key="bt_selection_actions"
+        )
+        
+        selected_bt = next((bt for bt in bons_travail if bt['id'] == selected_bt_id), None)
+        
+        if selected_bt:
+            col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+            
+            with col_action1:
+                if st.button("👁️ Voir Détails", use_container_width=True, key=f"bt_voir_{selected_bt_id}"):
+                    st.session_state.selected_formulaire_id = selected_bt_id
+                    st.session_state.show_formulaire_modal = True
+            
+            with col_action2:
+                if st.button("✏️ Modifier", use_container_width=True, key=f"bt_modifier_{selected_bt_id}"):
+                    st.info("Fonction de modification en développement")
+            
+            with col_action3:
+                if st.button("🔧 Créer BT", use_container_width=True, key="bt_creer_nouveau"):
+                    st.session_state.form_action = "create_bon_travail"
+                    st.rerun()
+            
+            with col_action4:
+                if selected_bt['statut'] in ['VALIDÉ', 'EN COURS'] and selected_bt.get('avancement', {}).get('pourcentage', 0) == 100:
+                    if st.button("✅ Terminer", use_container_width=True, key=f"bt_terminer_{selected_bt_id}"):
+                        if gestionnaire_bt.marquer_bt_termine(selected_bt_id, 1, "Marqué terminé depuis la liste"):
+                            st.success("✅ BT terminé!")
+                            st.rerun()
+                else:
+                    st.button("✅ Terminer", disabled=True, use_container_width=True, help="BT pas prêt à être terminé")
+            
+            with col_action5:
+                if st.button("🗑️ Supprimer", use_container_width=True, key=f"bt_supprimer_{selected_bt_id}"):
+                    if st.session_state.get(f'confirm_delete_bt_{selected_bt_id}'):
+                        # Confirmation de suppression
+                        if gestionnaire_bt.base.supprimer_formulaire(selected_bt_id):
+                            st.success("BT supprimé!")
+                            del st.session_state[f'confirm_delete_bt_{selected_bt_id}']
+                            st.rerun()
+                    else:
+                        st.session_state[f'confirm_delete_bt_{selected_bt_id}'] = True
+                        st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
-def render_bon_travail_stats(gestionnaire_bt):
+def render_bon_travail_stats_dg(gestionnaire_bt):
     """
-    Statistiques détaillées spécifiques aux BT.
+    Statistiques détaillées spécifiques aux BT avec style DG Inc.
     
     Args:
         gestionnaire_bt: Instance du gestionnaire BT spécialisé
     """
-    st.markdown("#### 📊 Statistiques Bons de Travail")
+    st.markdown("#### 📊 Statistiques Bons de Travail - DG Inc.")
     
     stats = gestionnaire_bt.get_statistiques_bt()
     bons_travail = gestionnaire_bt.get_bons_travail()
     
     if not bons_travail:
-        st.info("Aucune donnée pour les statistiques.")
+        st.markdown("""
+        <div class="dg-info-section" style="text-align:center;">
+            <h3>📊 Aucune donnée pour les statistiques</h3>
+            <p>Créez des Bons de Travail pour voir les statistiques apparaître ici.</p>
+        </div>
+        """, unsafe_allow_html=True)
         return
     
-    # Métriques principales
+    # Métriques principales - Style DG
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-        st.metric("📋 Total BT", len(bons_travail))
+        st.markdown(f"""
+        <div class="dg-metric">
+            <div class="dg-metric-value">📋 {len(bons_travail)}</div>
+            <div class="dg-metric-label">Total BT</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col2:
         en_cours = stats.get('en_cours', 0)
-        st.metric("⚡ En Cours", en_cours)
+        st.markdown(f"""
+        <div class="dg-metric">
+            <div class="dg-metric-value">⚡ {en_cours}</div>
+            <div class="dg-metric-label">En Cours</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col3:
         termines = len([bt for bt in bons_travail if bt['statut'] == 'TERMINÉ'])
         taux_completion = (termines / len(bons_travail) * 100) if bons_travail else 0
-        st.metric("✅ Terminés", termines, delta=f"{taux_completion:.1f}%")
+        st.markdown(f"""
+        <div class="dg-metric">
+            <div class="dg-metric-value">✅ {termines}</div>
+            <div class="dg-metric-label">Terminés ({taux_completion:.1f}%)</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col4:
         duree_moyenne = stats.get('duree_moyenne', 0)
-        st.metric("⏱️ Durée Moyenne", formater_delai(int(duree_moyenne)))
+        st.markdown(f"""
+        <div class="dg-metric">
+            <div class="dg-metric-value">⏱️ {int(duree_moyenne)}</div>
+            <div class="dg-metric-label">Durée Moy. (jours)</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col5:
         projets_concernes = stats.get('projets_concernes', 0)
-        st.metric("🏗️ Projets Concernés", projets_concernes)
+        st.markdown(f"""
+        <div class="dg-metric">
+            <div class="dg-metric-value">🏗️ {projets_concernes}</div>
+            <div class="dg-metric-label">Projets Concernés</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Graphiques spécifiques BT
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Graphiques spécifiques BT - Style DG
     col_g1, col_g2 = st.columns(2)
     
     with col_g1:
-        # Répartition par statut avec couleurs
+        st.markdown('<div class="dg-section-card">', unsafe_allow_html=True)
+        
+        # Répartition par statut avec couleurs DG
         statut_counts = {}
         for bt in bons_travail:
             statut = bt['statut']
@@ -625,10 +1446,16 @@ def render_bon_travail_stats(gestionnaire_bt):
             fig = px.pie(values=list(statut_counts.values()), names=list(statut_counts.keys()),
                         title="📊 Répartition par Statut", 
                         color_discrete_map=colors_statut)
-            fig.update_layout(showlegend=True, height=350)
+            fig.update_layout(showlegend=True, height=350, 
+                             plot_bgcolor='rgba(0,0,0,0)', 
+                             paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     with col_g2:
+        st.markdown('<div class="dg-section-card">', unsafe_allow_html=True)
+        
         # Analyse par projet
         projet_stats = {}
         for bt in bons_travail:
@@ -652,11 +1479,16 @@ def render_bon_travail_stats(gestionnaire_bt):
             df_projets = pd.DataFrame(projets_data)
             fig = px.bar(df_projets, x='Projet', y='Total BT', color='Taux Completion',
                         title="📈 BT par Projet", color_continuous_scale='RdYlGn')
-            fig.update_layout(height=350)
+            fig.update_layout(height=350,
+                             plot_bgcolor='rgba(0,0,0,0)', 
+                             paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    # Analyse de productivité
-    st.markdown("##### 📈 Analyse de Productivité")
+    # Analyse de productivité - Style DG
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">📈 Analyse de Productivité</h3>', unsafe_allow_html=True)
     
     col_prod1, col_prod2 = st.columns(2)
     
@@ -677,9 +1509,12 @@ def render_bon_travail_stats(gestionnaire_bt):
         
         for i, (responsable, stats_r) in enumerate(top_responsables, 1):
             taux = (stats_r['termines'] / stats_r['total'] * 100) if stats_r['total'] > 0 else 0
-            st.metric(f"{i}. {responsable[:15]}", 
-                     f"{stats_r['total']} BT", 
-                     delta=f"{taux:.0f}% terminés")
+            st.markdown(f"""
+            <div class="dg-metric" style="margin:5px 0;padding:10px;">
+                <div style="font-size:16px;font-weight:600;">{i}. {responsable[:25]}</div>
+                <div style="font-size:14px;">{stats_r['total']} BT • {taux:.0f}% terminés</div>
+            </div>
+            """, unsafe_allow_html=True)
     
     with col_prod2:
         # Évolution mensuelle
@@ -699,25 +1534,33 @@ def render_bon_travail_stats(gestionnaire_bt):
             
             fig = px.line(df_evolution, x='Mois', y='Nombre BT',
                          title="Évolution Mensuelle des BT",
-                         markers=True)
-            fig.update_layout(height=300)
+                         markers=True, color_discrete_sequence=['#00A971'])
+            fig.update_layout(height=300,
+                             plot_bgcolor='rgba(0,0,0,0)', 
+                             paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
-def render_rapport_productivite(gestionnaire_bt):
+def render_rapport_productivite_dg(gestionnaire_bt):
     """
-    Rapport de productivité détaillé pour les BT.
+    Rapport de productivité détaillé pour les BT avec style DG Inc.
     
     Args:
         gestionnaire_bt: Instance du gestionnaire BT spécialisé
     """
-    st.markdown("#### 📈 Rapport de Productivité BT")
+    st.markdown("#### 📈 Rapport de Productivité BT - DG Inc.")
     
-    # Sélection de la période
+    # Sélection de la période - Style DG
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">⚙️ Configuration du Rapport</h3>', unsafe_allow_html=True)
+    
     col_periode1, col_periode2 = st.columns(2)
     
     with col_periode1:
-        periode = st.selectbox("Période d'analyse", [7, 15, 30, 60, 90], index=2, format_func=lambda x: f"{x} derniers jours")
+        periode = st.selectbox("Période d'analyse", [7, 15, 30, 60, 90], index=2, 
+                              format_func=lambda x: f"{x} derniers jours")
     
     with col_periode2:
         if st.button("🔄 Générer Rapport", use_container_width=True, key="bt_generer_rapport"):
@@ -726,39 +1569,110 @@ def render_rapport_productivite(gestionnaire_bt):
             if rapport:
                 st.success(f"✅ Rapport généré pour {rapport['periode']}")
                 
-                # Affichage du rapport
-                col_r1, col_r2 = st.columns(2)
+                # Métriques du rapport - Style DG
+                col_r1, col_r2, col_r3, col_r4 = st.columns(4)
                 
                 with col_r1:
-                    st.metric("Total BT Terminés", rapport['total_bt_termines'])
-                    st.metric("Durée Moyenne", f"{rapport['duree_moyenne_globale']:.1f} jours")
+                    st.markdown(f"""
+                    <div class="dg-metric">
+                        <div class="dg-metric-value">{rapport['total_bt_termines']}</div>
+                        <div class="dg-metric-label">BT Terminés</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 
                 with col_r2:
-                    st.metric("Date Génération", rapport['date_generation'][:10])
-                    st.metric("Employés Actifs", len(rapport['employes']))
+                    st.markdown(f"""
+                    <div class="dg-metric">
+                        <div class="dg-metric-value">{rapport['duree_moyenne_globale']:.1f}</div>
+                        <div class="dg-metric-label">Durée Moy. (jours)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 
-                # Détail par employé
+                with col_r3:
+                    st.markdown(f"""
+                    <div class="dg-metric">
+                        <div class="dg-metric-value">{len(rapport['employes'])}</div>
+                        <div class="dg-metric-label">Employés Actifs</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_r4:
+                    st.markdown(f"""
+                    <div class="dg-metric">
+                        <div class="dg-metric-value">{rapport['date_generation'][:10]}</div>
+                        <div class="dg-metric-label">Date Génération</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Détail par employé - Style DG
                 if rapport['employes']:
-                    st.markdown("##### 👥 Détail par Employé")
+                    st.markdown('<br>', unsafe_allow_html=True)
+                    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+                    st.markdown('<h3 class="dg-info-title">👥 Détail par Employé</h3>', unsafe_allow_html=True)
                     
                     df_employes = pd.DataFrame(rapport['employes'])
                     df_employes['duree_moyenne'] = df_employes['duree_moyenne'].round(1)
                     df_employes['montant_total_travaux'] = df_employes['montant_total_travaux'].apply(lambda x: f"{x:,.0f}$")
                     
+                    # Affichage tableau avec style
+                    st.markdown('<div class="dg-table-container">', unsafe_allow_html=True)
                     st.dataframe(df_employes, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Analyse et recommandations - Style DG
+                if rapport.get('analyse'):
+                    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+                    st.markdown('<h3 class="dg-info-title">📊 Analyse des Performances</h3>', unsafe_allow_html=True)
+                    
+                    if 'top_performer' in rapport['analyse']:
+                        top_perf = rapport['analyse']['top_performer']
+                        st.markdown(f"**🏆 Top Performer:** {top_perf['employe_nom']} ({top_perf['nb_bt_termines']} BT terminés)")
+                    
+                    if 'plus_efficace' in rapport['analyse']:
+                        efficace = rapport['analyse']['plus_efficace']
+                        st.markdown(f"**⚡ Plus Efficace:** {efficace['employe_nom']} ({efficace['duree_moyenne']:.1f} jours/BT)")
+                    
+                    if 'plus_rentable' in rapport['analyse']:
+                        rentable = rapport['analyse']['plus_rentable']
+                        st.markdown(f"**💰 Plus Rentable:** {rentable['employe_nom']} ({rentable['montant_total_travaux']:,.0f}$ de travaux)")
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Recommandations - Style DG
+                if rapport.get('recommandations'):
+                    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+                    st.markdown('<h3 class="dg-info-title">💡 Recommandations</h3>', unsafe_allow_html=True)
+                    
+                    for recommandation in rapport['recommandations']:
+                        st.info(recommandation)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.warning("Aucune donnée disponible pour cette période")
     
-    # Conseils d'optimisation
-    st.markdown("##### 💡 Conseils d'Optimisation")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Conseils d'optimisation généraux - Style DG
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">💡 Conseils d\'Optimisation DG Inc.</h3>', unsafe_allow_html=True)
     
     conseils = [
         "📊 Suivez régulièrement l'avancement des BT en cours",
         "👥 Équilibrez la charge de travail entre les employés",
         "⏱️ Identifiez les BT qui prennent plus de temps que prévu",
         "🔧 Optimisez l'assignation des postes de travail",
-        "📋 Assurez-vous que les opérations sont bien définies dans les projets"
+        "📋 Assurez-vous que les opérations sont bien définies dans les projets",
+        "🏭 Utilisez les données pour améliorer les processus DG Inc.",
+        "📈 Analysez les tendances mensuelles pour planifier les ressources"
     ]
     
     for conseil in conseils:
-        st.info(conseil)
+        st.markdown(f"""
+        <div style="background:#f0f9ff;border-left:4px solid var(--primary-color);padding:10px;margin:5px 0;border-radius:6px;">
+            {conseil}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
