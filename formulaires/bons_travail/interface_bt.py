@@ -1,10 +1,10 @@
 # formulaires/bons_travail/interface_bt.py
-# Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE DG INC.
+# Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE DG INC. avec données SQLite dynamiques
 
 """
 Interface utilisateur pour les Bons de Travail - Style DG Inc.
 Contient tous les composants d'affichage et d'interaction pour les BT.
-VERSION COMPLÈTE : Design professionnel DG Inc. fidèle au HTML
+VERSION COMPLÈTE : Design professionnel DG Inc. fidèle au HTML avec données dynamiques SQLite
 """
 
 import streamlit as st
@@ -18,6 +18,10 @@ from ..utils.helpers import (
     get_projets_actifs,
     get_employes_actifs,
     get_operations_projet,
+    get_materiaux_projet,
+    get_work_centers_actifs,
+    get_articles_inventaire,
+    search_articles_inventaire,
     formater_montant,
     formater_delai,
     generer_couleur_statut,
@@ -642,6 +646,71 @@ def render_dg_header():
     """, unsafe_allow_html=True)
 
 
+def get_types_operations_dynamiques() -> List[str]:
+    """
+    Récupère les types d'opérations depuis la base de données.
+    Combine les opérations existantes et les types prédéfinis.
+    
+    Returns:
+        List[str]: Liste des types d'opération disponibles
+    """
+    try:
+        # Types d'opération de base pour DG Inc.
+        types_base = [
+            "Programmation CNC",
+            "Découpe plasma", 
+            "Poinçonnage",
+            "Soudage TIG",
+            "Soudage MIG",
+            "Assemblage",
+            "Meulage",
+            "Polissage",
+            "Emballage",
+            "Contrôle qualité",
+            "Usinage conventionnel",
+            "Perçage",
+            "Taraudage",
+            "Pliage",
+            "Roulage"
+        ]
+        
+        # Récupérer les types d'opération depuis la base (si disponible)
+        try:
+            query = """
+                SELECT DISTINCT description 
+                FROM operations 
+                WHERE description IS NOT NULL 
+                AND description != ''
+                ORDER BY description
+            """
+            rows = st.session_state.erp_db.execute_query(query)
+            types_db = [row['description'] for row in rows if row['description']]
+            
+            # Combiner et dédoublonner
+            all_types = list(set(types_base + types_db))
+            all_types.sort()
+            
+            return all_types
+            
+        except Exception as e:
+            print(f"Info: Utilisation des types d'opération par défaut - {e}")
+            return sorted(types_base)
+            
+    except Exception as e:
+        print(f"Erreur récupération types opération: {e}")
+        return ["Programmation CNC", "Découpe plasma", "Soudage", "Assemblage"]
+
+
+def get_statuts_operations() -> List[str]:
+    """
+    Retourne les statuts possibles pour les opérations.
+    
+    Returns:
+        List[str]: Liste des statuts d'opération
+    """
+    return ["En attente", "En cours", "Terminé", "En pause", "Annulé"]
+
+
 def render_bons_travail_tab(gestionnaire):
     """
     Interface principale pour les Bons de Travail - Style DG Inc.
@@ -752,7 +821,7 @@ def _render_navigation_dg(gestionnaire_bt):
 
 def render_bon_travail_form_dg(gestionnaire_bt):
     """
-    Formulaire de création de Bon de Travail - Style DG Inc. fidèle au HTML
+    Formulaire de création de Bon de Travail - Style DG Inc. fidèle au HTML avec données SQLite dynamiques
     
     Args:
         gestionnaire_bt: Instance du gestionnaire BT spécialisé
@@ -788,6 +857,14 @@ def render_bon_travail_form_dg(gestionnaire_bt):
         
         return
     
+    # Récupération des données dynamiques depuis SQLite
+    projets = get_projets_actifs()
+    employes = get_employes_actifs()
+    work_centers = get_work_centers_actifs()
+    types_operations = get_types_operations_dynamiques()
+    statuts_operations = get_statuts_operations()
+    articles_inventaire = get_articles_inventaire()
+    
     # Gestion des opérations/matériaux AVANT le formulaire (pour éviter les erreurs Streamlit)
     st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
     st.markdown('<h3 class="dg-info-title">⚙️ Configuration du Bon de Travail</h3>', unsafe_allow_html=True)
@@ -815,6 +892,17 @@ def render_bon_travail_form_dg(gestionnaire_bt):
     
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # Vérifications préalables avec données dynamiques
+    if not projets:
+        st.error("❌ Aucun projet actif trouvé. Créez d'abord un projet dans le module Projets.")
+        if st.button("🏗️ Aller aux Projets", use_container_width=True):
+            st.session_state.form_action = "projects"  # À adapter selon votre navigation
+        return
+    
+    if not employes:
+        st.error("❌ Aucun employé actif trouvé. Vérifiez la base de données des employés.")
+        return
+    
     # Container principal style DG
     st.markdown('<div class="dg-main-container">', unsafe_allow_html=True)
     
@@ -827,9 +915,9 @@ def render_bon_travail_form_dg(gestionnaire_bt):
     # Contenu principal
     st.markdown('<div class="dg-main-content">', unsafe_allow_html=True)
     
-    # Formulaire principal avec style DG
+    # Formulaire principal avec style DG et données dynamiques
     with st.form("bon_travail_form_dg", clear_on_submit=True):
-        # Section informations de base - Style DG
+        # Section informations de base - Style DG avec données SQLite
         st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
         st.markdown('<h3 class="dg-info-title">🔧 BON DE TRAVAIL</h3>', unsafe_allow_html=True)
         
@@ -844,13 +932,7 @@ def render_bon_travail_form_dg(gestionnaire_bt):
             # Grille de formulaire DG
             st.markdown('<div class="dg-form-grid">', unsafe_allow_html=True)
             
-            # Nom du projet (OBLIGATOIRE pour BT)
-            projets = get_projets_actifs()
-            if not projets:
-                st.error("❌ Aucun projet actif. Créez d'abord un projet dans le module Projets.")
-                st.form_submit_button("❌ Formulaire Indisponible", disabled=True)
-                return
-            
+            # Nom du projet (OBLIGATOIRE pour BT) - DONNÉES DYNAMIQUES
             projet_options = [("", "Sélectionner un projet")] + [(p['id'], f"#{p['id']} - {p['nom_projet']}") for p in projets]
             projet_id = st.selectbox(
                 "Nom du projet *",
@@ -859,30 +941,36 @@ def render_bon_travail_form_dg(gestionnaire_bt):
                 help="Projet obligatoire pour les Bons de Travail"
             )
             
-            # Client du projet
+            # Client du projet - DONNÉES DYNAMIQUES
             if projet_id:
                 projet_selectionne = next((p for p in projets if p['id'] == projet_id), None)
                 if projet_selectionne:
-                    client_nom = projet_selectionne.get('client_nom_cache', 'N/A')
+                    # Récupérer le nom du client depuis la base
+                    client_id = projet_selectionne.get('client_company_id')
+                    if client_id:
+                        try:
+                            query_client = "SELECT nom FROM companies WHERE id = ?"
+                            result_client = st.session_state.erp_db.execute_query(query_client, (client_id,))
+                            client_nom = result_client[0]['nom'] if result_client else 'Client non trouvé'
+                        except:
+                            client_nom = projet_selectionne.get('client_nom_cache', 'N/A')
+                    else:
+                        client_nom = projet_selectionne.get('client_nom_cache', 'N/A')
+                    
                     st.text_input("Client", value=client_nom, disabled=True)
             
             st.markdown('</div>', unsafe_allow_html=True)
         
         with col_info2:
-            # Chargé de projet (responsable)
-            employes = get_employes_actifs()
-            if not employes:
-                st.error("❌ Aucun employé actif trouvé.")
-                employe_id = ""
-            else:
-                employe_options = [("", "Sélectionner...")] + [(e['id'], f"{e['prenom']} {e['nom']}") for e in employes]
-                employe_id = st.selectbox(
-                    "Chargé de projet *",
-                    options=[e[0] for e in employe_options],
-                    format_func=lambda x: next((e[1] for e in employe_options if e[0] == x), "")
-                )
+            # Chargé de projet (responsable) - DONNÉES DYNAMIQUES
+            employe_options = [("", "Sélectionner...")] + [(e['id'], f"{e['prenom']} {e['nom']} - {e['poste']}") for e in employes]
+            employe_id = st.selectbox(
+                "Chargé de projet *",
+                options=[e[0] for e in employe_options],
+                format_func=lambda x: next((e[1] for e in employe_options if e[0] == x), "")
+            )
             
-            priorite = st.selectbox("Priorité", ["🟢 Basse", "🟡 Moyenne", "🔴 Haute", "🚨 Urgente"], index=1)
+            priorite = st.selectbox("Priorité", ["🟢 NORMAL", "🟡 URGENT", "🔴 CRITIQUE"], index=0)
             
             col_dates = st.columns(2)
             with col_dates[0]:
@@ -892,11 +980,27 @@ def render_bon_travail_form_dg(gestionnaire_bt):
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Section Tâches et Opérations - Style DG identique au HTML
+        # Section Tâches et Opérations - Style DG avec données dynamiques
         st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
         st.markdown('<h3 class="dg-info-title">📋 Tâches et Opérations</h3>', unsafe_allow_html=True)
         
-        # Interface pour opérations (nombre fixe pour éviter les erreurs de formulaire)
+        # Affichage des opérations du projet sélectionné (si disponible)
+        operations_projet = []
+        if projet_id:
+            try:
+                operations_projet = get_operations_projet(projet_id)
+                if operations_projet:
+                    st.info(f"📋 {len(operations_projet)} opération(s) trouvée(s) dans le projet sélectionné")
+                    
+                    # Afficher les opérations du projet pour référence
+                    with st.expander("🔍 Voir les opérations du projet", expanded=False):
+                        for i, op in enumerate(operations_projet[:5], 1):  # Max 5 pour éviter l'encombrement
+                            st.markdown(f"**{i}.** {op.get('description', 'N/A')} - Temps estimé: {op.get('temps_estime', 0)}h")
+                            
+            except Exception as e:
+                st.warning(f"Impossible de récupérer les opérations du projet: {e}")
+        
+        # Interface pour opérations avec données dynamiques
         operations_data = []
         total_temps_prevu = 0
         total_temps_reel = 0
@@ -904,16 +1008,17 @@ def render_bon_travail_form_dg(gestionnaire_bt):
         st.markdown("**Opérations à réaliser :**")
         st.info("📋 Jusqu'à 5 opérations peuvent être définies pour ce Bon de Travail")
         
-        # Nombre fixe d'opérations (5 lignes maximum)
+        # Nombre fixe d'opérations (5 lignes maximum) avec données dynamiques
         for i in range(5):
             with st.expander(f"Opération {i+1}", expanded=(i == 0)):
                 cols = st.columns([2, 3, 1, 1, 1, 2])
                 
                 with cols[0]:
+                    # Types d'opération dynamiques depuis la base
+                    operation_options = [""] + types_operations
                     operation_type = st.selectbox(
                         "Type d'opération", 
-                        ["", "Programmation CNC", "Découpe plasma", "Poinçonnage", "Soudage TIG", 
-                         "Assemblage", "Meulage", "Polissage", "Emballage"],
+                        operation_options,
                         key=f"bt_op_type_{i}"
                     )
                 
@@ -937,21 +1042,27 @@ def render_bon_travail_form_dg(gestionnaire_bt):
                         total_temps_reel += temps_reel
                 
                 with cols[5]:
+                    # Employés assignés - DONNÉES DYNAMIQUES
+                    employe_assign_options = [""] + [f"{e['prenom']} {e['nom']}" for e in employes]
                     assigne = st.selectbox(
                         "Assigné à",
-                        ["", "Technicien 1", "Technicien 2", "Soudeur 1", "Soudeur 2", "Programmeur CNC"],
+                        employe_assign_options,
                         key=f"bt_op_assign_{i}"
                     )
                 
-                # Dates et statut en ligne séparée
-                cols2 = st.columns([1, 1, 1])
+                # Dates, statut et poste de travail en ligne séparée avec données dynamiques
+                cols2 = st.columns([1, 1, 1, 1])
                 with cols2[0]:
-                    statut_op = st.selectbox("Statut", ["En attente", "En cours", "Terminé", "En pause"], 
+                    statut_op = st.selectbox("Statut", statuts_operations, 
                                            key=f"bt_op_status_{i}")
                 with cols2[1]:
                     date_debut_op = st.date_input("Date début", key=f"bt_op_start_{i}")
                 with cols2[2]:
                     date_fin_op = st.date_input("Date fin", key=f"bt_op_end_{i}")
+                with cols2[3]:
+                    # Poste de travail - DONNÉES DYNAMIQUES
+                    wc_options = [""] + [f"{wc['nom']} ({wc['departement']})" for wc in work_centers] if work_centers else [""]
+                    poste_travail = st.selectbox("Poste de travail", wc_options, key=f"bt_op_wc_{i}")
                 
                 # Ajouter à la liste si rempli
                 if operation_type and description and quantite > 0:
@@ -964,7 +1075,8 @@ def render_bon_travail_form_dg(gestionnaire_bt):
                         'assigne': assigne,
                         'statut': statut_op,
                         'date_debut': date_debut_op,
-                        'date_fin': date_fin_op
+                        'date_fin': date_fin_op,
+                        'poste_travail': poste_travail
                     })
         
         # Affichage des totaux
@@ -974,31 +1086,75 @@ def render_bon_travail_form_dg(gestionnaire_bt):
                 <strong>📊 TOTAUX OPÉRATIONS:</strong><br>
                 ⏱️ Temps prévu total: <strong>{total_temps_prevu:.2f}h</strong><br>
                 ⏱️ Temps réel total: <strong>{total_temps_reel:.2f}h</strong><br>
-                📋 Opérations définies: <strong>{len(operations_data)}</strong>
+                📋 Opérations définies: <strong>{len(operations_data)}</strong><br>
+                👥 Employés assignés: <strong>{len(set([op['assigne'] for op in operations_data if op['assigne']]))}</strong>
             </div>
             """, unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
         
-        # Section Matériaux et Outils - Style DG identique au HTML
+        # Section Matériaux et Outils - Style DG avec données dynamiques
         st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
         st.markdown('<h3 class="dg-info-title">📝 Matériaux et Outils Requis</h3>', unsafe_allow_html=True)
         
-        # Interface pour matériaux (nombre fixe pour éviter les erreurs de formulaire)
+        # Affichage des matériaux du projet sélectionné (si disponible)
+        materiaux_projet = []
+        if projet_id:
+            try:
+                materiaux_projet = get_materiaux_projet(projet_id)
+                if materiaux_projet:
+                    st.info(f"📦 {len(materiaux_projet)} matériau(x) trouvé(s) dans le projet sélectionné")
+                    
+                    # Afficher les matériaux du projet pour référence
+                    with st.expander("🔍 Voir les matériaux du projet", expanded=False):
+                        for i, mat in enumerate(materiaux_projet[:5], 1):  # Max 5 pour éviter l'encombrement
+                            st.markdown(f"**{i}.** {mat.get('description', 'N/A')} - Qté: {mat.get('quantite', 0)} {mat.get('unite', '')}")
+                            
+            except Exception as e:
+                st.warning(f"Impossible de récupérer les matériaux du projet: {e}")
+        
+        # Interface pour matériaux avec données dynamiques
         materiaux_data = []
         
         st.markdown("**Matériaux et outils requis :**")
         st.info("📦 Jusqu'à 5 matériaux/outils peuvent être définis pour ce Bon de Travail")
         
-        # Nombre fixe de matériaux (5 lignes maximum)
+        # Recherche dans l'inventaire pour aide
+        col_search1, col_search2 = st.columns(2)
+        with col_search1:
+            search_term = st.text_input("🔍 Rechercher dans l'inventaire", 
+                                       placeholder="Tapez pour rechercher...",
+                                       key="bt_search_inventory")
+        
+        with col_search2:
+            if search_term and len(search_term) >= 2:
+                resultats = search_articles_inventaire(search_term)
+                if resultats:
+                    st.success(f"✅ {len(resultats)} article(s) trouvé(s)")
+                else:
+                    st.warning("❌ Aucun article trouvé")
+        
+        # Nombre fixe de matériaux (5 lignes maximum) avec données dynamiques
         for i in range(5):
             with st.expander(f"Matériau/Outil {i+1}", expanded=(i == 0)):
                 cols = st.columns([3, 3, 1, 1, 2])
                 
                 with cols[0]:
+                    # Suggestions depuis l'inventaire pour le nom
+                    suggestions_noms = []
+                    if articles_inventaire:
+                        suggestions_noms = [art['nom'] for art in articles_inventaire[:10]]  # Top 10
+                    
                     nom_materiau = st.text_input("Nom du matériau/outil", key=f"bt_mat_nom_{i}", 
                                                placeholder="Ex: Tôle acier, Électrodes...")
+                    
+                    # Afficher suggestions si disponibles
+                    if i == 0 and suggestions_noms:  # Seulement pour le premier pour éviter l'encombrement
+                        with st.expander("💡 Suggestions depuis l'inventaire", expanded=False):
+                            for sugg in suggestions_noms[:5]:
+                                if st.button(f"📦 {sugg}", key=f"suggestion_{i}_{sugg}"):
+                                    st.session_state[f"bt_mat_nom_{i}"] = sugg
+                                    st.rerun()
                 
                 with cols[1]:
                     desc_materiau = st.text_input("Description", key=f"bt_mat_desc_{i}", 
@@ -1009,22 +1165,48 @@ def render_bon_travail_form_dg(gestionnaire_bt):
                                                   value=1.0 if i == 0 else 0.0, key=f"bt_mat_qty_{i}", format="%.1f")
                 
                 with cols[3]:
+                    # Unités depuis les types définis + unités dynamiques de l'inventaire
+                    unites_base = list(UNITES_MESURE.keys()) if hasattr(st.session_state, 'UNITES_MESURE') else [
+                        "Pièces", "Kilogrammes", "Mètres", "Mètres²", "Litres", "Heures"
+                    ]
+                    
+                    # Ajouter unités depuis l'inventaire
+                    try:
+                        query_unites = "SELECT DISTINCT unite FROM materials WHERE unite IS NOT NULL AND unite != ''"
+                        unites_db = st.session_state.erp_db.execute_query(query_unites)
+                        unites_inventaire = [u['unite'] for u in unites_db if u['unite']]
+                        unites_disponibles = sorted(list(set(unites_base + unites_inventaire)))
+                    except:
+                        unites_disponibles = unites_base
+                    
                     unite_materiau = st.selectbox(
                         "Unité",
-                        ["Pièces", "Kilogrammes", "Mètres", "Mètres²", "Litres", "Heures"],
+                        unites_disponibles,
                         key=f"bt_mat_unit_{i}"
                     )
                 
                 with cols[4]:
+                    # Vérification de disponibilité avec données réelles si possible
                     disponible = st.selectbox(
                         "Disponibilité",
-                        ["✅ Disponible", "❌ Non disponible", "⚠️ Partiellement", "📦 Commandé"],
+                        ["✅ Disponible", "❌ Non disponible", "⚠️ Partiellement", "📦 À commander", "🔍 À vérifier"],
                         key=f"bt_mat_dispo_{i}"
                     )
                 
-                # Notes en ligne séparée
-                notes_materiau = st.text_input("Notes spéciales", key=f"bt_mat_notes_{i}", 
-                                             placeholder="Instructions particulières, contraintes...")
+                # Notes et informations complémentaires
+                cols3 = st.columns([2, 1])
+                with cols3[0]:
+                    notes_materiau = st.text_input("Notes spéciales", key=f"bt_mat_notes_{i}", 
+                                                 placeholder="Instructions particulières, contraintes...")
+                
+                with cols3[1]:
+                    # Vérification stock réel si article trouvé dans l'inventaire
+                    if nom_materiau and articles_inventaire:
+                        article_trouve = next((art for art in articles_inventaire if art['nom'].lower() == nom_materiau.lower()), None)
+                        if article_trouve:
+                            statut_stock = article_trouve.get('statut', 'INCONNU')
+                            couleur_statut = "#10b981" if statut_stock == "DISPONIBLE" else "#ef4444" if statut_stock in ["ÉPUISÉ", "CRITIQUE"] else "#f59e0b"
+                            st.markdown(f'<span style="color:{couleur_statut};font-weight:600;">● {statut_stock}</span>', unsafe_allow_html=True)
                 
                 # Ajouter à la liste si rempli
                 if nom_materiau and qty_materiau > 0:
@@ -1037,14 +1219,19 @@ def render_bon_travail_form_dg(gestionnaire_bt):
                         'notes': notes_materiau
                     })
         
-        # Résumé des matériaux
+        # Résumé des matériaux avec statuts réels
         if materiaux_data:
+            disponibles = len([m for m in materiaux_data if '✅' in m['disponible']])
+            non_disponibles = len([m for m in materiaux_data if '❌' in m['disponible']])
+            a_commander = len([m for m in materiaux_data if '📦' in m['disponible']])
+            
             st.markdown(f"""
             <div class="total-row" style="padding: 15px; border-radius: 6px; margin-top: 15px; background: linear-gradient(135deg, #fef3e7 0%, #fefaf3 100%);">
                 <strong>📦 RÉSUMÉ MATÉRIAUX:</strong><br>
                 📋 Éléments définis: <strong>{len(materiaux_data)}</strong><br>
-                ✅ Disponibles: <strong>{len([m for m in materiaux_data if '✅' in m['disponible']])}</strong><br>
-                ❌ Non disponibles: <strong>{len([m for m in materiaux_data if '❌' in m['disponible']])}</strong>
+                ✅ Disponibles: <strong>{disponibles}</strong><br>
+                ❌ Non disponibles: <strong>{non_disponibles}</strong><br>
+                📦 À commander: <strong>{a_commander}</strong>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1080,27 +1267,39 @@ def render_bon_travail_form_dg(gestionnaire_bt):
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Traitement de la soumission
+        # Traitement de la soumission avec données dynamiques
         if submit_sauvegarder:
             if not projet_id or not employe_id or not instructions:
                 st.error("❌ Veuillez remplir tous les champs obligatoires (*)")
                 return
             
-            # Construction des données
+            # Construction des données avec informations enrichies
             notes_completes = f"""=== BON DE TRAVAIL DG INC. ===
+Numéro: {numero_bt}
+Projet: {next((p['nom_projet'] for p in projets if p['id'] == projet_id), 'N/A')}
+Responsable: {next((f"{e['prenom']} {e['nom']}" for e in employes if e['id'] == employe_id), 'N/A')}
+
 Instructions : {instructions}
 
-=== OPÉRATIONS ===
-{len(operations_data)} opération(s) définies
+=== OPÉRATIONS ({len(operations_data)}) ===
+{chr(10).join([f"- {op['operation']}: {op['description']} ({op['temps_prevu']}h)" for op in operations_data])}
 
-=== MATÉRIAUX ET OUTILS ===
-{len(materiaux_data)} élément(s) requis
+=== MATÉRIAUX ET OUTILS ({len(materiaux_data)}) ===
+{chr(10).join([f"- {mat['nom']}: {mat['quantite']} {mat['unite']} ({mat['disponible']})" for mat in materiaux_data])}
 
 === NOTES DE SÉCURITÉ ===
-{notes_securite or 'Aucune consigne particulière'}
+{notes_securite or 'Standards DG Inc. - Aucune consigne particulière'}
 
 === EXIGENCES QUALITÉ ===
-{qualite or 'Standards DG Inc. standards'}"""
+{qualite or 'Standards DG Inc. applicables'}
+
+=== ASSIGNATIONS ===
+Employés assignés: {', '.join(set([op['assigne'] for op in operations_data if op['assigne']]))}
+Postes de travail: {', '.join(set([op['poste_travail'] for op in operations_data if op['poste_travail']]))}
+"""
+            
+            # Extraction de la priorité (enlever l'emoji)
+            priorite_clean = priorite.split(' ')[1] if ' ' in priorite else priorite.replace('🟢', '').replace('🟡', '').replace('🔴', '').strip()
             
             data = {
                 'type_formulaire': 'BON_TRAVAIL',
@@ -1108,15 +1307,18 @@ Instructions : {instructions}
                 'project_id': projet_id,
                 'employee_id': employe_id,
                 'statut': 'BROUILLON',
-                'priorite': priorite.split(' ')[1] if ' ' in priorite else priorite,  # Extraire le texte après l'emoji
+                'priorite': priorite_clean,
                 'date_creation': date_debut,
                 'date_echeance': date_fin,
                 'montant_total': 0,  # Calculé plus tard si nécessaire
                 'notes': notes_completes,
                 'operations_selectionnees': [op['operation'] for op in operations_data],
-                'employes_assignes': [op['assigne'] for op in operations_data if op['assigne']],
+                'employes_assignes': list(set([op['assigne'] for op in operations_data if op['assigne']])),
+                'work_centers_utilises': list(set([op['poste_travail'] for op in operations_data if op['poste_travail']])),
                 'description': instructions,
-                'temps_estime_total': sum(op['temps_prevu'] for op in operations_data)
+                'temps_estime_total': sum(op['temps_prevu'] for op in operations_data),
+                'materiaux_requis': materiaux_data,
+                'operations_detaillees': operations_data
             }
             
             bt_id = gestionnaire_bt.creer_bon_travail(data)
@@ -1125,7 +1327,7 @@ Instructions : {instructions}
                 st.session_state.bt_creation_success = {
                     'bt_id': bt_id,
                     'numero': numero_bt,
-                    'urgent': False
+                    'urgent': priorite_clean in ['URGENT', 'CRITIQUE']
                 }
                 st.rerun()
         
@@ -1146,6 +1348,7 @@ Instructions : {instructions}
         <p><strong>📋 Statut:</strong> <span class="dg-status-badge status-draft">Brouillon</span></p>
         <p><strong>👤 Créé par:</strong> Utilisateur</p>
         <p><strong>📞 Contact urgence:</strong> (450) 372-9630</p>
+        <p><strong>📊 Données:</strong> Base SQLite dynamique</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1666,7 +1869,10 @@ def render_rapport_productivite_dg(gestionnaire_bt):
         "🔧 Optimisez l'assignation des postes de travail",
         "📋 Assurez-vous que les opérations sont bien définies dans les projets",
         "🏭 Utilisez les données pour améliorer les processus DG Inc.",
-        "📈 Analysez les tendances mensuelles pour planifier les ressources"
+        "📈 Analysez les tendances mensuelles pour planifier les ressources",
+        "🎯 Concentrez-vous sur les BT prioritaires et urgents",
+        "🔍 Utilisez les données d'inventaire pour optimiser les matériaux",
+        "📞 Maintenez une communication efficace avec l'équipe"
     ]
     
     for conseil in conseils:
