@@ -1,9 +1,9 @@
 # formulaires/__init__.py
-# Module Formulaires ERP Production DG Inc. - Version 2.0 COMPLÈTE CORRIGÉE
+# Module Formulaires ERP Production DG Inc. - Version 2.1 COMPLÈTE FINALE
 
 """
 Module Formulaires ERP Production DG Inc.
-Architecture modulaire complète avec tous les gestionnaires opérationnels.
+Architecture modulaire complète avec TOUS les gestionnaires opérationnels.
 """
 
 import streamlit as st
@@ -14,12 +14,13 @@ from datetime import datetime
 # Import de la classe principale
 from .core.base_gestionnaire import GestionnaireFormulaires
 
-# ✅ TOUS LES GESTIONNAIRES SPÉCIALISÉS OPÉRATIONNELS - CORRIGÉ
+# ✅ TOUS LES GESTIONNAIRES SPÉCIALISÉS OPÉRATIONNELS - VERSION FINALE COMPLÈTE
 from .bons_travail import GestionnaireBonsTravail, render_bons_travail_tab
 from .bons_achats import GestionnaireBonsAchats, render_bons_achats_tab
 from .demandes_prix import GestionnaireDemandesPrix, render_demandes_prix_tab
-# 🔧 CORRECTION PRINCIPALE : Ajout import Bons de Commande
 from .bons_commande import GestionnaireBonsCommande, render_bons_commande_tab
+# 🔧 CORRECTION CRITIQUE : Ajout import Estimations
+from .estimations import GestionnaireEstimations, render_estimations_tab
 
 # Import des utilitaires (déjà complets)
 from .utils.helpers import formater_montant, formater_delai
@@ -28,12 +29,12 @@ from .core.types_formulaires import TYPES_FORMULAIRES
 
 def show_formulaires_page():
     """
-    Page principale du module Formulaires - VERSION CORRIGÉE.
+    Page principale du module Formulaires - VERSION FINALE COMPLÈTE.
     
-    CORRECTION : Tous les 4 modules principaux maintenant opérationnels !
+    CORRECTION : Tous les 5 modules maintenant opérationnels !
     """
     st.markdown("## 📑 Gestion des Formulaires - DG Inc.")
-    st.caption("*Architecture modulaire v2.0 - 4/5 MODULES OPÉRATIONNELS*")
+    st.caption("*Architecture modulaire v2.1 - 5/5 MODULES OPÉRATIONNELS*")
     
     # Initialisation du gestionnaire principal
     if 'gestionnaire_formulaires' not in st.session_state:
@@ -44,7 +45,7 @@ def show_formulaires_page():
     # Statistiques globales
     show_formulaires_dashboard(gestionnaire)
     
-    # ✅ CORRECTION : TOUS LES MODULES MAINTENANT OPÉRATIONNELS
+    # ✅ CORRECTION : TOUS LES 5 MODULES MAINTENANT OPÉRATIONNELS
     tab_bt, tab_ba, tab_bc, tab_dp, tab_est = st.tabs([
         "🔧 Bons de Travail",
         "🛒 Bons d'Achats", 
@@ -61,7 +62,7 @@ def show_formulaires_page():
     with tab_ba:
         render_bons_achats_tab(gestionnaire)
     
-    # 🔧 CORRECTION PRINCIPALE : Module BC maintenant OPÉRATIONNEL !
+    # ✅ Module BC - OPÉRATIONNEL
     with tab_bc:
         render_bons_commande_tab(gestionnaire)
     
@@ -69,13 +70,13 @@ def show_formulaires_page():
     with tab_dp:
         render_demandes_prix_tab(gestionnaire)
     
-    # 🚧 Module EST - En finalisation (utilise encore legacy temporairement)
+    # 🔧 CORRECTION CRITIQUE : Module EST maintenant OPÉRATIONNEL !
     with tab_est:
-        _render_legacy_tab("ESTIMATION", gestionnaire, "📊 Estimations")
+        render_estimations_tab(gestionnaire)
 
 
 def show_formulaires_dashboard(gestionnaire):
-    """Dashboard des formulaires avec métriques globales - CORRIGÉ."""
+    """Dashboard des formulaires avec métriques globales - VERSION FINALE COMPLÈTE."""
     st.markdown("### 📊 Dashboard Formulaires")
     
     stats = gestionnaire.get_statistiques_formulaires()
@@ -84,15 +85,15 @@ def show_formulaires_dashboard(gestionnaire):
         st.info("Aucun formulaire créé. Commencez par créer votre premier document.")
         return
     
-    # Métriques principales avec statut des modules - CORRIGÉ
+    # Métriques principales avec statut des modules - VERSION FINALE
     col1, col2, col3, col4, col5 = st.columns(5)
     
     modules_status = {
         'BON_TRAVAIL': {'icon': '🔧', 'status': '✅', 'nom': 'Bons Travail'},
         'BON_ACHAT': {'icon': '🛒', 'status': '✅', 'nom': 'Bons Achats'},
-        'BON_COMMANDE': {'icon': '📦', 'status': '✅', 'nom': 'Bons Commande'},  # 🔧 CORRIGÉ
+        'BON_COMMANDE': {'icon': '📦', 'status': '✅', 'nom': 'Bons Commande'},
         'DEMANDE_PRIX': {'icon': '💰', 'status': '✅', 'nom': 'Demandes Prix'},
-        'ESTIMATION': {'icon': '📊', 'status': '🚧', 'nom': 'Estimations'}
+        'ESTIMATION': {'icon': '📊', 'status': '✅', 'nom': 'Estimations'}  # 🔧 CORRIGÉ
     }
     
     for i, (type_form, config) in enumerate(modules_status.items()):
@@ -105,11 +106,11 @@ def show_formulaires_dashboard(gestionnaire):
                 f"{config['status']} {config['icon']} {config['nom']}",
                 total,
                 delta=formater_montant(montant) if montant else None,
-                help=f"{'Module opérationnel' if config['status'] == '✅' else 'Module en finalisation'}"
+                help="Module opérationnel"
             )
     
-    # Message de statut - CORRIGÉ
-    st.success("🎉 **4/5 modules maintenant opérationnels !** BT ✅ + BA ✅ + BC ✅ + DP ✅")
+    # Message de statut - VERSION FINALE
+    st.success("🎉 **5/5 modules maintenant opérationnels !** BT ✅ + BA ✅ + BC ✅ + DP ✅ + EST ✅")
     
     # Graphiques optimisés
     col_g1, col_g2 = st.columns(2)
@@ -127,7 +128,7 @@ def show_formulaires_dashboard(gestionnaire):
         if types_data:
             df_types = pd.DataFrame(types_data)
             fig = px.pie(df_types, values='Nombre', names='Type', 
-                        title="📊 Répartition par Type (✅=Opérationnel, 🚧=Finalisation)")
+                        title="📊 Répartition par Type (✅=Opérationnel)")
             fig.update_layout(showlegend=True, height=400)
             st.plotly_chart(fig, use_container_width=True)
     
@@ -153,22 +154,18 @@ def show_formulaires_dashboard(gestionnaire):
 
 
 def _render_legacy_tab(type_formulaire, gestionnaire, titre):
-    """Interface temporaire pour le dernier module en finalisation (Estimations)."""
+    """Interface temporaire pour modules en finalisation (fonction conservée pour compatibilité)."""
     st.markdown(f"### {titre}")
     
-    st.warning(f"""
-    🚧 **Module en finalisation**
+    st.info(f"""
+    📊 **Module {titre} maintenant opérationnel !**
     
-    Ce module sera disponible dans la prochaine mise à jour.
-    
-    **Modules maintenant opérationnels :**
+    **Modules complets :**
     - ✅ Bons de Travail (complet)
     - ✅ Bons d'Achats (complet avec réappro auto)
-    - ✅ Bons de Commande (complet avec suivi livraison)  # 🔧 CORRIGÉ
+    - ✅ Bons de Commande (complet avec suivi livraison)
     - ✅ Demandes de Prix (RFQ multi-fournisseurs)
-    
-    **En cours de finalisation :**
-    - 🚧 Estimations (80% terminé)
+    - ✅ Estimations (templates industrie + calculs automatiques)
     """)
     
     documents = gestionnaire.get_formulaires(type_formulaire)
@@ -194,14 +191,14 @@ def _render_legacy_tab(type_formulaire, gestionnaire, titre):
     col_action1, col_action2 = st.columns(2)
     with col_action1:
         if st.button(f"📋 Voir Tous les {titre}", key=f"view_all_{type_formulaire}"):
-            st.info("Fonctionnalité disponible après finalisation du module")
+            st.info("Utilisez l'interface principale du module maintenant opérationnel")
     
     with col_action2:
         if st.button(f"➕ Créer {titre}", key=f"create_{type_formulaire}"):
-            st.info("Utilisez temporairement l'ancien formulaire en attendant la finalisation")
+            st.info("Utilisez l'interface principale du module maintenant opérationnel")
 
 
-# Exports principaux - CORRIGÉS
+# Exports principaux - VERSION FINALE COMPLÈTE
 __all__ = [
     # Fonction principale
     'show_formulaires_page',
@@ -209,17 +206,19 @@ __all__ = [
     # Gestionnaire principal
     'GestionnaireFormulaires',
     
-    # ✅ Gestionnaires spécialisés opérationnels - CORRIGÉ
+    # ✅ Gestionnaires spécialisés opérationnels - VERSION FINALE COMPLÈTE
     'GestionnaireBonsTravail',
     'GestionnaireBonsAchats',
-    'GestionnaireBonsCommande',      # 🔧 AJOUTÉ
+    'GestionnaireBonsCommande',
     'GestionnaireDemandesPrix',
+    'GestionnaireEstimations',       # 🔧 AJOUTÉ
     
-    # ✅ Interfaces opérationnelles - CORRIGÉ
+    # ✅ Interfaces opérationnelles - VERSION FINALE COMPLÈTE
     'render_bons_travail_tab',
     'render_bons_achats_tab',
-    'render_bons_commande_tab',      # 🔧 AJOUTÉ
+    'render_bons_commande_tab',
     'render_demandes_prix_tab',
+    'render_estimations_tab',        # 🔧 AJOUTÉ
     
     # Utilitaires
     'formater_montant',
@@ -227,7 +226,7 @@ __all__ = [
     'TYPES_FORMULAIRES'
 ]
 
-# Métadonnées du module principal - CORRIGÉES
-__version__ = "2.0.1"
+# Métadonnées du module principal - VERSION FINALE
+__version__ = "2.1.0"
 __author__ = "DG Inc. ERP Team"
-__description__ = "Module Formulaires ERP - 4/5 modules opérationnels"  # 🔧 CORRIGÉ
+__description__ = "Module Formulaires ERP - 5/5 modules opérationnels"
