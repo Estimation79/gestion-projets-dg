@@ -1,10 +1,9 @@
 # formulaires/bons_travail/gestionnaire_bt.py
-# Gestionnaire spécialisé pour les Bons de Travail - VERSION COMPLÈTE CORRIGÉE
+# Gestionnaire spécialisé pour les Bons de Travail - VERSION CORRIGÉE BASE DE DONNÉES
 
 """
 Gestionnaire spécialisé pour les Bons de Travail (BT).
-Contient la logique métier spécifique aux documents de travail interne.
-VERSION CORRIGÉE : Gestion complète des colonnes manquantes et erreurs SQLite
+VERSION CORRIGÉE : Utilise pleinement la base de données SQLite avec vraies données
 """
 
 import streamlit as st
@@ -25,19 +24,24 @@ from ..utils.helpers import (
 
 class GestionnaireBonsTravail:
     """
-    Gestionnaire spécialisé pour les Bons de Travail - VERSION CORRIGÉE COMPLÈTE
+    Gestionnaire spécialisé pour les Bons de Travail - VERSION CORRIGÉE BASE DE DONNÉES
     
-    Gère les opérations spécifiques aux BT :
-    - Création avec validation projet obligatoire
-    - Gestion des équipes assignées
-    - Suivi des opérations et matériaux
-    - Interface avec les postes de travail
-    - Gestion robuste des erreurs de base de données
+    Utilise complètement les tables SQLite avec vraies données :
+    - formulaires (table principale)
+    - formulaire_lignes (détails des matériaux)
+    - bt_assignations (équipe assignée)
+    - bt_reservations_postes (postes réservés)
+    - bt_avancement (suivi des opérations)
+    - operations (opérations du projet)
+    - materials (matériaux du projet)
+    - work_centers (postes de travail)
+    - employees (employés réels)
+    - projects (projets réels)
     """
     
     def __init__(self, gestionnaire_base: GestionnaireFormulaires):
         """
-        Initialise le gestionnaire spécialisé - VERSION CORRIGÉE
+        Initialise le gestionnaire spécialisé avec infrastructure complète
         
         Args:
             gestionnaire_base: Instance du gestionnaire de base
@@ -45,14 +49,16 @@ class GestionnaireBonsTravail:
         self.base = gestionnaire_base
         self.db = gestionnaire_base.db
         
-        # NOUVEAU : Vérifier et créer l'infrastructure BT complète
+        # Vérifier et créer l'infrastructure BT complète
         self._ensure_bt_infrastructure()
     
     def _ensure_bt_infrastructure(self):
         """
-        S'assurer que toute l'infrastructure BT est en place
+        S'assurer que toute l'infrastructure BT est en place avec robustesse
         """
         try:
+            print("🔧 Vérification infrastructure BT...")
+            
             # 1. Vérifier et corriger les colonnes projects
             self._check_and_fix_projects_columns()
             
@@ -62,8 +68,11 @@ class GestionnaireBonsTravail:
             # 3. Vérifier l'intégrité des données
             self._verify_bt_data_integrity()
             
+            print("✅ Infrastructure BT vérifiée et configurée")
+            
         except Exception as e:
             st.warning(f"Avertissement infrastructure BT: {e}")
+            print(f"⚠️ Erreur infrastructure BT: {e}")
     
     def _check_and_fix_projects_columns(self):
         """
@@ -93,7 +102,7 @@ class GestionnaireBonsTravail:
                 st.info("🔧 Colonnes de dates réelles ajoutées à la table projects")
                 
         except Exception as e:
-            print(f"Erreur vérification colonnes projects: {e}")
+            print(f"❌ Erreur vérification colonnes projects: {e}")
             # Continuer sans bloquer
     
     def _create_bt_tables(self):
@@ -164,7 +173,7 @@ class GestionnaireBonsTravail:
             print("✅ Tables BT créées/vérifiées avec succès")
             
         except Exception as e:
-            print(f"Erreur création tables BT: {e}")
+            print(f"❌ Erreur création tables BT: {e}")
             # Continuer sans bloquer
     
     def _verify_bt_data_integrity(self):
@@ -179,16 +188,18 @@ class GestionnaireBonsTravail:
             
             if bt_count and bt_count[0]['count'] > 0:
                 print(f"✅ {bt_count[0]['count']} Bon(s) de Travail trouvé(s) en base")
+            else:
+                print("ℹ️ Aucun BT existant - base prête pour nouveaux BT")
             
         except Exception as e:
-            print(f"Erreur vérification intégrité BT: {e}")
+            print(f"❌ Erreur vérification intégrité BT: {e}")
     
     def creer_bon_travail(self, data: Dict) -> Optional[int]:
         """
-        Crée un nouveau Bon de Travail avec validations spécifiques.
+        Crée un nouveau Bon de Travail en utilisant pleinement la base de données
         
         Args:
-            data: Données du bon de travail
+            data: Données du bon de travail avec vrais IDs de la base
             
         Returns:
             int: ID du BT créé ou None si erreur
@@ -201,18 +212,21 @@ class GestionnaireBonsTravail:
                     st.error(f"❌ {erreur}")
                 return None
             
-            # Enrichissement des données BT
+            # Enrichissement des données BT avec vraies données de la base
             data['type_formulaire'] = 'BON_TRAVAIL'
             
-            # Métadonnées spécifiques BT
+            # Métadonnées avec vraies références BD
             metadonnees_bt = {
                 'operations_selectionnees': data.get('operations_selectionnees', []),
+                'materiaux_selectionnes': data.get('materiaux_selectionnes', []), 
                 'employes_assignes': data.get('employes_assignes', []),
                 'work_centers_utilises': data.get('work_centers_utilises', []),
+                'projet_source': data.get('project_id'),
                 'temps_estime_total': data.get('temps_estime_total', 0),
+                'cout_materiaux_estime': data.get('cout_materiaux_estime', 0),
                 'cout_main_oeuvre_estime': data.get('cout_main_oeuvre_estime', 0),
                 'date_creation_bt': datetime.now().isoformat(),
-                'version_bt': '2.0'
+                'version_bt': '2.1_database'
             }
             
             data['metadonnees_json'] = json.dumps(metadonnees_bt)
@@ -221,10 +235,10 @@ class GestionnaireBonsTravail:
             bt_id = self.base.creer_formulaire(data)
             
             if bt_id:
-                # Actions post-création spécifiques BT
-                self._post_creation_bt(bt_id, data)
+                # Actions post-création spécifiques BT avec vraies données BD
+                self._post_creation_bt_database(bt_id, data)
                 
-                # Log de création
+                st.success(f"✅ Bon de Travail #{bt_id} créé avec succès!")
                 print(f"✅ BT #{bt_id} créé avec succès - {data.get('numero_document', 'N/A')}")
             
             return bt_id
@@ -234,96 +248,104 @@ class GestionnaireBonsTravail:
             print(f"❌ Erreur détaillée création BT: {e}")
             return None
     
-    def _post_creation_bt(self, bt_id: int, data: Dict) -> None:
+    def _post_creation_bt_database(self, bt_id: int, data: Dict) -> None:
         """
-        Actions post-création spécifiques aux BT.
+        Actions post-création utilisant les vraies données de la base
         
         Args:
             bt_id: ID du BT créé
-            data: Données originales du BT
+            data: Données originales avec vrais IDs
         """
         try:
-            # 1. Assignation automatique aux employés
+            # 1. Assignation des employés réels depuis la base
             employes_assignes = data.get('employes_assignes', [])
             if employes_assignes:
-                self._assigner_employes_bt(bt_id, employes_assignes)
+                self._assigner_employes_reels(bt_id, employes_assignes)
             
-            # 2. Réservation des postes de travail si spécifiés
+            # 2. Réservation des postes de travail réels
             work_centers = data.get('work_centers_utilises', [])
             if work_centers:
-                self._reserver_postes_travail(bt_id, work_centers, data.get('date_echeance'))
+                self._reserver_postes_reels(bt_id, work_centers, data.get('date_echeance'))
             
-            # 3. Initialisation du suivi d'avancement
+            # 3. Initialisation du suivi pour les vraies opérations
             operations_selectionnees = data.get('operations_selectionnees', [])
             if operations_selectionnees:
-                self._initialiser_avancement_bt(bt_id, operations_selectionnees)
+                self._initialiser_avancement_operations_reelles(bt_id, operations_selectionnees)
             
-            # 4. Mise à jour du statut du projet si applicable
+            # 4. Création des lignes de formulaire pour les vrais matériaux
+            materiaux_selectionnes = data.get('materiaux_selectionnes', [])
+            if materiaux_selectionnes:
+                self._creer_lignes_materiaux_reels(bt_id, materiaux_selectionnes)
+            
+            # 5. Mise à jour du statut du projet
             if data.get('project_id'):
                 self._mettre_a_jour_statut_projet(data['project_id'], bt_id)
             
-            print(f"✅ Actions post-création BT #{bt_id} terminées")
+            print(f"✅ Actions post-création BT #{bt_id} avec vraies données BD terminées")
                 
         except Exception as e:
             st.warning(f"Actions post-création BT partiellement échouées: {e}")
             print(f"⚠️ Erreur post-création BT: {e}")
     
-    def _assigner_employes_bt(self, bt_id: int, employes_ids: List[int]) -> None:
+    def _assigner_employes_reels(self, bt_id: int, employes_ids: List[int]) -> None:
         """
-        Assigne des employés au BT avec traçabilité complète.
+        Assigne des employés réels de la base au BT
         
         Args:
             bt_id: ID du BT
-            employes_ids: Liste des IDs employés à assigner
+            employes_ids: Liste des vrais IDs employés depuis la table employees
         """
         try:
             assignations_creees = 0
             
             for employe_id in employes_ids:
-                # Vérifier si l'employé existe
+                # Vérifier que l'employé existe vraiment dans la base
                 employe_exists = self.db.execute_query(
-                    "SELECT COUNT(*) as count FROM employees WHERE id = ?",
+                    "SELECT prenom, nom, poste FROM employees WHERE id = ? AND statut = 'ACTIF'",
                     (employe_id,)
                 )
                 
-                if employe_exists and employe_exists[0]['count'] > 0:
+                if employe_exists:
+                    employe_info = employe_exists[0]
                     query = """
                         INSERT INTO bt_assignations (bt_id, employe_id, date_assignation, statut, role_bt)
                         VALUES (?, ?, CURRENT_TIMESTAMP, 'ASSIGNÉ', 'MEMBRE_ÉQUIPE')
                     """
                     self.db.execute_insert(query, (bt_id, employe_id))
                     assignations_creees += 1
+                    print(f"✅ Employé {employe_info['prenom']} {employe_info['nom']} assigné au BT #{bt_id}")
                 else:
-                    st.warning(f"Employé ID {employe_id} non trouvé - assignation ignorée")
+                    st.warning(f"Employé ID {employe_id} non trouvé ou inactif")
             
             if assignations_creees > 0:
-                print(f"✅ {assignations_creees} employé(s) assigné(s) au BT #{bt_id}")
+                print(f"✅ {assignations_creees} employé(s) réel(s) assigné(s) au BT #{bt_id}")
                 
         except Exception as e:
-            st.warning(f"Erreur assignation employés: {e}")
+            st.warning(f"Erreur assignation employés réels: {e}")
             print(f"❌ Erreur assignation employés BT: {e}")
     
-    def _reserver_postes_travail(self, bt_id: int, work_centers: List[int], 
-                                date_prevue: Optional[str]) -> None:
+    def _reserver_postes_reels(self, bt_id: int, work_centers_ids: List[int], 
+                              date_prevue: Optional[str]) -> None:
         """
-        Réserve des postes de travail pour le BT avec validation.
+        Réserve des postes de travail réels pour le BT
         
         Args:
             bt_id: ID du BT
-            work_centers: Liste des IDs postes de travail
+            work_centers_ids: Liste des vrais IDs postes depuis work_centers
             date_prevue: Date prévue d'utilisation
         """
         try:
             reservations_creees = 0
             
-            for wc_id in work_centers:
-                # Vérifier si le poste existe
+            for wc_id in work_centers_ids:
+                # Vérifier que le poste existe vraiment
                 poste_exists = self.db.execute_query(
-                    "SELECT COUNT(*) as count FROM work_centers WHERE id = ?",
+                    "SELECT nom, departement FROM work_centers WHERE id = ? AND statut = 'ACTIF'",
                     (wc_id,)
                 )
                 
-                if poste_exists and poste_exists[0]['count'] > 0:
+                if poste_exists:
+                    poste_info = poste_exists[0]
                     query = """
                         INSERT INTO bt_reservations_postes 
                         (bt_id, work_center_id, date_reservation, date_prevue, statut)
@@ -331,35 +353,37 @@ class GestionnaireBonsTravail:
                     """
                     self.db.execute_insert(query, (bt_id, wc_id, date_prevue))
                     reservations_creees += 1
+                    print(f"✅ Poste {poste_info['nom']} ({poste_info['departement']}) réservé pour BT #{bt_id}")
                 else:
-                    st.warning(f"Poste de travail ID {wc_id} non trouvé - réservation ignorée")
+                    st.warning(f"Poste de travail ID {wc_id} non trouvé ou inactif")
             
             if reservations_creees > 0:
-                print(f"✅ {reservations_creees} poste(s) réservé(s) pour BT #{bt_id}")
+                print(f"✅ {reservations_creees} poste(s) réel(s) réservé(s) pour BT #{bt_id}")
                 
         except Exception as e:
-            st.warning(f"Erreur réservation postes: {e}")
+            st.warning(f"Erreur réservation postes réels: {e}")
             print(f"❌ Erreur réservation postes BT: {e}")
     
-    def _initialiser_avancement_bt(self, bt_id: int, operations_ids: List[int]) -> None:
+    def _initialiser_avancement_operations_reelles(self, bt_id: int, operations_ids: List[int]) -> None:
         """
-        Initialise le suivi d'avancement pour les opérations du BT.
+        Initialise le suivi d'avancement pour les vraies opérations du projet
         
         Args:
             bt_id: ID du BT
-            operations_ids: Liste des IDs opérations
+            operations_ids: Liste des vrais IDs opérations depuis operations
         """
         try:
             avancements_crees = 0
             
             for operation_id in operations_ids:
-                # Vérifier si l'opération existe
+                # Vérifier que l'opération existe vraiment
                 operation_exists = self.db.execute_query(
-                    "SELECT COUNT(*) as count FROM operations WHERE id = ?",
+                    "SELECT description, temps_estime, sequence_number FROM operations WHERE id = ?",
                     (operation_id,)
                 )
                 
-                if operation_exists and operation_exists[0]['count'] > 0:
+                if operation_exists:
+                    operation_info = operation_exists[0]
                     query = """
                         INSERT INTO bt_avancement 
                         (bt_id, operation_id, pourcentage_realise, temps_reel)
@@ -367,16 +391,92 @@ class GestionnaireBonsTravail:
                     """
                     self.db.execute_insert(query, (bt_id, operation_id))
                     avancements_crees += 1
+                    print(f"✅ Suivi initialisé pour opération: {operation_info['description'][:50]}")
             
             if avancements_crees > 0:
-                print(f"✅ Suivi avancement initialisé pour {avancements_crees} opération(s)")
+                print(f"✅ Suivi avancement initialisé pour {avancements_crees} opération(s) réelle(s)")
                 
         except Exception as e:
-            print(f"❌ Erreur initialisation avancement: {e}")
+            print(f"❌ Erreur initialisation avancement opérations réelles: {e}")
+    
+    def _creer_lignes_materiaux_reels(self, bt_id: int, materiaux_ids: List[int]) -> None:
+        """
+        Crée les lignes de formulaire pour les vrais matériaux sélectionnés
+        
+        Args:
+            bt_id: ID du BT
+            materiaux_ids: Liste des vrais IDs matériaux depuis materials
+        """
+        try:
+            lignes_creees = 0
+            
+            for materiau_id in materiaux_ids:
+                # Récupérer les vraies données du matériau
+                materiau_data = self.db.execute_query(
+                    "SELECT designation, quantite, unite, prix_unitaire FROM materials WHERE id = ?",
+                    (materiau_id,)
+                )
+                
+                if materiau_data:
+                    mat = materiau_data[0]
+                    
+                    # Créer la ligne de formulaire avec référence au vrai matériau
+                    sequence = lignes_creees + 1
+                    montant_ligne = (mat['quantite'] or 0) * (mat['prix_unitaire'] or 0)
+                    
+                    # Vérifier si la colonne reference_materiau existe
+                    try:
+                        query = """
+                            INSERT INTO formulaire_lignes 
+                            (formulaire_id, sequence_ligne, description, quantite, unite, 
+                             prix_unitaire, montant_ligne, reference_materiau)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """
+                        
+                        self.db.execute_insert(query, (
+                            bt_id,
+                            sequence,
+                            mat['designation'],
+                            mat['quantite'],
+                            mat['unite'],
+                            mat['prix_unitaire'],
+                            montant_ligne,
+                            materiau_id
+                        ))
+                    except Exception as e_col:
+                        if "no such column" in str(e_col).lower():
+                            # Fallback sans reference_materiau
+                            query_fallback = """
+                                INSERT INTO formulaire_lignes 
+                                (formulaire_id, sequence_ligne, description, quantite, unite, 
+                                 prix_unitaire, montant_ligne)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """
+                            
+                            self.db.execute_insert(query_fallback, (
+                                bt_id,
+                                sequence,
+                                f"{mat['designation']} (Réf: {materiau_id})",
+                                mat['quantite'],
+                                mat['unite'],
+                                mat['prix_unitaire'],
+                                montant_ligne
+                            ))
+                        else:
+                            raise e_col
+                    
+                    lignes_creees += 1
+                    print(f"✅ Ligne créée pour matériau: {mat['designation'][:50]}")
+            
+            if lignes_creees > 0:
+                print(f"✅ {lignes_creees} ligne(s) de matériaux réels créée(s)")
+                
+        except Exception as e:
+            print(f"❌ Erreur création lignes matériaux réels: {e}")
     
     def _mettre_a_jour_statut_projet(self, project_id: int, bt_id: int) -> None:
         """
-        Met à jour le statut du projet associé - VERSION CORRIGÉE ROBUSTE
+        Met à jour le statut du projet associé de manière robuste
         
         Args:
             project_id: ID du projet
@@ -391,7 +491,6 @@ class GestionnaireBonsTravail:
             result = self.db.execute_query(query, (project_id,))
             
             if result and result[0]['count'] == 1:  # Premier BT
-                # CORRECTION ROBUSTE : Gestion sécurisée des colonnes
                 try:
                     # Tenter mise à jour avec colonnes complètes
                     query_update = """
@@ -422,10 +521,9 @@ class GestionnaireBonsTravail:
                         affected = self.db.execute_update(query_update_basic, (project_id,))
                         
                         if affected > 0:
-                            st.info(f"✅ Projet #{project_id} marqué EN COURS (mise à jour basique)")
+                            st.info(f"✅ Projet #{project_id} marqué EN COURS")
                             print(f"✅ Projet #{project_id} mis à jour (basique): À FAIRE → EN COURS")
                     else:
-                        # Autre erreur, la propager
                         raise e_col
             else:
                 print(f"ℹ️ BT #{bt_id} n'est pas le premier du projet #{project_id}")
@@ -437,42 +535,45 @@ class GestionnaireBonsTravail:
     
     def get_bons_travail(self, **filters) -> List[Dict]:
         """
-        Récupère les Bons de Travail avec filtres spécifiques et enrichissement complet.
+        Récupère les Bons de Travail avec enrichissement depuis la vraie base
         
         Args:
             **filters: Filtres optionnels (project_id, employe_id, statut, etc.)
             
         Returns:
-            List[Dict]: Liste des BT avec informations enrichies
+            List[Dict]: Liste des BT enrichis avec vraies données BD
         """
         try:
             # Récupération des BT de base
             bts = self.base.get_formulaires('BON_TRAVAIL', **filters)
             
-            # Enrichissement avec données spécifiques BT (sécurisé)
+            # Enrichissement avec vraies données de la base
             for bt in bts:
                 try:
-                    # Informations d'assignation
-                    bt['assignations'] = self._get_assignations_bt(bt['id'])
+                    # Enrichir avec vraies données projet
+                    if bt.get('project_id'):
+                        bt.update(self._get_vraies_donnees_projet(bt['project_id']))
                     
-                    # Informations de réservation postes
-                    bt['reservations_postes'] = self._get_reservations_postes_bt(bt['id'])
+                    # Enrichir avec vraies assignations
+                    bt['assignations'] = self._get_vraies_assignations_bt(bt['id'])
                     
-                    # Calcul de l'avancement
-                    bt['avancement'] = self._calculer_avancement_bt(bt['id'])
+                    # Enrichir avec vraies réservations postes
+                    bt['reservations_postes'] = self._get_vraies_reservations_postes_bt(bt['id'])
                     
-                    # Informations complémentaires
+                    # Calcul avancement basé sur vraies opérations
+                    bt['avancement'] = self._calculer_avancement_reel_bt(bt['id'])
+                    
+                    # Parse métadonnées
                     bt['metadata_parsed'] = self._parse_metadata_bt(bt.get('metadonnees_json', '{}'))
                     
                 except Exception as e_enrich:
-                    # Continuer avec données partielles si erreur d'enrichissement
                     print(f"⚠️ Erreur enrichissement BT #{bt['id']}: {e_enrich}")
                     bt['assignations'] = []
                     bt['reservations_postes'] = []
                     bt['avancement'] = {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0}
                     bt['metadata_parsed'] = {}
             
-            print(f"✅ {len(bts)} BT récupéré(s) avec enrichissement")
+            print(f"✅ {len(bts)} BT récupéré(s) avec enrichissement depuis vraie base")
             return bts
             
         except Exception as e:
@@ -480,9 +581,169 @@ class GestionnaireBonsTravail:
             print(f"❌ Erreur récupération BT: {e}")
             return []
     
+    def _get_vraies_donnees_projet(self, project_id: int) -> Dict:
+        """
+        Récupère les vraies données du projet depuis la base
+        
+        Args:
+            project_id: ID du projet
+            
+        Returns:
+            Dict: Vraies données du projet
+        """
+        try:
+            query = """
+                SELECT p.nom_projet, p.statut as project_statut, p.priorite as project_priorite,
+                       p.prix_estime, p.date_soumis, p.date_prevu, p.date_debut_reel, p.date_fin_reel,
+                       c.nom as client_nom
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.id = ?
+            """
+            
+            result = self.db.execute_query(query, (project_id,))
+            return dict(result[0]) if result else {}
+            
+        except Exception as e:
+            print(f"❌ Erreur données projet #{project_id}: {e}")
+            return {}
+    
+    def _get_vraies_assignations_bt(self, bt_id: int) -> List[Dict]:
+        """
+        Récupère les vraies assignations depuis bt_assignations
+        
+        Args:
+            bt_id: ID du BT
+            
+        Returns:
+            List[Dict]: Vraies assignations avec infos employés
+        """
+        try:
+            query = """
+                SELECT 
+                    a.*,
+                    e.prenom || ' ' || e.nom as employe_nom,
+                    e.poste,
+                    e.departement,
+                    e.email,
+                    e.statut as employe_statut
+                FROM bt_assignations a
+                JOIN employees e ON a.employe_id = e.id
+                WHERE a.bt_id = ?
+                ORDER BY a.date_assignation
+            """
+            rows = self.db.execute_query(query, (bt_id,))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            print(f"❌ Erreur assignations BT #{bt_id}: {e}")
+            return []
+    
+    def _get_vraies_reservations_postes_bt(self, bt_id: int) -> List[Dict]:
+        """
+        Récupère les vraies réservations depuis bt_reservations_postes
+        
+        Args:
+            bt_id: ID du BT
+            
+        Returns:
+            List[Dict]: Vraies réservations avec infos postes
+        """
+        try:
+            query = """
+                SELECT 
+                    r.*,
+                    w.nom as poste_nom,
+                    w.departement,
+                    w.categorie,
+                    w.type_machine,
+                    w.capacite_theorique,
+                    w.statut as poste_statut
+                FROM bt_reservations_postes r
+                JOIN work_centers w ON r.work_center_id = w.id
+                WHERE r.bt_id = ?
+                ORDER BY r.date_prevue
+            """
+            rows = self.db.execute_query(query, (bt_id,))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            print(f"❌ Erreur réservations BT #{bt_id}: {e}")
+            return []
+    
+    def _calculer_avancement_reel_bt(self, bt_id: int) -> Dict:
+        """
+        Calcule l'avancement basé sur les vraies opérations et bt_avancement
+        
+        Args:
+            bt_id: ID du BT
+            
+        Returns:
+            Dict: Avancement calculé depuis vraies données
+        """
+        try:
+            # Récupérer l'avancement réel depuis bt_avancement
+            query = """
+                SELECT 
+                    COUNT(*) as operations_totales,
+                    COUNT(CASE WHEN pourcentage_realise >= 100 THEN 1 END) as operations_terminees,
+                    AVG(pourcentage_realise) as pourcentage_moyen,
+                    SUM(temps_reel) as temps_total_reel,
+                    MIN(date_debut_reel) as debut_reel,
+                    MAX(date_fin_reel) as fin_reel
+                FROM bt_avancement
+                WHERE bt_id = ?
+            """
+            result = self.db.execute_query(query, (bt_id,))
+            
+            if result and result[0]['operations_totales'] > 0:
+                row = result[0]
+                return {
+                    'pourcentage': round(row['pourcentage_moyen'] or 0, 1),
+                    'operations_terminees': row['operations_terminees'],
+                    'operations_totales': row['operations_totales'],
+                    'temps_total_reel': row['temps_total_reel'] or 0,
+                    'date_debut_reel': row['debut_reel'],
+                    'date_fin_reel': row['fin_reel'],
+                    'mode_calcul': 'vraies_donnees_bt_avancement'
+                }
+            
+            # Fallback : calculer depuis les métadonnées si pas de suivi détaillé
+            bt_details = self.base.get_formulaire_details(bt_id)
+            if bt_details:
+                try:
+                    metadonnees = json.loads(bt_details.get('metadonnees_json', '{}'))
+                    operations_ids = metadonnees.get('operations_selectionnees', [])
+                    
+                    if operations_ids:
+                        # Vérifier statut des vraies opérations
+                        operations_terminees = 0
+                        for op_id in operations_ids:
+                            query_op = "SELECT statut FROM operations WHERE id = ?"
+                            result_op = self.db.execute_query(query_op, (op_id,))
+                            if result_op and result_op[0]['statut'] == 'TERMINÉ':
+                                operations_terminees += 1
+                        
+                        pourcentage = (operations_terminees / len(operations_ids) * 100) if operations_ids else 0
+                        
+                        return {
+                            'pourcentage': round(pourcentage, 1),
+                            'operations_terminees': operations_terminees,
+                            'operations_totales': len(operations_ids),
+                            'mode_calcul': 'statut_vraies_operations'
+                        }
+                except:
+                    pass
+            
+            return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0, 'mode_calcul': 'aucune_donnee'}
+            
+        except Exception as e:
+            print(f"❌ Erreur calcul avancement BT #{bt_id}: {e}")
+            return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0, 'erreur': str(e)}
+    
     def _parse_metadata_bt(self, metadonnees_json: str) -> Dict:
         """
-        Parse les métadonnées JSON du BT de manière sécurisée.
+        Parse les métadonnées JSON du BT de manière sécurisée
         
         Args:
             metadonnees_json: Métadonnées JSON du BT
@@ -497,178 +758,114 @@ class GestionnaireBonsTravail:
         except (json.JSONDecodeError, TypeError):
             return {}
     
-    def _get_assignations_bt(self, bt_id: int) -> List[Dict]:
+    def mettre_a_jour_avancement_operation_reelle(self, bt_id: int, operation_id: int, 
+                                                 pourcentage: float, temps_reel: float = 0, 
+                                                 notes: str = "", employe_id: int = None) -> bool:
         """
-        Récupère les assignations d'employés pour un BT avec informations complètes.
+        Met à jour l'avancement d'une vraie opération du BT dans bt_avancement
         
         Args:
             bt_id: ID du BT
+            operation_id: ID de la vraie opération depuis operations
+            pourcentage: Pourcentage de réalisation (0-100)
+            temps_reel: Temps réel passé
+            notes: Notes sur l'avancement
+            employe_id: ID de l'employé qui fait la mise à jour
             
         Returns:
-            List[Dict]: Liste des assignations enrichies
+            bool: True si succès
         """
         try:
-            query = """
-                SELECT 
-                    a.*,
-                    e.prenom || ' ' || e.nom as employe_nom,
-                    e.poste,
-                    e.departement,
-                    e.email
-                FROM bt_assignations a
-                JOIN employees e ON a.employe_id = e.id
-                WHERE a.bt_id = ?
-                ORDER BY a.date_assignation
-            """
-            rows = self.db.execute_query(query, (bt_id,))
-            return [dict(row) for row in rows]
+            # Validation
+            if not (0 <= pourcentage <= 100):
+                st.error("Le pourcentage doit être entre 0 et 100")
+                return False
             
-        except Exception as e:
-            print(f"❌ Erreur récupération assignations BT #{bt_id}: {e}")
-            return []
-    
-    def _get_reservations_postes_bt(self, bt_id: int) -> List[Dict]:
-        """
-        Récupère les réservations de postes pour un BT avec informations complètes.
-        
-        Args:
-            bt_id: ID du BT
+            # Vérifier que l'opération existe vraiment
+            operation_exists = self.db.execute_query(
+                "SELECT description FROM operations WHERE id = ?",
+                (operation_id,)
+            )
             
-        Returns:
-            List[Dict]: Liste des réservations enrichies
-        """
-        try:
-            query = """
-                SELECT 
-                    r.*,
-                    w.nom as poste_nom,
-                    w.departement,
-                    w.categorie,
-                    w.type_machine,
-                    w.capacite_theorique
-                FROM bt_reservations_postes r
-                JOIN work_centers w ON r.work_center_id = w.id
-                WHERE r.bt_id = ?
-                ORDER BY r.date_prevue
-            """
-            rows = self.db.execute_query(query, (bt_id,))
-            return [dict(row) for row in rows]
+            if not operation_exists:
+                st.error(f"Opération #{operation_id} non trouvée")
+                return False
             
-        except Exception as e:
-            print(f"❌ Erreur récupération réservations BT #{bt_id}: {e}")
-            return []
-    
-    def _calculer_avancement_bt(self, bt_id: int) -> Dict:
-        """
-        Calcule l'avancement d'un BT basé sur les opérations et le suivi réel.
-        
-        Args:
-            bt_id: ID du BT
+            # Vérifier si l'enregistrement existe déjà
+            existing = self.db.execute_query(
+                "SELECT id FROM bt_avancement WHERE bt_id = ? AND operation_id = ?",
+                (bt_id, operation_id)
+            )
             
-        Returns:
-            Dict: Informations d'avancement détaillées
-        """
-        try:
-            # Récupérer les métadonnées du BT
-            bt_details = self.base.get_formulaire_details(bt_id)
-            if not bt_details:
-                return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0}
+            if existing:
+                # Mise à jour
+                query = """
+                    UPDATE bt_avancement 
+                    SET pourcentage_realise = ?, 
+                        temps_reel = ?, 
+                        notes_avancement = ?,
+                        updated_by = ?,
+                        updated_at = CURRENT_TIMESTAMP,
+                        date_fin_reel = CASE WHEN ? >= 100 THEN CURRENT_TIMESTAMP ELSE date_fin_reel END
+                    WHERE bt_id = ? AND operation_id = ?
+                """
+                params = (pourcentage, temps_reel, notes, employe_id, pourcentage, bt_id, operation_id)
+            else:
+                # Création
+                query = """
+                    INSERT INTO bt_avancement 
+                    (bt_id, operation_id, pourcentage_realise, temps_reel, notes_avancement, 
+                     updated_by, date_debut_reel, date_fin_reel)
+                    VALUES (?, ?, ?, ?, ?, ?, 
+                            CASE WHEN ? > 0 THEN CURRENT_TIMESTAMP ELSE NULL END,
+                            CASE WHEN ? >= 100 THEN CURRENT_TIMESTAMP ELSE NULL END)
+                """
+                params = (bt_id, operation_id, pourcentage, temps_reel, notes, employe_id, pourcentage, pourcentage)
             
-            # Parser les opérations sélectionnées
-            try:
-                metadonnees = json.loads(bt_details.get('metadonnees_json', '{}'))
-                operations_ids = metadonnees.get('operations_selectionnees', [])
-            except (json.JSONDecodeError, TypeError):
-                operations_ids = []
+            affected = self.db.execute_update(query, params)
             
-            if not operations_ids:
-                return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0}
+            if affected > 0:
+                st.success(f"✅ Avancement opération mis à jour: {pourcentage}%")
+                print(f"✅ Avancement opération #{operation_id} mis à jour: {pourcentage}%")
+                
+                # Marquer l'opération comme terminée si 100%
+                if pourcentage >= 100:
+                    self._marquer_vraie_operation_terminee(operation_id)
+                
+                return True
             
-            # Vérifier l'avancement via la table bt_avancement
-            avancement_reel = self._get_avancement_reel_bt(bt_id)
-            if avancement_reel:
-                return avancement_reel
-            
-            # Fallback : calculer basé sur le statut des opérations
-            operations_terminees = 0
-            for operation_id in operations_ids:
-                if self._operation_terminee(operation_id):
-                    operations_terminees += 1
-            
-            operations_totales = len(operations_ids)
-            pourcentage = (operations_terminees / operations_totales * 100) if operations_totales > 0 else 0
-            
-            return {
-                'pourcentage': round(pourcentage, 1),
-                'operations_terminees': operations_terminees,
-                'operations_totales': operations_totales,
-                'mode_calcul': 'statut_operations'
-            }
-            
-        except Exception as e:
-            print(f"❌ Erreur calcul avancement BT #{bt_id}: {e}")
-            return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0, 'erreur': str(e)}
-    
-    def _get_avancement_reel_bt(self, bt_id: int) -> Optional[Dict]:
-        """
-        Récupère l'avancement réel depuis la table de suivi.
-        
-        Args:
-            bt_id: ID du BT
-            
-        Returns:
-            Optional[Dict]: Avancement réel ou None
-        """
-        try:
-            query = """
-                SELECT 
-                    COUNT(*) as operations_totales,
-                    COUNT(CASE WHEN pourcentage_realise >= 100 THEN 1 END) as operations_terminees,
-                    AVG(pourcentage_realise) as pourcentage_moyen,
-                    SUM(temps_reel) as temps_total_reel
-                FROM bt_avancement
-                WHERE bt_id = ?
-            """
-            result = self.db.execute_query(query, (bt_id,))
-            
-            if result and result[0]['operations_totales'] > 0:
-                row = result[0]
-                return {
-                    'pourcentage': round(row['pourcentage_moyen'] or 0, 1),
-                    'operations_terminees': row['operations_terminees'],
-                    'operations_totales': row['operations_totales'],
-                    'temps_total_reel': row['temps_total_reel'] or 0,
-                    'mode_calcul': 'suivi_reel'
-                }
-            
-            return None
-            
-        except Exception as e:
-            print(f"❌ Erreur avancement réel BT #{bt_id}: {e}")
-            return None
-    
-    def _operation_terminee(self, operation_id: int) -> bool:
-        """
-        Vérifie si une opération est terminée.
-        
-        Args:
-            operation_id: ID de l'opération
-            
-        Returns:
-            bool: True si terminée
-        """
-        try:
-            query = "SELECT statut FROM operations WHERE id = ?"
-            result = self.db.execute_query(query, (operation_id,))
-            return result and result[0]['statut'] == 'TERMINÉ'
-        except Exception as e:
-            print(f"❌ Erreur vérification opération #{operation_id}: {e}")
             return False
+            
+        except Exception as e:
+            st.error(f"Erreur mise à jour avancement: {e}")
+            print(f"❌ Erreur avancement opération #{operation_id}: {e}")
+            return False
+    
+    def _marquer_vraie_operation_terminee(self, operation_id: int) -> None:
+        """
+        Marque une vraie opération comme terminée dans la table operations
+        
+        Args:
+            operation_id: ID de la vraie opération
+        """
+        try:
+            query = """
+                UPDATE operations 
+                SET statut = 'TERMINÉ'
+                WHERE id = ? AND statut != 'TERMINÉ'
+            """
+            affected = self.db.execute_update(query, (operation_id,))
+            
+            if affected > 0:
+                print(f"✅ Vraie opération #{operation_id} marquée terminée")
+                
+        except Exception as e:
+            print(f"❌ Erreur marquage vraie opération terminée #{operation_id}: {e}")
     
     def marquer_bt_termine(self, bt_id: int, employe_id: int, 
                           commentaires: str = "") -> bool:
         """
-        Marque un BT comme terminé avec validations et traçabilité complète.
+        Marque un BT comme terminé avec validations et traçabilité complète
         
         Args:
             bt_id: ID du BT
@@ -697,6 +894,7 @@ class GestionnaireBonsTravail:
                 # Vérifier si tous les BT du projet sont terminés
                 self._verifier_completion_projet(bt_id)
                 
+                st.success(f"✅ Bon de Travail #{bt_id} marqué comme terminé!")
                 print(f"✅ BT #{bt_id} marqué terminé par employé #{employe_id}")
             
             return success
@@ -706,9 +904,42 @@ class GestionnaireBonsTravail:
             print(f"❌ Erreur fin BT #{bt_id}: {e}")
             return False
     
+    def _employe_peut_terminer_bt(self, bt_id: int, employe_id: int) -> bool:
+        """
+        Vérifie si un employé peut terminer le BT
+        
+        Args:
+            bt_id: ID du BT
+            employe_id: ID de l'employé
+            
+        Returns:
+            bool: True si autorisé
+        """
+        try:
+            # 1. Vérifier si c'est le responsable du BT
+            bt_details = self.base.get_formulaire_details(bt_id)
+            if bt_details and bt_details.get('employee_id') == employe_id:
+                return True
+            
+            # 2. Vérifier si c'est un employé assigné
+            assignations = self._get_vraies_assignations_bt(bt_id)
+            employes_assignes = [a['employe_id'] for a in assignations if a.get('statut') == 'ASSIGNÉ']
+            
+            if employe_id in employes_assignes:
+                return True
+            
+            # 3. Vérifier les permissions spéciales (ex: superviseur)
+            # TODO: Implémenter système de permissions plus avancé
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Erreur vérification permissions BT #{bt_id}: {e}")
+            return False
+    
     def _finaliser_bt_termine(self, bt_id: int) -> None:
         """
-        Actions de finalisation quand un BT est terminé.
+        Actions de finalisation quand un BT est terminé
         
         Args:
             bt_id: ID du BT terminé
@@ -728,42 +959,9 @@ class GestionnaireBonsTravail:
         except Exception as e:
             print(f"⚠️ Erreur finalisation BT #{bt_id}: {e}")
     
-    def _employe_peut_terminer_bt(self, bt_id: int, employe_id: int) -> bool:
-        """
-        Vérifie si un employé peut terminer le BT.
-        
-        Args:
-            bt_id: ID du BT
-            employe_id: ID de l'employé
-            
-        Returns:
-            bool: True si autorisé
-        """
-        try:
-            # 1. Vérifier si c'est le responsable du BT
-            bt_details = self.base.get_formulaire_details(bt_id)
-            if bt_details and bt_details.get('employee_id') == employe_id:
-                return True
-            
-            # 2. Vérifier si c'est un employé assigné
-            assignations = self._get_assignations_bt(bt_id)
-            employes_assignes = [a['employe_id'] for a in assignations if a.get('statut') == 'ASSIGNÉ']
-            
-            if employe_id in employes_assignes:
-                return True
-            
-            # 3. Vérifier les permissions spéciales (ex: superviseur)
-            # TODO: Implémenter système de permissions plus avancé
-            
-            return False
-            
-        except Exception as e:
-            print(f"❌ Erreur vérification permissions BT #{bt_id}: {e}")
-            return False
-    
     def _liberer_reservations_postes(self, bt_id: int) -> None:
         """
-        Libère les réservations de postes d'un BT terminé.
+        Libère les réservations de postes d'un BT terminé
         
         Args:
             bt_id: ID du BT terminé
@@ -787,7 +985,7 @@ class GestionnaireBonsTravail:
     
     def _finaliser_assignations_bt(self, bt_id: int) -> None:
         """
-        Finalise les assignations d'employés d'un BT terminé.
+        Finalise les assignations d'employés d'un BT terminé
         
         Args:
             bt_id: ID du BT terminé
@@ -809,7 +1007,7 @@ class GestionnaireBonsTravail:
     
     def _completer_avancement_bt(self, bt_id: int) -> None:
         """
-        Marque toutes les opérations du BT comme terminées à 100%.
+        Marque toutes les opérations du BT comme terminées à 100%
         
         Args:
             bt_id: ID du BT terminé
@@ -832,7 +1030,7 @@ class GestionnaireBonsTravail:
     
     def _verifier_completion_projet(self, bt_id: int) -> None:
         """
-        Vérifie si le projet est complètement terminé - VERSION CORRIGÉE ROBUSTE
+        Vérifie si le projet est complètement terminé et met à jour son statut
         
         Args:
             bt_id: ID du BT qui vient d'être terminé
@@ -897,57 +1095,66 @@ class GestionnaireBonsTravail:
     
     def get_statistiques_bt(self) -> Dict:
         """
-        Calcule les statistiques complètes et enrichies des BT.
+        Calcule les statistiques des BT depuis la vraie base
         
         Returns:
-            Dict: Statistiques BT enrichies
+            Dict: Statistiques enrichies depuis vraies données
         """
         try:
-            # Statistiques de base du gestionnaire principal
+            # Statistiques de base
             stats_base = self.base.get_statistiques_formulaires().get('BON_TRAVAIL', {})
             
-            # Enrichissement avec données BT spécifiques (sécurisé)
+            # Enrichissement avec vraies données BT
             try:
                 query = """
                     SELECT 
-                        COUNT(CASE WHEN f.statut = 'EN COURS' THEN 1 END) as en_cours,
-                        COUNT(CASE WHEN f.statut = 'VALIDÉ' THEN 1 END) as valides,
-                        COUNT(CASE WHEN f.statut = 'TERMINÉ' THEN 1 END) as termines,
-                        COUNT(CASE WHEN f.statut = 'BROUILLON' THEN 1 END) as brouillons,
+                        f.statut,
+                        COUNT(*) as count,
                         AVG(julianday('now') - julianday(f.date_creation)) as duree_moyenne,
+                        SUM(f.montant_total) as montant_total,
                         COUNT(DISTINCT f.project_id) as projets_concernes,
-                        COUNT(DISTINCT f.employee_id) as employes_impliques,
-                        SUM(f.montant_total) as montant_total_bt,
-                        MIN(f.date_creation) as premier_bt_date,
-                        MAX(f.date_creation) as dernier_bt_date
+                        COUNT(DISTINCT f.employee_id) as employes_impliques
                     FROM formulaires f
                     WHERE f.type_formulaire = 'BON_TRAVAIL'
+                    GROUP BY f.statut
                 """
                 
-                result = self.db.execute_query(query)
-                if result:
-                    stats_enrichies = dict(result[0])
+                rows = self.db.execute_query(query)
+                
+                stats_enrichies = {}
+                total_bt = 0
+                
+                for row in rows:
+                    statut = row['statut']
+                    count = row['count']
+                    total_bt += count
                     
-                    # Calculer le taux de completion
-                    total_bt = stats_enrichies.get('termines', 0) + stats_enrichies.get('en_cours', 0) + stats_enrichies.get('valides', 0) + stats_enrichies.get('brouillons', 0)
-                    if total_bt > 0:
-                        stats_enrichies['taux_completion'] = (stats_enrichies.get('termines', 0) / total_bt) * 100
-                    else:
-                        stats_enrichies['taux_completion'] = 0
-                    
-                    # Ajouter aux stats de base
-                    stats_base.update(stats_enrichies)
-                    
-                    print(f"✅ Statistiques BT calculées: {total_bt} BT total")
-                    
+                    stats_enrichies[f'{statut.lower()}'] = count
+                    stats_enrichies['duree_moyenne'] = row['duree_moyenne'] or 0
+                    stats_enrichies['montant_total'] = row['montant_total'] or 0
+                    stats_enrichies['projets_concernes'] = row['projets_concernes'] or 0
+                    stats_enrichies['employes_impliques'] = row['employes_impliques'] or 0
+                
+                # Calculer taux de completion
+                termines = stats_enrichies.get('terminé', 0)
+                if total_bt > 0:
+                    stats_enrichies['taux_completion'] = (termines / total_bt) * 100
+                else:
+                    stats_enrichies['taux_completion'] = 0
+                
+                # Ajouter aux stats de base
+                stats_base.update(stats_enrichies)
+                
+                print(f"✅ Statistiques BT calculées depuis vraie base: {total_bt} BT")
+                
             except Exception as e:
-                st.warning(f"Erreur enrichissement stats BT: {e}")
+                st.warning(f"Erreur statistiques enrichies BT: {e}")
                 print(f"⚠️ Erreur stats enrichies BT: {e}")
             
-            # Ajouter des statistiques sur les assignations et réservations
+            # Ajouter statistiques assignations/réservations réelles
             try:
-                stats_assignations = self._get_statistiques_assignations()
-                stats_reservations = self._get_statistiques_reservations()
+                stats_assignations = self._get_vraies_statistiques_assignations()
+                stats_reservations = self._get_vraies_statistiques_reservations()
                 
                 stats_base.update(stats_assignations)
                 stats_base.update(stats_reservations)
@@ -962,12 +1169,12 @@ class GestionnaireBonsTravail:
             print(f"❌ Erreur statistiques BT: {e}")
             return {}
     
-    def _get_statistiques_assignations(self) -> Dict:
+    def _get_vraies_statistiques_assignations(self) -> Dict:
         """
-        Calcule les statistiques des assignations BT.
+        Calcule les vraies statistiques des assignations depuis bt_assignations
         
         Returns:
-            Dict: Statistiques assignations
+            Dict: Statistiques assignations réelles
         """
         try:
             query = """
@@ -983,23 +1190,23 @@ class GestionnaireBonsTravail:
             if result:
                 row = result[0]
                 return {
-                    'assignations_actives': row['total_assignations'],
-                    'employes_assignes_bt': row['employes_assignes_uniques'],
-                    'bt_avec_equipe': row['bt_avec_assignations']
+                    'assignations_actives_reelles': row['total_assignations'],
+                    'employes_assignes_bt_reels': row['employes_assignes_uniques'],
+                    'bt_avec_equipe_reelle': row['bt_avec_assignations']
                 }
             
             return {}
             
         except Exception as e:
-            print(f"❌ Erreur stats assignations: {e}")
+            print(f"❌ Erreur stats assignations réelles: {e}")
             return {}
     
-    def _get_statistiques_reservations(self) -> Dict:
+    def _get_vraies_statistiques_reservations(self) -> Dict:
         """
-        Calcule les statistiques des réservations de postes.
+        Calcule les vraies statistiques des réservations depuis bt_reservations_postes
         
         Returns:
-            Dict: Statistiques réservations
+            Dict: Statistiques réservations réelles
         """
         try:
             query = """
@@ -1014,31 +1221,31 @@ class GestionnaireBonsTravail:
             if result:
                 row = result[0]
                 return {
-                    'reservations_postes_total': row['total_reservations'],
-                    'postes_utilises_bt': row['postes_reserves_uniques'],
-                    'reservations_actives': row['reservations_actives']
+                    'reservations_postes_total_reelles': row['total_reservations'],
+                    'postes_utilises_bt_reels': row['postes_reserves_uniques'],
+                    'reservations_actives_reelles': row['reservations_actives']
                 }
             
             return {}
             
         except Exception as e:
-            print(f"❌ Erreur stats réservations: {e}")
+            print(f"❌ Erreur stats réservations réelles: {e}")
             return {}
     
     def generer_rapport_productivite(self, periode_jours: int = 30) -> Dict:
         """
-        Génère un rapport de productivité complet des BT.
+        Génère un rapport de productivité basé sur les vraies données
         
         Args:
             periode_jours: Période d'analyse en jours
             
         Returns:
-            Dict: Rapport de productivité détaillé
+            Dict: Rapport basé sur vraies données BD
         """
         try:
             date_debut = datetime.now() - timedelta(days=periode_jours)
             
-            # Requête principale pour la productivité par employé
+            # Requête avec vraies données employés et projets
             query = """
                 SELECT 
                     e.prenom || ' ' || e.nom as employe_nom,
@@ -1048,7 +1255,8 @@ class GestionnaireBonsTravail:
                     AVG(julianday(f.updated_at) - julianday(f.date_creation)) as duree_moyenne,
                     SUM(f.montant_total) as montant_total_travaux,
                     MIN(f.date_creation) as premier_bt_periode,
-                    MAX(f.updated_at) as dernier_bt_termine
+                    MAX(f.updated_at) as dernier_bt_termine,
+                    COUNT(DISTINCT f.project_id) as projets_touches
                 FROM formulaires f
                 JOIN employees e ON f.employee_id = e.id
                 WHERE f.type_formulaire = 'BON_TRAVAIL'
@@ -1060,13 +1268,14 @@ class GestionnaireBonsTravail:
             
             rows = self.db.execute_query(query, (date_debut.isoformat(),))
             
-            # Statistiques globales de la période
+            # Statistiques globales vraies
             query_global = """
                 SELECT 
                     COUNT(*) as total_bt_crees,
                     COUNT(CASE WHEN statut = 'TERMINÉ' THEN 1 END) as total_bt_termines,
                     AVG(montant_total) as montant_moyen,
-                    SUM(montant_total) as montant_total_periode
+                    SUM(montant_total) as montant_total_periode,
+                    COUNT(DISTINCT project_id) as projets_impactes
                 FROM formulaires
                 WHERE type_formulaire = 'BON_TRAVAIL'
                 AND date_creation >= ?
@@ -1074,34 +1283,36 @@ class GestionnaireBonsTravail:
             
             result_global = self.db.execute_query(query_global, (date_debut.isoformat(),))
             
-            # Construction du rapport
+            # Construction du rapport avec vraies données
             rapport = {
                 'periode': f"{periode_jours} derniers jours",
                 'date_generation': datetime.now().isoformat(),
                 'date_debut_analyse': date_debut.isoformat(),
                 'employes': [dict(row) for row in rows],
                 'statistiques_globales': dict(result_global[0]) if result_global else {},
-                'analyse': {}
+                'analyse': {},
+                'source_donnees': 'vraie_base_sqlite'
             }
             
-            # Calculs d'analyse
+            # Calculs d'analyse enrichis
             if rapport['employes']:
                 rapport['total_bt_termines'] = sum(emp['nb_bt_termines'] for emp in rapport['employes'])
                 rapport['duree_moyenne_globale'] = sum(emp['duree_moyenne'] or 0 for emp in rapport['employes']) / len(rapport['employes'])
                 
-                # Top performers
+                # Analyses enrichies
                 rapport['analyse']['top_performer'] = max(rapport['employes'], key=lambda x: x['nb_bt_termines'])
                 rapport['analyse']['plus_efficace'] = min(rapport['employes'], key=lambda x: x['duree_moyenne'] or float('inf'))
                 rapport['analyse']['plus_rentable'] = max(rapport['employes'], key=lambda x: x['montant_total_travaux'] or 0)
+                rapport['analyse']['plus_polyvalent'] = max(rapport['employes'], key=lambda x: x['projets_touches'] or 0)
             else:
                 rapport['total_bt_termines'] = 0
                 rapport['duree_moyenne_globale'] = 0
-                rapport['analyse'] = {'message': 'Aucune donnée disponible pour la période'}
+                rapport['analyse'] = {'message': 'Aucune donnée disponible pour la période depuis la vraie base'}
             
-            # Ajouter recommandations
-            rapport['recommandations'] = self._generer_recommandations_productivite(rapport)
+            # Recommandations basées sur vraies données
+            rapport['recommandations'] = self._generer_recommandations_productivite_reelles(rapport)
             
-            print(f"✅ Rapport productivité généré pour {periode_jours} jours")
+            print(f"✅ Rapport productivité généré depuis vraie base pour {periode_jours} jours")
             return rapport
             
         except Exception as e:
@@ -1109,32 +1320,35 @@ class GestionnaireBonsTravail:
             print(f"❌ Erreur rapport productivité: {e}")
             return {}
     
-    def _generer_recommandations_productivite(self, rapport: Dict) -> List[str]:
+    def _generer_recommandations_productivite_reelles(self, rapport: Dict) -> List[str]:
         """
-        Génère des recommandations basées sur l'analyse de productivité.
+        Génère des recommandations basées sur l'analyse des vraies données
         
         Args:
-            rapport: Données du rapport de productivité
+            rapport: Données du rapport depuis vraie base
             
         Returns:
-            List[str]: Liste des recommandations
+            List[str]: Recommandations basées sur vraies données
         """
         recommandations = []
         
         try:
             employes = rapport.get('employes', [])
             if not employes:
-                return ["Aucune donnée suffisante pour générer des recommandations"]
+                return ["Aucune donnée suffisante depuis la vraie base pour générer des recommandations"]
             
-            # Analyse de la charge de travail
-            nb_bt_max = max(emp['nb_bt_termines'] for emp in employes)
-            nb_bt_min = min(emp['nb_bt_termines'] for emp in employes)
-            
-            if nb_bt_max - nb_bt_min > 5:
-                recommandations.append("📊 Équilibrer la charge de travail entre les employés")
-            
-            # Analyse des durées
+            # Analyses basées sur vraies données
+            nb_bt_values = [emp['nb_bt_termines'] for emp in employes]
             durees = [emp['duree_moyenne'] for emp in employes if emp['duree_moyenne']]
+            projets_values = [emp['projets_touches'] for emp in employes]
+            
+            if nb_bt_values:
+                nb_bt_max = max(nb_bt_values)
+                nb_bt_min = min(nb_bt_values)
+                
+                if nb_bt_max - nb_bt_min > 3:
+                    recommandations.append("📊 Équilibrer la charge de travail BT entre les employés")
+            
             if durees:
                 duree_max = max(durees)
                 duree_moyenne = sum(durees) / len(durees)
@@ -1142,7 +1356,12 @@ class GestionnaireBonsTravail:
                 if duree_max > duree_moyenne * 1.5:
                     recommandations.append("⏱️ Identifier les causes des retards sur certains BT")
             
-            # Analyse par département
+            if projets_values:
+                projets_max = max(projets_values)
+                if projets_max > 5:
+                    recommandations.append("🎯 Considérer la spécialisation par type de projet")
+            
+            # Analyse par département (vraies données)
             depts = {}
             for emp in employes:
                 dept = emp.get('departement', 'N/A')
@@ -1151,30 +1370,34 @@ class GestionnaireBonsTravail:
                 depts[dept].append(emp['nb_bt_termines'])
             
             if len(depts) > 1:
-                recommandations.append("🏢 Analyser les différences de performance entre départements")
+                recommandations.append("🏢 Analyser les différences de performance entre départements réels")
             
-            # Recommandations générales
+            # Recommandations spécifiques
             if len(employes) < 3:
                 recommandations.append("👥 Considérer l'augmentation de l'équipe pour les BT")
             
+            # Recommandations spécifiques DG Inc.
+            recommandations.append("🔧 Optimiser l'utilisation des postes de travail DG Inc.")
+            recommandations.append("📋 Améliorer la définition des opérations dans les projets")
+            
             if not recommandations:
-                recommandations.append("✅ Performance globale satisfaisante")
+                recommandations.append("✅ Performance globale satisfaisante selon les vraies données")
             
         except Exception as e:
-            print(f"❌ Erreur génération recommandations: {e}")
-            recommandations.append("⚠️ Erreur dans l'analyse des recommandations")
+            print(f"❌ Erreur génération recommandations réelles: {e}")
+            recommandations.append("⚠️ Erreur dans l'analyse des vraies données")
         
         return recommandations
     
     def get_bt_details_complets(self, bt_id: int) -> Optional[Dict]:
         """
-        Récupère tous les détails complets d'un BT spécifique.
+        Récupère tous les détails complets d'un BT spécifique avec vraies données
         
         Args:
             bt_id: ID du BT
             
         Returns:
-            Optional[Dict]: Détails complets du BT
+            Optional[Dict]: Détails complets du BT enrichis
         """
         try:
             # Détails de base
@@ -1182,12 +1405,17 @@ class GestionnaireBonsTravail:
             if not bt_details:
                 return None
             
-            # Enrichissement complet
-            bt_details['assignations'] = self._get_assignations_bt(bt_id)
-            bt_details['reservations_postes'] = self._get_reservations_postes_bt(bt_id)
+            # Enrichissement complet avec vraies données
+            bt_details['assignations'] = self._get_vraies_assignations_bt(bt_id)
+            bt_details['reservations_postes'] = self._get_vraies_reservations_postes_bt(bt_id)
             bt_details['avancement_detaille'] = self._get_avancement_detaille_bt(bt_id)
+            bt_details['lignes_materiaux'] = self._get_lignes_materiaux_bt(bt_id)
             bt_details['historique_modifications'] = self._get_historique_bt(bt_id)
             bt_details['metadata_parsed'] = self._parse_metadata_bt(bt_details.get('metadonnees_json', '{}'))
+            
+            # Enrichir avec données projet si disponible
+            if bt_details.get('project_id'):
+                bt_details.update(self._get_vraies_donnees_projet(bt_details['project_id']))
             
             print(f"✅ Détails complets récupérés pour BT #{bt_id}")
             return bt_details
@@ -1199,7 +1427,7 @@ class GestionnaireBonsTravail:
     
     def _get_avancement_detaille_bt(self, bt_id: int) -> List[Dict]:
         """
-        Récupère l'avancement détaillé de toutes les opérations du BT.
+        Récupère l'avancement détaillé de toutes les opérations du BT
         
         Args:
             bt_id: ID du BT
@@ -1214,6 +1442,7 @@ class GestionnaireBonsTravail:
                     o.sequence_number,
                     o.description as operation_description,
                     o.temps_estime,
+                    o.statut as operation_statut,
                     e.prenom || ' ' || e.nom as updated_by_nom
                 FROM bt_avancement a
                 LEFT JOIN operations o ON a.operation_id = o.id
@@ -1229,9 +1458,38 @@ class GestionnaireBonsTravail:
             print(f"❌ Erreur avancement détaillé BT #{bt_id}: {e}")
             return []
     
+    def _get_lignes_materiaux_bt(self, bt_id: int) -> List[Dict]:
+        """
+        Récupère les lignes de matériaux du BT
+        
+        Args:
+            bt_id: ID du BT
+            
+        Returns:
+            List[Dict]: Lignes de matériaux
+        """
+        try:
+            query = """
+                SELECT 
+                    fl.*,
+                    m.designation as materiau_designation,
+                    m.stock_actuel
+                FROM formulaire_lignes fl
+                LEFT JOIN materials m ON fl.reference_materiau = m.id
+                WHERE fl.formulaire_id = ?
+                ORDER BY fl.sequence_ligne
+            """
+            
+            rows = self.db.execute_query(query, (bt_id,))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            print(f"❌ Erreur lignes matériaux BT #{bt_id}: {e}")
+            return []
+    
     def _get_historique_bt(self, bt_id: int) -> List[Dict]:
         """
-        Récupère l'historique des modifications du BT.
+        Récupère l'historique des modifications du BT
         
         Args:
             bt_id: ID du BT
@@ -1257,92 +1515,3 @@ class GestionnaireBonsTravail:
         except Exception as e:
             print(f"❌ Erreur historique BT #{bt_id}: {e}")
             return []
-    
-    def mettre_a_jour_avancement_operation(self, bt_id: int, operation_id: int, 
-                                         pourcentage: float, temps_reel: float = 0, 
-                                         notes: str = "", employe_id: int = None) -> bool:
-        """
-        Met à jour l'avancement d'une opération spécifique du BT.
-        
-        Args:
-            bt_id: ID du BT
-            operation_id: ID de l'opération
-            pourcentage: Pourcentage de réalisation (0-100)
-            temps_reel: Temps réel passé
-            notes: Notes sur l'avancement
-            employe_id: ID de l'employé qui fait la mise à jour
-            
-        Returns:
-            bool: True si succès
-        """
-        try:
-            # Validation
-            if not (0 <= pourcentage <= 100):
-                st.error("Le pourcentage doit être entre 0 et 100")
-                return False
-            
-            # Vérifier si l'enregistrement existe
-            existing = self.db.execute_query(
-                "SELECT id FROM bt_avancement WHERE bt_id = ? AND operation_id = ?",
-                (bt_id, operation_id)
-            )
-            
-            if existing:
-                # Mise à jour
-                query = """
-                    UPDATE bt_avancement 
-                    SET pourcentage_realise = ?, 
-                        temps_reel = ?, 
-                        notes_avancement = ?,
-                        updated_by = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE bt_id = ? AND operation_id = ?
-                """
-                params = (pourcentage, temps_reel, notes, employe_id, bt_id, operation_id)
-            else:
-                # Création
-                query = """
-                    INSERT INTO bt_avancement 
-                    (bt_id, operation_id, pourcentage_realise, temps_reel, notes_avancement, updated_by)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """
-                params = (bt_id, operation_id, pourcentage, temps_reel, notes, employe_id)
-            
-            affected = self.db.execute_update(query, params)
-            
-            if affected > 0:
-                print(f"✅ Avancement opération #{operation_id} mis à jour: {pourcentage}%")
-                
-                # Marquer l'opération comme terminée si 100%
-                if pourcentage >= 100:
-                    self._marquer_operation_terminee(operation_id)
-                
-                return True
-            
-            return False
-            
-        except Exception as e:
-            st.error(f"Erreur mise à jour avancement: {e}")
-            print(f"❌ Erreur avancement opération #{operation_id}: {e}")
-            return False
-    
-    def _marquer_operation_terminee(self, operation_id: int) -> None:
-        """
-        Marque une opération comme terminée dans la table operations.
-        
-        Args:
-            operation_id: ID de l'opération
-        """
-        try:
-            query = """
-                UPDATE operations 
-                SET statut = 'TERMINÉ', updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND statut != 'TERMINÉ'
-            """
-            affected = self.db.execute_update(query, (operation_id,))
-            
-            if affected > 0:
-                print(f"✅ Opération #{operation_id} marquée terminée")
-                
-        except Exception as e:
-            print(f"❌ Erreur marquage opération terminée #{operation_id}: {e}")
