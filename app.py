@@ -2273,9 +2273,11 @@ def main():
     if 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
     
-    # Les autres gestionnaires restent inchangés pour l'instant
+    # CORRECTION CRITIQUE : CRM avec base SQLite unifiée
     if 'gestionnaire_crm' not in st.session_state:
-        st.session_state.gestionnaire_crm = GestionnaireCRM()
+        st.session_state.gestionnaire_crm = GestionnaireCRM(st.session_state.erp_db)  # ✅ FIX ICI
+    
+    # Gestionnaire employés (reste identique pour l'instant)
     if 'gestionnaire_employes' not in st.session_state:
         st.session_state.gestionnaire_employes = GestionnaireEmployes()
     
