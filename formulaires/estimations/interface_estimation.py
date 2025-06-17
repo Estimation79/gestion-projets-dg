@@ -497,25 +497,89 @@ def render_estimation_list(gestionnaire_estimation):
             expirees = len([e for e in estimations if 'Expirée' in str(e.get('statut_validite', ''))])
             st.metric("⏰ Expirées", expirees)
         
-        # Interface de liste simplifiée pour éviter les erreurs
-        st.markdown("##### 📋 Estimations Disponibles")
+        # Filtres avancés
+        with st.expander("🔍 Filtres et Recherche", expanded=False):
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+            
+            with col_f1:
+                filtre_statut = st.multiselect("Statut", 
+                    ['BROUILLON', 'VALIDÉ', 'ENVOYÉ', 'APPROUVÉ', 'TERMINÉ', 'ANNULÉ'], 
+                    default=['BROUILLON', 'VALIDÉ', 'ENVOYÉ', 'APPROUVÉ'])
+            with col_f2:
+                filtre_template = st.multiselect("Template", 
+                    ['AUTOMOBILE', 'AERONAUTIQUE', 'CONSTRUCTION', 'GENERAL'], 
+                    default=['AUTOMOBILE', 'AERONAUTIQUE', 'CONSTRUCTION', 'GENERAL'])
+            with col_f3:
+                filtre_validite = st.selectbox("Validité", 
+                    ["Toutes", "Valides", "Expirent ≤ 7j", "Expirées"])
+            with col_f4:
+                recherche = st.text_input("🔍 Rechercher", placeholder="Client, numéro...")
         
-        if estimations:
-            for est in estimations[:10]:  # Limiter l'affichage
-                with st.expander(f"EST {est.get('numero_document', 'N/A')} - {est.get('company_nom', 'N/A')}"):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.write(f"**Statut:** {est.get('statut', 'N/A')}")
-                        st.write(f"**Template:** {est.get('template_industrie', 'N/A')}")
-                    with col2:
-                        montant = est.get('montant_total', 0) or 0
-                        st.write(f"**Montant:** {montant:,.2f}$ CAD")
-                        st.write(f"**Priorité:** {est.get('priorite', 'N/A')}")
-                    with col3:
-                        if st.button("👁️ Détails", key=f"detail_{est.get('id')}", use_container_width=True):
-                            st.info("Fonctionnalité de détails en cours d'implémentation")
+        # Application des filtres
+        estimations_filtrees = []
+        for est in estimations:
+            if est['statut'] not in filtre_statut:
+                continue
+            if est.get('template_industrie') not in filtre_template:
+                continue
+            if recherche and recherche.lower() not in est.get('company_nom', '').lower():
+                continue
+            
+            estimations_filtrees.append(est)
+        
+        # Tableau des résultats
+        if estimations_filtrees:
+            df_data = []
+            for est in estimations_filtrees:
+                priorite_icon = {'CRITIQUE': '🔴', 'URGENT': '🟡', 'NORMAL': '🟢'}.get(est['priorite'], '⚪')
+                statut_icon = {
+                    'BROUILLON': '📝', 'VALIDÉ': '✅', 'ENVOYÉ': '📤', 
+                    'APPROUVÉ': '👍', 'TERMINÉ': '✔️', 'ANNULÉ': '❌'
+                }.get(est['statut'], '❓')
+                
+                df_data.append({
+                    'N° EST': f"{est['numero_document']} v{est.get('version', 1)}",
+                    'Client': est.get('company_nom', 'N/A'),
+                    'Template': est.get('template_industrie', 'N/A'),
+                    'Statut': f"{statut_icon} {est['statut']}",
+                    'Priorité': f"{priorite_icon} {est['priorite']}",
+                    'Validité': est.get('statut_validite', 'N/A'),
+                    'Montant TTC': f"{est.get('montant_total', 0) or 0:,.2f}$ CAD"
+                })
+            
+            df = pd.DataFrame(df_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Actions rapides
+            st.markdown("##### ⚡ Actions Rapides")
+            col_action1, col_action2, col_action3, col_action4 = st.columns(4)
+            
+            with col_action1:
+                est_selectionne = st.selectbox("Sélectionner une EST", 
+                                             options=[est['id'] for est in estimations_filtrees],
+                                             format_func=lambda x: next((est['numero_document'] for est in estimations_filtrees if est['id'] == x), ""))
+            
+            with col_action2:
+                if st.button("👁️ Voir Détails", use_container_width=True):
+                    if est_selectionne:
+                        st.session_state.selected_formulaire_id = est_selectionne
+                        st.session_state.show_formulaire_modal = True
+            
+            with col_action3:
+                if st.button("🔄 Créer Version", use_container_width=True):
+                    if est_selectionne:
+                        st.session_state.base_estimation_id = est_selectionne
+                        st.session_state.form_action = "manage_versions"
+                        st.rerun()
+            
+            with col_action4:
+                if st.button("✅ Marquer Acceptée", use_container_width=True):
+                    if est_selectionne:
+                        if _marquer_estimation_acceptee(gestionnaire_estimation, est_selectionne):
+                            st.success("✅ Estimation marquée comme acceptée!")
+                            st.rerun()
         else:
-            st.info("Aucune estimation trouvée")
+            st.info("Aucune estimation ne correspond aux critères.")
             
     except Exception as e:
         st.error(f"Erreur affichage liste estimations: {e}")
@@ -524,22 +588,220 @@ def render_estimation_list(gestionnaire_estimation):
 def render_manage_versions(gestionnaire_estimation):
     """Interface de gestion des versions d'estimations."""
     st.markdown("#### 🔄 Gestion des Versions")
-    st.info("Fonctionnalité de gestion des versions en cours d'implémentation...")
+    
+    base_estimation_id = st.session_state.get('base_estimation_id')
+    
+    if not base_estimation_id:
+        # Sélection de l'estimation de base
+        try:
+            estimations = gestionnaire_estimation.get_estimations()
+            if estimations:
+                base_estimation_id = st.selectbox("Estimation de Base", 
+                                                options=[est['id'] for est in estimations],
+                                                format_func=lambda x: next((f"{est['numero_document']} - {est.get('company_nom', 'N/A')}" for est in estimations if est['id'] == x), ""))
+            else:
+                st.info("Aucune estimation disponible.")
+                return
+        except Exception as e:
+            st.error(f"Erreur récupération estimations: {e}")
+            return
+    
+    if base_estimation_id:
+        # Interface création nouvelle version
+        st.markdown("##### ➕ Créer Nouvelle Version")
+        
+        with st.form("nouvelle_version_form"):
+            col_nv1, col_nv2 = st.columns(2)
+            
+            with col_nv1:
+                motif_revision = st.text_area("Motif de la Révision *",
+                    placeholder="Expliquez pourquoi cette nouvelle version est nécessaire...",
+                    help="Exemple: Demande client, changement spécifications, révision prix")
+                
+                ajustement_prix = st.selectbox("Ajustement Prix",
+                    ["Aucun", "Augmentation", "Diminution", "Révision complète"])
+                
+                if ajustement_prix != "Aucun":
+                    pourcentage_ajustement = st.slider("Pourcentage d'Ajustement (%)", -50, 50, 0)
+                else:
+                    pourcentage_ajustement = 0
+            
+            with col_nv2:
+                nouveau_template = st.selectbox("Nouveau Template (optionnel)",
+                    ["Inchangé", "AUTOMOBILE", "AERONAUTIQUE", "CONSTRUCTION", "GENERAL"])
+                
+                nouvelle_marge = st.slider("Nouvelle Marge (%)", 5, 50, 20)
+                
+                nouvelle_validite = st.number_input("Nouvelle Validité (jours)", 
+                    min_value=15, value=30, max_value=90)
+            
+            submit_version = st.form_submit_button("🔄 Créer Nouvelle Version", use_container_width=True)
+            
+            if submit_version and motif_revision:
+                try:
+                    modifications = {
+                        'description_modifications': motif_revision,
+                        'ajustement_prix': ajustement_prix,
+                        'pourcentage_ajustement': pourcentage_ajustement,
+                        'validite_devis': nouvelle_validite
+                    }
+                    
+                    if nouveau_template != "Inchangé":
+                        modifications['template_industrie'] = nouveau_template
+                    if nouvelle_marge:
+                        modifications['marge_beneficiaire'] = nouvelle_marge
+                    
+                    # Calcul nouveau montant basé sur ajustement
+                    est_base = gestionnaire_estimation.base.get_formulaire_details(base_estimation_id)
+                    montant_actuel = est_base.get('montant_total', 0) or 0
+                    if ajustement_prix != "Aucun":
+                        nouveau_montant = montant_actuel * (1 + pourcentage_ajustement / 100)
+                    else:
+                        nouveau_montant = montant_actuel
+                    
+                    modifications['nouveau_montant'] = nouveau_montant
+                    
+                    nouvelle_version_id = gestionnaire_estimation.creer_nouvelle_version(
+                        base_estimation_id, motif_revision, modifications
+                    )
+                    
+                    if nouvelle_version_id:
+                        st.success(f"✅ Nouvelle version créée avec succès!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de la création de la nouvelle version")
+                except Exception as e:
+                    st.error(f"❌ Erreur création version: {e}")
 
 def render_estimations_acceptees(gestionnaire_estimation):
     """Interface des estimations acceptées et conversion en projets."""
     st.markdown("#### ✅ Estimations Acceptées")
-    st.info("Fonctionnalité de conversion en projets en cours d'implémentation...")
+    
+    try:
+        estimations_acceptees = [est for est in gestionnaire_estimation.get_estimations() 
+                               if est['statut'] == 'APPROUVÉ']
+        
+        if not estimations_acceptees:
+            st.info("Aucune estimation acceptée en attente de conversion.")
+            return
+        
+        st.markdown("##### 🔄 Conversion en Projets")
+        
+        for est in estimations_acceptees:
+            with st.expander(f"EST {est['numero_document']} - {est.get('company_nom', 'N/A')}", expanded=False):
+                col_conv1, col_conv2, col_conv3 = st.columns(3)
+                
+                with col_conv1:
+                    montant = est.get('montant_total', 0) or 0
+                    st.metric("Montant Validé", f"{montant:,.2f}$ CAD")
+                    st.text(f"Template: {est.get('template_industrie', 'N/A')}")
+                
+                with col_conv2:
+                    st.text(f"Version: v{est.get('version', 1)}")
+                    st.text(f"Validité: {est.get('statut_validite', 'N/A')}")
+                
+                with col_conv3:
+                    if st.button(f"🔄 Convertir → Projet", key=f"convert_{est['id']}", use_container_width=True):
+                        try:
+                            projet_id = gestionnaire_estimation.convertir_vers_projet(est['id'])
+                            if projet_id:
+                                st.success(f"✅ Projet #{projet_id} créé depuis EST {est['numero_document']}")
+                                st.rerun()
+                            else:
+                                st.error("❌ Erreur conversion")
+                        except Exception as e:
+                            st.error(f"❌ Erreur: {e}")
+    except Exception as e:
+        st.error(f"Erreur estimations acceptées: {e}")
 
 def render_analyse_rentabilite(gestionnaire_estimation):
     """Interface d'analyse de rentabilité des estimations."""
     st.markdown("#### 📊 Analyse de Rentabilité")
-    st.info("Fonctionnalité d'analyse de rentabilité en cours d'implémentation...")
+    
+    try:
+        stats = gestionnaire_estimation.get_statistiques_estimation()
+        
+        # Métriques globales
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total = stats.get('total', 0) or 0
+            st.metric("Total Estimations", total)
+        with col2:
+            taux = stats.get('taux_acceptation', 0) or 0
+            st.metric("Taux d'Acceptation", f"{taux:.1f}%")
+        with col3:
+            ca_realise = stats.get('ca_realise', 0) or 0
+            st.metric("CA Réalisé", f"{ca_realise:,.0f}$ CAD")
+        with col4:
+            montant_moyen = stats.get('montant_moyen', 0) or 0
+            st.metric("Montant Moyen", f"{montant_moyen:,.0f}$ CAD")
+        
+        # Analyse par template
+        par_template = stats.get('par_template', {})
+        if par_template:
+            st.markdown("##### 📈 Performance par Template")
+            
+            df_templates = []
+            for template, data in par_template.items():
+                df_templates.append({
+                    'Template': template,
+                    'Total': data['total'],
+                    'Acceptées': data['acceptees'],
+                    'Taux (%)': f"{data['taux_acceptation']:.1f}",
+                    'CA': f"{data['montant_total']:,.0f}$ CAD"
+                })
+            
+            if df_templates:
+                df = pd.DataFrame(df_templates)
+                st.dataframe(df, use_container_width=True)
+        else:
+            st.info("Aucune donnée d'analyse disponible")
+            
+    except Exception as e:
+        st.error(f"Erreur analyse rentabilité: {e}")
 
 def render_estimation_stats(gestionnaire_estimation):
     """Interface des statistiques détaillées."""
     st.markdown("#### 📊 Statistiques Estimations")
-    st.info("Fonctionnalité de statistiques détaillées en cours d'implémentation...")
+    
+    try:
+        stats = gestionnaire_estimation.get_statistiques_estimation()
+        estimations = gestionnaire_estimation.get_estimations()
+        
+        if not estimations:
+            st.info("Aucune donnée pour les statistiques.")
+            return
+        
+        # Graphiques
+        col_g1, col_g2 = st.columns(2)
+        
+        with col_g1:
+            # Répartition par statut
+            statut_counts = {}
+            for est in estimations:
+                statut = est['statut']
+                statut_counts[statut] = statut_counts.get(statut, 0) + 1
+            
+            if statut_counts:
+                fig = px.pie(values=list(statut_counts.values()), names=list(statut_counts.keys()),
+                            title="📊 Répartition par Statut")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col_g2:
+            # Répartition par template
+            template_counts = {}
+            for est in estimations:
+                template = est.get('template_industrie', 'GENERAL')
+                template_counts[template] = template_counts.get(template, 0) + 1
+            
+            if template_counts:
+                fig = px.bar(x=list(template_counts.keys()), y=list(template_counts.values()),
+                            title="📈 Estimations par Template")
+                st.plotly_chart(fig, use_container_width=True)
+                
+    except Exception as e:
+        st.error(f"Erreur statistiques: {e}")
 
 # Fonctions utilitaires
 def _get_projets_client(client_id):
@@ -574,3 +836,13 @@ def _creer_lignes_depuis_calculs(calculs_auto):
         })
     
     return lignes
+
+def _marquer_estimation_acceptee(gestionnaire_estimation, estimation_id):
+    """Marque une estimation comme acceptée."""
+    try:
+        gestionnaire_estimation.base.modifier_statut_formulaire(
+            estimation_id, 'APPROUVÉ', 1, "Estimation acceptée par le client"
+        )
+        return True
+    except:
+        return False
