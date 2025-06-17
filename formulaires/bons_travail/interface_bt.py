@@ -1,9 +1,10 @@
 # formulaires/bons_travail/interface_bt.py
-# Interface utilisateur pour les Bons de Travail
+# Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE CORRIGÉE
 
 """
 Interface utilisateur pour les Bons de Travail.
 Contient tous les composants d'affichage et d'interaction pour les BT.
+VERSION CORRIGÉE : Boutons hors formulaire pour éviter erreurs Streamlit
 """
 
 import streamlit as st
@@ -110,13 +111,46 @@ def _render_actions_rapides_bt(gestionnaire_bt):
 
 def render_bon_travail_form(gestionnaire_bt):
     """
-    Formulaire de création de Bon de Travail avec logique métier BT.
+    Formulaire de création de Bon de Travail - VERSION CORRIGÉE
     
     Args:
         gestionnaire_bt: Instance du gestionnaire BT spécialisé
     """
     st.markdown("#### ➕ Nouveau Bon de Travail")
     
+    # CORRECTION CRITIQUE : Gérer le succès de création AVANT le formulaire
+    if st.session_state.get('bt_creation_success'):
+        success_info = st.session_state.bt_creation_success
+        
+        st.success(f"✅ Bon de Travail {success_info['numero']} créé avec succès!")
+        
+        if success_info.get('urgent'):
+            st.warning("🚨 **BT URGENT** - Équipe notifiée pour démarrage immédiat")
+        
+        # Actions suivantes - HORS FORMULAIRE (CORRECTION PRINCIPALE)
+        col_next1, col_next2, col_next3 = st.columns(3)
+        
+        with col_next1:
+            if st.button("📋 Voir la Liste", use_container_width=True, key="bt_voir_liste_success"):
+                st.session_state.bt_creation_success = None
+                st.session_state.form_action = "list_bon_travail"
+                st.rerun()
+        
+        with col_next2:
+            if st.button("👁️ Voir Détails", use_container_width=True, key="bt_voir_details_success"):
+                st.session_state.selected_formulaire_id = success_info['bt_id']
+                st.session_state.show_formulaire_modal = True
+                st.session_state.bt_creation_success = None
+                st.rerun()
+        
+        with col_next3:
+            if st.button("➕ Créer un Autre", use_container_width=True, key="bt_creer_autre_success"):
+                st.session_state.bt_creation_success = None
+                st.rerun()
+        
+        return  # IMPORTANT : Arrêter ici si on affiche le succès
+    
+    # FORMULAIRE PRINCIPAL - Commence ici seulement si pas de succès
     with st.form("bon_travail_form", clear_on_submit=True):
         # En-tête du formulaire
         col1, col2 = st.columns(2)
@@ -129,6 +163,7 @@ def render_bon_travail_form(gestionnaire_bt):
             projets = get_projets_actifs()
             if not projets:
                 st.error("❌ Aucun projet actif. Créez d'abord un projet dans le module Projets.")
+                st.form_submit_button("❌ Formulaire Indisponible", disabled=True)
                 return
             
             projet_options = [("", "Sélectionner un projet")] + [(p['id'], f"#{p['id']} - {p['nom_projet']}") for p in projets]
@@ -146,12 +181,16 @@ def render_bon_travail_form(gestionnaire_bt):
             
             # Employé responsable
             employes = get_employes_actifs()
-            employe_options = [("", "Sélectionner un responsable")] + [(e['id'], f"{e['prenom']} {e['nom']} - {e['poste']}") for e in employes]
-            employe_id = st.selectbox(
-                "Responsable *",
-                options=[e[0] for e in employe_options],
-                format_func=lambda x: next((e[1] for e in employe_options if e[0] == x), "")
-            )
+            if not employes:
+                st.error("❌ Aucun employé actif trouvé.")
+                employe_id = ""
+            else:
+                employe_options = [("", "Sélectionner un responsable")] + [(e['id'], f"{e['prenom']} {e['nom']} - {e['poste']}") for e in employes]
+                employe_id = st.selectbox(
+                    "Responsable *",
+                    options=[e[0] for e in employe_options],
+                    format_func=lambda x: next((e[1] for e in employe_options if e[0] == x), "")
+                )
             
             date_echeance = st.date_input("Date d'Échéance", datetime.now().date() + timedelta(days=7))
         
@@ -163,6 +202,8 @@ def render_bon_travail_form(gestionnaire_bt):
         st.markdown("##### 🔧 Opérations à Réaliser")
         
         operations_selectionnees = []
+        temps_total_estime = 0
+        
         if projet_id:
             operations_projet = get_operations_projet(projet_id)
             
@@ -179,7 +220,6 @@ def render_bon_travail_form(gestionnaire_bt):
                 # Affichage détaillé des opérations sélectionnées
                 if operations_selectionnees:
                     st.markdown("**Opérations sélectionnées :**")
-                    temps_total_estime = 0
                     
                     for op_id in operations_selectionnees:
                         operation = next((op for op in operations_projet if op['id'] == op_id), None)
@@ -188,7 +228,7 @@ def render_bon_travail_form(gestionnaire_bt):
                             with col_op1:
                                 st.text(f"#{operation['sequence']} - {operation['description']}")
                             with col_op2:
-                                temps_estime = operation.get('temps_estime', 0)
+                                temps_estime = operation.get('temps_estime', 0) or 0
                                 st.text(f"{temps_estime}h estimées")
                                 temps_total_estime += temps_estime
                             with col_op3:
@@ -203,20 +243,22 @@ def render_bon_travail_form(gestionnaire_bt):
         # SPÉCIFICITÉ BT : Équipe assignée
         st.markdown("##### 👥 Équipe Assignée")
         
-        employes_assignes = st.multiselect(
-            "Employés Assignés à ce BT",
-            options=[e['id'] for e in employes],
-            format_func=lambda x: next((f"{e['prenom']} {e['nom']} - {e['poste']}" for e in employes if e['id'] == x), ""),
-            help="Employés qui travailleront sur ce BT (en plus du responsable)"
-        )
-        
-        # Affichage de l'équipe
-        if employes_assignes:
-            st.markdown("**Équipe assignée :**")
-            for emp_id in employes_assignes:
-                employe = next((e for e in employes if e['id'] == emp_id), None)
-                if employe:
-                    st.text(f"• {employe['prenom']} {employe['nom']} ({employe['poste']})")
+        employes_assignes = []
+        if employes:
+            employes_assignes = st.multiselect(
+                "Employés Assignés à ce BT",
+                options=[e['id'] for e in employes],
+                format_func=lambda x: next((f"{e['prenom']} {e['nom']} - {e['poste']}" for e in employes if e['id'] == x), ""),
+                help="Employés qui travailleront sur ce BT (en plus du responsable)"
+            )
+            
+            # Affichage de l'équipe
+            if employes_assignes:
+                st.markdown("**Équipe assignée :**")
+                for emp_id in employes_assignes:
+                    employe = next((e for e in employes if e['id'] == emp_id), None)
+                    if employe:
+                        st.text(f"• {employe['prenom']} {employe['nom']} ({employe['poste']})")
         
         # SPÉCIFICITÉ BT : Matériaux requis
         st.markdown("##### 📦 Matériaux Requis")
@@ -285,7 +327,7 @@ def render_bon_travail_form(gestionnaire_bt):
             </div>
             """, unsafe_allow_html=True)
         
-        # Boutons de soumission
+        # Boutons de soumission - DANS LE FORMULAIRE (OK)
         st.markdown("---")
         col_submit1, col_submit2, col_submit3 = st.columns(3)
         
@@ -296,7 +338,7 @@ def render_bon_travail_form(gestionnaire_bt):
         with col_submit3:
             submit_urgent = st.form_submit_button("🚨 Urgent - Démarrer Immédiatement", use_container_width=True)
         
-        # Traitement de la soumission
+        # Traitement de la soumission - DANS LE FORMULAIRE (OK)
         if submit_brouillon or submit_valide or submit_urgent:
             # Validation
             if not projet_id or not employe_id or not description:
@@ -347,33 +389,20 @@ Coût estimé : {formater_montant(montant_total_estime)}
                 'operations_selectionnees': operations_selectionnees,
                 'employes_assignes': employes_assignes,
                 'description': description,  # Pour validation
-                'temps_estime_total': sum(op.get('temps_estime', 0) for op in get_operations_projet(projet_id) if op['id'] in operations_selectionnees)
+                'temps_estime_total': temps_total_estime
             }
             
             # Création du BT via le gestionnaire spécialisé
             bt_id = gestionnaire_bt.creer_bon_travail(data)
             
             if bt_id:
-                # Messages de succès personnalisés
-                if submit_urgent:
-                    st.success(f"🚨 Bon de Travail URGENT {numero_bt} créé et prêt à démarrer!")
-                    st.info("⚡ L'équipe assignée a été notifiée pour démarrage immédiat.")
-                else:
-                    st.success(f"✅ Bon de Travail {numero_bt} créé avec succès!")
-                
-                # Actions suivantes
-                col_next1, col_next2, col_next3 = st.columns(3)
-                with col_next1:
-                    if st.button("📋 Voir la Liste", use_container_width=True, key="bt_voir_liste"):
-                        st.session_state.form_action = "list_bon_travail"
-                        st.rerun()
-                with col_next2:
-                    if st.button("👁️ Voir Détails", use_container_width=True, key="bt_voir_details"):
-                        st.session_state.selected_formulaire_id = bt_id
-                        st.session_state.show_formulaire_modal = True
-                with col_next3:
-                    if st.button("➕ Créer un Autre", use_container_width=True, key="bt_creer_autre"):
-                        st.rerun()
+                # CORRECTION CRITIQUE : Stocker dans session_state et forcer rerun
+                st.session_state.bt_creation_success = {
+                    'bt_id': bt_id,
+                    'numero': numero_bt,
+                    'urgent': submit_urgent
+                }
+                st.rerun()  # Force la sortie du formulaire
 
 
 def render_bon_travail_list(gestionnaire_bt):
