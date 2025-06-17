@@ -1,9 +1,10 @@
 # formulaires/utils/helpers.py
-# Fonctions utilitaires communes pour les formulaires
+# Fonctions utilitaires communes pour les formulaires - VERSION CORRIGÉE SQLite
 
 """
 Fonctions utilitaires communes utilisées dans tous les modules de formulaires.
 Inclut les fonctions de récupération de données depuis la base ERP.
+VERSION CORRIGÉE : Utilise les bonnes colonnes SQLite selon le schéma erp_database.py
 """
 
 import streamlit as st
@@ -13,7 +14,7 @@ import hashlib
 
 
 # =============================================================================
-# FONCTIONS DE RÉCUPÉRATION DE DONNÉES ERP
+# FONCTIONS DE RÉCUPÉRATION DE DONNÉES ERP - CORRIGÉES
 # =============================================================================
 
 def get_projets_actifs() -> List[Dict]:
@@ -26,7 +27,7 @@ def get_projets_actifs() -> List[Dict]:
     try:
         query = """
             SELECT id, nom_projet, statut, prix_estime, client_company_id,
-                   date_soumis, date_prevu
+                   date_soumis, date_prevu, client_nom_cache
             FROM projects 
             WHERE statut NOT IN ('TERMINÉ', 'ANNULÉ') 
             ORDER BY nom_projet
@@ -47,7 +48,7 @@ def get_employes_actifs() -> List[Dict]:
     """
     try:
         query = """
-            SELECT id, prenom, nom, poste, departement, email, telephone
+            SELECT id, prenom, nom, poste, departement, email, telephone, statut
             FROM employees 
             WHERE statut = 'ACTIF' 
             ORDER BY prenom, nom
@@ -68,9 +69,10 @@ def get_fournisseurs_actifs() -> List[Dict]:
     """
     try:
         query = """
-            SELECT id, nom, secteur, adresse, email, telephone, pays
+            SELECT id, nom, secteur, adresse, site_web, contact_principal_id
             FROM companies 
-            WHERE secteur LIKE '%FOURNISSEUR%' 
+            WHERE type_company = 'FOURNISSEUR'
+               OR secteur LIKE '%FOURNISSEUR%' 
                OR secteur LIKE '%DISTRIBUTION%' 
                OR secteur LIKE '%COMMERCE%'
                OR id IN (
@@ -96,9 +98,9 @@ def get_clients_actifs() -> List[Dict]:
     """
     try:
         query = """
-            SELECT id, nom, secteur, adresse, email, telephone, pays
+            SELECT id, nom, secteur, adresse, site_web, contact_principal_id
             FROM companies 
-            WHERE secteur NOT LIKE '%FOURNISSEUR%' 
+            WHERE type_company != 'FOURNISSEUR'
                OR id IN (
                    SELECT DISTINCT company_id 
                    FROM formulaires 
@@ -126,7 +128,7 @@ def get_operations_projet(projet_id: int) -> List[Dict]:
     try:
         query = """
             SELECT id, sequence_number as sequence, description, temps_estime,
-                   work_center_id, statut
+                   work_center_id, statut, ressource, poste_travail
             FROM operations 
             WHERE project_id = ? 
             ORDER BY sequence_number
@@ -151,7 +153,7 @@ def get_materiaux_projet(projet_id: int) -> List[Dict]:
     try:
         query = """
             SELECT id, designation as description, quantite, prix_unitaire, 
-                   unite, statut
+                   unite, code_materiau, fournisseur
             FROM materials 
             WHERE project_id = ?
             ORDER BY designation
@@ -166,13 +168,16 @@ def get_materiaux_projet(projet_id: int) -> List[Dict]:
 def get_work_centers_actifs() -> List[Dict]:
     """
     Récupère la liste des postes de travail actifs.
+    CORRIGÉ: Utilise les bonnes colonnes selon erp_database.py
     
     Returns:
         List[Dict]: Liste des postes de travail
     """
     try:
         query = """
-            SELECT id, nom, departement, cout_horaire, capacite_max
+            SELECT id, nom, departement, categorie, type_machine, 
+                   capacite_theorique, operateurs_requis, cout_horaire, 
+                   competences_requises, statut, localisation
             FROM work_centers 
             WHERE statut = 'ACTIF'
             ORDER BY departement, nom
@@ -187,14 +192,17 @@ def get_work_centers_actifs() -> List[Dict]:
 def get_articles_inventaire() -> List[Dict]:
     """
     Récupère tous les articles de l'inventaire.
+    CORRIGÉ: Utilise les bonnes colonnes selon erp_database.py
     
     Returns:
         List[Dict]: Liste des articles avec stock
     """
     try:
         query = """
-            SELECT id, nom, type_produit, quantite_imperial, 
-                   limite_minimale_imperial, statut, prix_unitaire_moyen
+            SELECT id, nom, type_produit, quantite_imperial, quantite_metric,
+                   limite_minimale_imperial, limite_minimale_metric,
+                   quantite_reservee_imperial, quantite_reservee_metric,
+                   statut, description, notes, fournisseur_principal, code_interne
             FROM inventory_items 
             ORDER BY nom
         """
@@ -208,14 +216,16 @@ def get_articles_inventaire() -> List[Dict]:
 def get_articles_inventaire_critique() -> List[Dict]:
     """
     Récupère les articles avec stock critique nécessitant réapprovisionnement.
+    CORRIGÉ: Utilise les bonnes colonnes selon erp_database.py
     
     Returns:
         List[Dict]: Articles en stock critique
     """
     try:
         query = """
-            SELECT id, nom, type_produit, quantite_imperial, 
-                   limite_minimale_imperial, statut
+            SELECT id, nom, type_produit, quantite_imperial, quantite_metric,
+                   limite_minimale_imperial, limite_minimale_metric, statut,
+                   description, fournisseur_principal
             FROM inventory_items 
             WHERE statut IN ('CRITIQUE', 'FAIBLE', 'ÉPUISÉ')
             ORDER BY 
@@ -235,6 +245,7 @@ def get_articles_inventaire_critique() -> List[Dict]:
 def search_articles_inventaire(search_term: str) -> List[Dict]:
     """
     Recherche dans l'inventaire par nom ou type.
+    CORRIGÉ: Utilise les bonnes colonnes selon erp_database.py
     
     Args:
         search_term: Terme de recherche
@@ -247,15 +258,17 @@ def search_articles_inventaire(search_term: str) -> List[Dict]:
             return []
         
         query = """
-            SELECT id, nom, type_produit, quantite_imperial, statut, prix_unitaire_moyen
+            SELECT id, nom, type_produit, quantite_imperial, quantite_metric,
+                   statut, description, fournisseur_principal
             FROM inventory_items 
             WHERE LOWER(nom) LIKE LOWER(?) 
                OR LOWER(type_produit) LIKE LOWER(?)
+               OR LOWER(description) LIKE LOWER(?)
             ORDER BY nom
             LIMIT 20
         """
         search_pattern = f"%{search_term}%"
-        rows = st.session_state.erp_db.execute_query(query, (search_pattern, search_pattern))
+        rows = st.session_state.erp_db.execute_query(query, (search_pattern, search_pattern, search_pattern))
         return [dict(row) for row in rows]
     except Exception as e:
         st.error(f"Erreur recherche inventaire: {e}")
@@ -274,7 +287,8 @@ def get_projets_client(client_id: int) -> List[Dict]:
     """
     try:
         query = """
-            SELECT id, nom_projet, statut, prix_estime, date_soumis, date_prevu
+            SELECT id, nom_projet, statut, prix_estime, date_soumis, date_prevu,
+                   bd_ft_estime, description
             FROM projects 
             WHERE client_company_id = ? 
             ORDER BY date_soumis DESC
@@ -289,6 +303,7 @@ def get_projets_client(client_id: int) -> List[Dict]:
 def get_poste_travail(work_center_id: int) -> Optional[Dict]:
     """
     Récupère les informations d'un poste de travail spécifique.
+    CORRIGÉ: Utilise les bonnes colonnes selon erp_database.py
     
     Args:
         work_center_id: ID du poste de travail
@@ -301,7 +316,9 @@ def get_poste_travail(work_center_id: int) -> Optional[Dict]:
             return None
         
         query = """
-            SELECT id, nom, cout_horaire, departement, capacite_max
+            SELECT id, nom, cout_horaire, departement, capacite_theorique,
+                   categorie, type_machine, operateurs_requis, competences_requises,
+                   statut, localisation
             FROM work_centers 
             WHERE id = ?
         """
@@ -310,6 +327,161 @@ def get_poste_travail(work_center_id: int) -> Optional[Dict]:
     except Exception as e:
         st.error(f"Erreur récupération poste travail: {e}")
         return None
+
+
+def get_companies_by_type(company_type: str = None) -> List[Dict]:
+    """
+    Récupère les entreprises par type (CLIENT, FOURNISSEUR, etc.)
+    
+    Args:
+        company_type: Type d'entreprise recherché
+        
+    Returns:
+        List[Dict]: Liste des entreprises
+    """
+    try:
+        if company_type:
+            # Recherche par secteur, type_company ou notes
+            query = """
+                SELECT id, nom, secteur, adresse, site_web, type_company,
+                       contact_principal_id, notes
+                FROM companies 
+                WHERE UPPER(secteur) LIKE UPPER(?) 
+                   OR UPPER(type_company) LIKE UPPER(?)
+                   OR UPPER(notes) LIKE UPPER(?)
+                ORDER BY nom
+            """
+            pattern = f"%{company_type}%"
+            rows = st.session_state.erp_db.execute_query(query, (pattern, pattern, pattern))
+        else:
+            query = """
+                SELECT id, nom, secteur, adresse, site_web, type_company,
+                       contact_principal_id, notes
+                FROM companies 
+                ORDER BY nom
+            """
+            rows = st.session_state.erp_db.execute_query(query)
+        
+        return [dict(row) for row in rows]
+    except Exception as e:
+        st.error(f"Erreur récupération companies: {e}")
+        return []
+
+
+def get_contacts_company(company_id: int) -> List[Dict]:
+    """
+    Récupère les contacts d'une entreprise spécifique.
+    
+    Args:
+        company_id: ID de l'entreprise
+        
+    Returns:
+        List[Dict]: Liste des contacts de l'entreprise
+    """
+    try:
+        query = """
+            SELECT id, prenom, nom_famille, email, telephone, role_poste, notes
+            FROM contacts 
+            WHERE company_id = ?
+            ORDER BY prenom, nom_famille
+        """
+        rows = st.session_state.erp_db.execute_query(query, (company_id,))
+        return [dict(row) for row in rows]
+    except Exception as e:
+        st.error(f"Erreur récupération contacts: {e}")
+        return []
+
+
+def get_unites_mesure_disponibles() -> List[str]:
+    """
+    Récupère toutes les unités de mesure utilisées dans le système.
+    
+    Returns:
+        List[str]: Liste des unités de mesure
+    """
+    try:
+        # Unités de base
+        unites_base = [
+            "Pièces", "Kilogrammes", "Grammes", "Tonnes",
+            "Mètres", "Centimètres", "Millimètres", "Kilomètres",
+            "Mètres²", "Centimètres²", "Mètres³", "Centimètres³",
+            "Litres", "Millilitres", "Heures", "Minutes",
+            "Jours", "Semaines", "Mois"
+        ]
+        
+        # Unités depuis la base de données
+        try:
+            query_materials = "SELECT DISTINCT unite FROM materials WHERE unite IS NOT NULL AND unite != ''"
+            unites_materials = st.session_state.erp_db.execute_query(query_materials)
+            unites_db = [u['unite'] for u in unites_materials if u['unite']]
+            
+            # Combiner et dédoublonner
+            all_unites = sorted(list(set(unites_base + unites_db)))
+            return all_unites
+            
+        except Exception:
+            return sorted(unites_base)
+            
+    except Exception as e:
+        st.error(f"Erreur récupération unités: {e}")
+        return ["Pièces", "Kilogrammes", "Mètres", "Heures"]
+
+
+def get_types_operations_disponibles() -> List[str]:
+    """
+    Récupère tous les types d'opération utilisés dans le système.
+    
+    Returns:
+        List[str]: Liste des types d'opération
+    """
+    try:
+        # Types de base pour DG Inc.
+        types_base = [
+            "Programmation CNC", "Découpe plasma", "Poinçonnage", "Soudage TIG",
+            "Soudage MIG", "Assemblage", "Meulage", "Polissage", "Emballage",
+            "Contrôle qualité", "Usinage conventionnel", "Perçage", "Taraudage",
+            "Pliage", "Roulage", "Finition", "Peinture", "Galvanisation"
+        ]
+        
+        # Types depuis la base de données
+        try:
+            query = """
+                SELECT DISTINCT description 
+                FROM operations 
+                WHERE description IS NOT NULL AND description != ''
+                ORDER BY description
+            """
+            types_db = st.session_state.erp_db.execute_query(query)
+            types_operations = [t['description'] for t in types_db if t['description']]
+            
+            # Combiner et dédoublonner
+            all_types = sorted(list(set(types_base + types_operations)))
+            return all_types
+            
+        except Exception:
+            return sorted(types_base)
+            
+    except Exception as e:
+        st.error(f"Erreur récupération types opération: {e}")
+        return sorted(types_base)
+
+
+def get_statuts_disponibles() -> Dict[str, List[str]]:
+    """
+    Récupère tous les statuts disponibles pour les différents éléments.
+    
+    Returns:
+        Dict[str, List[str]]: Statuts par type d'élément
+    """
+    return {
+        'formulaires': ['BROUILLON', 'VALIDÉ', 'ENVOYÉ', 'APPROUVÉ', 'TERMINÉ', 'ANNULÉ'],
+        'projets': ['À FAIRE', 'EN COURS', 'EN PAUSE', 'TERMINÉ', 'ANNULÉ'],
+        'operations': ['À FAIRE', 'EN COURS', 'EN PAUSE', 'TERMINÉ', 'ANNULÉ'],
+        'employees': ['ACTIF', 'INACTIF', 'CONGÉ', 'DÉMISSIONNÉ'],
+        'work_centers': ['ACTIF', 'INACTIF', 'MAINTENANCE', 'HORS_SERVICE'],
+        'inventory': ['DISPONIBLE', 'FAIBLE', 'CRITIQUE', 'ÉPUISÉ', 'COMMANDÉ'],
+        'priorites': ['NORMAL', 'URGENT', 'CRITIQUE']
+    }
 
 
 # =============================================================================
@@ -402,6 +574,96 @@ def generer_offres_fictives_rfq(dp_details: Dict, fournisseurs: List[Dict]) -> L
     return offres
 
 
+def calculer_prix_estime_article(article: Dict, quantite: float) -> float:
+    """
+    Calcule un prix estimé pour un article basé sur les données disponibles.
+    
+    Args:
+        article: Informations de l'article
+        quantite: Quantité demandée
+        
+    Returns:
+        float: Prix estimé total
+    """
+    try:
+        # Prix de base fictif basé sur le type de produit
+        prix_base_par_type = {
+            'ACIER': 2.5,
+            'ALUMINIUM': 4.0,
+            'INOX': 6.0,
+            'CUIVRE': 8.0,
+            'PLASTIQUE': 1.5,
+            'ÉLECTRONIQUE': 15.0,
+            'OUTIL': 25.0,
+            'CONSOMMABLE': 1.0
+        }
+        
+        type_produit = article.get('type_produit', '').upper()
+        prix_unitaire_base = 5.0  # Prix par défaut
+        
+        for type_key, prix in prix_base_par_type.items():
+            if type_key in type_produit:
+                prix_unitaire_base = prix
+                break
+        
+        # Variation selon la disponibilité
+        facteur_disponibilite = 1.0
+        statut = article.get('statut', '').upper()
+        if 'CRITIQUE' in statut or 'ÉPUISÉ' in statut:
+            facteur_disponibilite = 1.3  # Prix plus élevé si rare
+        elif 'FAIBLE' in statut:
+            facteur_disponibilite = 1.1
+        
+        prix_total = quantite * prix_unitaire_base * facteur_disponibilite
+        return round(prix_total, 2)
+        
+    except Exception:
+        return quantite * 5.0  # Prix de secours
+
+
+def convertir_quantite_metric(quantite_imperial: str, type_produit: str = "") -> float:
+    """
+    Convertit une quantité impériale en métrique (approximatif).
+    
+    Args:
+        quantite_imperial: Quantité en format impérial
+        type_produit: Type de produit pour contexte
+        
+    Returns:
+        float: Quantité en métrique
+    """
+    try:
+        if not quantite_imperial:
+            return 0.0
+        
+        # Extraction numérique simple
+        import re
+        numbers = re.findall(r'\d+\.?\d*', str(quantite_imperial))
+        if not numbers:
+            return 0.0
+        
+        value = float(numbers[0])
+        
+        # Conversions approximatives selon le contenu
+        quantite_str = str(quantite_imperial).lower()
+        
+        if 'lb' in quantite_str or 'livre' in quantite_str:
+            return value * 0.453592  # livres vers kg
+        elif 'oz' in quantite_str or 'once' in quantite_str:
+            return value * 0.0283495  # onces vers kg
+        elif 'ft' in quantite_str or 'pied' in quantite_str:
+            return value * 0.3048  # pieds vers mètres
+        elif 'in' in quantite_str or 'pouce' in quantite_str:
+            return value * 0.0254  # pouces vers mètres
+        elif 'gal' in quantite_str or 'gallon' in quantite_str:
+            return value * 3.78541  # gallons vers litres
+        else:
+            return value  # Déjà métrique ou unité inconnue
+            
+    except Exception:
+        return 0.0
+
+
 # =============================================================================
 # FONCTIONS DE FORMATAGE ET AFFICHAGE
 # =============================================================================
@@ -462,6 +724,26 @@ def formater_delai(jours: int) -> str:
             return f"{mois}m {jours_restants}j"
 
 
+def formater_quantite(quantite: float, unite: str = "") -> str:
+    """
+    Formate une quantité pour l'affichage.
+    
+    Args:
+        quantite: Quantité numérique
+        unite: Unité de mesure
+        
+    Returns:
+        str: Quantité formatée
+    """
+    try:
+        if quantite == int(quantite):
+            return f"{int(quantite)} {unite}".strip()
+        else:
+            return f"{quantite:.2f} {unite}".strip()
+    except:
+        return f"{quantite} {unite}".strip()
+
+
 def calculer_statut_validite(date_validite: str) -> Tuple[str, str]:
     """
     Calcule le statut de validité d'un document.
@@ -511,7 +793,16 @@ def generer_couleur_statut(statut: str) -> str:
         'ENVOYÉ': '#8b5cf6',       # Violet
         'APPROUVÉ': '#10b981',     # Vert
         'TERMINÉ': '#059669',      # Vert foncé
-        'ANNULÉ': '#ef4444'        # Rouge
+        'ANNULÉ': '#ef4444',       # Rouge
+        'À FAIRE': '#6b7280',      # Gris
+        'EN COURS': '#3b82f6',     # Bleu
+        'EN PAUSE': '#f59e0b',     # Orange
+        'ACTIF': '#10b981',        # Vert
+        'INACTIF': '#6b7280',      # Gris
+        'DISPONIBLE': '#10b981',   # Vert
+        'CRITIQUE': '#ef4444',     # Rouge
+        'ÉPUISÉ': '#dc2626',       # Rouge foncé
+        'FAIBLE': '#f59e0b'        # Orange
     }
     
     return couleurs.get(statut, '#6b7280')  # Gris par défaut
@@ -534,6 +825,27 @@ def generer_couleur_priorite(priorite: str) -> str:
     }
     
     return couleurs.get(priorite, '#6b7280')
+
+
+def generer_icone_statut(statut: str) -> str:
+    """
+    Génère une icône selon le statut.
+    
+    Args:
+        statut: Statut du document
+        
+    Returns:
+        str: Icône emoji
+    """
+    icones = {
+        'BROUILLON': '📝', 'VALIDÉ': '✅', 'ENVOYÉ': '📤', 'APPROUVÉ': '👍',
+        'TERMINÉ': '🎯', 'ANNULÉ': '❌', 'À FAIRE': '📋', 'EN COURS': '⚡',
+        'EN PAUSE': '⏸️', 'ACTIF': '🟢', 'INACTIF': '🔴', 'DISPONIBLE': '✅',
+        'CRITIQUE': '🚨', 'ÉPUISÉ': '❌', 'FAIBLE': '⚠️', 'NORMAL': '🟢',
+        'URGENT': '🟡', 'CRITIQUE': '🔴'
+    }
+    
+    return icones.get(statut, '⚪')
 
 
 # =============================================================================
@@ -624,3 +936,41 @@ def calculer_taux_marge_realiste(cout_materiau: float, cout_main_oeuvre: float,
         evaluation = "Marge élevée - Vérifier compétitivité"
     
     return taux_marge, evaluation
+
+
+def valider_disponibilite_stock(article_id: int, quantite_demandee: float) -> Tuple[bool, str, float]:
+    """
+    Valide la disponibilité d'un article en stock.
+    
+    Args:
+        article_id: ID de l'article
+        quantite_demandee: Quantité demandée
+        
+    Returns:
+        Tuple[bool, str, float]: (disponible, message, quantite_disponible)
+    """
+    try:
+        query = """
+            SELECT quantite_metric, quantite_reservee_metric, statut
+            FROM inventory_items 
+            WHERE id = ?
+        """
+        result = st.session_state.erp_db.execute_query(query, (article_id,))
+        
+        if not result:
+            return False, "Article non trouvé", 0.0
+        
+        article = result[0]
+        quantite_stock = article['quantite_metric'] or 0.0
+        quantite_reservee = article['quantite_reservee_metric'] or 0.0
+        quantite_disponible = quantite_stock - quantite_reservee
+        
+        if quantite_disponible <= 0:
+            return False, f"Stock épuisé (réservé: {quantite_reservee})", quantite_disponible
+        elif quantite_disponible < quantite_demandee:
+            return False, f"Stock insuffisant (disponible: {quantite_disponible})", quantite_disponible
+        else:
+            return True, "Stock suffisant", quantite_disponible
+            
+    except Exception as e:
+        return False, f"Erreur vérification stock: {e}", 0.0
