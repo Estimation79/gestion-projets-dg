@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES, ASSISTANT IA ET FOURNISSEURS ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC PERSISTENT STORAGE RENDER ---
 
 import streamlit as st
 import pandas as pd
@@ -13,6 +13,9 @@ import re
 import random
 from math import gcd
 from fractions import Fraction
+
+# PERSISTENT STORAGE : Import du gestionnaire de stockage persistant
+from database_persistent import init_persistent_storage
 
 # NOUVELLE ARCHITECTURE : Import SQLite Database
 from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
@@ -173,6 +176,51 @@ def load_css_file(css_file_path):
 def apply_global_styles():
     """Version allégée - tout le CSS est externalisé dans style.css"""
     load_css_file('style.css')
+
+# NOUVELLE FONCTION : Affichage du statut de stockage dans la sidebar
+def show_storage_status_sidebar():
+    """Affiche le statut du stockage persistant dans la sidebar"""
+    if 'storage_manager' not in st.session_state:
+        return
+    
+    try:
+        storage_info = st.session_state.storage_manager.get_storage_info()
+        
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>💾 Stockage</h3>", unsafe_allow_html=True)
+        
+        # Statut principal
+        if storage_info['is_persistent']:
+            st.sidebar.success("💾 Stockage Persistant")
+        else:
+            st.sidebar.warning("⚠️ Stockage Éphémère")
+        
+        # Informations de base
+        if storage_info['db_exists']:
+            st.sidebar.metric("Base ERP", f"{storage_info['db_size_mb']} MB")
+        
+        if storage_info.get('backup_count', 0) > 0:
+            st.sidebar.metric("Sauvegardes", storage_info['backup_count'])
+        
+        # Usage disque (Render uniquement)
+        if storage_info.get('disk_usage'):
+            disk = storage_info['disk_usage']
+            st.sidebar.metric("Usage Disque", f"{disk['usage_percent']}%")
+            if disk['usage_percent'] > 80:
+                st.sidebar.warning("⚠️ Espace disque faible")
+        
+        # Type d'environnement (en petit)
+        env_display = {
+            'RENDER_PERSISTENT': '🚀 Render Persistent',
+            'RENDER_EPHEMERAL': '⚠️ Render Temporaire', 
+            'LOCAL_DEVELOPMENT': '💻 Développement',
+            'CUSTOM_PATH': '📁 Personnalisé'
+        }
+        
+        st.sidebar.caption(f"Type: {env_display.get(storage_info['environment_type'], 'Inconnu')}")
+        
+    except Exception as e:
+        st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
 
 # ----- NOUVELLE FONCTION : Initialisation Données de Base (CORRECTION CRITIQUE) -----
 def _init_base_data_if_empty():
@@ -2310,15 +2358,47 @@ def show_assistant_ia_page():
                     except Exception as e:
                         st.error(f"Erreur IA: {e}")
 
-# ----- Fonction Principale MODIFIÉE POUR SQLITE CORRIGÉE AVEC MODULE FORMULAIRES, ASSISTANT IA ET FOURNISSEURS -----
+# ----- Fonction Principale MODIFIÉE POUR PERSISTENT STORAGE RENDER -----
 def main():
-    # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec correction FK
+    # NOUVEAU : Initialisation du gestionnaire de stockage persistant AVANT tout
+    if 'storage_manager' not in st.session_state:
+        try:
+            st.session_state.storage_manager = init_persistent_storage()
+            
+            # Utiliser le chemin de base de données configuré par le gestionnaire de stockage
+            db_path = st.session_state.storage_manager.db_path
+            
+            # Notification selon le type de stockage
+            storage_info = st.session_state.storage_manager.get_storage_info()
+            if storage_info['environment_type'] == 'RENDER_PERSISTENT':
+                st.toast("💾 Stockage persistant Render activé !", icon="✅")
+            elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
+                st.toast("⚠️ Mode temporaire - Configurez le persistent disk", icon="⚠️")
+            
+        except Exception as e:
+            st.error(f"❌ Erreur initialisation stockage persistant: {e}")
+            # Fallback vers stockage local
+            db_path = "erp_production_dg.db"
+            st.session_state.storage_manager = None
+    else:
+        db_path = st.session_state.storage_manager.db_path
+    
+    # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec chemin configuré
     if 'erp_db' not in st.session_state:
-        st.session_state.erp_db = ERPDatabase("erp_production_dg.db")
+        st.session_state.erp_db = ERPDatabase(db_path)
         st.session_state.migration_completed = True
         
         # AJOUT CRITIQUE : Initialiser données de base si vides - RÉSOUT ERREURS FK
         _init_base_data_if_empty()
+        
+        # Créer une sauvegarde initiale si gestionnaire disponible
+        if st.session_state.storage_manager:
+            try:
+                backup_path = st.session_state.storage_manager.create_backup("initial_startup")
+                if backup_path:
+                    print(f"✅ Sauvegarde de démarrage créée: {backup_path}")
+            except Exception as e:
+                print(f"⚠️ Erreur sauvegarde de démarrage: {e}")
     
     # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite
     if 'gestionnaire' not in st.session_state:
@@ -2473,6 +2553,15 @@ def main():
         if ASSISTANT_IA_AVAILABLE:
             welcome_msg += " 🤖 Assistant IA Métallurgie intégré !"
         welcome_msg += " 🏪 Module Fournisseurs intégré !"
+        
+        # NOUVEAU : Ajouter info sur le stockage persistant
+        if st.session_state.storage_manager:
+            storage_info = st.session_state.storage_manager.get_storage_info()
+            if storage_info['environment_type'] == 'RENDER_PERSISTENT':
+                welcome_msg += " 💾 Stockage Persistant Render activé !"
+            elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
+                welcome_msg += " ⚠️ Mode temporaire - Configurez le persistent disk !"
+        
         st.success(welcome_msg)
         st.session_state.welcome_seen = True
 
@@ -2524,6 +2613,9 @@ def main():
         )
 
     st.sidebar.markdown("---")
+
+    # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
+    show_storage_status_sidebar()
 
     # Statistiques dans la sidebar
     try:
@@ -2648,6 +2740,15 @@ def main():
     footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += "<br/>🤖 Assistant IA Métallurgie"
+    
+    # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
+    if st.session_state.storage_manager:
+        storage_info = st.session_state.storage_manager.get_storage_info()
+        if storage_info['environment_type'] == 'RENDER_PERSISTENT':
+            footer_text += "<br/>💾 Stockage Persistant Render"
+        elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
+            footer_text += "<br/>⚠️ Mode Temporaire"
+    
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
     # PAGES (MODIFIÉES avec module Formulaires, Assistant IA et Fournisseurs)
@@ -2705,6 +2806,23 @@ def main():
 
     if st.session_state.get('show_project_modal'):
         show_project_modal()
+    
+    # NOUVEAU : Sauvegarde périodique automatique
+    if st.session_state.storage_manager:
+        # Créer une sauvegarde toutes les 100 actions (approximatif)
+        if hasattr(st.session_state, 'action_counter'):
+            st.session_state.action_counter += 1
+        else:
+            st.session_state.action_counter = 1
+        
+        # Sauvegarde automatique toutes les 100 actions
+        if st.session_state.action_counter % 100 == 0:
+            try:
+                backup_path = st.session_state.storage_manager.create_backup("auto")
+                if backup_path:
+                    st.toast("💾 Sauvegarde automatique effectuée", icon="✅")
+            except Exception as e:
+                print(f"Erreur sauvegarde automatique: {e}")
 
 def show_footer():
     st.markdown("---")
@@ -2714,7 +2832,15 @@ def show_footer():
     if ASSISTANT_IA_AVAILABLE:
         footer_text += " • 🤖 Assistant IA"
     
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète</p></div>", unsafe_allow_html=True)
+    # NOUVEAU : Ajouter info stockage persistant dans footer principal
+    if 'storage_manager' in st.session_state and st.session_state.storage_manager:
+        storage_info = st.session_state.storage_manager.get_storage_info()
+        if storage_info['environment_type'] == 'RENDER_PERSISTENT':
+            footer_text += " • 💾 Stockage Persistant Render"
+        elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
+            footer_text += " • ⚠️ Mode Temporaire"
+    
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète • Stockage Persistant Render</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
@@ -2725,5 +2851,14 @@ if __name__ == "__main__":
         st.info("Veuillez essayer de rafraîchir la page ou de redémarrer l'application.")
         import traceback
         st.code(traceback.format_exc())
+        
+        # NOUVEAU : En cas d'erreur, essayer de créer une sauvegarde d'urgence
+        if 'storage_manager' in st.session_state and st.session_state.storage_manager:
+            try:
+                emergency_backup = st.session_state.storage_manager.create_backup("emergency_error")
+                if emergency_backup:
+                    st.info(f"💾 Sauvegarde d'urgence créée: {emergency_backup}")
+            except Exception:
+                pass  # Silencieux si même la sauvegarde d'urgence échoue
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC MODULE FORMULAIRES, ASSISTANT IA ET FOURNISSEURS ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC PERSISTENT STORAGE RENDER ---
