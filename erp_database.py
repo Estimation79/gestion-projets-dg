@@ -1,5 +1,5 @@
-# erp_database.py - Gestionnaire Base de Données SQLite Unifié
-# ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet
+# erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ
+# ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet + Corrections Intégrées
 
 import sqlite3
 import json
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class ERPDatabase:
     """
     Gestionnaire de base de données SQLite unifié pour ERP Production DG Inc.
+    VERSION CONSOLIDÉE - Toutes corrections intégrées automatiquement
     
     Remplace tous les fichiers JSON par une base de données relationnelle cohérente :
     - projets_data.json → tables projects, operations, materials
@@ -25,22 +26,27 @@ class ERPDatabase:
     - inventaire_v2.json → tables inventory_items, inventory_history
     - timetracker.db → intégration dans base principale
     
-    NOUVEAU : Module Formulaires Complet
+    MODULE FORMULAIRES COMPLET :
     - formulaires → table formulaires (BT, BA, BC, DP, EST)
     - formulaire_lignes → détails des documents
     - formulaire_validations → historique et traçabilité
     - formulaire_pieces_jointes → gestion fichiers
     - formulaire_templates → standardisation
+    
+    CORRECTIONS AUTOMATIQUES INTÉGRÉES :
+    - Colonnes projects corrigées (date_debut_reel, date_fin_reel)
+    - Tables BT spécialisées (bt_assignations, bt_reservations_postes)
+    - Toutes les améliorations de fix_database.py
     """
     
     def __init__(self, db_path: str = "erp_production_dg.db"):
         self.db_path = db_path
         self.backup_dir = "backup_json"
         self.init_database()
-        logger.info(f"ERPDatabase initialisé : {db_path}")
+        logger.info(f"ERPDatabase consolidé initialisé : {db_path}")
     
     def init_database(self):
-        """Initialise toutes les tables de la base de données ERP avec module Formulaires complet"""
+        """Initialise toutes les tables de la base de données ERP avec corrections automatiques intégrées"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
@@ -80,7 +86,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 3. PROJETS (Core ERP)
+            # 3. PROJETS (Core ERP) - CORRIGÉ avec toutes les colonnes nécessaires
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS projects (
                     id INTEGER PRIMARY KEY,
@@ -94,6 +100,8 @@ class ERPDatabase:
                     tache TEXT,
                     date_soumis DATE,
                     date_prevu DATE,
+                    date_debut_reel DATE,
+                    date_fin_reel DATE,
                     bd_ft_estime REAL,
                     prix_estime REAL,
                     description TEXT,
@@ -430,12 +438,52 @@ class ERPDatabase:
             ''')
             
             # =========================================================================
+            # TABLES SPÉCIALISÉES BONS DE TRAVAIL - INTÉGRÉES AUTOMATIQUEMENT
+            # =========================================================================
+            
+            # 21. ASSIGNATIONS BONS DE TRAVAIL
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS bt_assignations (
+                    id INTEGER PRIMARY KEY,
+                    bt_id INTEGER,
+                    employe_id INTEGER,
+                    date_assignation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    statut TEXT DEFAULT 'ASSIGNÉ',
+                    notes_assignation TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (bt_id) REFERENCES formulaires(id),
+                    FOREIGN KEY (employe_id) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 22. RÉSERVATIONS POSTES DE TRAVAIL POUR BT
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS bt_reservations_postes (
+                    id INTEGER PRIMARY KEY,
+                    bt_id INTEGER,
+                    work_center_id INTEGER,
+                    date_reservation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    date_prevue DATE,
+                    date_liberation TIMESTAMP,
+                    statut TEXT DEFAULT 'RÉSERVÉ',
+                    notes_reservation TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (bt_id) REFERENCES formulaires(id),
+                    FOREIGN KEY (work_center_id) REFERENCES work_centers(id)
+                )
+            ''')
+            
+            # =========================================================================
             # INDEX POUR PERFORMANCE OPTIMALE
             # =========================================================================
             
             # Index tables existantes
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_company_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_projects_statut ON projects(statut)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_projects_priorite ON projects(priorite)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_projects_dates ON projects(date_soumis, date_prevu)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_operations_project ON operations(project_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_operations_work_center ON operations(work_center_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_materials_project ON materials(project_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_time_entries_employee ON time_entries(employee_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_time_entries_project ON time_entries(project_id)')
@@ -445,6 +493,8 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_companies_type ON companies(type_company)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_statut ON inventory_items(statut)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_type ON inventory_items(type_produit)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_employees_statut ON employees(statut)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_employees_departement ON employees(departement)')
             
             # Index pour module formulaires
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_type ON formulaires(type_formulaire)')
@@ -455,6 +505,7 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_numero ON formulaires(numero_document)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_date ON formulaires(date_creation)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_priorite ON formulaires(priorite)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_echeance ON formulaires(date_echeance)')
             
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_formulaire ON formulaire_lignes(formulaire_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_sequence ON formulaire_lignes(formulaire_id, sequence_ligne)')
@@ -469,6 +520,12 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_fournisseurs_code ON fournisseurs(code_fournisseur)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_approvisionnements_formulaire ON approvisionnements(formulaire_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_approvisionnements_statut ON approvisionnements(statut_livraison)')
+            
+            # Index pour tables BT spécialisées
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_assignations_bt ON bt_assignations(bt_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_assignations_employe ON bt_assignations(employe_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_reservations_bt ON bt_reservations_postes(bt_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_reservations_work_center ON bt_reservations_postes(work_center_id)')
             
             # =========================================================================
             # VUES POUR REQUÊTES COMPLEXES FRÉQUENTES
@@ -571,6 +628,53 @@ class ERPDatabase:
                         WHEN i.quantite_metric <= (i.limite_minimale_metric * 1.5) THEN 3
                         ELSE 4
                     END, i.nom
+            ''')
+            
+            # Vue complète des projets avec toutes les informations
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_projects_complets AS
+                SELECT 
+                    p.*,
+                    c.nom as client_company_nom,
+                    c.secteur as client_secteur,
+                    c.type_company as client_type,
+                    COUNT(DISTINCT o.id) as nombre_operations,
+                    COUNT(DISTINCT m.id) as nombre_materiaux,
+                    COUNT(DISTINCT pa.employee_id) as nombre_employes_assignes,
+                    COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux_total,
+                    COALESCE(SUM(o.temps_estime), 0) as temps_total_estime,
+                    COUNT(DISTINCT f.id) as nombre_formulaires
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                LEFT JOIN operations o ON p.id = o.project_id
+                LEFT JOIN materials m ON p.id = m.project_id
+                LEFT JOIN project_assignments pa ON p.id = pa.project_id
+                LEFT JOIN formulaires f ON p.id = f.project_id
+                GROUP BY p.id
+            ''')
+            
+            # Vue des bons de travail avec assignations
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_bons_travail_complets AS
+                SELECT 
+                    f.*,
+                    p.nom_projet,
+                    c.nom as company_nom,
+                    e.prenom || ' ' || e.nom as employee_nom,
+                    COUNT(DISTINCT bta.employe_id) as nombre_employes_assignes,
+                    COUNT(DISTINCT btr.work_center_id) as nombre_postes_reserves,
+                    GROUP_CONCAT(DISTINCT emp.prenom || ' ' || emp.nom) as employes_assignes_noms,
+                    GROUP_CONCAT(DISTINCT wc.nom) as postes_reserves_noms
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON f.company_id = c.id
+                LEFT JOIN employees e ON f.employee_id = e.id
+                LEFT JOIN bt_assignations bta ON f.id = bta.bt_id
+                LEFT JOIN bt_reservations_postes btr ON f.id = btr.bt_id
+                LEFT JOIN employees emp ON bta.employe_id = emp.id
+                LEFT JOIN work_centers wc ON btr.work_center_id = wc.id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                GROUP BY f.id
             ''')
             
             # =========================================================================
@@ -699,8 +803,65 @@ class ERPDatabase:
                 END;
             ''')
             
+            # Trigger pour mise à jour automatique des timestamps projects
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trigger_projects_updated_at
+                AFTER UPDATE ON projects
+                FOR EACH ROW
+                BEGIN
+                    UPDATE projects 
+                    SET updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = NEW.id;
+                END;
+            ''')
+            
+            # Trigger pour enregistrement automatique des validations de changement de statut
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trigger_auto_log_status_change
+                AFTER UPDATE OF statut ON formulaires
+                FOR EACH ROW
+                WHEN OLD.statut != NEW.statut
+                BEGIN
+                    INSERT INTO formulaire_validations (formulaire_id, type_validation, ancien_statut, nouveau_statut, commentaires)
+                    VALUES (NEW.id, 'CHANGEMENT_STATUT', OLD.statut, NEW.statut, 'Changement automatique de statut');
+                END;
+            ''')
+            
             conn.commit()
-            logger.info("Base de données ERP initialisée avec succès - Module Formulaires complet inclus")
+            
+            # =========================================================================
+            # CORRECTIONS AUTOMATIQUES POST-CRÉATION (Migration des anciennes colonnes)
+            # =========================================================================
+            
+            # Vérifier et ajouter les colonnes manquantes si elles n'existent pas déjà
+            self._apply_automatic_fixes(cursor)
+            
+            conn.commit()
+            logger.info("Base de données ERP consolidée initialisée avec succès - Toutes corrections automatiques appliquées")
+    
+    def _apply_automatic_fixes(self, cursor):
+        """Applique automatiquement toutes les corrections nécessaires"""
+        try:
+            # Vérifier les colonnes existantes dans projects
+            cursor.execute("PRAGMA table_info(projects)")
+            existing_columns = [col[1] for col in cursor.fetchall()]
+            
+            # Ajouter les colonnes manquantes si nécessaire
+            if 'date_debut_reel' not in existing_columns:
+                cursor.execute("ALTER TABLE projects ADD COLUMN date_debut_reel DATE")
+                logger.info("✅ Colonne date_debut_reel ajoutée automatiquement")
+            
+            if 'date_fin_reel' not in existing_columns:
+                cursor.execute("ALTER TABLE projects ADD COLUMN date_fin_reel DATE")
+                logger.info("✅ Colonne date_fin_reel ajoutée automatiquement")
+            
+            # Vérifier et corriger d'autres tables si nécessaire
+            # (Cette section peut être étendue pour d'autres corrections automatiques)
+            
+            logger.info("🔧 Corrections automatiques appliquées avec succès")
+            
+        except Exception as e:
+            logger.warning(f"Avertissement lors des corrections automatiques: {e}")
     
     def backup_json_files(self):
         """Sauvegarde tous les fichiers JSON avant migration"""
@@ -779,12 +940,18 @@ class ERPDatabase:
             # Tables formulaires
             'formulaires', 'formulaire_lignes', 'formulaire_validations',
             'formulaire_pieces_jointes', 'formulaire_templates',
-            'fournisseurs', 'approvisionnements'
+            'fournisseurs', 'approvisionnements',
+            # Tables BT spécialisées
+            'bt_assignations', 'bt_reservations_postes'
         ]
         
         status = {}
         for table in tables:
-            status[table] = self.get_table_count(table)
+            try:
+                status[table] = self.get_table_count(table)
+            except Exception as e:
+                logger.warning(f"Erreur lecture table {table}: {e}")
+                status[table] = 0
         
         return status
     
@@ -874,6 +1041,20 @@ class ERPDatabase:
                 ''')
                 checks['fournisseurs_companies_fk'] = cursor.fetchone()['orphans'] == 0
                 
+                # BT Assignations → Formulaires
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM bt_assignations bta
+                    WHERE bta.bt_id NOT IN (SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL')
+                ''')
+                checks['bt_assignations_formulaires_fk'] = cursor.fetchone()['orphans'] == 0
+                
+                # BT Réservations → Work Centers
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM bt_reservations_postes btr
+                    WHERE btr.work_center_id NOT IN (SELECT id FROM work_centers)
+                ''')
+                checks['bt_reservations_work_centers_fk'] = cursor.fetchone()['orphans'] == 0
+                
         except Exception as e:
             logger.error(f"Erreur validation intégrité: {e}")
             checks['error'] = str(e)
@@ -889,7 +1070,9 @@ class ERPDatabase:
             'total_records': 0,
             'formulaires_info': {},
             'fournisseurs_info': {},
-            'stocks_critiques': 0
+            'stocks_critiques': 0,
+            'bt_info': {},
+            'corrections_appliquees': True
         }
         
         with self.get_connection() as conn:
@@ -900,10 +1083,14 @@ class ERPDatabase:
             tables = [row['name'] for row in cursor.fetchall()]
             
             for table in tables:
-                cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
-                count = cursor.fetchone()['count']
-                info['tables'][table] = count
-                info['total_records'] += count
+                try:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                    count = cursor.fetchone()['count']
+                    info['tables'][table] = count
+                    info['total_records'] += count
+                except Exception as e:
+                    logger.warning(f"Erreur lecture table {table}: {e}")
+                    info['tables'][table] = 0
             
             # Informations spécifiques aux formulaires
             if 'formulaires' in tables:
@@ -926,6 +1113,16 @@ class ERPDatabase:
                 cursor.execute("SELECT COUNT(*) as count FROM inventory_items WHERE statut IN ('CRITIQUE', 'FAIBLE', 'ÉPUISÉ')")
                 result = cursor.fetchone()
                 info['stocks_critiques'] = result['count'] if result else 0
+            
+            # Informations BT
+            if 'bt_assignations' in tables and 'bt_reservations_postes' in tables:
+                cursor.execute('SELECT COUNT(*) as count FROM bt_assignations')
+                result = cursor.fetchone()
+                info['bt_info']['assignations'] = result['count'] if result else 0
+                
+                cursor.execute('SELECT COUNT(*) as count FROM bt_reservations_postes')
+                result = cursor.fetchone()
+                info['bt_info']['reservations'] = result['count'] if result else 0
         
         return info
     
@@ -945,7 +1142,8 @@ class ERPDatabase:
                 'en_retard': 0,
                 'en_attente_validation': 0,
                 'top_fournisseurs': [],
-                'conversion_ba_bc': {'total_ba': 0, 'convertis_bc': 0, 'taux_conversion': 0.0}
+                'conversion_ba_bc': {'total_ba': 0, 'convertis_bc': 0, 'taux_conversion': 0.0},
+                'bt_statistiques': {'total_bt': 0, 'assignations': 0, 'postes_reserves': 0}
             }
             
             # Statistiques globales
@@ -1037,6 +1235,19 @@ class ERPDatabase:
                     stats['conversion_ba_bc']['convertis_bc'] / stats['conversion_ba_bc']['total_ba'] * 100
                 )
             
+            # Statistiques BT spécialisées
+            query_bt = "SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'"
+            result_bt = self.execute_query(query_bt)
+            stats['bt_statistiques']['total_bt'] = result_bt[0]['count'] if result_bt else 0
+            
+            query_bt_assignations = "SELECT COUNT(*) as count FROM bt_assignations"
+            result_bt_assign = self.execute_query(query_bt_assignations)
+            stats['bt_statistiques']['assignations'] = result_bt_assign[0]['count'] if result_bt_assign else 0
+            
+            query_bt_postes = "SELECT COUNT(*) as count FROM bt_reservations_postes"
+            result_bt_postes = self.execute_query(query_bt_postes)
+            stats['bt_statistiques']['postes_reserves'] = result_bt_postes[0]['count'] if result_bt_postes else 0
+            
             return stats
             
         except Exception as e:
@@ -1098,6 +1309,30 @@ class ERPDatabase:
             '''
             validations = self.execute_query(query_validations, (formulaire_id,))
             formulaire['validations'] = [dict(val) for val in validations]
+            
+            # Si c'est un BT, ajouter les assignations et réservations
+            if formulaire.get('type_formulaire') == 'BON_TRAVAIL':
+                # Assignations employés
+                query_assignations = '''
+                    SELECT bta.*, e.prenom || ' ' || e.nom as employe_nom, e.poste as employe_poste
+                    FROM bt_assignations bta
+                    LEFT JOIN employees e ON bta.employe_id = e.id
+                    WHERE bta.bt_id = ?
+                    ORDER BY bta.date_assignation DESC
+                '''
+                assignations = self.execute_query(query_assignations, (formulaire_id,))
+                formulaire['assignations'] = [dict(assign) for assign in assignations]
+                
+                # Réservations postes
+                query_reservations = '''
+                    SELECT btr.*, wc.nom as poste_nom, wc.departement as poste_departement
+                    FROM bt_reservations_postes btr
+                    LEFT JOIN work_centers wc ON btr.work_center_id = wc.id
+                    WHERE btr.bt_id = ?
+                    ORDER BY btr.date_reservation DESC
+                '''
+                reservations = self.execute_query(query_reservations, (formulaire_id,))
+                formulaire['reservations_postes'] = [dict(res) for res in reservations]
             
             return formulaire
             
@@ -1281,6 +1516,122 @@ class ERPDatabase:
             logger.error(f"Erreur enregistrement validation: {e}")
     
     # =========================================================================
+    # MÉTHODES SPÉCIFIQUES AUX BONS DE TRAVAIL
+    # =========================================================================
+    
+    def assign_employee_to_bt(self, bt_id: int, employe_id: int, notes: str = "") -> int:
+        """Assigne un employé à un bon de travail"""
+        try:
+            query = '''
+                INSERT INTO bt_assignations (bt_id, employe_id, notes_assignation)
+                VALUES (?, ?, ?)
+            '''
+            assignation_id = self.execute_insert(query, (bt_id, employe_id, notes))
+            
+            # Enregistrer dans l'historique
+            self._enregistrer_validation(bt_id, employe_id, 'ASSIGNATION', f"Employé assigné au BT - {notes}")
+            
+            return assignation_id
+            
+        except Exception as e:
+            logger.error(f"Erreur assignation employé BT: {e}")
+            return None
+    
+    def reserve_work_center_for_bt(self, bt_id: int, work_center_id: int, date_prevue: str, notes: str = "") -> int:
+        """Réserve un poste de travail pour un bon de travail"""
+        try:
+            query = '''
+                INSERT INTO bt_reservations_postes (bt_id, work_center_id, date_prevue, notes_reservation)
+                VALUES (?, ?, ?, ?)
+            '''
+            reservation_id = self.execute_insert(query, (bt_id, work_center_id, date_prevue, notes))
+            
+            # Enregistrer dans l'historique
+            self._enregistrer_validation(bt_id, None, 'RESERVATION_POSTE', f"Poste réservé pour le {date_prevue} - {notes}")
+            
+            return reservation_id
+            
+        except Exception as e:
+            logger.error(f"Erreur réservation poste BT: {e}")
+            return None
+    
+    def liberate_work_center_from_bt(self, reservation_id: int) -> bool:
+        """Libère un poste de travail d'un bon de travail"""
+        try:
+            query = '''
+                UPDATE bt_reservations_postes 
+                SET statut = 'LIBÉRÉ', date_liberation = CURRENT_TIMESTAMP
+                WHERE id = ?
+            '''
+            affected = self.execute_update(query, (reservation_id,))
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur libération poste BT: {e}")
+            return False
+    
+    def get_bt_with_assignments(self, bt_id: int) -> Dict:
+        """Récupère un BT avec toutes ses assignations et réservations"""
+        try:
+            query = '''
+                SELECT * FROM view_bons_travail_complets
+                WHERE id = ?
+            '''
+            result = self.execute_query(query, (bt_id,))
+            return dict(result[0]) if result else {}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération BT avec assignations: {e}")
+            return {}
+    
+    def get_work_center_reservations(self, work_center_id: int, date_debut: str = None, date_fin: str = None) -> List[Dict]:
+        """Récupère les réservations d'un poste de travail"""
+        try:
+            query = '''
+                SELECT btr.*, f.numero_document, f.statut as bt_statut, p.nom_projet
+                FROM bt_reservations_postes btr
+                LEFT JOIN formulaires f ON btr.bt_id = f.id
+                LEFT JOIN projects p ON f.project_id = p.id
+                WHERE btr.work_center_id = ? AND btr.statut = 'RÉSERVÉ'
+            '''
+            params = [work_center_id]
+            
+            if date_debut:
+                query += " AND btr.date_prevue >= ?"
+                params.append(date_debut)
+            
+            if date_fin:
+                query += " AND btr.date_prevue <= ?"
+                params.append(date_fin)
+            
+            query += " ORDER BY btr.date_prevue"
+            
+            rows = self.execute_query(query, tuple(params))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération réservations poste: {e}")
+            return []
+    
+    def get_employee_bt_assignments(self, employe_id: int) -> List[Dict]:
+        """Récupère les assignations BT d'un employé"""
+        try:
+            query = '''
+                SELECT bta.*, f.numero_document, f.statut as bt_statut, f.priorite, p.nom_projet
+                FROM bt_assignations bta
+                LEFT JOIN formulaires f ON bta.bt_id = f.id
+                LEFT JOIN projects p ON f.project_id = p.id
+                WHERE bta.employe_id = ? AND bta.statut = 'ASSIGNÉ'
+                ORDER BY f.priorite DESC, bta.date_assignation DESC
+            '''
+            rows = self.execute_query(query, (employe_id,))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération assignations employé: {e}")
+            return []
+    
+    # =========================================================================
     # MÉTHODES SPÉCIFIQUES AUX BONS D'ACHATS
     # =========================================================================
     
@@ -1440,7 +1791,8 @@ class ERPDatabase:
                 'formulaires': {'total': 0, 'en_attente': 0, 'montant_total': 0.0},
                 'inventory': {'total_items': 0, 'stocks_critiques': 0},
                 'fournisseurs': {'total': 0, 'actifs': 0},
-                'employees': {'total': 0, 'actifs': 0}
+                'employees': {'total': 0, 'actifs': 0},
+                'bt_specialise': {'total': 0, 'assignations': 0, 'postes_reserves': 0}
             }
             
             # Métriques projets
@@ -1490,6 +1842,19 @@ class ERPDatabase:
             if result:
                 metrics['employees']['actifs'] = result[0]['actifs']
             
+            # Métriques BT spécialisées
+            result = self.execute_query("SELECT COUNT(*) as total FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'")
+            if result:
+                metrics['bt_specialise']['total'] = result[0]['total']
+            
+            result = self.execute_query("SELECT COUNT(*) as assignations FROM bt_assignations")
+            if result:
+                metrics['bt_specialise']['assignations'] = result[0]['assignations']
+            
+            result = self.execute_query("SELECT COUNT(*) as reservations FROM bt_reservations_postes WHERE statut = 'RÉSERVÉ'")
+            if result:
+                metrics['bt_specialise']['postes_reserves'] = result[0]['reservations']
+            
             return metrics
             
         except Exception as e:
@@ -1506,6 +1871,7 @@ class ERPDatabase:
                 'projets_livres': 0,
                 'stocks_mouvements': 0,
                 'performances_fournisseurs': [],
+                'bt_performance': {'total_bt': 0, 'assignations_mois': 0, 'completion_rate': 0.0},
                 'alertes': []
             }
             
@@ -1554,6 +1920,40 @@ class ERPDatabase:
             '''
             rows = self.execute_query(query, (f"{year}-{month:02d}",))
             report['performances_fournisseurs'] = [dict(row) for row in rows]
+            
+            # Performance BT mensuelle
+            query = '''
+                SELECT COUNT(*) as total_bt
+                FROM formulaires 
+                WHERE type_formulaire = 'BON_TRAVAIL'
+                AND strftime('%Y-%m', date_creation) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['bt_performance']['total_bt'] = result[0]['total_bt']
+            
+            query = '''
+                SELECT COUNT(*) as assignations
+                FROM bt_assignations 
+                WHERE strftime('%Y-%m', date_assignation) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['bt_performance']['assignations_mois'] = result[0]['assignations']
+            
+            # Calcul taux de completion BT
+            if report['bt_performance']['total_bt'] > 0:
+                query = '''
+                    SELECT COUNT(*) as termines
+                    FROM formulaires 
+                    WHERE type_formulaire = 'BON_TRAVAIL'
+                    AND statut = 'TERMINÉ'
+                    AND strftime('%Y-%m', date_creation) = ?
+                '''
+                result = self.execute_query(query, (f"{year}-{month:02d}",))
+                if result:
+                    termines = result[0]['termines']
+                    report['bt_performance']['completion_rate'] = (termines / report['bt_performance']['total_bt']) * 100
             
             return report
             
