@@ -142,7 +142,7 @@ def render_bon_achat_form(gestionnaire_ba):
             
             date_echeance = st.date_input("Date Souhaitée", datetime.now().date() + timedelta(days=14))
         
-        # Description du besoin
+        # Description du besoin - CORRIGÉ: height=100 au lieu de 60
         description = st.text_area("Description du Besoin *", height=100, 
                                   placeholder="Décrivez le contexte et la raison de cet achat...")
         
@@ -228,7 +228,7 @@ def render_bon_achat_form(gestionnaire_ba):
                     'reference_materiau': None
                 })
         
-        # Justification de l'achat
+        # Justification de l'achat - CORRIGÉ: height=80 au lieu de 60
         justification = st.text_area("Justification de l'Achat *", height=80,
                                    placeholder="Expliquez pourquoi cet achat est nécessaire...")
         
@@ -248,7 +248,8 @@ def render_bon_achat_form(gestionnaire_ba):
             urgence_motif = st.text_input("Motif si Urgent", 
                                         placeholder="Raison de l'urgence")
         
-        notes_speciales = st.text_area("Notes Spéciales", height=60,
+        # CORRIGÉ: height=80 au lieu de 60
+        notes_speciales = st.text_area("Notes Spéciales", height=80,
                                      placeholder="Instructions particulières pour le fournisseur...")
         
         # Approbation budgétaire
@@ -428,12 +429,13 @@ def render_bon_achat_form_auto(gestionnaire_ba):
         employe_id = st.selectbox("Demandeur", [e['id'] for e in employes], 
                                 format_func=lambda x: next((f"{e['prenom']} {e['nom']}" for e in employes if e['id'] == x), ""))
         
-        # ✅ CORRECTION: Séparer le formatage de date
+        # CORRIGÉ: Séparer le formatage de date
         date_detection = datetime.now().strftime('%d/%m/%Y à %H:%M')
         notes_auto_default = f"Réapprovisionnement automatique de {len(stocks_critiques)} article(s) en stock critique détecté le {date_detection}"
         
+        # CORRIGÉ: height=100 au lieu de valeur par défaut
         notes_auto = st.text_area("Notes sur le Réapprovisionnement", 
-                                value=notes_auto_default)
+                                value=notes_auto_default, height=100)
         
         submit_auto = st.form_submit_button("🚀 Créer Bon d'Achats Automatique", use_container_width=True)
         
