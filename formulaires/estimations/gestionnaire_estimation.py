@@ -15,9 +15,8 @@ from ..utils.validations import valider_estimation
 from ..utils.helpers import (
     get_projets_actifs,
     get_employes_actifs,
-    get_clients_actifs,
-    get_template_info,
-    calculer_estimation_automatique
+    get_clients_actifs
+    # 🔧 CORRECTION : Suppression des imports inexistants
 )
 
 class GestionnaireEstimations:
