@@ -3,7 +3,7 @@
 """
 Interface utilisateur pour les Bons de Commande.
 Contient tous les composants d'affichage et d'interaction.
-VERSION CORRIGÉE - Fix des erreurs StreamlitMixedNumericTypesError
+VERSION COMPLÈTE CORRIGÉE - Fix StreamlitMixedNumericTypesError
 """
 
 import streamlit as st
@@ -136,7 +136,7 @@ def _render_actions_rapides_bc(gestionnaire_bc):
             st.rerun()
 
 def render_bon_commande_form(gestionnaire_bc):
-    """Formulaire de création de Bon de Commande - VERSION CORRIGÉE."""
+    """Formulaire de création de Bon de Commande - VERSION COMPLÈTE CORRIGÉE."""
     st.markdown("#### ➕ Nouveau Bon de Commande")
     
     with st.form("bon_commande_form", clear_on_submit=True):
@@ -235,7 +235,6 @@ def render_bon_commande_form(gestionnaire_bc):
             search_inventaire = st.text_input("🔍 Rechercher dans l'inventaire", 
                                             placeholder="Nom d'article, type...")
         with col_add:
-            # CORRECTION: Suppression du paramètre 'key' pour form_submit_button
             if st.form_submit_button("🔍 Rechercher", use_container_width=True):
                 if search_inventaire:
                     st.session_state.inventaire_search_results = search_articles_inventaire(search_inventaire)
@@ -250,7 +249,6 @@ def render_bon_commande_form(gestionnaire_bc):
                 with col_stock:
                     st.text(f"Stock: {article.get('quantite_imperial', 'N/A')}")
                 with col_btn:
-                    # CORRECTION: Suppression du paramètre 'key' pour form_submit_button
                     if st.form_submit_button("➕"):
                         # Ajouter l'article aux lignes
                         pass
@@ -490,9 +488,6 @@ def render_bon_commande_form(gestionnaire_bc):
                 else:
                     st.error("❌ Erreur lors de la création du Bon de Commande")
 
-# Les autres fonctions render_bon_commande_list, render_delivery_tracking, etc. restent inchangées
-# car elles n'utilisent pas de st.number_input problématiques
-
 def render_bon_commande_list(gestionnaire_bc):
     """Liste des Bons de Commande avec filtres avancés."""
     st.markdown("#### 📋 Liste des Bons de Commande")
@@ -562,7 +557,7 @@ def render_bon_commande_list(gestionnaire_bc):
         with col_date:
             date_depuis = st.date_input("Commandes depuis", value=datetime.now().date() - timedelta(days=90))
     
-    # Application des filtres (reste identique)
+    # Application des filtres
     bons_filtres = []
     for bc in bons_commande:
         if bc['statut'] not in filtre_statut:
@@ -590,7 +585,7 @@ def render_bon_commande_list(gestionnaire_bc):
         
         bons_filtres.append(bc)
     
-    # Affichage résultats (reste identique)
+    # Affichage résultats
     st.markdown(f"**{len(bons_filtres)} Bon(s) de Commande trouvé(s)**")
     
     if bons_filtres:
@@ -634,7 +629,7 @@ def render_bon_commande_list(gestionnaire_bc):
         df = pd.DataFrame(df_data)
         st.dataframe(df, use_container_width=True)
         
-        # Actions en lot (reste identique)
+        # Actions en lot
         st.markdown("---")
         st.markdown("##### ⚡ Actions Rapides")
         
@@ -673,33 +668,275 @@ def render_bon_commande_list(gestionnaire_bc):
     else:
         st.info("Aucun Bon de Commande ne correspond aux critères de recherche.")
 
-# Les autres fonctions restent inchangées car elles n'ont pas de problèmes avec st.number_input
 def render_delivery_tracking(gestionnaire_bc):
     """Interface de suivi des livraisons."""
     st.markdown("#### 🚚 Suivi des Livraisons")
-    st.info("Interface de suivi des livraisons - fonctionnalité complète")
+    
+    # Récupération des livraisons en cours
+    livraisons = gestionnaire_bc.get_livraisons_en_cours()
+    
+    if not livraisons:
+        st.info("Aucune livraison en cours de suivi.")
+        return
+    
+    # Métriques de livraison
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    
+    with col_m1:
+        st.metric("📦 Total Livraisons", len(livraisons))
+    with col_m2:
+        en_attente = len([l for l in livraisons if l['statut_livraison'] in ['EN_ATTENTE', 'CONFIRMÉ']])
+        st.metric("⏳ En Attente", en_attente)
+    with col_m3:
+        en_transit = len([l for l in livraisons if l['statut_livraison'] == 'EXPÉDIÉ'])
+        st.metric("🚛 En Transit", en_transit)
+    with col_m4:
+        livrees = len([l for l in livraisons if l['statut_livraison'] == 'LIVRÉ'])
+        st.metric("✅ Livrées", livrees)
+    
+    # Alertes de retard
+    today = datetime.now().date()
+    retards = []
+    for livraison in livraisons:
+        try:
+            date_prevue = datetime.strptime(livraison['date_livraison_prevue'], '%Y-%m-%d').date()
+            if date_prevue < today and livraison['statut_livraison'] not in ['LIVRÉ', 'ANNULÉ']:
+                retards.append(livraison)
+        except:
+            continue
+    
+    if retards:
+        st.error(f"🚨 {len(retards)} livraison(s) en retard détectée(s)!")
+    
+    # Interface de suivi principal
+    st.markdown("##### 📋 Tableau de Suivi")
+    
+    # Filtres
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        filtre_statut_livraison = st.multiselect("Statut Livraison", 
+            ['EN_ATTENTE', 'CONFIRMÉ', 'EN_PRODUCTION', 'EXPÉDIÉ', 'LIVRÉ', 'ANNULÉ'],
+            default=['EN_ATTENTE', 'CONFIRMÉ', 'EN_PRODUCTION', 'EXPÉDIÉ'])
+    with col_f2:
+        filtre_fournisseur_suivi = st.selectbox("Fournisseur", 
+            ['Tous'] + list(set([l['fournisseur_nom'] for l in livraisons])))
+    
+    # Application des filtres
+    livraisons_filtrees = []
+    for livraison in livraisons:
+        if livraison['statut_livraison'] in filtre_statut_livraison:
+            if filtre_fournisseur_suivi == 'Tous' or livraison['fournisseur_nom'] == filtre_fournisseur_suivi:
+                livraisons_filtrees.append(livraison)
+    
+    # Tableau de suivi
+    if livraisons_filtrees:
+        for livraison in livraisons_filtrees:
+            with st.container():
+                col_info, col_statut, col_actions = st.columns([3, 1, 1])
+                
+                with col_info:
+                    try:
+                        date_prevue = datetime.strptime(livraison['date_livraison_prevue'], '%Y-%m-%d').date()
+                        jours_restants = (date_prevue - today).days
+                        
+                        if jours_restants < 0:
+                            date_info = f"🔴 En retard de {abs(jours_restants)} jour(s)"
+                        elif jours_restants <= 2:
+                            date_info = f"🟡 Imminent ({jours_restants} jour(s))"
+                        else:
+                            date_info = f"🟢 Dans {jours_restants} jour(s)"
+                    except:
+                        date_info = "❓ Date invalide"
+                    
+                    st.markdown(f"""
+                    **BC {livraison['numero_document']}** - {livraison['fournisseur_nom']}
+                    - Responsable : {livraison['responsable_nom']}
+                    - Livraison prévue : {livraison['date_livraison_prevue']} - {date_info}
+                    - Quantité : {livraison.get('quantite_commandee', 'N/A')}
+                    """)
+                
+                with col_statut:
+                    # Sélecteur de statut
+                    nouveaux_statuts = ['EN_ATTENTE', 'CONFIRMÉ', 'EN_PRODUCTION', 'EXPÉDIÉ', 'LIVRÉ', 'ANNULÉ']
+                    statut_actuel = livraison['statut_livraison']
+                    
+                    nouveau_statut = st.selectbox(
+                        f"Statut", 
+                        nouveaux_statuts,
+                        index=nouveaux_statuts.index(statut_actuel) if statut_actuel in nouveaux_statuts else 0,
+                        key=f"statut_{livraison['id']}"
+                    )
+                
+                with col_actions:
+                    # Bouton de mise à jour
+                    if st.button("💾 Mettre à jour", key=f"update_{livraison['id']}", use_container_width=True):
+                        if gestionnaire_bc.mettre_a_jour_statut_livraison(livraison['formulaire_id'], nouveau_statut):
+                            st.success(f"✅ Statut mis à jour: {nouveau_statut}")
+                            st.rerun()
+                
+                # Notes de livraison
+                if livraison.get('notes_livraison'):
+                    st.text(f"📝 Notes: {livraison['notes_livraison']}")
+                
+                st.markdown("---")
 
 def render_bon_commande_stats(gestionnaire_bc):
     """Statistiques détaillées des Bons de Commande."""
     st.markdown("#### 📊 Statistiques Bons de Commande")
-    st.info("Statistiques BC - fonctionnalité complète")
+    
+    stats = gestionnaire_bc.get_statistiques_bc()
+    
+    if not stats or stats.get('total', 0) == 0:
+        st.info("Aucune donnée pour les statistiques.")
+        return
+    
+    # Métriques principales
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("📦 Total BCs", stats.get('total', 0))
+    with col2:
+        en_cours = stats.get('bc_envoyes', 0)
+        st.metric("🔄 En Cours", en_cours)
+    with col3:
+        termines = stats.get('bc_livres', 0)
+        taux_completion = stats.get('taux_livraison', 0)
+        st.metric("✅ Livrés", termines, delta=f"{taux_completion:.1f}%")
+    with col4:
+        st.metric("💰 Montant Total", f"{stats.get('montant_total', 0):,.0f}$ CAD")
+    with col5:
+        montant_moyen = stats.get('montant_moyen_bc', 0)
+        st.metric("📊 Montant Moyen", f"{montant_moyen:,.0f}$ CAD")
+    
+    # Graphiques
+    bons_commande = gestionnaire_bc.get_bons_commande()
+    
+    if len(bons_commande) > 0:
+        col_g1, col_g2 = st.columns(2)
+        
+        with col_g1:
+            # Répartition par statut
+            statut_counts = {}
+            for bc in bons_commande:
+                statut = bc['statut']
+                statut_counts[statut] = statut_counts.get(statut, 0) + 1
+            
+            if statut_counts:
+                colors_statut = {
+                    'BROUILLON': '#f59e0b', 'VALIDÉ': '#3b82f6', 'ENVOYÉ': '#8b5cf6',
+                    'APPROUVÉ': '#10b981', 'TERMINÉ': '#059669', 'ANNULÉ': '#ef4444'
+                }
+                fig = px.pie(values=list(statut_counts.values()), names=list(statut_counts.keys()),
+                            title="📊 Répartition par Statut", color_discrete_map=colors_statut)
+                fig.update_layout(showlegend=True, height=400)
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col_g2:
+            # Évolution mensuelle
+            evolution_mensuelle = {}
+            for bc in bons_commande:
+                try:
+                    mois = bc['date_creation'][:7]  # YYYY-MM
+                    evolution_mensuelle[mois] = evolution_mensuelle.get(mois, 0) + 1
+                except:
+                    continue
+            
+            if evolution_mensuelle:
+                mois_sorted = sorted(evolution_mensuelle.items())[-12:]  # 12 derniers mois
+                df_evolution = pd.DataFrame(mois_sorted, columns=['Mois', 'Nombre BCs'])
+                
+                fig = px.bar(df_evolution, x='Mois', y='Nombre BCs',
+                            title="📈 Évolution Mensuelle des BCs")
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
+    
+    # Alertes et recommandations
+    st.markdown("---")
+    st.markdown("##### 🚨 Alertes et Recommandations")
+    
+    alerts = []
+    
+    # BCs en retard
+    bcs_en_retard = gestionnaire_bc.get_bc_en_retard()
+    if bcs_en_retard:
+        alerts.append(f"🔴 {len(bcs_en_retard)} Bon(s) de Commande en retard de livraison")
+    
+    # BCs critiques non traités
+    critiques_non_traites = [bc for bc in bons_commande 
+                            if bc['priorite'] == 'CRITIQUE' and bc['statut'] in ['BROUILLON', 'VALIDÉ']]
+    if critiques_non_traites:
+        alerts.append(f"🟡 {len(critiques_non_traites)} BC(s) critique(s) non envoyé(s)")
+    
+    if alerts:
+        for alert in alerts:
+            st.warning(alert)
+    else:
+        st.success("✅ Aucune alerte détectée - Gestion des commandes optimale")
 
 def render_conversion_ba_bc(gestionnaire_bc):
     """Interface de conversion Bon d'Achats → Bon de Commande."""
     st.markdown("#### 🔄 Conversion BA → Bon de Commande")
     st.info("💡 Cette fonctionnalité utilise la conversion depuis le module Bons d'Achats")
+    
+    # Redirection vers la fonction de conversion des BAs
+    if st.button("🔄 Aller à la Conversion BA → BC", use_container_width=True):
+        st.session_state.form_action = "convert_ba_to_bc"
+        st.info("Redirection vers le module Bons d'Achats pour la conversion...")
 
 def render_reception_marchandises(gestionnaire_bc):
     """Interface de réception des marchandises."""
     st.markdown("#### 📥 Réception des Marchandises")
-    st.info("Réception marchandises - fonctionnalité complète")
+    
+    # Récupération des BCs expédiés ou livrés
+    livraisons_attendues = gestionnaire_bc.get_livraisons_en_cours()
+    livraisons_reception = [l for l in livraisons_attendues if l['statut_livraison'] in ['EXPÉDIÉ', 'LIVRÉ']]
+    
+    if not livraisons_reception:
+        st.info("Aucune livraison en attente de réception.")
+        return
+    
+    st.markdown("##### 📦 Livraisons à Réceptionner")
+    
+    for livraison in livraisons_reception:
+        with st.expander(f"BC {livraison['numero_document']} - {livraison['fournisseur_nom']}", expanded=False):
+            col_det1, col_det2, col_action = st.columns([2, 2, 1])
+            
+            with col_det1:
+                st.info(f"""
+                **Statut :** {livraison['statut_livraison']}
+                **Date prévue :** {livraison['date_livraison_prevue']}
+                **Quantité :** {livraison.get('quantite_commandee', 'N/A')}
+                """)
+            
+            with col_det2:
+                st.info(f"""
+                **Responsable :** {livraison['responsable_nom']}
+                **Notes :** {livraison.get('notes_livraison', 'Aucune')}
+                """)
+            
+            with col_action:
+                if st.button(f"✅ Marquer Reçu", key=f"reception_{livraison['id']}", use_container_width=True):
+                    if gestionnaire_bc.marquer_bc_recu(livraison['formulaire_id'], 1):  # TODO: Utiliser employé courant
+                        st.success("✅ Livraison réceptionnée!")
+                        st.rerun()
 
 def render_templates_bon_commande(gestionnaire_bc):
     """Interface de gestion des templates de BC."""
     st.markdown("#### 📋 Templates Bons de Commande")
     st.info("🚧 Gestion des templates de BC - Fonctionnalité avancée à développer")
+    
+    # TODO: Interface pour créer et gérer des templates de BC par industrie/type
+    # - Templates standards par secteur (auto, aéro, construction)
+    # - Clauses pré-définies
+    # - Conditions commerciales par défaut
 
 def render_rapports_bon_commande(gestionnaire_bc):
     """Interface de génération de rapports BC."""
     st.markdown("#### 📈 Rapports Bons de Commande")
     st.info("🚧 Génération de rapports BC - Fonctionnalité avancée à développer")
+    
+    # TODO: Génération de rapports avancés
+    # - Rapport mensuel des achats
+    # - Performance fournisseurs
+    # - Analyse des coûts
+    # - Export Excel/PDF
