@@ -1,5 +1,6 @@
 # erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ
 # ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet + Corrections Intégrées
+# ÉTAPE 2 : Intégration TimeTracker ↔ Bons de Travail IMPLÉMENTÉE
 
 import sqlite3
 import json
@@ -18,6 +19,7 @@ class ERPDatabase:
     """
     Gestionnaire de base de données SQLite unifié pour ERP Production DG Inc.
     VERSION CONSOLIDÉE - Toutes corrections intégrées automatiquement
+    ÉTAPE 2 : Intégration TimeTracker ↔ Bons de Travail COMPLÈTE
     
     Remplace tous les fichiers JSON par une base de données relationnelle cohérente :
     - projets_data.json → tables projects, operations, materials
@@ -33,9 +35,16 @@ class ERPDatabase:
     - formulaire_pieces_jointes → gestion fichiers
     - formulaire_templates → standardisation
     
+    INTÉGRATION TIMETRACKER ↔ BONS DE TRAVAIL :
+    - time_entries.formulaire_bt_id → liaison directe avec formulaires BT
+    - bt_assignations → assignations employés aux BT
+    - bt_reservations_postes → réservations postes de travail
+    - Traçabilité complète des pointages par BT
+    
     CORRECTIONS AUTOMATIQUES INTÉGRÉES :
     - Colonnes projects corrigées (date_debut_reel, date_fin_reel)
     - Tables BT spécialisées (bt_assignations, bt_reservations_postes)
+    - Colonne formulaire_bt_id dans time_entries (ÉTAPE 2)
     - Toutes les améliorations de fix_database.py
     """
     
@@ -273,13 +282,14 @@ class ERPDatabase:
                 )
             ''')
             
-            # 13. TIME ENTRIES (TimeTracker Unifié)
+            # 13. TIME ENTRIES (TimeTracker Unifié) - MODIFIÉ ÉTAPE 2
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS time_entries (
                     id INTEGER PRIMARY KEY,
                     employee_id INTEGER,
                     project_id INTEGER,
                     operation_id INTEGER,
+                    formulaire_bt_id INTEGER,
                     punch_in TIMESTAMP,
                     punch_out TIMESTAMP,
                     total_hours REAL,
@@ -289,7 +299,8 @@ class ERPDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (employee_id) REFERENCES employees(id),
                     FOREIGN KEY (project_id) REFERENCES projects(id),
-                    FOREIGN KEY (operation_id) REFERENCES operations(id)
+                    FOREIGN KEY (operation_id) REFERENCES operations(id),
+                    FOREIGN KEY (formulaire_bt_id) REFERENCES formulaires(id)
                 )
             ''')
             
@@ -496,6 +507,9 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_employees_statut ON employees(statut)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_employees_departement ON employees(departement)')
             
+            # ÉTAPE 2 : Index pour intégration BT ↔ TimeTracker
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_time_entries_bt ON time_entries(formulaire_bt_id)')
+            
             # Index pour module formulaires
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_type ON formulaires(type_formulaire)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaires_statut ON formulaires(statut)')
@@ -677,6 +691,30 @@ class ERPDatabase:
                 GROUP BY f.id
             ''')
             
+            # ÉTAPE 2 : Vue intégration TimeTracker ↔ Bons de Travail
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_bt_timetracker_integration AS
+                SELECT 
+                    f.id as bt_id,
+                    f.numero_document as bt_numero,
+                    f.statut as bt_statut,
+                    f.priorite as bt_priorite,
+                    p.nom_projet,
+                    COUNT(DISTINCT te.id) as nb_sessions_pointage,
+                    COUNT(DISTINCT te.employee_id) as nb_employes_ayant_pointe,
+                    COALESCE(SUM(te.total_hours), 0) as total_heures_pointees,
+                    COALESCE(SUM(te.total_cost), 0) as total_cout_pointage,
+                    MIN(te.punch_in) as premiere_session_pointage,
+                    MAX(te.punch_out) as derniere_session_pointage,
+                    COUNT(DISTINCT bta.employe_id) as nb_employes_assignes
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN time_entries te ON f.id = te.formulaire_bt_id
+                LEFT JOIN bt_assignations bta ON f.id = bta.bt_id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                GROUP BY f.id
+            ''')
+            
             # =========================================================================
             # TRIGGERS POUR AUTOMATISATION
             # =========================================================================
@@ -827,6 +865,22 @@ class ERPDatabase:
                 END;
             ''')
             
+            # ÉTAPE 2 : Trigger pour validation automatique des pointages BT
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trigger_validate_bt_timetracker
+                BEFORE INSERT ON time_entries
+                FOR EACH ROW
+                WHEN NEW.formulaire_bt_id IS NOT NULL
+                BEGIN
+                    SELECT CASE 
+                        WHEN (SELECT type_formulaire FROM formulaires WHERE id = NEW.formulaire_bt_id) != 'BON_TRAVAIL' THEN
+                            RAISE(ABORT, 'formulaire_bt_id doit référencer un Bon de Travail')
+                        WHEN NEW.employee_id IS NULL THEN
+                            RAISE(ABORT, 'employee_id obligatoire pour pointage BT')
+                    END;
+                END;
+            ''')
+            
             conn.commit()
             
             # =========================================================================
@@ -837,10 +891,10 @@ class ERPDatabase:
             self._apply_automatic_fixes(cursor)
             
             conn.commit()
-            logger.info("Base de données ERP consolidée initialisée avec succès - Toutes corrections automatiques appliquées")
+            logger.info("Base de données ERP consolidée initialisée avec succès - ÉTAPE 2 Intégration BT ↔ TimeTracker COMPLÈTE")
     
     def _apply_automatic_fixes(self, cursor):
-        """Applique automatiquement toutes les corrections nécessaires"""
+        """Applique automatiquement toutes les corrections nécessaires - ÉTAPE 2 AMÉLIORÉE"""
         try:
             # Vérifier les colonnes existantes dans projects
             cursor.execute("PRAGMA table_info(projects)")
@@ -855,14 +909,269 @@ class ERPDatabase:
                 cursor.execute("ALTER TABLE projects ADD COLUMN date_fin_reel DATE")
                 logger.info("✅ Colonne date_fin_reel ajoutée automatiquement")
             
+            # ÉTAPE 2 : Vérifier et ajouter la colonne formulaire_bt_id dans time_entries
+            cursor.execute("PRAGMA table_info(time_entries)")
+            time_entries_columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'formulaire_bt_id' not in time_entries_columns:
+                cursor.execute("ALTER TABLE time_entries ADD COLUMN formulaire_bt_id INTEGER")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_time_entries_bt ON time_entries(formulaire_bt_id)")
+                logger.info("✅ ÉTAPE 2 : Colonne formulaire_bt_id ajoutée à time_entries")
+                logger.info("✅ ÉTAPE 2 : Index idx_time_entries_bt créé pour performance")
+            
             # Vérifier et corriger d'autres tables si nécessaire
             # (Cette section peut être étendue pour d'autres corrections automatiques)
             
-            logger.info("🔧 Corrections automatiques appliquées avec succès")
+            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 INTÉGRÉE")
             
         except Exception as e:
             logger.warning(f"Avertissement lors des corrections automatiques: {e}")
     
+    # =========================================================================
+    # MÉTHODES SPÉCIFIQUES À L'INTÉGRATION TIMETRACKER ↔ BONS DE TRAVAIL (ÉTAPE 2)
+    # =========================================================================
+    
+    def get_bts_assignes_employe_avec_timetracker(self, employee_id: int) -> List[Dict]:
+        """Récupère les BTs assignés à un employé avec ses statistiques TimeTracker"""
+        try:
+            query = '''
+                SELECT 
+                    f.id as bt_id,
+                    f.numero_document,
+                    f.statut as bt_statut,
+                    f.priorite as bt_priorite,
+                    f.date_creation,
+                    f.date_echeance,
+                    p.nom_projet,
+                    c.nom as company_nom,
+                    bta.date_assignation,
+                    bta.statut as assignation_statut,
+                    bta.notes_assignation,
+                    -- Statistiques TimeTracker
+                    COUNT(DISTINCT te.id) as nb_sessions_pointage,
+                    COALESCE(SUM(te.total_hours), 0) as total_heures_pointees,
+                    COALESCE(SUM(te.total_cost), 0) as total_cout_pointage,
+                    MAX(te.punch_out) as derniere_session
+                FROM bt_assignations bta
+                JOIN formulaires f ON bta.bt_id = f.id
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON f.company_id = c.id
+                LEFT JOIN time_entries te ON f.id = te.formulaire_bt_id AND te.employee_id = ?
+                WHERE bta.employe_id = ? 
+                AND bta.statut = 'ASSIGNÉ'
+                AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+                GROUP BY f.id, bta.id
+                ORDER BY 
+                    CASE f.priorite 
+                        WHEN 'CRITIQUE' THEN 1
+                        WHEN 'URGENT' THEN 2
+                        WHEN 'NORMAL' THEN 3
+                    END,
+                    f.date_echeance ASC
+            '''
+            
+            rows = self.execute_query(query, (employee_id, employee_id))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération BTs assignés avec TimeTracker: {e}")
+            return []
+    
+    def get_bt_details_for_timetracker(self, bt_id: int) -> Dict:
+        """Récupère les détails d'un BT pour l'interface TimeTracker"""
+        try:
+            query = '''
+                SELECT * FROM view_bt_timetracker_integration
+                WHERE bt_id = ?
+            '''
+            result = self.execute_query(query, (bt_id,))
+            return dict(result[0]) if result else {}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération détails BT pour TimeTracker: {e}")
+            return {}
+    
+    def create_time_entry_for_bt(self, employee_id: int, bt_id: int, notes: str = "") -> int:
+        """Crée une entrée de pointage liée à un BT"""
+        try:
+            # Récupérer les infos du BT pour le project_id
+            bt_info = self.execute_query(
+                "SELECT project_id FROM formulaires WHERE id = ? AND type_formulaire = 'BON_TRAVAIL'", 
+                (bt_id,)
+            )
+            
+            if not bt_info:
+                logger.error(f"BT {bt_id} non trouvé ou n'est pas un Bon de Travail")
+                return None
+            
+            project_id = bt_info[0]['project_id']
+            
+            # Créer l'entrée de pointage
+            query = '''
+                INSERT INTO time_entries 
+                (employee_id, project_id, formulaire_bt_id, punch_in, notes)
+                VALUES (?, ?, ?, ?, ?)
+            '''
+            
+            entry_id = self.execute_insert(query, (
+                employee_id,
+                project_id,
+                bt_id,
+                datetime.now().isoformat(),
+                notes
+            ))
+            
+            logger.info(f"✅ Pointage BT créé: entry_id={entry_id}, bt_id={bt_id}, employee_id={employee_id}")
+            return entry_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création pointage BT: {e}")
+            return None
+    
+    def close_time_entry_for_bt(self, entry_id: int, hourly_rate: float = None) -> bool:
+        """Ferme une entrée de pointage BT et calcule les coûts"""
+        try:
+            # Récupérer l'entrée
+            entry = self.execute_query(
+                "SELECT * FROM time_entries WHERE id = ? AND punch_out IS NULL", 
+                (entry_id,)
+            )
+            
+            if not entry:
+                logger.error(f"Time entry {entry_id} non trouvé ou déjà fermé")
+                return False
+            
+            entry = entry[0]
+            punch_in = datetime.fromisoformat(entry['punch_in'])
+            punch_out = datetime.now()
+            total_hours = (punch_out - punch_in).total_seconds() / 3600
+            
+            # Utiliser le hourly_rate fourni ou récupérer celui de l'employé
+            if hourly_rate is None:
+                emp_result = self.execute_query(
+                    "SELECT salaire FROM employees WHERE id = ?", 
+                    (entry['employee_id'],)
+                )
+                hourly_rate = (emp_result[0]['salaire'] / 2080) if emp_result and emp_result[0]['salaire'] else 25.0
+            
+            total_cost = total_hours * hourly_rate
+            
+            # Mettre à jour l'entrée
+            query = '''
+                UPDATE time_entries 
+                SET punch_out = ?, total_hours = ?, hourly_rate = ?, total_cost = ?
+                WHERE id = ?
+            '''
+            
+            affected = self.execute_update(query, (
+                punch_out.isoformat(),
+                total_hours,
+                hourly_rate,
+                total_cost,
+                entry_id
+            ))
+            
+            logger.info(f"✅ Pointage BT fermé: entry_id={entry_id}, heures={total_hours:.2f}, coût={total_cost:.2f}$")
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur fermeture pointage BT: {e}")
+            return False
+    
+    def get_statistiques_bt_timetracker(self, bt_id: int) -> Dict:
+        """Récupère les statistiques TimeTracker pour un BT spécifique"""
+        try:
+            query = '''
+                SELECT 
+                    COUNT(*) as nb_sessions,
+                    COUNT(DISTINCT employee_id) as nb_employes,
+                    COALESCE(SUM(total_hours), 0) as total_heures,
+                    COALESCE(SUM(total_cost), 0) as total_cout,
+                    COALESCE(AVG(total_hours), 0) as moyenne_heures_session,
+                    COALESCE(AVG(total_cost), 0) as moyenne_cout_session,
+                    MIN(punch_in) as premiere_session,
+                    MAX(punch_out) as derniere_session,
+                    COUNT(CASE WHEN punch_out IS NULL THEN 1 END) as sessions_actives
+                FROM time_entries 
+                WHERE formulaire_bt_id = ?
+            '''
+            
+            result = self.execute_query(query, (bt_id,))
+            stats = dict(result[0]) if result else {}
+            
+            # Ajouter détails par employé
+            query_employes = '''
+                SELECT 
+                    e.prenom || ' ' || e.nom as employee_name,
+                    e.poste,
+                    COUNT(te.id) as nb_sessions,
+                    COALESCE(SUM(te.total_hours), 0) as total_heures,
+                    COALESCE(SUM(te.total_cost), 0) as total_cout
+                FROM time_entries te
+                JOIN employees e ON te.employee_id = e.id
+                WHERE te.formulaire_bt_id = ?
+                GROUP BY te.employee_id, e.prenom, e.nom, e.poste
+                ORDER BY total_heures DESC
+            '''
+            
+            employes_rows = self.execute_query(query_employes, (bt_id,))
+            stats['detail_employes'] = [dict(row) for row in employes_rows]
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur statistiques BT TimeTracker: {e}")
+            return {}
+    
+    def get_active_time_entry_for_employee(self, employee_id: int) -> Dict:
+        """Récupère le pointage actif d'un employé (s'il y en a un)"""
+        try:
+            query = '''
+                SELECT te.*, f.numero_document as bt_numero, f.type_formulaire, p.nom_projet
+                FROM time_entries te
+                LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id
+                LEFT JOIN projects p ON te.project_id = p.id
+                WHERE te.employee_id = ? AND te.punch_out IS NULL
+                ORDER BY te.punch_in DESC
+                LIMIT 1
+            '''
+            
+            result = self.execute_query(query, (employee_id,))
+            return dict(result[0]) if result else {}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération pointage actif: {e}")
+            return {}
+    
+    def get_recent_time_entries_for_employee(self, employee_id: int, limit: int = 10) -> List[Dict]:
+        """Récupère les pointages récents d'un employé avec info BT"""
+        try:
+            query = '''
+                SELECT 
+                    te.*,
+                    f.numero_document as bt_numero,
+                    f.statut as bt_statut,
+                    f.priorite as bt_priorite,
+                    p.nom_projet,
+                    CASE 
+                        WHEN f.id IS NOT NULL THEN 'BT'
+                        ELSE 'PROJET'
+                    END as type_pointage
+                FROM time_entries te
+                LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id
+                LEFT JOIN projects p ON te.project_id = p.id
+                WHERE te.employee_id = ?
+                ORDER BY te.punch_in DESC
+                LIMIT ?
+            '''
+            
+            rows = self.execute_query(query, (employee_id, limit))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération pointages récents: {e}")
+            return []
+
     def backup_json_files(self):
         """Sauvegarde tous les fichiers JSON avant migration"""
         json_files = [
@@ -1055,6 +1364,26 @@ class ERPDatabase:
                 ''')
                 checks['bt_reservations_work_centers_fk'] = cursor.fetchone()['orphans'] == 0
                 
+                # ÉTAPE 2 : Vérifications intégration TimeTracker ↔ BT
+                
+                # Time entries avec BT → Formulaires BT
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM time_entries te
+                    WHERE te.formulaire_bt_id IS NOT NULL 
+                    AND te.formulaire_bt_id NOT IN (
+                        SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'
+                    )
+                ''')
+                checks['time_entries_bt_fk'] = cursor.fetchone()['orphans'] == 0
+                
+                # Time entries BT sans employee_id
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM time_entries te
+                    WHERE te.formulaire_bt_id IS NOT NULL 
+                    AND te.employee_id IS NULL
+                ''')
+                checks['time_entries_bt_employee_required'] = cursor.fetchone()['orphans'] == 0
+                
         except Exception as e:
             logger.error(f"Erreur validation intégrité: {e}")
             checks['error'] = str(e)
@@ -1072,7 +1401,9 @@ class ERPDatabase:
             'fournisseurs_info': {},
             'stocks_critiques': 0,
             'bt_info': {},
-            'corrections_appliquees': True
+            'timetracker_bt_integration': {},  # ÉTAPE 2
+            'corrections_appliquees': True,
+            'etape_2_complete': True  # ÉTAPE 2
         }
         
         with self.get_connection() as conn:
@@ -1123,6 +1454,43 @@ class ERPDatabase:
                 cursor.execute('SELECT COUNT(*) as count FROM bt_reservations_postes')
                 result = cursor.fetchone()
                 info['bt_info']['reservations'] = result['count'] if result else 0
+            
+            # ÉTAPE 2 : Informations intégration TimeTracker ↔ BT
+            if 'time_entries' in tables:
+                # Pointages liés à des BT
+                cursor.execute('SELECT COUNT(*) as count FROM time_entries WHERE formulaire_bt_id IS NOT NULL')
+                result = cursor.fetchone()
+                info['timetracker_bt_integration']['pointages_bt'] = result['count'] if result else 0
+                
+                # BT avec pointages
+                cursor.execute('''
+                    SELECT COUNT(DISTINCT formulaire_bt_id) as count 
+                    FROM time_entries 
+                    WHERE formulaire_bt_id IS NOT NULL
+                ''')
+                result = cursor.fetchone()
+                info['timetracker_bt_integration']['bt_avec_pointages'] = result['count'] if result else 0
+                
+                # Heures totales sur BT
+                cursor.execute('''
+                    SELECT COALESCE(SUM(total_hours), 0) as total_heures,
+                           COALESCE(SUM(total_cost), 0) as total_cout
+                    FROM time_entries 
+                    WHERE formulaire_bt_id IS NOT NULL
+                ''')
+                result = cursor.fetchone()
+                if result:
+                    info['timetracker_bt_integration']['total_heures_bt'] = round(result['total_heures'], 2)
+                    info['timetracker_bt_integration']['total_cout_bt'] = round(result['total_cout'], 2)
+                
+                # Employés actifs sur BT
+                cursor.execute('''
+                    SELECT COUNT(DISTINCT employee_id) as count
+                    FROM time_entries 
+                    WHERE formulaire_bt_id IS NOT NULL
+                ''')
+                result = cursor.fetchone()
+                info['timetracker_bt_integration']['employes_actifs_bt'] = result['count'] if result else 0
         
         return info
     
@@ -1143,7 +1511,8 @@ class ERPDatabase:
                 'en_attente_validation': 0,
                 'top_fournisseurs': [],
                 'conversion_ba_bc': {'total_ba': 0, 'convertis_bc': 0, 'taux_conversion': 0.0},
-                'bt_statistiques': {'total_bt': 0, 'assignations': 0, 'postes_reserves': 0}
+                'bt_statistiques': {'total_bt': 0, 'assignations': 0, 'postes_reserves': 0},
+                'bt_timetracker_stats': {}  # ÉTAPE 2
             }
             
             # Statistiques globales
@@ -1248,6 +1617,21 @@ class ERPDatabase:
             result_bt_postes = self.execute_query(query_bt_postes)
             stats['bt_statistiques']['postes_reserves'] = result_bt_postes[0]['count'] if result_bt_postes else 0
             
+            # ÉTAPE 2 : Statistiques BT ↔ TimeTracker
+            query_bt_tt = '''
+                SELECT 
+                    COUNT(DISTINCT te.formulaire_bt_id) as bt_avec_pointages,
+                    COUNT(te.id) as total_sessions_bt,
+                    COALESCE(SUM(te.total_hours), 0) as total_heures_bt,
+                    COALESCE(SUM(te.total_cost), 0) as total_cout_bt,
+                    COALESCE(AVG(te.total_hours), 0) as moyenne_heures_session
+                FROM time_entries te
+                WHERE te.formulaire_bt_id IS NOT NULL
+            '''
+            result_bt_tt = self.execute_query(query_bt_tt)
+            if result_bt_tt:
+                stats['bt_timetracker_stats'] = dict(result_bt_tt[0])
+            
             return stats
             
         except Exception as e:
@@ -1333,6 +1717,9 @@ class ERPDatabase:
                 '''
                 reservations = self.execute_query(query_reservations, (formulaire_id,))
                 formulaire['reservations_postes'] = [dict(res) for res in reservations]
+                
+                # ÉTAPE 2 : Ajouter les statistiques TimeTracker
+                formulaire['timetracker_stats'] = self.get_statistiques_bt_timetracker(formulaire_id)
             
             return formulaire
             
@@ -1792,7 +2179,8 @@ class ERPDatabase:
                 'inventory': {'total_items': 0, 'stocks_critiques': 0},
                 'fournisseurs': {'total': 0, 'actifs': 0},
                 'employees': {'total': 0, 'actifs': 0},
-                'bt_specialise': {'total': 0, 'assignations': 0, 'postes_reserves': 0}
+                'bt_specialise': {'total': 0, 'assignations': 0, 'postes_reserves': 0},
+                'timetracker_bt_integration': {'total_pointages_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0}  # ÉTAPE 2
             }
             
             # Métriques projets
@@ -1855,6 +2243,20 @@ class ERPDatabase:
             if result:
                 metrics['bt_specialise']['postes_reserves'] = result[0]['reservations']
             
+            # ÉTAPE 2 : Métriques intégration TimeTracker ↔ BT
+            result = self.execute_query('''
+                SELECT 
+                    COUNT(*) as total_pointages_bt,
+                    COALESCE(SUM(total_hours), 0) as heures_bt,
+                    COALESCE(SUM(total_cost), 0) as cout_bt
+                FROM time_entries 
+                WHERE formulaire_bt_id IS NOT NULL
+            ''')
+            if result:
+                metrics['timetracker_bt_integration']['total_pointages_bt'] = result[0]['total_pointages_bt']
+                metrics['timetracker_bt_integration']['heures_bt'] = round(result[0]['heures_bt'], 1)
+                metrics['timetracker_bt_integration']['cout_bt'] = round(result[0]['cout_bt'], 2)
+            
             return metrics
             
         except Exception as e:
@@ -1872,6 +2274,7 @@ class ERPDatabase:
                 'stocks_mouvements': 0,
                 'performances_fournisseurs': [],
                 'bt_performance': {'total_bt': 0, 'assignations_mois': 0, 'completion_rate': 0.0},
+                'timetracker_bt_mensuel': {'sessions_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},  # ÉTAPE 2
                 'alertes': []
             }
             
@@ -1954,6 +2357,22 @@ class ERPDatabase:
                 if result:
                     termines = result[0]['termines']
                     report['bt_performance']['completion_rate'] = (termines / report['bt_performance']['total_bt']) * 100
+            
+            # ÉTAPE 2 : Performance TimeTracker BT mensuelle
+            query = '''
+                SELECT 
+                    COUNT(*) as sessions_bt,
+                    COALESCE(SUM(total_hours), 0) as heures_bt,
+                    COALESCE(SUM(total_cost), 0) as cout_bt
+                FROM time_entries 
+                WHERE formulaire_bt_id IS NOT NULL
+                AND strftime('%Y-%m', punch_in) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['timetracker_bt_mensuel']['sessions_bt'] = result[0]['sessions_bt']
+                report['timetracker_bt_mensuel']['heures_bt'] = round(result[0]['heures_bt'], 1)
+                report['timetracker_bt_mensuel']['cout_bt'] = round(result[0]['cout_bt'], 2)
             
             return report
             
