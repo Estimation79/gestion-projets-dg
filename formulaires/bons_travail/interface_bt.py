@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # formulaires/bons_travail/interface_bt.py
 # Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE ÉTAPE 3 INTÉGRATION TIMETRACKER
 
@@ -910,10 +911,10 @@ def render_bon_travail_details_modal(gestionnaire_bt, bt_id):
                                 <span style="color: {session_color}; font-weight: 600;">{session_status}</span>
                             </div>
                             <div style="text-align: center;">
-                                {"<strong>⏱️ " + f"{total_hours:.2f}h" + "</strong>" if total_hours > 0 else "➖"}
+                                {'<strong>⏱️ ' + f"{total_hours:.2f}h" + '</strong>' if total_hours > 0 else '➖'}
                             </div>
                             <div style="text-align: center;">
-                                {"<strong>💰 " + f"{total_cost:.0f}$" + "</strong>" if total_cost > 0 else "➖"}
+                                {'<strong>💰 ' + f"{total_cost:.0f}$" + '</strong>' if total_cost > 0 else '➖'}
                             </div>
                         </div>
                     </div>
@@ -923,7 +924,7 @@ def render_bon_travail_details_modal(gestionnaire_bt, bt_id):
     else:
         st.markdown("""
         <div style="background: #f0f9ff; border: 2px dashed #3b82f6; border-radius: 8px; padding: 20px; text-align: center;">
-            <h4 style="color: #1e40af; margin: 0;">&#x23F1; Aucun pointage TimeTracker</h4>
+            <h4 style="color: #1e40af; margin: 0;">⏱ Aucun pointage TimeTracker</h4>
             <p style="color: #3b82f6; margin: 10px 0;">Aucune session de pointage n'a encore été enregistrée sur ce Bon de Travail.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -1684,7 +1685,7 @@ def render_bon_travail_list_dg(gestionnaire_bt):
     if not bons_travail:
         st.markdown("""
         <div class="dg-info-section" style="text-align:center;">
-            <h3>&#x1F3ED; Bienvenue dans le système de Bons de Travail DG Inc.</h3>
+            <h3>🏭 Bienvenue dans le système de Bons de Travail DG Inc.</h3>
             <p>Aucun Bon de Travail créé. Cliquez sur 'Nouveau BT' pour commencer.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -1833,9 +1834,6 @@ def render_bon_travail_list_dg(gestionnaire_bt):
                         st.rerun()
             else:
                 st.button("✅ Terminer", key=f"terminer_bt_{bt['id']}", disabled=True, use_container_width=True, help="BT pas prêt à être terminé")
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1911,7 +1909,7 @@ def render_bon_travail_stats_dg(gestionnaire_bt):
     if not bons_travail:
         st.markdown("""
         <div class="dg-info-section" style="text-align:center;">
-            <h3>&#x1F4CA; Aucune donnée pour les statistiques</h3>
+            <h3>📊 Aucune donnée pour les statistiques</h3>
             <p>Créez des Bons de Travail pour voir les statistiques apparaître ici.</p>
         </div>
         """, unsafe_allow_html=True)
