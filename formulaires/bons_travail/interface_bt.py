@@ -1883,16 +1883,3 @@ def render_rapport_productivite_dg(gestionnaire_bt):
         """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
-
-
-def render_bt_avec_timetracker_integration():
-    # Code complet dans bt_timetracker_integration.py
-    pass
-    
-def render_dashboard_integration_bt_timetracker():
-    # Code complet dans bt_timetracker_integration.py
-    pass
-    
-def show_demarrage_pointage_modal(gestionnaire_bt, bt_data: Dict):
-    # Code complet dans bt_timetracker_integration.py
-    pass
