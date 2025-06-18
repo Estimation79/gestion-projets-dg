@@ -1,5 +1,6 @@
 # erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ
 # ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet + Corrections Intégrées
+# VERSION 2.0 - Intégration TimeTracker ↔ Bons de Travail
 
 import sqlite3
 import json
@@ -37,6 +38,11 @@ class ERPDatabase:
     - Colonnes projects corrigées (date_debut_reel, date_fin_reel)
     - Tables BT spécialisées (bt_assignations, bt_reservations_postes)
     - Toutes les améliorations de fix_database.py
+    
+    INTÉGRATION TIMETRACKER ↔ BONS DE TRAVAIL :
+    - Synchronisation des temps et de l'avancement
+    - Pointage direct depuis les BT
+    - Rapports et dashboards intégrés
     """
     
     def __init__(self, db_path: str = "erp_production_dg.db"):
@@ -308,7 +314,7 @@ class ERPDatabase:
                     company_id INTEGER,
                     employee_id INTEGER,
                     statut TEXT DEFAULT 'BROUILLON' CHECK(statut IN 
-                        ('BROUILLON', 'VALIDÉ', 'ENVOYÉ', 'APPROUVÉ', 'TERMINÉ', 'ANNULÉ')),
+                        ('BROUILLON', 'VALIDÉ', 'ENVOYÉ', 'APPROUVÉ', 'EN COURS', 'TERMINÉ', 'ANNULÉ')),
                     priorite TEXT DEFAULT 'NORMAL' CHECK(priorite IN ('NORMAL', 'URGENT', 'CRITIQUE')),
                     date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     date_echeance DATE,
@@ -353,7 +359,7 @@ class ERPDatabase:
                     formulaire_id INTEGER NOT NULL,
                     employee_id INTEGER,
                     type_validation TEXT NOT NULL CHECK(type_validation IN 
-                        ('CREATION', 'MODIFICATION', 'VALIDATION', 'APPROBATION', 'ENVOI', 'CHANGEMENT_STATUT', 'ANNULATION')),
+                        ('CREATION', 'MODIFICATION', 'VALIDATION', 'APPROBATION', 'ENVOI', 'CHANGEMENT_STATUT', 'ANNULATION', 'ASSIGNATION', 'RESERVATION_POSTE')),
                     ancien_statut TEXT,
                     nouveau_statut TEXT,
                     commentaires TEXT,
@@ -447,6 +453,7 @@ class ERPDatabase:
                     id INTEGER PRIMARY KEY,
                     bt_id INTEGER,
                     employe_id INTEGER,
+                    role_bt TEXT DEFAULT 'Opérateur',
                     date_assignation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     statut TEXT DEFAULT 'ASSIGNÉ',
                     notes_assignation TEXT,
@@ -470,6 +477,25 @@ class ERPDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (bt_id) REFERENCES formulaires(id),
                     FOREIGN KEY (work_center_id) REFERENCES work_centers(id)
+                )
+            ''')
+            
+            # 23. AVANCEMENT BONS DE TRAVAIL (NOUVEAU - POUR INTÉGRATION TIMETRACKER)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS bt_avancement (
+                    id INTEGER PRIMARY KEY,
+                    bt_id INTEGER NOT NULL,
+                    operation_id INTEGER NOT NULL,
+                    pourcentage_realise REAL DEFAULT 0.0,
+                    temps_reel REAL DEFAULT 0.0,
+                    notes_avancement TEXT,
+                    updated_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (bt_id) REFERENCES formulaires(id) ON DELETE CASCADE,
+                    FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE CASCADE,
+                    FOREIGN KEY (updated_by) REFERENCES employees(id),
+                    UNIQUE(bt_id, operation_id)
                 )
             ''')
             
@@ -526,6 +552,10 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_assignations_employe ON bt_assignations(employe_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_reservations_bt ON bt_reservations_postes(bt_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_reservations_work_center ON bt_reservations_postes(work_center_id)')
+            
+            # Index pour la nouvelle table bt_avancement
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_avancement_bt ON bt_avancement(bt_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_avancement_operation ON bt_avancement(operation_id)')
             
             # =========================================================================
             # VUES POUR REQUÊTES COMPLEXES FRÉQUENTES
@@ -856,8 +886,12 @@ class ERPDatabase:
                 logger.info("✅ Colonne date_fin_reel ajoutée automatiquement")
             
             # Vérifier et corriger d'autres tables si nécessaire
-            # (Cette section peut être étendue pour d'autres corrections automatiques)
-            
+            cursor.execute("PRAGMA table_info(bt_assignations)")
+            assign_columns = [col[1] for col in cursor.fetchall()]
+            if 'role_bt' not in assign_columns:
+                cursor.execute("ALTER TABLE bt_assignations ADD COLUMN role_bt TEXT DEFAULT 'Opérateur'")
+                logger.info("✅ Colonne role_bt ajoutée automatiquement à bt_assignations")
+
             logger.info("🔧 Corrections automatiques appliquées avec succès")
             
         except Exception as e:
@@ -942,7 +976,7 @@ class ERPDatabase:
             'formulaire_pieces_jointes', 'formulaire_templates',
             'fournisseurs', 'approvisionnements',
             # Tables BT spécialisées
-            'bt_assignations', 'bt_reservations_postes'
+            'bt_assignations', 'bt_reservations_postes', 'bt_avancement'
         ]
         
         status = {}
@@ -1054,7 +1088,21 @@ class ERPDatabase:
                     WHERE btr.work_center_id NOT IN (SELECT id FROM work_centers)
                 ''')
                 checks['bt_reservations_work_centers_fk'] = cursor.fetchone()['orphans'] == 0
-                
+
+                # BT Avancement -> Formulaires
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM bt_avancement bta
+                    WHERE bta.bt_id NOT IN (SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL')
+                ''')
+                checks['bt_avancement_formulaires_fk'] = cursor.fetchone()['orphans'] == 0
+
+                # BT Avancement -> Operations
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM bt_avancement bta
+                    WHERE bta.operation_id NOT IN (SELECT id FROM operations)
+                ''')
+                checks['bt_avancement_operations_fk'] = cursor.fetchone()['orphans'] == 0
+
         except Exception as e:
             logger.error(f"Erreur validation intégrité: {e}")
             checks['error'] = str(e)
@@ -1385,6 +1433,7 @@ class ERPDatabase:
             'VALIDÉ': '#3b82f6',
             'ENVOYÉ': '#8b5cf6',
             'APPROUVÉ': '#10b981',
+            'EN COURS': '#2dd4bf',
             'TERMINÉ': '#059669',
             'ANNULÉ': '#ef4444'
         }
@@ -1497,7 +1546,7 @@ class ERPDatabase:
             else:
                 sequence = 1
             
-            return f"{prefix}-{annee}-{sequence:03d}"
+            return f"{prefix}-{annee}-{sequence:04d}"
             
         except Exception as e:
             logger.error(f"Erreur génération numéro document: {e}")
@@ -1961,6 +2010,800 @@ class ERPDatabase:
             logger.error(f"Erreur génération rapport mensuel: {e}")
             return {}
 
+    # =========================================================================
+    # MÉTHODES D'INTÉGRATION BT ↔ TIMETRACKER (Extensions)
+    # =========================================================================
+
+    def get_bt_assignes_employe(self, employee_id: int) -> List[Dict]:
+        """
+        Récupère tous les BT assignés à un employé avec détails complets
+        INTÉGRATION : TimeTracker → Bons de Travail
+        
+        Args:
+            employee_id: ID de l'employé
+            
+        Returns:
+            List[Dict]: Liste des BT assignés avec statuts et opérations
+        """
+        try:
+            query = """
+                SELECT 
+                    f.id as bt_id,
+                    f.numero_document,
+                    f.statut as bt_statut,
+                    f.priorite,
+                    f.date_echeance,
+                    p.nom_projet,
+                    p.client_nom_cache as client_nom,
+                    bta.role_bt,
+                    bta.date_assignation,
+                    bta.statut as assignation_statut,
+                    
+                    -- Avancement du BT
+                    COALESCE(AVG(btav.pourcentage_realise), 0) as avancement_moyen,
+                    COUNT(DISTINCT btav.operation_id) as operations_totales,
+                    COUNT(CASE WHEN btav.pourcentage_realise >= 100 THEN 1 END) as operations_terminees,
+                    
+                    -- Temps TimeTracker sur ce BT
+                    COALESCE(SUM(te.total_hours), 0) as temps_timetracker_total,
+                    COALESCE(SUM(te.total_cost), 0) as cout_timetracker_total,
+                    COUNT(te.id) as pointages_timetracker,
+                    
+                    -- Dernière activité
+                    MAX(te.punch_in) as dernier_pointage
+                    
+                FROM bt_assignations bta
+                JOIN formulaires f ON bta.bt_id = f.id
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN bt_avancement btav ON f.id = btav.bt_id
+                LEFT JOIN time_entries te ON f.project_id = te.project_id AND te.employee_id = bta.employe_id
+                
+                WHERE bta.employe_id = ? 
+                AND bta.statut = 'ASSIGNÉ'
+                AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+                
+                GROUP BY f.id, bta.id
+                ORDER BY f.priorite DESC, f.date_echeance ASC
+            """
+            
+            rows = self.execute_query(query, (employee_id,))
+            
+            bt_assignes = []
+            for row in rows:
+                bt = dict(row)
+                
+                # Enrichir avec opérations disponibles pour pointage
+                bt['operations_pointage'] = self._get_operations_bt_pour_pointage(bt['bt_id'])
+                
+                # Calculer priorité numérique pour le tri
+                bt['priorite_numeric'] = {'CRITIQUE': 3, 'URGENT': 2, 'NORMAL': 1}.get(bt['priorite'], 1)
+                
+                # Statut d'urgence basé sur échéance
+                if bt['date_echeance']:
+                    try:
+                        echeance = datetime.strptime(bt['date_echeance'], '%Y-%m-%d')
+                        jours_restants = (echeance.date() - datetime.now().date()).days
+                        bt['jours_restants'] = jours_restants
+                        bt['urgence_echeance'] = 'CRITIQUE' if jours_restants <= 1 else 'URGENT' if jours_restants <= 3 else 'NORMAL'
+                    except:
+                        bt['jours_restants'] = 999
+                        bt['urgence_echeance'] = 'NORMAL'
+                
+                bt_assignes.append(bt)
+            
+            logging.info(f"✅ {len(bt_assignes)} BT assigné(s) trouvé(s) pour employé {employee_id}")
+            return bt_assignes
+            
+        except Exception as e:
+            logging.error(f"❌ Erreur récupération BT assignés employé {employee_id}: {e}")
+            return []
+
+    def _get_operations_bt_pour_pointage(self, bt_id: int) -> List[Dict]:
+        """
+        Récupère les opérations d'un BT formatées pour TimeTracker
+        
+        Args:
+            bt_id: ID du BT
+            
+        Returns:
+            List[Dict]: Opérations avec détails pour pointage
+        """
+        try:
+            # Récupérer le projet du BT
+            query_projet = """
+                SELECT project_id FROM formulaires WHERE id = ?
+            """
+            result_projet = self.execute_query(query_projet, (bt_id,))
+            
+            if not result_projet or not result_projet[0]['project_id']:
+                return []
+            
+            project_id = result_projet[0]['project_id']
+            
+            # Récupérer les opérations du projet avec état TimeTracker
+            query = """
+                SELECT 
+                    o.id as operation_id,
+                    o.sequence_number,
+                    o.description,
+                    o.temps_estime,
+                    o.statut as operation_statut,
+                    wc.nom as work_center_name,
+                    wc.cout_horaire,
+                    
+                    -- État TimeTracker de cette opération
+                    COALESCE(SUM(te.total_hours), 0) as temps_reel_timetracker,
+                    COALESCE(SUM(te.total_cost), 0) as cout_reel_timetracker,
+                    COUNT(te.id) as nb_pointages,
+                    MAX(te.punch_out) as dernier_pointage,
+                    
+                    -- État avancement BT
+                    btav.pourcentage_realise,
+                    btav.temps_reel as temps_reel_bt,
+                    btav.notes_avancement
+                    
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                LEFT JOIN time_entries te ON o.id = te.operation_id
+                LEFT JOIN bt_avancement btav ON o.id = btav.operation_id AND btav.bt_id = ?
+                
+                WHERE o.project_id = ?
+                
+                GROUP BY o.id
+                ORDER BY o.sequence_number
+            """
+            
+            rows = self.execute_query(query, (bt_id, project_id))
+            
+            operations = []
+            for row in rows:
+                op = dict(row)
+                
+                # Calculer progression
+                if op['temps_estime'] and op['temps_estime'] > 0:
+                    progression_temps = (op['temps_reel_timetracker'] / op['temps_estime']) * 100
+                else:
+                    progression_temps = 0
+                
+                op['progression_temps'] = min(100, progression_temps)
+                op['peut_pointer'] = op['operation_statut'] not in ['TERMINÉ', 'ANNULÉ']
+                op['description_pointage'] = f"OP{op['sequence_number']:02d} - {op['description']}"
+                
+                operations.append(op)
+            
+            return operations
+            
+        except Exception as e:
+            logging.error(f"❌ Erreur opérations BT pour pointage {bt_id}: {e}")
+            return []
+
+    def synchroniser_avancement_bt_depuis_timetracker(self, bt_id: int) -> bool:
+        """
+        Synchronise l'avancement d'un BT basé sur les données TimeTracker
+        INTÉGRATION : TimeTracker → Bons de Travail
+        
+        Args:
+            bt_id: ID du BT à synchroniser
+            
+        Returns:
+            bool: True si synchronisation réussie
+        """
+        try:
+            # Récupérer le projet du BT
+            query_projet = """
+                SELECT project_id FROM formulaires WHERE id = ?
+            """
+            result_projet = self.execute_query(query_projet, (bt_id,))
+            
+            if not result_projet or not result_projet[0]['project_id']:
+                return False
+            
+            project_id = result_projet[0]['project_id']
+            
+            # Synchroniser chaque opération
+            query_operations = """
+                SELECT 
+                    o.id as operation_id,
+                    o.temps_estime,
+                    COALESCE(SUM(te.total_hours), 0) as temps_reel_timetracker,
+                    COUNT(te.id) as nb_pointages
+                FROM operations o
+                LEFT JOIN time_entries te ON o.id = te.operation_id
+                WHERE o.project_id = ?
+                GROUP BY o.id
+            """
+            
+            operations = self.execute_query(query_operations, (project_id,))
+            operations_synchronisees = 0
+            
+            for op in operations:
+                operation_id = op['operation_id']
+                temps_reel = op['temps_reel_timetracker']
+                temps_estime = op['temps_estime'] or 1  # Éviter division par zéro
+                
+                # Calculer pourcentage basé sur TimeTracker
+                pourcentage = min(100, (temps_reel / temps_estime) * 100)
+                
+                # Mettre à jour ou créer l'avancement
+                query_check = """
+                    SELECT id FROM bt_avancement 
+                    WHERE bt_id = ? AND operation_id = ?
+                """
+                existing = self.execute_query(query_check, (bt_id, operation_id))
+                
+                if existing:
+                    # Mise à jour
+                    query_update = """
+                        UPDATE bt_avancement 
+                        SET pourcentage_realise = ?, 
+                            temps_reel = ?,
+                            notes_avancement = ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE bt_id = ? AND operation_id = ?
+                    """
+                    notes = f"Sync TimeTracker: {temps_reel:.2f}h sur {temps_estime:.2f}h estimé ({op['nb_pointages']} pointages)"
+                    self.execute_update(query_update, (pourcentage, temps_reel, notes, bt_id, operation_id))
+                else:
+                    # Création
+                    query_insert = """
+                        INSERT INTO bt_avancement 
+                        (bt_id, operation_id, pourcentage_realise, temps_reel, notes_avancement)
+                        VALUES (?, ?, ?, ?, ?)
+                    """
+                    notes = f"Sync TimeTracker: {temps_reel:.2f}h ({op['nb_pointages']} pointages)"
+                    self.execute_insert(query_insert, (bt_id, operation_id, pourcentage, temps_reel, notes))
+                
+                operations_synchronisees += 1
+            
+            logging.info(f"✅ Synchronisation BT {bt_id}: {operations_synchronisees} opération(s) mises à jour")
+            return True
+            
+        except Exception as e:
+            logging.error(f"❌ Erreur synchronisation BT {bt_id}: {e}")
+            return False
+
+    def demarrer_pointage_depuis_bt(self, employee_id: int, bt_id: int, operation_id: int, 
+                                   notes: str = "") -> Optional[int]:
+        """
+        Démarre un pointage TimeTracker directement depuis un BT
+        INTÉGRATION : Bons de Travail → TimeTracker
+        
+        Args:
+            employee_id: ID de l'employé
+            bt_id: ID du BT
+            operation_id: ID de l'opération
+            notes: Notes de démarrage
+            
+        Returns:
+            Optional[int]: ID du time_entry créé ou None si erreur
+        """
+        try:
+            # Vérifier que l'employé est assigné au BT
+            query_check = """
+                SELECT COUNT(*) as count FROM bt_assignations 
+                WHERE bt_id = ? AND employe_id = ? AND statut = 'ASSIGNÉ'
+            """
+            result = self.execute_query(query_check, (bt_id, employee_id))
+            
+            if not result or result[0]['count'] == 0:
+                raise ValueError("Employé non assigné à ce BT")
+            
+            # Vérifier qu'il n'y a pas déjà un pointage actif
+            query_active = """
+                SELECT COUNT(*) as count FROM time_entries 
+                WHERE employee_id = ? AND punch_out IS NULL
+            """
+            result_active = self.execute_query(query_active, (employee_id,))
+            
+            if result_active and result_active[0]['count'] > 0:
+                raise ValueError("Pointage déjà actif pour cet employé")
+            
+            # Récupérer les informations du BT et de l'opération
+            query_info = """
+                SELECT 
+                    f.project_id,
+                    f.numero_document as bt_numero,
+                    o.description as operation_desc,
+                    wc.cout_horaire
+                FROM formulaires f
+                JOIN operations o ON o.id = ?
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE f.id = ?
+            """
+            info_result = self.execute_query(query_info, (operation_id, bt_id))
+            
+            if not info_result:
+                raise ValueError("BT ou opération non trouvé")
+            
+            info = info_result[0]
+            project_id = info['project_id']
+            hourly_rate = info['cout_horaire'] or 95.0  # Taux par défaut
+            
+            # Créer le pointage avec note enrichie
+            notes_enrichies = f"BT {info['bt_numero']} - {info['operation_desc']} | {notes}".strip(' |')
+            
+            query_insert = """
+                INSERT INTO time_entries 
+                (employee_id, project_id, operation_id, punch_in, notes, hourly_rate)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """
+            
+            time_entry_id = self.execute_insert(query_insert, (
+                employee_id, project_id, operation_id, 
+                datetime.now().isoformat(), notes_enrichies, hourly_rate
+            ))
+            
+            logging.info(f"✅ Pointage démarré depuis BT {bt_id}: time_entry {time_entry_id}")
+            return time_entry_id
+            
+        except Exception as e:
+            logging.error(f"❌ Erreur démarrage pointage depuis BT {bt_id}: {e}")
+            return None
+
+    def get_temps_reel_bt_operations(self, bt_id: int) -> Dict[str, Any]:
+        """
+        Récupère les temps réels TimeTracker pour toutes les opérations d'un BT
+        INTÉGRATION : TimeTracker → Bons de Travail
+        
+        Args:
+            bt_id: ID du BT
+            
+        Returns:
+            Dict: Temps réels et statistiques par opération
+        """
+        try:
+            # Récupérer le projet du BT
+            query_projet = """
+                SELECT project_id, numero_document FROM formulaires WHERE id = ?
+            """
+            result_projet = self.execute_query(query_projet, (bt_id,))
+            
+            if not result_projet or not result_projet[0]['project_id']:
+                return {}
+            
+            project_id = result_projet[0]['project_id']
+            bt_numero = result_projet[0]['numero_document']
+            
+            # Récupérer les temps par opération avec détails TimeTracker
+            query = """
+                SELECT 
+                    o.id as operation_id,
+                    o.sequence_number,
+                    o.description,
+                    o.temps_estime,
+                    
+                    -- Données TimeTracker
+                    COALESCE(SUM(te.total_hours), 0) as temps_reel,
+                    COALESCE(SUM(te.total_cost), 0) as cout_reel,
+                    COALESCE(AVG(te.hourly_rate), 0) as taux_moyen,
+                    COUNT(te.id) as nb_pointages,
+                    COUNT(DISTINCT te.employee_id) as nb_employes,
+                    
+                    -- Dernière activité
+                    MAX(te.punch_in) as dernier_debut,
+                    MAX(te.punch_out) as derniere_fin,
+                    
+                    -- Pointage en cours
+                    COUNT(CASE WHEN te.punch_out IS NULL THEN 1 END) as pointages_actifs
+                    
+                FROM operations o
+                LEFT JOIN time_entries te ON o.id = te.operation_id
+                WHERE o.project_id = ?
+                GROUP BY o.id
+                ORDER BY o.sequence_number
+            """
+            
+            rows = self.execute_query(query, (project_id,))
+            
+            operations_temps = []
+            temps_total_reel = 0
+            temps_total_estime = 0
+            cout_total = 0
+            pointages_totaux = 0
+            
+            for row in rows:
+                op = dict(row)
+                
+                # Calculs de progression
+                if op['temps_estime'] and op['temps_estime'] > 0:
+                    progression = (op['temps_reel'] / op['temps_estime']) * 100
+                    variance = op['temps_reel'] - op['temps_estime']
+                    variance_pct = (variance / op['temps_estime']) * 100
+                else:
+                    progression = 0 if op['temps_reel'] == 0 else 100
+                    variance = op['temps_reel']
+                    variance_pct = 0
+                
+                op['progression'] = min(100, progression)
+                op['variance_heures'] = variance
+                op['variance_pourcentage'] = variance_pct
+                op['statut_progression'] = (
+                    'DÉPASSÉ' if progression > 110 else
+                    'EN RETARD' if progression > 100 else
+                    'TERMINÉ' if progression >= 100 else
+                    'EN COURS' if op['pointages_actifs'] > 0 else
+                    'NON DÉMARRÉ'
+                )
+                
+                # Efficacité
+                if op['temps_estime'] and op['temps_reel'] > 0:
+                    efficacite = (op['temps_estime'] / op['temps_reel']) * 100
+                    op['efficacite'] = min(200, efficacite)  # Cap à 200%
+                else:
+                    op['efficacite'] = 0
+                
+                operations_temps.append(op)
+                
+                # Totaux
+                temps_total_reel += op['temps_reel']
+                temps_total_estime += op['temps_estime'] or 0
+                cout_total += op['cout_reel']
+                pointages_totaux += op['nb_pointages']
+            
+            # Synthèse globale
+            progression_globale = (temps_total_reel / temps_total_estime * 100) if temps_total_estime > 0 else 0
+            efficacite_globale = (temps_total_estime / temps_total_reel * 100) if temps_total_reel > 0 else 0
+            
+            synthese = {
+                'bt_id': bt_id,
+                'bt_numero': bt_numero,
+                'operations': operations_temps,
+                'synthese': {
+                    'temps_total_estime': temps_total_estime,
+                    'temps_total_reel': temps_total_reel,
+                    'cout_total': cout_total,
+                    'progression_globale': min(100, progression_globale),
+                    'efficacite_globale': min(200, efficacite_globale),
+                    'variance_globale': temps_total_reel - temps_total_estime,
+                    'pointages_totaux': pointages_totaux,
+                    'nb_operations': len(operations_temps),
+                    'operations_terminees': len([op for op in operations_temps if op['progression'] >= 100]),
+                    'operations_en_cours': len([op for op in operations_temps if op['pointages_actifs'] > 0])
+                }
+            }
+            
+            logging.info(f"✅ Temps réels récupérés pour BT {bt_id}: {len(operations_temps)} opérations")
+            return synthese
+            
+        except Exception as e:
+            logging.error(f"❌ Erreur temps réels BT {bt_id}: {e}")
+            return {}
+
+    def get_dashboard_integration_bt_timetracker(self) -> Dict[str, Any]:
+        """
+        Dashboard unifié BT/TimeTracker avec métriques croisées
+        INTÉGRATION : Vue d'ensemble unifiée
+        
+        Returns:
+            Dict: Métriques et données du dashboard intégré
+        """
+        try:
+            dashboard = {
+                'timestamp': datetime.now().isoformat(),
+                'bt_metrics': {},
+                'timetracker_metrics': {},
+                'integration_metrics': {},
+                'alertes': [],
+                'top_performers': [],
+                'projets_actifs': []
+            }
+            
+            # === MÉTRIQUES BT ===
+            query_bt = """
+                SELECT 
+                    COUNT(*) as total_bt,
+                    COUNT(CASE WHEN statut = 'EN COURS' THEN 1 END) as bt_en_cours,
+                    COUNT(CASE WHEN statut = 'TERMINÉ' THEN 1 END) as bt_termines,
+                    COUNT(CASE WHEN priorite = 'CRITIQUE' THEN 1 END) as bt_critiques,
+                    COUNT(CASE WHEN date_echeance < DATE('now') AND statut NOT IN ('TERMINÉ', 'ANNULÉ') THEN 1 END) as bt_retard,
+                    COALESCE(SUM(montant_total), 0) as montant_total_bt
+                FROM formulaires 
+                WHERE type_formulaire = 'BON_TRAVAIL'
+            """
+            result_bt = self.execute_query(query_bt)
+            dashboard['bt_metrics'] = dict(result_bt[0]) if result_bt else {}
+            
+            # === MÉTRIQUES TIMETRACKER ===
+            today = datetime.now().strftime('%Y-%m-%d')
+            query_tt = """
+                SELECT 
+                    COUNT(*) as total_pointages_jour,
+                    COUNT(CASE WHEN punch_out IS NULL THEN 1 END) as pointages_actifs,
+                    COALESCE(SUM(total_hours), 0) as heures_jour,
+                    COALESCE(SUM(total_cost), 0) as revenus_jour,
+                    COUNT(DISTINCT employee_id) as employes_actifs_jour
+                FROM time_entries 
+                WHERE DATE(punch_in) = ?
+            """
+            result_tt = self.execute_query(query_tt, (today,))
+            dashboard['timetracker_metrics'] = dict(result_tt[0]) if result_tt else {}
+            
+            # === MÉTRIQUES D'INTÉGRATION ===
+            query_integration = """
+                SELECT 
+                    COUNT(DISTINCT f.id) as bt_avec_pointages,
+                    COUNT(DISTINCT te.employee_id) as employes_bt_timetracker,
+                    COUNT(DISTINCT te.operation_id) as operations_pointees,
+                    COALESCE(SUM(te.total_hours), 0) as heures_bt_total,
+                    COALESCE(SUM(te.total_cost), 0) as revenus_bt_total
+                FROM formulaires f
+                JOIN time_entries te ON f.project_id = te.project_id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                AND te.total_cost IS NOT NULL
+            """
+            result_integration = self.execute_query(query_integration)
+            dashboard['integration_metrics'] = dict(result_integration[0]) if result_integration else {}
+            
+            # === ALERTES ===
+            # BT en retard
+            if dashboard['bt_metrics'].get('bt_retard', 0) > 0:
+                dashboard['alertes'].append({
+                    'type': 'RETARD',
+                    'niveau': 'CRITIQUE',
+                    'message': f"{dashboard['bt_metrics']['bt_retard']} BT en retard d'échéance",
+                    'action': 'Vérifier les BT en retard et réassigner si nécessaire'
+                })
+            
+            # Pointages oubliés (actifs depuis plus de 12h)
+            query_pointages_longs = """
+                SELECT COUNT(*) as count FROM time_entries 
+                WHERE punch_out IS NULL 
+                AND punch_in < datetime('now', '-12 hours')
+            """
+            result_longs = self.execute_query(query_pointages_longs)
+            pointages_longs = result_longs[0]['count'] if result_longs else 0
+            
+            if pointages_longs > 0:
+                dashboard['alertes'].append({
+                    'type': 'POINTAGE_LONG',
+                    'niveau': 'ATTENTION',
+                    'message': f"{pointages_longs} pointage(s) actif(s) depuis plus de 12h",
+                    'action': 'Vérifier les pointages oubliés avec les employés'
+                })
+            
+            # === TOP PERFORMERS (Employés BT + TimeTracker) ===
+            query_performers = """
+                SELECT 
+                    e.prenom || ' ' || e.nom as nom_employe,
+                    e.poste,
+                    COUNT(DISTINCT bta.bt_id) as bt_assignes,
+                    COUNT(DISTINCT te.id) as pointages_mois,
+                    COALESCE(SUM(te.total_hours), 0) as heures_mois,
+                    COALESCE(SUM(te.total_cost), 0) as revenus_mois
+                FROM employees e
+                LEFT JOIN bt_assignations bta ON e.id = bta.employe_id AND bta.statut = 'ASSIGNÉ'
+                LEFT JOIN time_entries te ON e.id = te.employee_id 
+                    AND DATE(te.punch_in) >= DATE('now', '-30 days')
+                    AND te.total_cost IS NOT NULL
+                WHERE e.statut = 'ACTIF'
+                GROUP BY e.id
+                HAVING (bt_assignes > 0 OR pointages_mois > 0)
+                ORDER BY revenus_mois DESC, heures_mois DESC
+                LIMIT 5
+            """
+            rows_performers = self.execute_query(query_performers)
+            dashboard['top_performers'] = [dict(row) for row in rows_performers]
+            
+            # === PROJETS ACTIFS AVEC INTÉGRATION ===
+            query_projets = """
+                SELECT 
+                    p.id as project_id,
+                    p.nom_projet,
+                    p.statut as project_statut,
+                    COUNT(DISTINCT f.id) as bt_count,
+                    COUNT(DISTINCT te.employee_id) as employes_timetracker,
+                    COALESCE(SUM(te.total_hours), 0) as heures_timetracker,
+                    COALESCE(SUM(te.total_cost), 0) as revenus_timetracker,
+                    COALESCE(AVG(btav.pourcentage_realise), 0) as avancement_moyen
+                FROM projects p
+                LEFT JOIN formulaires f ON p.id = f.project_id AND f.type_formulaire = 'BON_TRAVAIL'
+                LEFT JOIN time_entries te ON p.id = te.project_id AND te.total_cost IS NOT NULL
+                LEFT JOIN bt_avancement btav ON f.id = btav.bt_id
+                WHERE p.statut IN ('À FAIRE', 'EN COURS', 'EN ATTENTE')
+                GROUP BY p.id
+                HAVING (bt_count > 0 OR employes_timetracker > 0)
+                ORDER BY revenus_timetracker DESC
+                LIMIT 10
+            """
+            rows_projets = self.execute_query(query_projets)
+            dashboard['projets_actifs'] = [dict(row) for row in rows_projets]
+            
+            logging.info("✅ Dashboard intégration BT/TimeTracker généré")
+            return dashboard
+            
+        except Exception as e:
+            logging.error(f"❌ Erreur dashboard intégration: {e}")
+            return {}
+
+    def get_rapport_productivite_integre(self, periode_jours: int = 30) -> Dict[str, Any]:
+        """
+        Rapport de productivité intégré BT/TimeTracker
+        INTÉGRATION : Analyse complète de performance
+        
+        Args:
+            periode_jours: Période d'analyse en jours
+            
+        Returns:
+            Dict: Rapport de productivité intégré
+        """
+        try:
+            date_debut = (datetime.now() - timedelta(days=periode_jours)).strftime('%Y-%m-%d')
+            
+            rapport = {
+                'periode': f"{periode_jours} derniers jours",
+                'date_debut': date_debut,
+                'date_generation': datetime.now().isoformat(),
+                'employes': [],
+                'projets': [],
+                'operations': [],
+                'synthese': {},
+                'recommandations': []
+            }
+            
+            # === ANALYSE PAR EMPLOYÉ ===
+            query_employes = """
+                SELECT 
+                    e.id as employee_id,
+                    e.prenom || ' ' || e.nom as nom_employe,
+                    e.poste,
+                    e.departement,
+                    
+                    -- Métriques BT
+                    COUNT(DISTINCT bta.bt_id) as bt_assignes,
+                    COUNT(CASE WHEN f.statut = 'TERMINÉ' THEN 1 END) as bt_termines,
+                    
+                    -- Métriques TimeTracker
+                    COUNT(DISTINCT te.id) as pointages_periode,
+                    COALESCE(SUM(te.total_hours), 0) as heures_periode,
+                    COALESCE(SUM(te.total_cost), 0) as revenus_periode,
+                    COALESCE(AVG(te.hourly_rate), 0) as taux_moyen,
+                    
+                    -- Efficacité
+                    COUNT(DISTINCT te.project_id) as projets_touches,
+                    COUNT(DISTINCT DATE(te.punch_in)) as jours_actifs
+                    
+                FROM employees e
+                LEFT JOIN bt_assignations bta ON e.id = bta.employe_id
+                LEFT JOIN formulaires f ON bta.bt_id = f.id AND f.type_formulaire = 'BON_TRAVAIL'
+                LEFT JOIN time_entries te ON e.id = te.employee_id 
+                    AND DATE(te.punch_in) >= ? AND te.total_cost IS NOT NULL
+                
+                WHERE e.statut = 'ACTIF'
+                GROUP BY e.id
+                HAVING (bt_assignes > 0 OR pointages_periode > 0)
+                ORDER BY revenus_periode DESC
+            """
+            
+            rows_employes = self.execute_query(query_employes, (date_debut,))
+            
+            for row in rows_employes:
+                emp = dict(row)
+                
+                # Calculs d'efficacité
+                if emp['bt_assignes'] > 0:
+                    emp['taux_completion_bt'] = (emp['bt_termines'] / emp['bt_assignes']) * 100
+                else:
+                    emp['taux_completion_bt'] = 0
+                
+                if emp['jours_actifs'] > 0:
+                    emp['heures_par_jour'] = emp['heures_periode'] / emp['jours_actifs']
+                    emp['revenus_par_jour'] = emp['revenus_periode'] / emp['jours_actifs']
+                else:
+                    emp['heures_par_jour'] = 0
+                    emp['revenus_par_jour'] = 0
+                
+                # Score de performance combiné
+                score_bt = emp['taux_completion_bt'] * 0.3
+                score_temps = min(40, emp['heures_par_jour']) * 2.5  # Max 100 points pour 40h/jour
+                score_revenus = min(1000, emp['revenus_par_jour']) * 0.1  # Max 100 points pour 1000$/jour
+                
+                emp['score_performance'] = (score_bt + score_temps + score_revenus) / 3
+                
+                rapport['employes'].append(emp)
+            
+            # === ANALYSE PAR PROJET ===
+            query_projets = """
+                SELECT 
+                    p.id as project_id,
+                    p.nom_projet,
+                    p.statut as project_statut,
+                    p.prix_estime,
+                    
+                    -- Métriques BT
+                    COUNT(DISTINCT f.id) as bt_total,
+                    COUNT(CASE WHEN f.statut = 'TERMINÉ' THEN 1 END) as bt_termines,
+                    COALESCE(AVG(btav.pourcentage_realise), 0) as avancement_moyen,
+                    
+                    -- Métriques TimeTracker
+                    COALESCE(SUM(te.total_hours), 0) as heures_timetracker,
+                    COALESCE(SUM(te.total_cost), 0) as revenus_timetracker,
+                    COUNT(DISTINCT te.employee_id) as employes_timetracker,
+                    
+                    -- Dates
+                    MIN(f.date_creation) as premier_bt,
+                    MAX(te.punch_out) as derniere_activite
+                    
+                FROM projects p
+                LEFT JOIN formulaires f ON p.id = f.project_id AND f.type_formulaire = 'BON_TRAVAIL'
+                LEFT JOIN bt_avancement btav ON f.id = btav.bt_id
+                LEFT JOIN time_entries te ON p.id = te.project_id 
+                    AND DATE(te.punch_in) >= ? AND te.total_cost IS NOT NULL
+                
+                WHERE p.statut IN ('À FAIRE', 'EN COURS', 'EN ATTENTE', 'TERMINÉ')
+                GROUP BY p.id
+                HAVING (bt_total > 0 OR employes_timetracker > 0)
+                ORDER BY revenus_timetracker DESC
+            """
+            
+            rows_projets = self.execute_query(query_projets, (date_debut,))
+            
+            for row in rows_projets:
+                proj = dict(row)
+                
+                # Calculs de performance projet
+                if proj['bt_total'] > 0:
+                    proj['taux_completion_bt'] = (proj['bt_termines'] / proj['bt_total']) * 100
+                else:
+                    proj['taux_completion_bt'] = 0
+                
+                if proj['prix_estime'] and proj['prix_estime'] > 0:
+                    proj['ratio_revenus_estime'] = (proj['revenus_timetracker'] / proj['prix_estime']) * 100
+                else:
+                    proj['ratio_revenus_estime'] = 0
+                
+                rapport['projets'].append(proj)
+            
+            # === SYNTHÈSE GLOBALE ===
+            total_employes = len(rapport['employes'])
+            total_heures = sum(emp['heures_periode'] for emp in rapport['employes'])
+            total_revenus = sum(emp['revenus_periode'] for emp in rapport['employes'])
+            total_bt = sum(emp['bt_assignes'] for emp in rapport['employes'])
+            total_bt_termines = sum(emp['bt_termines'] for emp in rapport['employes'])
+            
+            rapport['synthese'] = {
+                'employes_actifs': total_employes,
+                'heures_totales': total_heures,
+                'revenus_totaux': total_revenus,
+                'bt_totaux': total_bt,
+                'bt_termines': total_bt_termines,
+                'taux_completion_global': (total_bt_termines / total_bt * 100) if total_bt > 0 else 0,
+                'heures_par_employe': total_heures / total_employes if total_employes > 0 else 0,
+                'revenus_par_employe': total_revenus / total_employes if total_employes > 0 else 0,
+                'revenus_par_heure': total_revenus / total_heures if total_heures > 0 else 0
+            }
+            
+            # === RECOMMANDATIONS ===
+            recommandations = []
+            
+            # Employés avec faible taux de completion BT
+            employes_faible_completion = [emp for emp in rapport['employes'] if emp['taux_completion_bt'] < 50 and emp['bt_assignes'] > 0]
+            if employes_faible_completion:
+                recommandations.append(f"🎯 {len(employes_faible_completion)} employé(s) ont un faible taux de completion BT (<50%) - Formation ou rééquilibrage nécessaire")
+            
+            # Projets avec beaucoup d'heures mais peu de BT terminés
+            projets_inefficaces = [proj for proj in rapport['projets'] if proj['heures_timetracker'] > 50 and proj['taux_completion_bt'] < 30]
+            if projets_inefficaces:
+                recommandations.append(f"📊 {len(projets_inefficaces)} projet(s) accumulent beaucoup d'heures mais peu de BT terminés - Révision nécessaire")
+            
+            # Performance globale
+            if rapport['synthese']['taux_completion_global'] < 60:
+                recommandations.append("⚠️ Taux de completion BT global faible (<60%) - Réviser la planification et l'assignation")
+            
+            if rapport['synthese']['revenus_par_heure'] < 50:
+                recommandations.append("💰 Revenus par heure faibles (<50$/h) - Optimiser les taux horaires ou l'efficacité")
+            
+            if not recommandations:
+                recommandations.append("✅ Performance globale satisfaisante - Maintenir les bonnes pratiques")
+            
+            rapport['recommandations'] = recommandations
+            
+            logging.info(f"✅ Rapport productivité intégré généré: {total_employes} employés, {len(rapport['projets'])} projets")
+            return rapport
+            
+        except Exception as e:
+            logging.error(f"❌ Erreur rapport productivité intégré: {e}")
+            return {}
+
 # Utilitaires pour conversion mesures impériales (préservation fonction existante)
 def convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_str: str) -> float:
     """
@@ -2011,3 +2854,5 @@ def convertir_imperial_vers_metrique(mesure_imperial: str) -> float:
     """Convertit une mesure impériale en mètres"""
     pieds = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperial)
     return pieds * 0.3048  # 1 pied = 0.3048 mètres
+```
+--- END OF UPDATED FILE erp_database.py ---
