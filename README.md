@@ -1,6 +1,6 @@
 # 🏭 ERP Production DG Inc.
 
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.45.1-FF4B4B.svg)](https://streamlit.io)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.46.0-FF4B4B.svg)](https://streamlit.io)
 [![Python](https://img.shields.io/badge/Python-3.8+-3776AB.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Render](https://img.shields.io/badge/Deployed%20on-Render-46E3B7.svg)](https://render.com)
