@@ -1804,35 +1804,35 @@ def render_bon_travail_list_dg(gestionnaire_bt):
                     </div>
                 </div>
                 
-                """, unsafe_allow_html=True)
-                
-                # Boutons fonctionnels avec Streamlit
-                col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
-                
-                with col_btn1:
-                    if st.button("👁️ Voir", key=f"voir_bt_{bt['id']}", use_container_width=True):
-                        st.session_state.selected_formulaire_id = bt['id']
-                        st.session_state.show_formulaire_modal = True
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Boutons fonctionnels avec Streamlit (CORRECTION INDENTATION)
+        col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
+        
+        with col_btn1:
+            if st.button("👁️ Voir", key=f"voir_bt_{bt['id']}", use_container_width=True):
+                st.session_state.selected_formulaire_id = bt['id']
+                st.session_state.show_formulaire_modal = True
+                st.rerun()
+        
+        with col_btn2:
+            if st.button("✏️ Modifier", key=f"modifier_bt_{bt['id']}", use_container_width=True):
+                st.info("Fonction de modification en développement")
+        
+        with col_btn3:
+            if st.button("📊 Avancement", key=f"avancement_bt_{bt['id']}", use_container_width=True):
+                st.info("Fonction de suivi d'avancement en développement")
+        
+        with col_btn4:
+            if bt['statut'] in ['VALIDÉ', 'EN COURS'] and avancement >= 90:
+                if st.button("✅ Terminer", key=f"terminer_bt_{bt['id']}", use_container_width=True):
+                    if gestionnaire_bt.marquer_bt_termine(bt['id'], 1, "Marqué terminé depuis la liste"):
+                        st.success("✅ BT terminé!")
                         st.rerun()
-                
-                with col_btn2:
-                    if st.button("✏️ Modifier", key=f"modifier_bt_{bt['id']}", use_container_width=True):
-                        st.info("Fonction de modification en développement")
-                
-                with col_btn3:
-                    if st.button("📊 Avancement", key=f"avancement_bt_{bt['id']}", use_container_width=True):
-                        st.info("Fonction de suivi d'avancement en développement")
-                
-                with col_btn4:
-                    if bt['statut'] in ['VALIDÉ', 'EN COURS'] and avancement >= 90:
-                        if st.button("✅ Terminer", key=f"terminer_bt_{bt['id']}", use_container_width=True):
-                            if gestionnaire_bt.marquer_bt_termine(bt['id'], 1, "Marqué terminé depuis la liste"):
-                                st.success("✅ BT terminé!")
-                                st.rerun()
-                    else:
-                        st.button("✅ Terminer", key=f"terminer_bt_{bt['id']}", disabled=True, use_container_width=True, help="BT pas prêt à être terminé")
-                
-                st.markdown("""
+            else:
+                st.button("✅ Terminer", key=f"terminer_bt_{bt['id']}", disabled=True, use_container_width=True, help="BT pas prêt à être terminé")
             </div>
         </div>
         """, unsafe_allow_html=True)
