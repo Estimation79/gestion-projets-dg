@@ -105,7 +105,7 @@ Cette application offre une solution industrielle complète pour la gestion de p
 ### **Stack Technologique**
 ```python
 🐍 Python 3.8+        # Base language
-🚀 Streamlit 1.45.1   # Framework web moderne
+🚀 Streamlit 1.46.0   # Framework web moderne
 📊 Plotly 5.15.0      # Visualisations interactives  
 🐼 Pandas 1.5.0       # Manipulation données
 🗄️ SQLite             # TimeTracker database
