@@ -1,10 +1,10 @@
 # formulaires/bons_travail/interface_bt.py
-# Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE DG INC. avec données SQLite dynamiques
+# Interface utilisateur pour les Bons de Travail - VERSION COMPLÈTE ÉTAPE 3 INTÉGRATION TIMETRACKER
 
 """
 Interface utilisateur pour les Bons de Travail - Style DG Inc.
 Contient tous les composants d'affichage et d'interaction pour les BT.
-VERSION COMPLÈTE : Design professionnel DG Inc. fidèle au HTML avec données dynamiques SQLite
+VERSION ÉTAPE 3 : Design professionnel DG Inc. fidèle au HTML avec données dynamiques SQLite + Intégration TimeTracker
 """
 
 import streamlit as st
@@ -732,6 +732,11 @@ def render_bons_travail_tab(gestionnaire):
     # Navigation style DG
     _render_navigation_dg(gestionnaire_bt)
     
+    # Gestion de l'affichage modal des détails BT avec intégration TimeTracker
+    if st.session_state.get('show_formulaire_modal') and st.session_state.get('selected_formulaire_id'):
+        render_bon_travail_details_modal(gestionnaire_bt, st.session_state.selected_formulaire_id)
+        return
+    
     # Affichage selon l'action sélectionnée
     action = st.session_state.get('form_action', 'list_bon_travail')
     
@@ -743,6 +748,315 @@ def render_bons_travail_tab(gestionnaire):
         render_bon_travail_stats_dg(gestionnaire_bt)
     elif action == "productivite_bt":
         render_rapport_productivite_dg(gestionnaire_bt)
+
+
+def render_bon_travail_details_modal(gestionnaire_bt, bt_id):
+    """
+    Affiche les détails complets d'un BT avec intégration TimeTracker - ÉTAPE 3
+    
+    Args:
+        gestionnaire_bt: Instance du gestionnaire BT
+        bt_id: ID du Bon de Travail
+    """
+    bt_details = gestionnaire_bt.get_bt_details_complets(bt_id)
+    
+    if not bt_details:
+        st.error("Bon de Travail non trouvé")
+        if st.button("← Retour"):
+            st.session_state.show_formulaire_modal = False
+            st.session_state.selected_formulaire_id = None
+            st.rerun()
+        return
+    
+    # En-tête modal style DG
+    st.markdown('<div class="dg-main-container">', unsafe_allow_html=True)
+    render_dg_header()
+    
+    col_header1, col_header2, col_header3 = st.columns([2, 1, 1])
+    
+    with col_header1:
+        priorite_color = "#ef4444" if bt_details.get('priorite') == 'CRITIQUE' else "#f59e0b" if bt_details.get('priorite') == 'URGENT' else "#10b981"
+        statut_color = "#059669" if bt_details['statut'] == 'TERMINÉ' else "#3b82f6" if bt_details['statut'] == 'EN COURS' else "#f59e0b"
+        
+        st.markdown(f"""
+        <h2 class="dg-section-title">🔧 BT {bt_details['numero_document']}</h2>
+        <div style="padding: 15px 20px; background: #f8f9fa;">
+            <span style="color:{priorite_color};font-weight:600;">● {bt_details.get('priorite', 'NORMAL')}</span>
+            <span style="color:{statut_color};font-weight:600;margin-left:20px;">● {bt_details['statut']}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_header2:
+        if st.button("✏️ Modifier", use_container_width=True):
+            st.info("Fonction de modification en développement")
+    
+    with col_header3:
+        if st.button("← Fermer", use_container_width=True):
+            st.session_state.show_formulaire_modal = False
+            st.session_state.selected_formulaire_id = None
+            st.rerun()
+    
+    st.markdown('<div class="dg-main-content">', unsafe_allow_html=True)
+    
+    # Informations générales du BT
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">📋 Informations Générales</h3>', unsafe_allow_html=True)
+    
+    col_info1, col_info2 = st.columns(2)
+    
+    with col_info1:
+        st.markdown(f"**🏗️ Projet:** {bt_details.get('project_nom', 'N/A')}")
+        st.markdown(f"**👤 Responsable:** {bt_details.get('employee_nom', 'N/A')}")
+        st.markdown(f"**📅 Création:** {bt_details.get('date_creation', 'N/A')}")
+        st.markdown(f"**🏁 Échéance:** {bt_details.get('date_echeance', 'N/A')}")
+    
+    with col_info2:
+        avancement = bt_details.get('avancement_detaille', [])
+        nb_operations = len(avancement) if avancement else bt_details.get('avancement', {}).get('operations_totales', 0)
+        ops_terminees = bt_details.get('avancement', {}).get('operations_terminees', 0)
+        pourcentage = bt_details.get('avancement', {}).get('pourcentage', 0)
+        
+        st.markdown(f"**📊 Avancement:** {pourcentage}%")
+        st.markdown(f"**⚙️ Opérations:** {ops_terminees}/{nb_operations}")
+        st.markdown(f"**💰 Montant:** {formater_montant(bt_details.get('montant_total', 0))}")
+        
+        # Barre de progression
+        st.markdown(f"""
+        <div class="dg-progress">
+            <div class="dg-progress-bar" style="width:{pourcentage}%">
+                {pourcentage}%
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ======================================================================
+    # ÉTAPE 3 : SECTION INTÉGRATION TIMETRACKER
+    # ======================================================================
+    
+    st.markdown("---")
+    st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+    st.markdown('<h3 class="dg-info-title">⏱️ Intégration TimeTracker</h3>', unsafe_allow_html=True)
+    
+    # Récupérer les statistiques TimeTracker pour ce BT
+    stats_tt = gestionnaire_bt.get_heures_timetracker_bt(bt_id)
+    
+    if stats_tt.get('nb_sessions', 0) > 0:
+        # Métriques TimeTracker
+        col_tt1, col_tt2, col_tt3, col_tt4 = st.columns(4)
+        
+        with col_tt1:
+            st.markdown(f"""
+            <div class="dg-metric">
+                <div class="dg-metric-value">🕐 {stats_tt['nb_sessions']}</div>
+                <div class="dg-metric-label">Sessions</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_tt2:
+            st.markdown(f"""
+            <div class="dg-metric">
+                <div class="dg-metric-value">👥 {stats_tt['nb_employes']}</div>
+                <div class="dg-metric-label">Employés</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_tt3:
+            st.markdown(f"""
+            <div class="dg-metric">
+                <div class="dg-metric-value">⏱️ {stats_tt['total_heures']:.1f}h</div>
+                <div class="dg-metric-label">Total Heures</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_tt4:
+            st.markdown(f"""
+            <div class="dg-metric">
+                <div class="dg-metric-value">💰 {stats_tt['total_cout']:.0f}$</div>
+                <div class="dg-metric-label">Coût Total</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Afficher les sessions récentes
+        sessions = gestionnaire_bt.get_sessions_timetracker_bt(bt_id)
+        if sessions:
+            with st.expander("🕐 Sessions de Pointage Détaillées", expanded=True):
+                st.markdown('<div class="dg-table-container">', unsafe_allow_html=True)
+                
+                for i, session in enumerate(sessions[:10], 1):  # Limiter à 10 sessions récentes
+                    punch_out_display = session.get('punch_out', 'En cours')[:16] if session.get('punch_out') else "⏱️ En cours"
+                    total_hours = session.get('total_hours', 0)
+                    total_cost = session.get('total_cost', 0)
+                    
+                    # Status de la session
+                    if session.get('punch_out'):
+                        session_status = "✅ Terminée"
+                        session_color = "#059669"
+                    else:
+                        session_status = "⏱️ En cours"
+                        session_color = "#f59e0b"
+                    
+                    st.markdown(f"""
+                    <div class="dg-table-row" style="border-left: 4px solid {session_color};">
+                        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 15px; align-items: center;">
+                            <div>
+                                <strong>👤 {session['employee_name']}</strong><br>
+                                <small>{session.get('employee_poste', 'N/A')} - {session.get('employee_dept', 'N/A')}</small><br>
+                                <small>📅 Du {session['punch_in'][:16]}</small><br>
+                                <small>🏁 Au {punch_out_display}</small>
+                            </div>
+                            <div style="text-align: center;">
+                                <span style="color: {session_color}; font-weight: 600;">{session_status}</span>
+                            </div>
+                            <div style="text-align: center;">
+                                {"<strong>⏱️ " + f"{total_hours:.2f}h" + "</strong>" if total_hours > 0 else "➖"}
+                            </div>
+                            <div style="text-align: center;">
+                                {"<strong>💰 " + f"{total_cost:.0f}$" + "</strong>" if total_cost > 0 else "➖"}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="background: #f0f9ff; border: 2px dashed #3b82f6; border-radius: 8px; padding: 20px; text-align: center;">
+            <h4 style="color: #1e40af; margin: 0;">⏱️ Aucun pointage TimeTracker</h4>
+            <p style="color: #3b82f6; margin: 10px 0;">Aucune session de pointage n'a encore été enregistrée sur ce Bon de Travail.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Section pour démarrer un pointage depuis le BT
+    if st.session_state.get('timetracker_erp'):
+        st.markdown("---")
+        st.markdown("**🚀 Démarrer un nouveau pointage :**")
+        
+        # Récupérer les employés assignés à ce BT
+        employes_assignes = gestionnaire_bt.get_employes_assignes_bt(bt_id)
+        
+        if employes_assignes:
+            col_emp, col_btn = st.columns([3, 1])
+            
+            with col_emp:
+                emp_options = [(e['id'], f"👤 {e['nom']} - {e['poste']} ({e['departement']})") for e in employes_assignes]
+                selected_emp = st.selectbox(
+                    "Employé à pointer",
+                    options=[e[0] for e in emp_options],
+                    format_func=lambda x: next((e[1] for e in emp_options if e[0] == x), ""),
+                    key=f"select_emp_bt_{bt_id}"
+                )
+            
+            with col_btn:
+                if st.button("▶️ Démarrer Pointage", use_container_width=True, type="primary", key=f"start_pointage_bt_{bt_id}"):
+                    if gestionnaire_bt.demarrer_pointage_bt(bt_id, selected_emp):
+                        st.success("✅ Pointage démarré avec succès!")
+                        st.info("🔄 Redirection vers TimeTracker...")
+                        
+                        # Redirection vers TimeTracker
+                        st.session_state.page_redirect = "timetracker_page" 
+                        st.session_state.show_formulaire_modal = False
+                        st.session_state.selected_formulaire_id = None
+                        
+                        # Petit délai pour que l'utilisateur voie le message
+                        import time
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors du démarrage du pointage")
+                        st.error("Vérifiez que TimeTracker est actif et que l'employé n'a pas déjà un pointage en cours")
+        else:
+            st.warning("⚠️ Aucun employé assigné à ce Bon de Travail")
+            st.info("💡 Assignez des employés dans la section équipe pour permettre le pointage")
+    else:
+        st.info("⚠️ TimeTracker non disponible - Impossible de démarrer un pointage")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ======================================================================
+    # FIN SECTION INTÉGRATION TIMETRACKER
+    # ======================================================================
+    
+    # Équipe assignée
+    assignations = bt_details.get('assignations', [])
+    if assignations:
+        st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+        st.markdown('<h3 class="dg-info-title">👥 Équipe Assignée</h3>', unsafe_allow_html=True)
+        
+        for assignation in assignations:
+            st.markdown(f"""
+            <div class="dg-table-row">
+                <strong>👤 {assignation['employe_nom']}</strong> - {assignation['poste']}<br>
+                <small>📧 {assignation.get('email', 'N/A')} | 🏢 {assignation.get('departement', 'N/A')}</small><br>
+                <small>📅 Assigné le {assignation['date_assignation'][:10]}</small>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Réservations de postes
+    reservations = bt_details.get('reservations_postes', [])
+    if reservations:
+        st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+        st.markdown('<h3 class="dg-info-title">🏭 Postes de Travail Réservés</h3>', unsafe_allow_html=True)
+        
+        for reservation in reservations:
+            statut_color = "#059669" if reservation['statut'] == 'LIBÉRÉ' else "#3b82f6"
+            st.markdown(f"""
+            <div class="dg-table-row">
+                <strong>🏭 {reservation['poste_nom']}</strong><br>
+                <small>🏢 {reservation.get('departement', 'N/A')} | 🔧 {reservation.get('type_machine', 'N/A')}</small><br>
+                <small>📅 Réservé le {reservation['date_reservation'][:10]} | 
+                <span style="color:{statut_color};font-weight:600;">● {reservation['statut']}</span></small>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Notes et instructions
+    if bt_details.get('notes'):
+        st.markdown('<div class="dg-info-section">', unsafe_allow_html=True)
+        st.markdown('<h3 class="dg-info-title">📝 Instructions et Notes</h3>', unsafe_allow_html=True)
+        
+        notes_lines = bt_details['notes'].split('\n')
+        for line in notes_lines:
+            if line.strip():
+                st.markdown(f"<p style='margin:5px 0;'>{line}</p>", unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Actions du BT
+    st.markdown('<div class="dg-form-controls">', unsafe_allow_html=True)
+    
+    col_act1, col_act2, col_act3, col_act4 = st.columns(4)
+    
+    with col_act1:
+        if bt_details['statut'] not in ['TERMINÉ', 'ANNULÉ']:
+            if st.button("✅ Marquer Terminé", use_container_width=True, type="primary"):
+                if gestionnaire_bt.marquer_bt_termine(bt_id, 1, "Marqué terminé depuis les détails"):
+                    st.success("✅ BT marqué terminé!")
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la finalisation")
+    
+    with col_act2:
+        if st.button("📊 TimeTracker", use_container_width=True):
+            st.session_state.page_redirect = "timetracker_page"
+            st.session_state.show_formulaire_modal = False
+            st.rerun()
+    
+    with col_act3: 
+        if st.button("🖨️ Imprimer", use_container_width=True):
+            st.info("📄 Fonction d'impression en développement")
+    
+    with col_act4:
+        if st.button("📄 Export PDF", use_container_width=True):
+            st.info("📄 Fonction PDF en développement")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)  # main-content
+    st.markdown('</div>', unsafe_allow_html=True)  # main-container
 
 
 def _render_navigation_dg(gestionnaire_bt):
@@ -1490,12 +1804,35 @@ def render_bon_travail_list_dg(gestionnaire_bt):
                     </div>
                 </div>
                 
-                <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;">
-                    <button style="background:var(--primary-color);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">👁️ Voir</button>
-                    <button style="background:#3b82f6;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">✏️ Modifier</button>
-                    <button style="background:#8b5cf6;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">📊 Avancement</button>
-                    <button style="background:#059669;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500;">✅ Terminer</button>
-                </div>
+                """, unsafe_allow_html=True)
+                
+                # Boutons fonctionnels avec Streamlit
+                col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
+                
+                with col_btn1:
+                    if st.button("👁️ Voir", key=f"voir_bt_{bt['id']}", use_container_width=True):
+                        st.session_state.selected_formulaire_id = bt['id']
+                        st.session_state.show_formulaire_modal = True
+                        st.rerun()
+                
+                with col_btn2:
+                    if st.button("✏️ Modifier", key=f"modifier_bt_{bt['id']}", use_container_width=True):
+                        st.info("Fonction de modification en développement")
+                
+                with col_btn3:
+                    if st.button("📊 Avancement", key=f"avancement_bt_{bt['id']}", use_container_width=True):
+                        st.info("Fonction de suivi d'avancement en développement")
+                
+                with col_btn4:
+                    if bt['statut'] in ['VALIDÉ', 'EN COURS'] and avancement >= 90:
+                        if st.button("✅ Terminer", key=f"terminer_bt_{bt['id']}", use_container_width=True):
+                            if gestionnaire_bt.marquer_bt_termine(bt['id'], 1, "Marqué terminé depuis la liste"):
+                                st.success("✅ BT terminé!")
+                                st.rerun()
+                    else:
+                        st.button("✅ Terminer", key=f"terminer_bt_{bt['id']}", disabled=True, use_container_width=True, help="BT pas prêt à être terminé")
+                
+                st.markdown("""
             </div>
         </div>
         """, unsafe_allow_html=True)
