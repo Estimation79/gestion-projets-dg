@@ -1,5 +1,5 @@
 # timetracker.py - TimeTracker Intégré ERP Production DG Inc.
-# Version SQLite Unifiée Optimisée
+# Version SQLite Unifiée Optimisée avec Intégration Bons de Travail
 
 import streamlit as st
 import pandas as pd
@@ -545,6 +545,116 @@ class TimeTrackerERP:
         except Exception as e:
             logger.error(f"Erreur analyse productivité: {e}")
             return []
+    
+    # 🔥 NOUVELLES MÉTHODES POUR INTÉGRATION BONS DE TRAVAIL 🔥
+    
+    def get_bts_assignes_employe(self, employee_id: int) -> List[Dict]:
+        """Récupère les BTs assignés à un employé avec détails complets."""
+        try:
+            query = '''
+                SELECT f.id as bt_id, f.numero_document, f.statut as bt_statut, 
+                       f.priorite, f.date_creation, f.date_echeance, f.notes,
+                       p.nom_projet, p.client_nom_cache,
+                       bta.date_assignation, bta.statut as assignation_statut,
+                       c.nom as company_nom,
+                       -- Calculer temps déjà pointé sur ce BT
+                       COALESCE(SUM(te.total_hours), 0) as heures_pointees,
+                       COALESCE(SUM(te.total_cost), 0) as cout_total,
+                       COUNT(te.id) as nb_pointages
+                FROM bt_assignations bta
+                JOIN formulaires f ON bta.bt_id = f.id
+                LEFT JOIN projects p ON f.project_id = p.id  
+                LEFT JOIN companies c ON f.company_id = c.id
+                LEFT JOIN time_entries te ON f.id = te.formulaire_bt_id AND te.employee_id = ?
+                WHERE bta.employe_id = ? 
+                AND bta.statut = 'ASSIGNÉ'
+                AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+                GROUP BY f.id, bta.id
+                ORDER BY f.priorite DESC, f.date_echeance ASC
+            '''
+            rows = self.db.execute_query(query, (employee_id, employee_id))
+            return [dict(row) for row in rows]
+        except Exception as e:
+            st.error(f"Erreur récupération BTs assignés: {e}")
+            return []
+
+    def get_bt_details_for_timetracker(self, bt_id: int) -> Optional[Dict]:
+        """Récupère les détails d'un BT pour le pointage."""
+        try:
+            query = '''
+                SELECT f.*, p.nom_projet, c.nom as company_nom,
+                       COUNT(DISTINCT bta.employe_id) as nb_employes_assignes,
+                       COUNT(DISTINCT btr.work_center_id) as nb_postes_reserves
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON f.company_id = c.id  
+                LEFT JOIN bt_assignations bta ON f.id = bta.bt_id
+                LEFT JOIN bt_reservations_postes btr ON f.id = btr.bt_id
+                WHERE f.id = ? AND f.type_formulaire = 'BON_TRAVAIL'
+                GROUP BY f.id
+            '''
+            result = self.db.execute_query(query, (bt_id,))
+            return dict(result[0]) if result else None
+        except Exception as e:
+            st.error(f"Erreur récupération détails BT: {e}")
+            return None
+
+    def punch_in_sur_bt(self, employee_id: int, bt_id: int, notes: str = "") -> int:
+        """Démarre un pointage directement sur un Bon de Travail."""
+        try:
+            # Récupérer les infos du BT
+            bt_details = self.get_bt_details_for_timetracker(bt_id)
+            if not bt_details:
+                raise ValueError("BT non trouvé")
+            
+            # Vérifier qu'employé est bien assigné
+            assignation = self.db.execute_query(
+                "SELECT id FROM bt_assignations WHERE bt_id = ? AND employe_id = ? AND statut = 'ASSIGNÉ'",
+                (bt_id, employee_id)
+            )
+            if not assignation:
+                raise ValueError("Employé non assigné à ce BT")
+            
+            # Démarrer le pointage avec référence BT
+            punch_in_time = datetime.now()
+            entry_id = self.db.execute_insert('''
+                INSERT INTO time_entries 
+                (employee_id, project_id, punch_in, notes, hourly_rate, formulaire_bt_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                employee_id, 
+                bt_details.get('project_id'), 
+                punch_in_time.isoformat(), 
+                f"BT {bt_details['numero_document']} - {notes}".strip(),
+                95.0,  # Taux par défaut
+                bt_id
+            ))
+            
+            return entry_id
+        except Exception as e:
+            st.error(f"Erreur punch in BT: {e}")
+            raise
+
+    def get_statistiques_bt_timetracker(self, bt_id: int) -> Dict:
+        """Statistiques TimeTracker pour un BT spécifique."""
+        try:
+            query = '''
+                SELECT 
+                    COUNT(*) as nb_pointages,
+                    COUNT(DISTINCT employee_id) as nb_employes_distinct,
+                    COALESCE(SUM(total_hours), 0) as total_heures,
+                    COALESCE(SUM(total_cost), 0) as total_cout,
+                    COALESCE(AVG(total_hours), 0) as moyenne_heures_session,
+                    MIN(punch_in) as premier_pointage,
+                    MAX(punch_out) as dernier_pointage
+                FROM time_entries 
+                WHERE formulaire_bt_id = ? AND total_cost IS NOT NULL
+            '''
+            result = self.db.execute_query(query, (bt_id,))
+            return dict(result[0]) if result else {}
+        except Exception as e:
+            st.error(f"Erreur stats BT TimeTracker: {e}")
+            return {}
 
 
 def show_timetracker_interface():
@@ -656,6 +766,43 @@ def show_employee_timetracking_interface(tt: TimeTrackerERP):
     
     employee = tt.get_employee_by_id(selected_employee_id)
     current_entry = tt.get_employee_current_entry(selected_employee_id)
+    
+    # 🔥 NOUVELLE SECTION : Affichage des BTs assignés
+    if selected_employee_id:
+        # Récupérer BTs assignés
+        bts_assignes = tt.get_bts_assignes_employe(selected_employee_id)
+        
+        if bts_assignes:
+            with st.expander(f"🔧 {len(bts_assignes)} Bon(s) de Travail assigné(s)", expanded=True):
+                for bt in bts_assignes:
+                    col_bt1, col_bt2, col_bt3 = st.columns([2, 1, 1])
+                    
+                    with col_bt1:
+                        priorite_icon = {'CRITIQUE': '🔴', 'URGENT': '🟡', 'NORMAL': '🟢'}.get(bt['priorite'], '⚪')
+                        statut_icon = {'VALIDÉ': '✅', 'EN COURS': '⚡', 'TERMINÉ': '🎯'}.get(bt['bt_statut'], '📋')
+                        
+                        st.markdown(f"""
+                        **{statut_icon} BT {bt['numero_document']}** {priorite_icon}
+                        - Projet: {bt.get('nom_projet', 'N/A')}
+                        - Client: {bt.get('client_nom_cache', 'N/A')}
+                        - Échéance: {bt.get('date_echeance', 'N/A')}
+                        """)
+                    
+                    with col_bt2:
+                        st.metric("Heures pointées", f"{bt['heures_pointees']:.1f}h")
+                        st.metric("Coût généré", f"{bt['cout_total']:.0f}$")
+                    
+                    with col_bt3:
+                        if not current_entry:  # Si pas déjà en pointage
+                            if st.button(f"▶️ Pointer", key=f"start_bt_{bt['bt_id']}", use_container_width=True):
+                                try:
+                                    entry_id = tt.punch_in_sur_bt(selected_employee_id, bt['bt_id'])
+                                    st.success(f"✅ Pointage démarré sur BT {bt['numero_document']}!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erreur: {e}")
+                        else:
+                            st.info("Déjà en pointage")
     
     # Interface de pointage enrichie
     col1, col2 = st.columns([1, 1])
