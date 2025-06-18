@@ -546,6 +546,32 @@ class TimeTrackerERP:
             logger.error(f"Erreur analyse productivité: {e}")
             return []
 
+    # --- NOUVELLES MÉTHODES POUR INTÉGRATION BONS DE TRAVAIL (BT) ---
+    
+    def get_bt_assignes_employe_timetracker(self, employee_id: int) -> List[Dict]:
+        """Récupère les Bons de Travail (BT) assignés à un employé."""
+        # Le code complet pour cette méthode est attendu depuis timetracker_bt_integration.py
+        logger.warning("La méthode 'get_bt_assignes_employe_timetracker' n'est pas encore implémentée.")
+        return []
+
+    def demarrer_pointage_bt(self, employee_id: int, bt_id: int, operation_id: int, notes: str = "") -> Optional[int]:
+        """Démarre un pointage pour une opération d'un Bon de Travail (BT)."""
+        # Le code complet pour cette méthode est attendu depuis timetracker_bt_integration.py
+        logger.warning("La méthode 'demarrer_pointage_bt' n'est pas encore implémentée.")
+        return None
+
+    def terminer_pointage_avec_sync_bt(self, employee_id: int, notes: str = "") -> Dict:
+        """Termine le pointage actuel et synchronise avec le Bon de Travail (BT)."""
+        # Le code complet pour cette méthode est attendu depuis timetracker_bt_integration.py
+        logger.warning("La méthode 'terminer_pointage_avec_sync_bt' n'est pas encore implémentée.")
+        raise NotImplementedError("La synchronisation avec le Bon de Travail n'est pas implémentée.")
+
+    def get_dashboard_bt_integration(self) -> Dict[str, Any]:
+        """Récupère les données pour le dashboard d'intégration des BT."""
+        # Le code complet pour cette méthode est attendu depuis timetracker_bt_integration.py
+        logger.warning("La méthode 'get_dashboard_bt_integration' n'est pas encore implémentée.")
+        return {}
+
 
 def show_timetracker_interface():
     """
