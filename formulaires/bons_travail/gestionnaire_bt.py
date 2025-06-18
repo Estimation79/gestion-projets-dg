@@ -1346,3 +1346,15 @@ class GestionnaireBonsTravail:
                 
         except Exception as e:
             print(f"❌ Erreur marquage opération terminée #{operation_id}: {e}")
+
+    def get_bt_avec_temps_reel(self, **filters) -> List[Dict]:
+        # Code complet dans bt_timetracker_integration.py
+        pass
+    
+    def demarrer_pointage_depuis_bt_interface(self, bt_id: int, employee_id: int, operation_id: int, notes: str = "") -> Optional[int]:
+        # Code complet dans bt_timetracker_integration.py
+        pass
+    
+    def get_rapport_integration_bt_timetracker(self, periode_jours: int = 30) -> Dict[str, Any]:
+        # Code complet dans bt_timetracker_integration.py
+        pass
