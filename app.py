@@ -1,4 +1,4 @@
-# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC PERSISTENT STORAGE RENDER ---
+# --- START OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC PERSISTENT STORAGE RENDER ET INTÉGRATION TIMETRACKER ↔ BT 100% ---
 
 import streamlit as st
 import pandas as pd
@@ -2358,7 +2358,7 @@ def show_assistant_ia_page():
                     except Exception as e:
                         st.error(f"Erreur IA: {e}")
 
-# ----- Fonction Principale MODIFIÉE POUR PERSISTENT STORAGE RENDER -----
+# ----- Fonction Principale MODIFIÉE POUR PERSISTENT STORAGE RENDER ET INTÉGRATION TIMETRACKER ↔ BT -----
 def main():
     # NOUVEAU : Initialisation du gestionnaire de stockage persistant AVANT tout
     if 'storage_manager' not in st.session_state:
@@ -2526,20 +2526,31 @@ def main():
         'selected_fournisseur_id': None,  # Fournisseur sélectionné
         'fournisseur_filter_category': 'TOUS',  # Filtre par catégorie fournisseurs
         'fournisseur_confirm_delete_id': None,  # Confirmation suppression fournisseur
-        'fournisseur_performance_period': 365  # Période analyse performance fournisseurs
+        'fournisseur_performance_period': 365,  # Période analyse performance fournisseurs
+        # ÉTAPE 4 : Variables de navigation fluide TimeTracker ↔ BT
+        'navigation_message': None,  # Message de notification de navigation
+        'current_page': None  # Page courante pour navigation
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
             st.session_state[k] = v_def
 
-    # Gestion redirection entre pages
+    # ÉTAPE 4 : Gestion des redirections automatiques depuis les modules intégrés
     if st.session_state.get('page_redirect'):
-        # Stockage temporaire pour la redirection
-        redirect_target = st.session_state.page_redirect
-        st.session_state.page_redirect = None
-        # Redirection sera gérée dans la section des pages
-    else:
-        redirect_target = None
+        target_page = st.session_state.page_redirect
+        del st.session_state.page_redirect
+        
+        if target_page == "timetracker_page":
+            st.session_state.current_page = "timetracker"
+        elif target_page == "formulaires_page":
+            st.session_state.current_page = "formulaires"
+        
+        st.rerun()
+
+    # ÉTAPE 4 : Affichage de notifications de navigation
+    if st.session_state.get('navigation_message'):
+        st.info(st.session_state.navigation_message)
+        del st.session_state.navigation_message
 
     apply_global_styles()
 
@@ -2553,6 +2564,7 @@ def main():
         if ASSISTANT_IA_AVAILABLE:
             welcome_msg += " 🤖 Assistant IA Métallurgie intégré !"
         welcome_msg += " 🏪 Module Fournisseurs intégré !"
+        welcome_msg += " 🔄 Navigation Fluide TimeTracker ↔ BT 100% !"
         
         # NOUVEAU : Ajouter info sur le stockage persistant
         if st.session_state.storage_manager:
@@ -2588,13 +2600,20 @@ def main():
         "🔄 Kanban": "kanban",
     }
     
-    # Gestion redirection automatique vers formulaires, IA ou fournisseurs
+    # ÉTAPE 4 : Gestion redirection automatique vers formulaires, IA ou fournisseurs
+    if st.session_state.get('page_redirect'):
+        redirect_target = st.session_state.page_redirect
+    else:
+        redirect_target = None
+        
     if redirect_target == "formulaires_page":
         default_page_index = list(pages.keys()).index("📑 Formulaires")
     elif redirect_target == "assistant_ia_page":
         default_page_index = list(pages.keys()).index("🤖 Assistant IA")
     elif redirect_target == "fournisseurs_page":
         default_page_index = list(pages.keys()).index("🏪 Fournisseurs")
+    elif redirect_target == "timetracker_page":  # ÉTAPE 4 : Support redirection TimeTracker
+        default_page_index = list(pages.keys()).index("⏱️ TimeTracker")
     else:
         default_page_index = 0
     
@@ -2663,6 +2682,12 @@ def main():
                 en_retard = form_stats.get('en_retard', 0)
                 if en_retard > 0:
                     st.sidebar.metric("🚨 En Retard", en_retard)
+                
+                # ÉTAPE 4 : Navigation vers TimeTracker depuis Formulaires
+                if TIMETRACKER_AVAILABLE and st.sidebar.button("⏱️ Aller au TimeTracker", key="nav_to_tt", use_container_width=True):
+                    st.session_state.page_redirect = "timetracker_page"
+                    st.session_state.navigation_message = "⏱️ Redirection vers TimeTracker..."
+                    st.rerun()
                 
     except Exception:
         pass  # Silencieux si erreur
@@ -2733,11 +2758,18 @@ def main():
                     st.sidebar.metric("⏱️ Heures Jour", f"{tt_stats.get('total_hours_today', 0):.1f}h")
                 if tt_stats.get('total_revenue_today', 0) > 0:
                     st.sidebar.metric("💰 Revenus Jour", f"{tt_stats.get('total_revenue_today', 0):,.0f}$")
+                
+                # ÉTAPE 4 : Navigation vers Bons de Travail depuis TimeTracker
+                if st.sidebar.button("🔧 Voir Mes Bons de Travail", key="nav_to_bt", use_container_width=True):
+                    st.session_state.page_redirect = "formulaires_page"
+                    st.session_state.form_action = "list_bon_travail"
+                    st.session_state.navigation_message = "🔧 Redirection vers les Bons de Travail..."
+                    st.rerun()
         except Exception:
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>🔄 Navigation Fluide TimeTracker ↔ BT"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += "<br/>🤖 Assistant IA Métallurgie"
     
@@ -2840,7 +2872,7 @@ def show_footer():
         elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
             footer_text += " • ⚠️ Mode Temporaire"
     
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète • Stockage Persistant Render</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète • Stockage Persistant Render • 🔄 Navigation Fluide TimeTracker ↔ BT 100%</p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
@@ -2861,4 +2893,4 @@ if __name__ == "__main__":
             except Exception:
                 pass  # Silencieux si même la sauvegarde d'urgence échoue
 
-# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC PERSISTENT STORAGE RENDER ---
+# --- END OF FILE app.py - VERSION SQLITE UNIFIÉE COMPLÈTE AVEC PERSISTENT STORAGE RENDER ET INTÉGRATION TIMETRACKER ↔ BT 100% ---
