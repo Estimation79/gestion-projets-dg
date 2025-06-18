@@ -1112,7 +1112,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace(' Exception:
+                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace('$', '')
         return "0' 0\""
 
 def valider_mesure_saisie(mesure_saisie_str):
