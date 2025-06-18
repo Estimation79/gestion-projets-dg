@@ -1051,6 +1051,7 @@ def render_create_project_form(gestionnaire, crm_manager):
     st.markdown("</div>", unsafe_allow_html=True)
 
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
+    """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -1063,7 +1064,13 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             nom = st.text_input("Nom *:", value=project_data.get('nom_projet', ''))
             
             # Gestion de la liste des entreprises CRM
-            liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in crm_manager.entreprises]
+            try:
+                entreprises_db = st.session_state.erp_db.execute_query("SELECT id, nom FROM companies ORDER BY nom")
+                liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in entreprises_db]
+            except Exception as e:
+                st.error(f"Erreur récupération entreprises: {e}")
+                liste_entreprises_crm_form = [("", "Aucune entreprise disponible")]
+            
             current_entreprise_id = project_data.get('client_company_id', "")
             selected_entreprise_id_form = st.selectbox(
                 "Client (Entreprise) *:",
@@ -1113,7 +1120,118 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
                 prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace('$', '')
-        return "0' 0\""
+                # Traitement des formats de prix différents
+                if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
+                    prix_str = prix_str.replace('.', '').replace(',', '.')
+                elif ',' in prix_str and '.' in prix_str and prix_str.find('.') > prix_str.find(','):
+                    prix_str = prix_str.replace(',', '')
+                prix_val = float(prix_str) if prix_str else 0.0
+            except (ValueError, TypeError):
+                prix_val = 0.0
+            
+            prix = st.number_input("Prix ($):", 0.0, value=prix_val, step=100.0, format="%.2f")
+        
+        # Description
+        desc = st.text_area("Description:", value=project_data.get('description', ''))
+        
+        # Assignation d'employés
+        employes_assignes = []
+        if gestionnaire_employes.employes:
+            st.markdown("##### 👥 Assignation d'Employés")
+            employes_disponibles = [
+                (emp['id'], f"{emp.get('prenom', '')} {emp.get('nom', '')} ({emp.get('poste', '')})")
+                for emp in gestionnaire_employes.employes 
+                if emp.get('statut') == 'ACTIF'
+            ]
+            current_employes = project_data.get('employes_assignes', [])
+            employes_assignes = st.multiselect(
+                "Employés assignés:",
+                options=[emp_id for emp_id, _ in employes_disponibles],
+                default=[emp_id for emp_id in current_employes if emp_id in [e[0] for e in employes_disponibles]],
+                format_func=lambda emp_id: next((nom for id_e, nom in employes_disponibles if id_e == emp_id), ""),
+                key="project_edit_employes_assign"
+            )
+        
+        st.markdown("<small>* Obligatoire</small>", unsafe_allow_html=True)
+        
+        # Boutons d'action
+        s_btn, c_btn = st.columns(2)
+        with s_btn:
+            submit = st.form_submit_button("💾 Sauvegarder", use_container_width=True)
+        with c_btn:
+            cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
+        
+        # Traitement de la soumission
+        if submit:
+            if not nom or (not selected_entreprise_id_form and not client_nom_direct_form):
+                st.error("Nom du projet et Client obligatoires.")
+            elif d_fin < d_debut:
+                st.error("Date fin < date début.")
+            else:
+                # Détermination du nom du client pour cache
+                client_nom_cache_val = ""
+                if selected_entreprise_id_form:
+                    entreprise_obj = crm_manager.get_entreprise_by_id(selected_entreprise_id_form)
+                    if entreprise_obj:
+                        client_nom_cache_val = entreprise_obj.get('nom', '')
+                elif client_nom_direct_form:
+                    client_nom_cache_val = client_nom_direct_form
+
+                # Préparation des données de mise à jour
+                update_data = {
+                    'nom_projet': nom,
+                    'client_company_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
+                    'client_nom_cache': client_nom_cache_val,
+                    'client_legacy': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "",
+                    'statut': statut,
+                    'priorite': priorite,
+                    'tache': tache,
+                    'date_soumis': d_debut.strftime('%Y-%m-%d'),
+                    'date_prevu': d_fin.strftime('%Y-%m-%d'),
+                    'bd_ft_estime': str(bd_ft),
+                    'prix_estime': str(prix),
+                    'description': desc,
+                    'employes_assignes': employes_assignes
+                }
+                
+                # Mise à jour du projet
+                if gestionnaire.modifier_projet(project_data['id'], update_data):
+                    # Mettre à jour les assignations des employés
+                    if employes_assignes:
+                        # Supprimer l'ancien projet des anciens employés
+                        for emp_id in project_data.get('employes_assignes', []):
+                            if emp_id not in employes_assignes:
+                                employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                                if employe:
+                                    projets_existants = employe.get('projets_assignes', [])
+                                    if project_data['id'] in projets_existants:
+                                        projets_existants.remove(project_data['id'])
+                                        gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                        
+                        # Ajouter le projet aux nouveaux employés
+                        for emp_id in employes_assignes:
+                            if emp_id not in project_data.get('employes_assignes', []):
+                                employe = gestionnaire_employes.get_employe_by_id(emp_id)
+                                if employe:
+                                    projets_existants = employe.get('projets_assignes', [])
+                                    if project_data['id'] not in projets_existants:
+                                        projets_existants.append(project_data['id'])
+                                        gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
+                    
+                    st.success(f"✅ Projet #{project_data['id']} modifié avec succès !")
+                    st.session_state.show_edit_project = False
+                    st.session_state.edit_project_data = None
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la modification.")
+        
+        # Traitement de l'annulation
+        if cancel:
+            st.session_state.show_edit_project = False
+            st.session_state.edit_project_data = None
+            st.rerun()
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def valider_mesure_saisie(mesure_saisie_str):
     mesure_nettoyee = str(mesure_saisie_str).strip()
