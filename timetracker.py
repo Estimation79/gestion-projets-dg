@@ -573,7 +573,7 @@ class TimeTrackerERP:
         return {}
 
 
-def show_timetracker_interface():
+def show_timetracker_interface_with_bt_integration():
     """
     Interface principale TimeTracker intégrée dans l'ERP DG Inc.
     Version SQLite optimisée avec fonctionnalités avancées
