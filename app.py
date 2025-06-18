@@ -2898,7 +2898,8 @@ def show_erp_main():
             st.sidebar.metric("Base: Taille", f"{schema_info['file_size_mb']} MB")
             st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
         
-    except, '')
+    except Exception:
+        pass
                 prix_val = float(prix_str) if prix_str else 0.0
             except (ValueError, TypeError):
                 prix_val = 0.0
@@ -5622,4 +5623,5 @@ def show_erp_main():
             st.sidebar.metric("Base: Taille", f"{schema_info['file_size_mb']} MB")
             st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
         
-    except
+    except Exception:
+        pass
