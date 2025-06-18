@@ -1,10 +1,10 @@
 # formulaires/bons_travail/gestionnaire_bt.py
-# Gestionnaire spécialisé pour les Bons de Travail - VERSION COMPLÈTE CORRIGÉE
+# Gestionnaire spécialisé pour les Bons de Travail - VERSION COMPLÈTE ÉTAPE 3 INTÉGRATION TIMETRACKER
 
 """
 Gestionnaire spécialisé pour les Bons de Travail (BT).
 Contient la logique métier spécifique aux documents de travail interne.
-VERSION CORRIGÉE : Gestion complète des colonnes manquantes et erreurs SQLite
+VERSION ÉTAPE 3 : Intégration complète TimeTracker ↔ Bons de Travail
 """
 
 import streamlit as st
@@ -25,7 +25,7 @@ from ..utils.helpers import (
 
 class GestionnaireBonsTravail:
     """
-    Gestionnaire spécialisé pour les Bons de Travail - VERSION CORRIGÉE COMPLÈTE
+    Gestionnaire spécialisé pour les Bons de Travail - VERSION ÉTAPE 3 COMPLÈTE
     
     Gère les opérations spécifiques aux BT :
     - Création avec validation projet obligatoire
@@ -33,6 +33,7 @@ class GestionnaireBonsTravail:
     - Suivi des opérations et matériaux
     - Interface avec les postes de travail
     - Gestion robuste des erreurs de base de données
+    - ÉTAPE 3 : Intégration complète avec TimeTracker
     """
     
     def __init__(self, gestionnaire_base: GestionnaireFormulaires):
@@ -1346,3 +1347,155 @@ class GestionnaireBonsTravail:
                 
         except Exception as e:
             print(f"❌ Erreur marquage opération terminée #{operation_id}: {e}")
+    
+    # ======================================================================
+    # ÉTAPE 3 : MÉTHODES D'INTÉGRATION TIMETRACKER ↔ BONS DE TRAVAIL
+    # ======================================================================
+    
+    def get_heures_timetracker_bt(self, bt_id: int) -> Dict:
+        """
+        Récupère les heures TimeTracker pour un BT.
+        
+        Args:
+            bt_id: ID du Bon de Travail
+            
+        Returns:
+            Dict: Statistiques des heures pointées sur ce BT
+        """
+        try:
+            query = '''
+                SELECT 
+                    COUNT(*) as nb_sessions,
+                    COUNT(DISTINCT employee_id) as nb_employes,
+                    COALESCE(SUM(total_hours), 0) as total_heures,
+                    COALESCE(SUM(total_cost), 0) as total_cout,
+                    MIN(punch_in) as premiere_session,
+                    MAX(punch_out) as derniere_session
+                FROM time_entries 
+                WHERE formulaire_bt_id = ? AND total_cost IS NOT NULL
+            '''
+            result = self.db.execute_query(query, (bt_id,))
+            
+            if result and result[0]:
+                stats = dict(result[0])
+                print(f"✅ Stats TimeTracker BT #{bt_id}: {stats['nb_sessions']} sessions, {stats['total_heures']:.1f}h")
+                return stats
+            else:
+                return {
+                    'nb_sessions': 0,
+                    'nb_employes': 0, 
+                    'total_heures': 0,
+                    'total_cout': 0,
+                    'premiere_session': None,
+                    'derniere_session': None
+                }
+        except Exception as e:
+            print(f"❌ Erreur récupération heures TimeTracker BT #{bt_id}: {e}")
+            return {}
+
+    def get_sessions_timetracker_bt(self, bt_id: int) -> List[Dict]:
+        """
+        Récupère toutes les sessions TimeTracker d'un BT.
+        
+        Args:
+            bt_id: ID du Bon de Travail
+            
+        Returns:
+            List[Dict]: Liste des sessions de pointage avec détails employés
+        """
+        try:
+            query = '''
+                SELECT 
+                    te.*,
+                    e.prenom || ' ' || e.nom as employee_name,
+                    e.poste as employee_poste,
+                    e.departement as employee_dept
+                FROM time_entries te
+                JOIN employees e ON te.employee_id = e.id
+                WHERE te.formulaire_bt_id = ?
+                ORDER BY te.punch_in DESC
+            '''
+            rows = self.db.execute_query(query, (bt_id,))
+            sessions = [dict(row) for row in rows]
+            
+            print(f"✅ {len(sessions)} session(s) TimeTracker récupérée(s) pour BT #{bt_id}")
+            return sessions
+            
+        except Exception as e:
+            print(f"❌ Erreur récupération sessions TimeTracker BT #{bt_id}: {e}")
+            return []
+
+    def demarrer_pointage_bt(self, bt_id: int, employee_id: int) -> bool:
+        """
+        Démarre un pointage TimeTracker depuis un BT.
+        
+        Args:
+            bt_id: ID du Bon de Travail
+            employee_id: ID de l'employé
+            
+        Returns:
+            bool: True si le pointage a été démarré avec succès
+        """
+        try:
+            # Vérifier que TimeTracker est disponible
+            if 'timetracker_erp' not in st.session_state:
+                print("❌ TimeTracker non disponible dans la session")
+                return False
+            
+            # Vérifier que l'employé est assigné à ce BT
+            employes_assignes = self.get_employes_assignes_bt(bt_id)
+            employes_ids = [emp['id'] for emp in employes_assignes]
+            
+            if employee_id not in employes_ids:
+                print(f"❌ L'employé #{employee_id} n'est pas assigné au BT #{bt_id}")
+                return False
+            
+            # Démarrer le pointage via TimeTracker
+            tt = st.session_state.timetracker_erp
+            entry_id = tt.punch_in_sur_bt(employee_id, bt_id, f"Pointage démarré depuis BT #{bt_id}")
+            
+            if entry_id:
+                print(f"✅ Pointage TimeTracker démarré: entry #{entry_id} pour employé #{employee_id} sur BT #{bt_id}")
+                return True
+            else:
+                print(f"❌ Échec démarrage pointage TimeTracker pour BT #{bt_id}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Erreur démarrage pointage BT #{bt_id}: {e}")
+            return False
+
+    def get_employes_assignes_bt(self, bt_id: int) -> List[Dict]:
+        """
+        Récupère les employés assignés à un BT avec leurs informations complètes.
+        
+        Args:
+            bt_id: ID du Bon de Travail
+            
+        Returns:
+            List[Dict]: Liste des employés assignés avec détails
+        """
+        try:
+            query = '''
+                SELECT 
+                    bta.*,
+                    e.id,
+                    e.prenom || ' ' || e.nom as nom,
+                    e.poste,
+                    e.departement,
+                    e.email,
+                    e.salaire_horaire
+                FROM bt_assignations bta
+                JOIN employees e ON bta.employe_id = e.id
+                WHERE bta.bt_id = ? AND bta.statut = 'ASSIGNÉ'
+                ORDER BY bta.date_assignation DESC
+            '''
+            rows = self.db.execute_query(query, (bt_id,))
+            employes = [dict(row) for row in rows]
+            
+            print(f"✅ {len(employes)} employé(s) assigné(s) récupéré(s) pour BT #{bt_id}")
+            return employes
+            
+        except Exception as e:
+            print(f"❌ Erreur récupération employés assignés BT #{bt_id}: {e}")
+            return []
