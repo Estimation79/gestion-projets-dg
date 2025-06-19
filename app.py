@@ -1155,7 +1155,7 @@ def show_admin_auth():
 # ========================
 
 def show_erp_main():
-    """ERP principal avec authentification et permissions"""
+    """ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION"""
     # Initialiser l'ERP
     init_erp_system()
 
@@ -1166,41 +1166,50 @@ def show_erp_main():
     permissions = st.session_state.get('admin_permissions', [])
     has_all_permissions = "ALL" in permissions
 
-    # NAVIGATION PRINCIPALE avec permissions - MODIFIÉE SELON PLAN
+    # NAVIGATION PRINCIPALE - ORDRE CHRONOLOGIQUE DE FABRICATION
     available_pages = {}
 
-    # Pages toujours disponibles
+    # 1. VUE D'ENSEMBLE
     available_pages["🏠 Tableau de Bord"] = "dashboard"
 
-    # Pages selon permissions
+    # 2. CONTACT CLIENT, OPPORTUNITÉ
+    if has_all_permissions or "crm" in permissions:
+        available_pages["🤝 CRM"] = "crm_page"
+
+    # 3. CONSULTER PRIX MATÉRIAUX/SERVICES
+    if has_all_permissions or "fournisseurs" in permissions:
+        available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
+
+    # 4. CRÉER DEVIS AVEC VRAIS PRIX
+    if has_all_permissions or "formulaires" in permissions:
+        available_pages["📑 Formulaires"] = "formulaires_page"
+
+    # 5. DEVIS ACCEPTÉ → PROJET CONFIRMÉ
     if has_all_permissions or "projects" in permissions:
-        available_pages["📋 Liste des Projets"] = "liste"
+        available_pages["📋 Projets"] = "liste"
+
+    # 6. PLANIFICATION FABRICATION
+    if has_all_permissions or "projects" in permissions or "inventory" in permissions:
+        available_pages["🏭 Production"] = "production_management"
+
+    # 7. SUIVI TEMPS RÉEL
+    if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
+        available_pages["⏱️ TimeTracker"] = "timetracker_unified_page"
+
+    # 8. GESTION ÉQUIPES
+    if has_all_permissions or "employees" in permissions:
+        available_pages["👥 Employés"] = "employees_page"
+
+    # 9. VUES DE SUIVI (regroupées en fin)
+    if has_all_permissions or "projects" in permissions:
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
         available_pages["🔄 Kanban"] = "kanban"
 
-    if has_all_permissions or "crm" in permissions:
-        available_pages["🤝 CRM"] = "crm_page"
-
-    if has_all_permissions or "employees" in permissions:
-        available_pages["👥 Employés"] = "employees_page"
-
-    if has_all_permissions or "fournisseurs" in permissions:
-        available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
-
-    if has_all_permissions or "formulaires" in permissions:
-        available_pages["📑 Formulaires"] = "formulaires_page"
-
-    if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
-        available_pages["⏱️ TimeTracker"] = "timetracker_unified_page"
-
-    # NOUVEAU : Page unifiée Production remplace les 3 pages séparées
-    if has_all_permissions or "projects" in permissions or "inventory" in permissions:
-        available_pages["🏭 Production"] = "production_management"
-
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
-
+    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>Contact → Prix → Devis → Projet → Production → Suivi</small>", unsafe_allow_html=True)
+    
     # Bouton déconnexion
     if st.sidebar.button("🚪 Se Déconnecter", use_container_width=True):
         st.session_state.admin_authenticated = False
@@ -1212,9 +1221,28 @@ def show_erp_main():
 
     st.sidebar.markdown("---")
 
-    # Menu de navigation
-    sel_page_key = st.sidebar.radio("Menu Principal:", list(available_pages.keys()), key="main_nav_radio")
+    # Menu de navigation chronologique
+    sel_page_key = st.sidebar.radio("🏭 Workflow DG Inc.:", list(available_pages.keys()), key="main_nav_radio")
     page_to_show_val = available_pages[sel_page_key]
+
+    # Indication visuelle de l'étape actuelle
+    etapes_workflow = {
+        "dashboard": "📊 Vue d'ensemble",
+        "crm_page": "🤝 Contact client",
+        "fournisseurs_page": "🏪 Prix matériaux",
+        "formulaires_page": "📑 Création devis",
+        "liste": "📋 Gestion projet",
+        "production_management": "🏭 Fabrication",
+        "timetracker_unified_page": "⏱️ Suivi temps",
+        "employees_page": "👥 Équipes",
+        "gantt": "📈 Planning",
+        "calendrier": "📅 Calendrier",
+        "kanban": "🔄 Kanban"
+    }
+    
+    etape_actuelle = etapes_workflow.get(page_to_show_val, "")
+    if etape_actuelle:
+        st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:8px;border-radius:5px;text-align:center;margin-bottom:1rem;'><small><strong>Étape:</strong> {etape_actuelle}</small></div>", unsafe_allow_html=True)
 
     # GESTION SIDEBAR SELON CONTEXTE - MISE À JOUR pour module unifié
     if page_to_show_val == "production_management":
