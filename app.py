@@ -1,5 +1,5 @@
 # app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
-# VERSION COMPLÈTE : Portail d'authentification + ERP complet original
+# VERSION COMPLÈTE : Portail d'authentification + ERP complet original + CSS externe
 # Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
 
 import streamlit as st
@@ -18,7 +18,66 @@ from math import gcd
 from fractions import Fraction
 
 # ========================
-# CONFIGURATION AUTHENTIFICATION (NOUVEAU)
+# CHARGEMENT DU CSS EXTERNE (NOUVEAU)
+# ========================
+
+def load_external_css():
+    """Charge le fichier CSS externe pour un design uniforme"""
+    try:
+        with open('style.css', 'r', encoding='utf-8') as f:
+            css_content = f.read()
+        st.markdown(f'<style>{css_content}</style>', unsafe_allow_html=True)
+        return True
+    except FileNotFoundError:
+        st.warning("⚠️ Fichier style.css non trouvé. Utilisation du style par défaut.")
+        return False
+    except Exception as e:
+        st.warning(f"⚠️ Erreur chargement CSS: {e}")
+        return False
+
+def apply_fallback_styles():
+    """Styles CSS de secours si le fichier externe n'est pas disponible"""
+    st.markdown("""
+    <style>
+    /* Styles de secours minimaux */
+    :root {
+        --primary-color: #00A971;
+        --primary-color-light: #33BF85;
+        --primary-color-lighter: #DCFCE7;
+        --text-color: #374151;
+        --background-color: #F9FAFB;
+        --card-background: #F0FDF4;
+        --border-radius-lg: 0.75rem;
+        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }
+    
+    .main {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        background: var(--background-color);
+    }
+    
+    .stButton > button {
+        background: linear-gradient(145deg, #00A971 0%, #1F2937 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: var(--border-radius-lg) !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: var(--box-shadow-md) !important;
+    }
+    
+    /* Masquer éléments Streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .css-1d391kg {display: none;}
+    </style>
+    """, unsafe_allow_html=True)
+
+# ========================
+# CONFIGURATION AUTHENTIFICATION
 # ========================
 
 def get_admin_credentials():
@@ -204,460 +263,6 @@ st.set_page_config(
 )
 
 # ========================
-# STYLES CSS INTÉGRÉS (PORTAIL + ERP)
-# ========================
-
-def apply_portal_and_erp_styles():
-    """Styles CSS pour le portail et l'ERP complet"""
-    st.markdown("""
-    <style>
-    /* Import police moderne */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-    /* Variables CSS */
-    :root {
-        --primary-color: #1E40AF;
-        --primary-color-light: #3B82F6;
-        --primary-color-lighter: #DBEAFE;
-        --primary-color-darker: #1E3A8A;
-        --primary-color-darkest: #0F172A;
-        --success-color: #10B981;
-        --danger-color: #EF4444;
-        --warning-color: #F59E0B;
-        --background-main: #FAFBFC;
-        --text-primary: #1F2937;
-        --text-secondary: #6B7280;
-        --text-color: #1F2937;
-        --text-color-muted: #6B7280;
-        --border-color: #E5E7EB;
-        --shadow-light: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        --shadow-medium: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-
-    /* Base */
-    .main {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        background: var(--background-main);
-    }
-
-    /* Header Portail */
-    .portal-header {
-        background: var(--gradient-primary);
-        color: white;
-        padding: 2rem;
-        border-radius: 16px;
-        text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: var(--shadow-medium);
-    }
-
-    .portal-header h1 {
-        font-size: 2.2rem;
-        font-weight: 700;
-        margin: 0 0 0.5rem 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .portal-subtitle {
-        font-size: 1.1rem;
-        opacity: 0.9;
-        font-weight: 300;
-    }
-
-    /* Cartes d'accès */
-    .access-cards {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 2rem;
-        margin: 2rem 0;
-    }
-
-    @media (max-width: 768px) {
-        .access-cards {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .access-card {
-        background: white;
-        border-radius: 16px;
-        padding: 2rem;
-        text-align: center;
-        box-shadow: var(--shadow-light);
-        border: 2px solid transparent;
-        transition: all 0.3s ease;
-        cursor: pointer;
-    }
-
-    .access-card:hover {
-        transform: translateY(-5px);
-        box-shadow: var(--shadow-medium);
-        border-color: var(--primary-color-light);
-    }
-
-    .access-card.employee {
-        border-left: 4px solid var(--success-color);
-    }
-
-    .access-card.admin {
-        border-left: 4px solid var(--primary-color);
-    }
-
-    .access-icon {
-        font-size: 3.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .access-title {
-        font-size: 1.4rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.5rem;
-    }
-
-    .access-description {
-        color: var(--text-secondary);
-        line-height: 1.6;
-        margin-bottom: 1rem;
-    }
-
-    .access-features {
-        list-style: none;
-        padding: 0;
-        color: var(--text-secondary);
-        font-size: 0.9rem;
-    }
-
-    .access-features li {
-        padding: 0.2rem 0;
-    }
-
-    /* Interface admin */
-    .admin-auth {
-        max-width: 400px;
-        margin: 2rem auto;
-        background: white;
-        border-radius: 16px;
-        padding: 2rem;
-        box-shadow: var(--shadow-medium);
-    }
-
-    .admin-welcome {
-        background: var(--primary-color);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-
-    .employee-interface {
-        background: white;
-        border-radius: 16px;
-        padding: 2rem;
-        box-shadow: var(--shadow-light);
-        margin: 1rem 0;
-    }
-
-    .employee-header {
-        background: var(--success-color);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-
-    /* Status cards */
-    .status-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin: 2rem 0;
-    }
-
-    .status-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        text-align: center;
-        box-shadow: var(--shadow-light);
-        border-left: 4px solid var(--warning-color);
-    }
-
-    .status-number {
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--primary-color);
-        margin-bottom: 0.5rem;
-    }
-
-    .status-label {
-        color: var(--text-secondary);
-        font-size: 0.9rem;
-    }
-
-    /* STYLES ERP ORIGINAUX */
-    .main-title {
-        text-align: center;
-        background: var(--gradient-primary);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        margin-bottom: 2rem;
-        box-shadow: var(--shadow-medium);
-    }
-
-    .main-title h1 {
-        margin: 0;
-        font-size: 1.8rem;
-        font-weight: 700;
-    }
-
-    .section-card {
-        background: white;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        box-shadow: var(--shadow-light);
-        border-left: 4px solid var(--primary-color);
-    }
-
-    .info-card {
-        background: white;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        box-shadow: var(--shadow-light);
-    }
-
-    .project-header {
-        background: var(--primary-color-lighter);
-        color: var(--primary-color-darkest);
-        padding: 1rem;
-        border-radius: 8px;
-        text-align: center;
-        margin: 1rem 0;
-        border-left: 4px solid var(--primary-color);
-    }
-
-    /* Kanban styles */
-    .kanban-container {
-        display: flex;
-        gap: 1rem;
-        overflow-x: auto;
-        padding: 1rem 0;
-    }
-
-    .kanban-column {
-        min-width: 280px;
-        background: white;
-        border-radius: 12px;
-        padding: 1rem;
-        box-shadow: var(--shadow-light);
-    }
-
-    .kanban-header {
-        font-weight: 600;
-        font-size: 1.1rem;
-        color: var(--text-primary);
-        margin-bottom: 1rem;
-        text-align: center;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid var(--border-color);
-    }
-
-    .kanban-card {
-        background: white;
-        border: 1px solid var(--border-color);
-        border-left: 4px solid var(--primary-color);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        box-shadow: var(--shadow-light);
-        transition: all 0.3s ease;
-    }
-
-    .kanban-card:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-medium);
-    }
-
-    .kanban-card-title {
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.5rem;
-        font-size: 0.95rem;
-    }
-
-    .kanban-card-info {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        margin-bottom: 0.3rem;
-    }
-
-    .kanban-drag-indicator {
-        background: var(--warning-color);
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 8px;
-        text-align: center;
-        margin-bottom: 1rem;
-        font-weight: 600;
-    }
-
-    /* Calendar styles */
-    .calendar-grid-container {
-        background: white;
-        border-radius: 12px;
-        padding: 1rem;
-        box-shadow: var(--shadow-light);
-        margin: 1rem 0;
-    }
-
-    .calendar-week-header {
-        background: var(--primary-color-lighter);
-        padding: 0.5rem;
-        border-radius: 8px;
-        text-align: center;
-        margin-bottom: 0.5rem;
-    }
-
-    .day-name {
-        font-weight: 600;
-        color: var(--primary-color-darker);
-        font-size: 0.9rem;
-    }
-
-    .calendar-day-cell {
-        min-height: 80px;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 0.5rem;
-        margin: 0.2rem;
-        background: white;
-        position: relative;
-    }
-
-    .calendar-day-cell.today {
-        background: var(--primary-color-lighter);
-        border-color: var(--primary-color);
-    }
-
-    .calendar-day-cell.other-month {
-        background: #F9FAFB;
-        color: var(--text-color-muted);
-    }
-
-    .day-number {
-        font-weight: 600;
-        font-size: 0.9rem;
-        margin-bottom: 0.25rem;
-    }
-
-    .calendar-events-container {
-        font-size: 0.7rem;
-    }
-
-    .calendar-event-item {
-        background: var(--primary-color);
-        color: white;
-        padding: 0.1rem 0.3rem;
-        border-radius: 4px;
-        margin-bottom: 0.1rem;
-        font-size: 0.65rem;
-    }
-
-    .calendar-event-item.event-type-debut {
-        background: var(--success-color);
-    }
-
-    .calendar-event-item.event-type-fin {
-        background: var(--warning-color);
-    }
-
-    /* Messages d'alerte */
-    .alert-success {
-        background: #D1FAE5;
-        border: 1px solid var(--success-color);
-        color: #065F46;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-
-    .alert-error {
-        background: #FEE2E2;
-        border: 1px solid var(--danger-color);
-        color: #991B1B;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-
-    .alert-info {
-        background: #DBEAFE;
-        border: 1px solid var(--primary-color);
-        color: #1E3A8A;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-
-    /* Footer */
-    .portal-footer {
-        text-align: center;
-        margin-top: 3rem;
-        padding: 2rem;
-        color: var(--text-secondary);
-        background: white;
-        border-radius: 12px;
-        box-shadow: var(--shadow-light);
-    }
-
-    /* Boutons personnalisés */
-    .stButton > button {
-        border-radius: 12px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        border: none;
-        padding: 0.5rem 1rem;
-    }
-
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-light);
-    }
-
-    /* Masquer éléments Streamlit */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .css-1d391kg {display: none;}
-
-    /* Responsive */
-    @media (max-width: 768px) {
-        .portal-header {
-            padding: 1.5rem;
-        }
-        .portal-header h1 {
-            font-size: 1.8rem;
-        }
-        .access-card {
-            padding: 1.5rem;
-        }
-        .kanban-container {
-            flex-direction: column;
-        }
-        .kanban-column {
-            min-width: 100%;
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ========================
 # FONCTIONS UTILITAIRES ERP (ORIGINALES COMPLÈTES)
 # ========================
 
@@ -699,7 +304,7 @@ def valider_mesure_saisie(mesure_saisie_str):
     if not mesure_nettoyee:
         return True, "0' 0\""
     try:
-        valeur_pieds_dec = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_nettoyee)
+        valeur_pieds_dec = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_saisie_str)
         entree_est_zero_explicite = mesure_nettoyee in ["0", "0'", "0\"", "0.0", "0.0'"]
         if valeur_pieds_dec > 0.000001 or entree_est_zero_explicite:
             format_standardise = convertir_en_pieds_pouces_fractions(valeur_pieds_dec)
@@ -1361,11 +966,11 @@ def get_system_stats():
     }
 
 # ========================
-# INTERFACE PORTAIL (NOUVEAU)
+# INTERFACE PORTAIL (AVEC CLASSES CSS)
 # ========================
 
 def show_portal_home():
-    """Affiche la page d'accueil du portail"""
+    """Affiche la page d'accueil du portail avec classes CSS"""
     # Header principal
     current_time = datetime.now().strftime("%H:%M")
     current_date = datetime.now().strftime("%d/%m/%Y")
@@ -1785,7 +1390,13 @@ def show_storage_status_sidebar():
 # ========================
 
 def show_dashboard():
-    st.markdown("## 📊 Tableau de Bord ERP Production")
+    """Dashboard principal utilisant les classes CSS"""
+    st.markdown("""
+    <div class="main-title">
+        <h1>📊 Tableau de Bord ERP Production</h1>
+    </div>
+    """, unsafe_allow_html=True)
+    
     gestionnaire = st.session_state.gestionnaire
     gestionnaire_employes = st.session_state.gestionnaire_employes
     gestionnaire_postes = st.session_state.gestionnaire_postes
@@ -1815,7 +1426,12 @@ def show_dashboard():
     fournisseurs_stats = gestionnaire_fournisseurs.get_fournisseurs_statistics()
 
     if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
-        st.markdown("<div class='info-card' style='text-align:center;padding:3rem;'><h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3><p>Architecture unifiée avec base de données relationnelle. Créez votre premier projet ou explorez les données migrées.</p></div>", unsafe_allow_html=True)
+        st.markdown("""
+        <div class='welcome-card'>
+            <h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3>
+            <p>Architecture unifiée avec base de données relationnelle. Créez votre premier projet ou explorez les données migrées.</p>
+        </div>
+        """, unsafe_allow_html=True)
         return
 
     # Métriques Projets
@@ -2007,7 +1623,7 @@ def show_dashboard():
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
-    st.markdown("## 📋 Liste des Projets")
+    st.markdown("### 📋 Liste des Projets")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
@@ -2443,7 +2059,7 @@ def render_delete_confirmation(gestionnaire):
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_crm_page():
-    st.markdown("## 🤝 Gestion de la Relation Client (CRM)")
+    st.markdown("### 🤝 Gestion de la Relation Client (CRM)")
     gestionnaire_crm = st.session_state.gestionnaire_crm
     gestionnaire_projets = st.session_state.gestionnaire
 
@@ -2500,7 +2116,7 @@ def show_crm_page():
         render_crm_interaction_details(gestionnaire_crm, gestionnaire_projets, interaction_data)
 
 def show_employees_page():
-    st.markdown("## 👥 Gestion des Employés")
+    st.markdown("### 👥 Gestion des Employés")
     gestionnaire_employes = st.session_state.gestionnaire_employes
     gestionnaire_projets = st.session_state.gestionnaire
 
@@ -2534,7 +2150,7 @@ def show_employees_page():
         render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
 
 def show_inventory_management_page():
-    st.markdown("## 📦 Gestion de l'Inventaire")
+    st.markdown("### 📦 Gestion de l'Inventaire")
 
     # Adaptation pour utiliser SQLite
     if 'inventory_manager_sql' not in st.session_state:
@@ -2620,7 +2236,7 @@ def show_inventory_management_page():
 
 def show_assistant_ia_page():
     """Page intégrée de l'Assistant IA dans l'ERP"""
-    st.markdown("## 🤖 Assistant IA Desmarais & Gagné")
+    st.markdown("### 🤖 Assistant IA Desmarais & Gagné")
 
     if not ASSISTANT_IA_AVAILABLE:
         st.error("❌ Module Assistant IA non disponible")
@@ -2737,7 +2353,7 @@ def show_assistant_ia_page():
 
 def show_itineraire():
     """Version améliorée avec vrais postes de travail - SQLite"""
-    st.markdown("## 🛠️ Itinéraire Fabrication - DG Inc.")
+    st.markdown("### 🛠️ Itinéraire Fabrication - DG Inc.")
     gestionnaire = st.session_state.gestionnaire
     gestionnaire_postes = st.session_state.gestionnaire_postes
     gestionnaire_employes = st.session_state.gestionnaire_employes
@@ -2854,7 +2470,7 @@ def show_itineraire():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_nomenclature():
-    st.markdown("## 📊 Nomenclature (BOM)")
+    st.markdown("### 📊 Nomenclature (BOM)")
     gestionnaire = st.session_state.gestionnaire
 
     if not gestionnaire.projets:
@@ -2917,7 +2533,7 @@ def show_nomenclature():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_gantt():
-    st.markdown("## 📈 Diagramme de Gantt")
+    st.markdown("### 📈 Diagramme de Gantt")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
@@ -3001,7 +2617,7 @@ def show_gantt():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_calendrier():
-    st.markdown("## 📅 Vue Calendrier")
+    st.markdown("### 📅 Vue Calendrier")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
     curr_date = st.session_state.selected_date
@@ -3101,7 +2717,7 @@ def show_calendrier():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_kanban():
-    st.markdown("## 🔄 Vue Kanban (Style Planner)")
+    st.markdown("### 🔄 Vue Kanban (Style Planner)")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
@@ -3393,7 +3009,7 @@ def show_footer():
     st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète • Stockage Persistant Render • 🔄 Navigation Fluide TimeTracker ↔ BT 100%</p></div>", unsafe_allow_html=True)
 
 # ========================
-# ERP PRINCIPAL AVEC PORTAIL (NOUVEAU)
+# ERP PRINCIPAL AVEC PORTAIL (INTÉGRATION COMPLÈTE)
 # ========================
 
 def show_erp_main():
@@ -3716,8 +3332,12 @@ def show_erp_main():
 def main():
     """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET"""
 
-    # Appliquer les styles CSS complets
-    apply_portal_and_erp_styles()
+    # NOUVEAU : Charger le CSS externe en priorité
+    css_loaded = load_external_css()
+    
+    # Fallback si CSS externe indisponible
+    if not css_loaded:
+        apply_fallback_styles()
 
     # Initialisation des variables de session - COMPLÈTE
     if 'app_mode' not in st.session_state:
