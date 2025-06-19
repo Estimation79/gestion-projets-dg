@@ -1,6 +1,7 @@
 # erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ + INTERFACE UNIFIÉE
 # ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet + Corrections Intégrées
 # ÉTAPE 2 : Intégration TimeTracker ↔ Bons de Travail IMPLÉMENTÉE
+# ÉTAPE 3 : Module Production Unifié COMPLET
 # EXTENSION : Interface Unifiée TimeTracker + Postes de Travail COMPLÈTE
 
 import sqlite3
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ERPDatabase:
     """
     Gestionnaire de base de données SQLite unifié pour ERP Production DG Inc.
-    VERSION CONSOLIDÉE + INTERFACE UNIFIÉE TIMETRACKER + POSTES
+    VERSION CONSOLIDÉE + INTERFACE UNIFIÉE TIMETRACKER + POSTES + MODULE PRODUCTION
     
     Remplace tous les fichiers JSON par une base de données relationnelle cohérente :
     - projets_data.json → tables projects, operations, materials
@@ -48,6 +49,12 @@ class ERPDatabase:
     - Optimisations pour l'analyse de capacité
     - Vues spécialisées pour l'interface unifiée
     
+    MODULE PRODUCTION UNIFIÉ (ÉTAPE 3) :
+    - Gestion complète des nomenclatures (BOM)
+    - Gammes de fabrication et itinéraires
+    - Intégration inventaire ↔ production
+    - Métriques et statistiques de production
+    
     CORRECTIONS AUTOMATIQUES INTÉGRÉES :
     - Colonnes projects corrigées (date_debut_reel, date_fin_reel)
     - Tables BT spécialisées (bt_assignations, bt_reservations_postes)
@@ -59,7 +66,7 @@ class ERPDatabase:
         self.db_path = db_path
         self.backup_dir = "backup_json"
         self.init_database()
-        logger.info(f"ERPDatabase consolidé + Interface Unifiée initialisé : {db_path}")
+        logger.info(f"ERPDatabase consolidé + Interface Unifiée + Production initialisé : {db_path}")
     
     def init_database(self):
         """Initialise toutes les tables de la base de données ERP avec corrections automatiques intégrées"""
@@ -1034,7 +1041,7 @@ class ERPDatabase:
             self._apply_automatic_fixes(cursor)
             
             conn.commit()
-            logger.info("Base de données ERP consolidée + Interface Unifiée initialisée avec succès")
+            logger.info("Base de données ERP consolidée + Interface Unifiée + Production initialisée avec succès")
             
             # Optimisation finale de la base
             cursor.execute("PRAGMA optimize")
@@ -1068,7 +1075,7 @@ class ERPDatabase:
             # Vérifier et corriger d'autres tables si nécessaire
             # (Cette section peut être étendue pour d'autres corrections automatiques)
             
-            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 + Interface Unifiée INTÉGRÉE")
+            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 + Interface Unifiée + Production INTÉGRÉE")
             
         except Exception as e:
             logger.warning(f"Avertissement lors des corrections automatiques: {e}")
@@ -1904,6 +1911,314 @@ class ERPDatabase:
             logger.error(f"Erreur récupération pointages récents: {e}")
             return []
 
+    # =========================================================================
+    # MÉTHODES SPÉCIFIQUES MODULE PRODUCTION UNIFIÉ - ÉTAPE 3
+    # =========================================================================
+    
+    def get_materials_by_project(self, project_id: int) -> List[Dict]:
+        """Récupère tous les matériaux d'un projet pour BOM (compatibilité production_management.py)"""
+        try:
+            query = '''
+                SELECT m.*, p.nom_projet
+                FROM materials m
+                LEFT JOIN projects p ON m.project_id = p.id
+                WHERE m.project_id = ?
+                ORDER BY m.id
+            '''
+            rows = self.execute_query(query, (project_id,))
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération matériaux projet {project_id}: {e}")
+            return []
+    
+    def get_bom_materials_with_suppliers(self, project_id: int) -> List[Dict]:
+        """Récupère les matériaux BOM avec informations fournisseurs"""
+        try:
+            query = '''
+                SELECT m.*, 
+                       c.nom as supplier_name, 
+                       f.delai_livraison_moyen as delai_livraison,
+                       f.evaluation_qualite as supplier_rating
+                FROM materials m
+                LEFT JOIN companies c ON m.fournisseur = c.nom
+                LEFT JOIN fournisseurs f ON c.id = f.company_id
+                WHERE m.project_id = ?
+                ORDER BY m.id
+            '''
+            rows = self.execute_query(query, (project_id,))
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération matériaux BOM avec fournisseurs: {e}")
+            return []
+    
+    def get_project_operations_with_work_centers(self, project_id: int) -> List[Dict]:
+        """Récupère les opérations d'un projet avec informations postes de travail"""
+        try:
+            query = '''
+                SELECT o.*, 
+                       wc.nom as work_center_name, 
+                       wc.departement as work_center_departement,
+                       wc.capacite_theorique,
+                       wc.cout_horaire as work_center_cout_horaire,
+                       wc.operateurs_requis,
+                       wc.competences_requises,
+                       wc.statut as work_center_statut
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE o.project_id = ?
+                ORDER BY o.sequence_number, o.id
+            '''
+            rows = self.execute_query(query, (project_id,))
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération opérations projet avec postes: {e}")
+            return []
+    
+    def get_work_centers_for_routing(self) -> List[Dict]:
+        """Récupère tous les postes de travail disponibles pour l'itinéraire"""
+        try:
+            query = '''
+                SELECT wc.*,
+                       COUNT(DISTINCT o.id) as operations_assigned,
+                       COALESCE(AVG(te.hourly_rate), wc.cout_horaire) as taux_reel_moyen
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id AND te.total_cost IS NOT NULL
+                WHERE wc.statut = 'ACTIF'
+                GROUP BY wc.id
+                ORDER BY wc.departement, wc.nom
+            '''
+            rows = self.execute_query(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération postes pour itinéraire: {e}")
+            return []
+    
+    def get_manufacturing_routes_for_project(self, project_id: int) -> Dict[str, Any]:
+        """Récupère les gammes de fabrication complètes pour un projet"""
+        try:
+            # Récupérer les opérations avec détails postes
+            operations = self.get_project_operations_with_work_centers(project_id)
+            
+            if not operations:
+                return {
+                    'project_id': project_id,
+                    'operations': [],
+                    'statistics': {
+                        'total_operations': 0,
+                        'total_time_estimated': 0,
+                        'total_cost_estimated': 0,
+                        'departments_involved': [],
+                        'work_centers_used': []
+                    }
+                }
+            
+            # Calculer les statistiques
+            total_time = sum(op.get('temps_estime', 0) or 0 for op in operations)
+            total_cost = sum((op.get('temps_estime', 0) or 0) * (op.get('work_center_cout_horaire', 0) or 0) for op in operations)
+            departments = list(set(op.get('work_center_departement') for op in operations if op.get('work_center_departement')))
+            work_centers = list(set(op.get('work_center_name') for op in operations if op.get('work_center_name')))
+            
+            return {
+                'project_id': project_id,
+                'operations': operations,
+                'statistics': {
+                    'total_operations': len(operations),
+                    'total_time_estimated': total_time,
+                    'total_cost_estimated': total_cost,
+                    'departments_involved': departments,
+                    'work_centers_used': work_centers,
+                    'complexity_score': self._calculate_route_complexity(operations)
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération gammes projet {project_id}: {e}")
+            return {}
+    
+    def _calculate_route_complexity(self, operations: List[Dict]) -> str:
+        """Calcule un score de complexité pour une gamme de fabrication"""
+        try:
+            if not operations:
+                return "SIMPLE"
+            
+            num_operations = len(operations)
+            num_departments = len(set(op.get('work_center_departement') for op in operations if op.get('work_center_departement')))
+            total_time = sum(op.get('temps_estime', 0) or 0 for op in operations)
+            
+            # Score basé sur nombre d'opérations, départements et temps
+            complexity_score = (num_operations * 0.3) + (num_departments * 0.4) + (total_time / 10 * 0.3)
+            
+            if complexity_score <= 3:
+                return "SIMPLE"
+            elif complexity_score <= 8:
+                return "MODÉRÉE"
+            elif complexity_score <= 15:
+                return "COMPLEXE"
+            else:
+                return "TRÈS_COMPLEXE"
+                
+        except Exception:
+            return "INDÉTERMINÉE"
+    
+    def get_inventory_items_for_bom(self, search_term: str = None) -> List[Dict]:
+        """Récupère les articles d'inventaire pour sélection dans BOM"""
+        try:
+            query = '''
+                SELECT id, nom, type_produit, quantite_imperial, quantite_metric,
+                       statut, description, fournisseur_principal, code_interne
+                FROM inventory_items
+            '''
+            params = []
+            
+            if search_term:
+                query += " WHERE nom LIKE ? OR code_interne LIKE ? OR description LIKE ?"
+                pattern = f"%{search_term}%"
+                params = [pattern, pattern, pattern]
+            
+            query += " ORDER BY nom"
+            
+            rows = self.execute_query(query, tuple(params) if params else None)
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération articles inventaire pour BOM: {e}")
+            return []
+    
+    def get_projects_summary_for_production(self) -> List[Dict]:
+        """Récupère un résumé des projets pour le module production"""
+        try:
+            query = '''
+                SELECT p.id, p.nom_projet, p.client_nom_cache, p.statut, p.priorite,
+                       p.date_soumis, p.date_prevu, p.prix_estime,
+                       COUNT(DISTINCT m.id) as nb_materiaux,
+                       COUNT(DISTINCT o.id) as nb_operations,
+                       COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux,
+                       COALESCE(SUM(o.temps_estime), 0) as temps_total_estime
+                FROM projects p
+                LEFT JOIN materials m ON p.id = m.project_id
+                LEFT JOIN operations o ON p.id = o.project_id
+                GROUP BY p.id
+                ORDER BY p.id DESC
+            '''
+            
+            rows = self.execute_query(query)
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération résumé projets production: {e}")
+            return []
+    
+    def update_inventory_from_bom_consumption(self, project_id: int, consumption_data: List[Dict]) -> bool:
+        """Met à jour l'inventaire après consommation pour un projet (simulation)"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                for consumption in consumption_data:
+                    material_code = consumption.get('material_code')
+                    quantity_consumed = consumption.get('quantity_consumed', 0)
+                    
+                    # Trouver l'article d'inventaire correspondant
+                    inventory_item = self.execute_query(
+                        "SELECT * FROM inventory_items WHERE code_interne = ? OR nom LIKE ?",
+                        (material_code, f"%{material_code}%")
+                    )
+                    
+                    if inventory_item:
+                        item = dict(inventory_item[0])
+                        current_qty_metric = item['quantite_metric']
+                        new_qty_metric = max(0, current_qty_metric - quantity_consumed)
+                        
+                        # Mettre à jour la quantité
+                        cursor.execute(
+                            "UPDATE inventory_items SET quantite_metric = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (new_qty_metric, item['id'])
+                        )
+                        
+                        # Enregistrer dans l'historique
+                        cursor.execute(
+                            '''INSERT INTO inventory_history 
+                               (inventory_item_id, action, quantite_avant, quantite_apres, notes)
+                               VALUES (?, ?, ?, ?, ?)''',
+                            (item['id'], 'CONSOMMATION_PROJET', str(current_qty_metric), 
+                             str(new_qty_metric), f"Consommation projet #{project_id}")
+                        )
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Erreur mise à jour inventaire consommation: {e}")
+            return False
+    
+    def get_production_dashboard_metrics(self) -> Dict[str, Any]:
+        """Métriques spécifiques pour le dashboard du module production unifié"""
+        try:
+            metrics = {
+                'inventaire': {
+                    'total_articles': 0,
+                    'articles_critiques': 0,
+                    'valeur_totale_stock': 0.0,
+                    'articles_sans_stock': 0
+                },
+                'nomenclatures': {
+                    'projets_avec_bom': 0,
+                    'materiaux_total': 0,
+                    'valeur_moyenne_bom': 0.0,
+                    'fournisseurs_utilises': 0
+                },
+                'itineraires': {
+                    'projets_avec_operations': 0,
+                    'operations_total': 0,
+                    'temps_total_planifie': 0.0,
+                    'postes_utilises': 0
+                }
+            }
+            
+            # Métriques inventaire
+            inv_result = self.execute_query('''
+                SELECT 
+                    COUNT(*) as total_articles,
+                    COUNT(CASE WHEN statut IN ('CRITIQUE', 'FAIBLE', 'ÉPUISÉ') THEN 1 END) as articles_critiques,
+                    COUNT(CASE WHEN quantite_metric <= 0.001 THEN 1 END) as articles_sans_stock
+                FROM inventory_items
+            ''')
+            if inv_result:
+                metrics['inventaire'].update(dict(inv_result[0]))
+            
+            # Métriques nomenclatures
+            bom_result = self.execute_query('''
+                SELECT 
+                    COUNT(DISTINCT project_id) as projets_avec_bom,
+                    COUNT(*) as materiaux_total,
+                    COALESCE(AVG(quantite * prix_unitaire), 0) as valeur_moyenne_bom,
+                    COUNT(DISTINCT fournisseur) as fournisseurs_utilises
+                FROM materials
+                WHERE project_id IS NOT NULL
+            ''')
+            if bom_result:
+                metrics['nomenclatures'].update(dict(bom_result[0]))
+            
+            # Métriques itinéraires
+            routing_result = self.execute_query('''
+                SELECT 
+                    COUNT(DISTINCT project_id) as projets_avec_operations,
+                    COUNT(*) as operations_total,
+                    COALESCE(SUM(temps_estime), 0) as temps_total_planifie,
+                    COUNT(DISTINCT work_center_id) as postes_utilises
+                FROM operations
+                WHERE project_id IS NOT NULL
+            ''')
+            if routing_result:
+                metrics['itineraires'].update(dict(routing_result[0]))
+            
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Erreur métriques dashboard production: {e}")
+            return {}
+
     def backup_json_files(self):
         """Sauvegarde tous les fichiers JSON avant migration"""
         json_files = [
@@ -2152,8 +2467,10 @@ class ERPDatabase:
             'bt_info': {},
             'timetracker_bt_integration': {},  # ÉTAPE 2
             'work_centers_unified': {},  # INTERFACE UNIFIÉE
+            'production_module': {},  # ÉTAPE 3
             'corrections_appliquees': True,
             'etape_2_complete': True,  # ÉTAPE 2
+            'etape_3_complete': True,  # ÉTAPE 3
             'interface_unifiee_complete': True  # INTERFACE UNIFIÉE
         }
         
@@ -2267,6 +2584,38 @@ class ERPDatabase:
                 ''')
                 result = cursor.fetchone()
                 info['work_centers_unified']['postes_avec_pointages'] = result['count'] if result else 0
+            
+            # ÉTAPE 3 : Informations module production unifié
+            if 'materials' in tables and 'operations' in tables:
+                # Projets avec BOM (nomenclatures)
+                cursor.execute('SELECT COUNT(DISTINCT project_id) as count FROM materials WHERE project_id IS NOT NULL')
+                result = cursor.fetchone()
+                info['production_module']['projets_avec_bom'] = result['count'] if result else 0
+                
+                # Projets avec itinéraires
+                cursor.execute('SELECT COUNT(DISTINCT project_id) as count FROM operations WHERE project_id IS NOT NULL')
+                result = cursor.fetchone()
+                info['production_module']['projets_avec_itineraires'] = result['count'] if result else 0
+                
+                # Matériaux total dans BOM
+                cursor.execute('SELECT COUNT(*) as count FROM materials')
+                result = cursor.fetchone()
+                info['production_module']['materiaux_total'] = result['count'] if result else 0
+                
+                # Opérations total dans itinéraires
+                cursor.execute('SELECT COUNT(*) as count FROM operations')
+                result = cursor.fetchone()
+                info['production_module']['operations_total'] = result['count'] if result else 0
+                
+                # Valeur totale des BOM
+                cursor.execute('SELECT COALESCE(SUM(quantite * prix_unitaire), 0) as valeur FROM materials')
+                result = cursor.fetchone()
+                info['production_module']['valeur_totale_bom'] = round(result['valeur'], 2) if result else 0
+                
+                # Temps total planifié
+                cursor.execute('SELECT COALESCE(SUM(temps_estime), 0) as temps FROM operations')
+                result = cursor.fetchone()
+                info['production_module']['temps_total_planifie'] = round(result['temps'], 2) if result else 0
         
         return info
     
@@ -2965,6 +3314,15 @@ class ERPDatabase:
                     'utilisation_moyenne': 0.0,
                     'revenus_generes': 0.0,
                     'goulots_detectes': 0
+                },
+                # ÉTAPE 3: Métriques production
+                'production_unified': {
+                    'projets_avec_bom': 0,
+                    'projets_avec_itineraires': 0,
+                    'materiaux_total': 0,
+                    'operations_total': 0,
+                    'valeur_bom_total': 0.0,
+                    'temps_planifie_total': 0.0
                 }
             }
             
@@ -3078,6 +3436,18 @@ class ERPDatabase:
             if bottlenecks_result:
                 metrics['work_centers_unified']['goulots_detectes'] = bottlenecks_result[0]['goulots_count']
             
+            # ÉTAPE 3: Métriques production unifiées
+            production_metrics = self.get_production_dashboard_metrics()
+            if production_metrics:
+                metrics['production_unified'] = {
+                    'projets_avec_bom': production_metrics.get('nomenclatures', {}).get('projets_avec_bom', 0),
+                    'projets_avec_itineraires': production_metrics.get('itineraires', {}).get('projets_avec_operations', 0),
+                    'materiaux_total': production_metrics.get('nomenclatures', {}).get('materiaux_total', 0),
+                    'operations_total': production_metrics.get('itineraires', {}).get('operations_total', 0),
+                    'valeur_bom_total': production_metrics.get('nomenclatures', {}).get('valeur_moyenne_bom', 0.0),
+                    'temps_planifie_total': production_metrics.get('itineraires', {}).get('temps_total_planifie', 0.0)
+                }
+            
             return metrics
             
         except Exception as e:
@@ -3097,6 +3467,7 @@ class ERPDatabase:
                 'bt_performance': {'total_bt': 0, 'assignations_mois': 0, 'completion_rate': 0.0},
                 'timetracker_bt_mensuel': {'sessions_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},  # ÉTAPE 2
                 'work_centers_performance': {'nouveaux_postes': 0, 'utilisation_moyenne': 0.0, 'revenus_generes': 0.0},  # INTERFACE UNIFIÉE
+                'production_performance': {'nouveaux_bom': 0, 'nouvelles_operations': 0, 'projets_production': 0},  # ÉTAPE 3
                 'alertes': []
             }
             
@@ -3229,6 +3600,35 @@ class ERPDatabase:
                     report['work_centers_performance']['utilisation_moyenne'] = round(utilization, 2)
                 
                 report['work_centers_performance']['revenus_generes'] = round(data['revenus_generes'], 2)
+            
+            # ÉTAPE 3 : Performance production mensuelle
+            query = '''
+                SELECT COUNT(*) as nouveaux_bom
+                FROM materials
+                WHERE strftime('%Y-%m', created_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['production_performance']['nouveaux_bom'] = result[0]['nouveaux_bom']
+            
+            query = '''
+                SELECT COUNT(*) as nouvelles_operations
+                FROM operations
+                WHERE strftime('%Y-%m', created_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['production_performance']['nouvelles_operations'] = result[0]['nouvelles_operations']
+            
+            query = '''
+                SELECT COUNT(DISTINCT project_id) as projets_production
+                FROM materials
+                WHERE strftime('%Y-%m', created_at) = ?
+                AND project_id IS NOT NULL
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['production_performance']['projets_production'] = result[0]['projets_production']
             
             return report
             
