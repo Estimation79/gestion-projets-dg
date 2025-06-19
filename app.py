@@ -2,6 +2,7 @@
 # VERSION COMPLÈTE : Portail d'authentification + ERP complet original + CSS externe
 # Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
 # ARCHITECTURE UNIFIÉE : TimeTracker + Postes de Travail fusionnés
+# SANS ASSISTANT IA
 
 import streamlit as st
 import pandas as pd
@@ -25,7 +26,970 @@ from fractions import Fraction
 def load_external_css():
     """Charge le fichier CSS externe pour un design uniforme"""
     try:
-        with open('style.css', 'r', encoding='utf-8') as f:
+        st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("##### 📈 Analyse Opérations")
+        ac1, ac2 = st.columns(2)
+
+        TEXT_COLOR_CHARTS = 'var(--text-color)'
+
+        with ac1:
+            counts = {}
+            colors_op_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'TERMINÉ': '#10b981', 'EN ATTENTE': '#ef4444'}
+            for op in operations:
+                status = op.get('statut', 'À FAIRE')
+                counts[status] = counts.get(status, 0) + 1
+            if counts:
+                fig = px.bar(x=list(counts.keys()), y=list(counts.values()), title="Répartition par statut", color=list(counts.keys()), color_discrete_map=colors_op_statut)
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+        with ac2:
+            res_time = {}
+            for op in operations:
+                res = op.get('poste_travail', 'Non assigné')
+                time = op.get('temps_estime', 0)
+                res_time[res] = res_time.get(res, 0) + time
+            if res_time:
+                fig = px.pie(values=list(res_time.values()), names=list(res_time.keys()), title="Temps par poste")
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_nomenclature():
+    st.markdown("### 📊 Nomenclature (BOM)")
+    gestionnaire = st.session_state.gestionnaire
+
+    if not gestionnaire.projets:
+        st.warning("Aucun projet disponible.")
+        return
+
+    opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
+    sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="bom_sel")
+    proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
+
+    if not proj:
+        st.error("Projet non trouvé.")
+        return
+
+    st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    materiaux = proj.get('materiaux', [])
+
+    if not materiaux:
+        st.info("Aucun matériau défini.")
+    else:
+        total_cost = 0
+        data_bom = []
+        for item in materiaux:
+            qty, price = item.get('quantite', 0) or 0, item.get('prix_unitaire', 0) or 0
+            total = qty * price
+            total_cost += total
+            data_bom.append({
+                '🆔': item.get('id', '?'),
+                '📝 Code': item.get('code', ''),
+                '📋 Désignation': item.get('designation', 'N/A'),
+                '📊 Qté': f"{qty} {item.get('unite', '')}",
+                '💳 PU': format_currency(price),
+                '💰 Total': format_currency(total),
+                '🏪 Fourn.': item.get('fournisseur', 'N/A')
+            })
+
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            st.metric("📦 Items", len(materiaux))
+        with mc2:
+            st.metric("💰 Coût Total", format_currency(total_cost))
+        with mc3:
+            st.metric("📊 Coût Moyen/Item", format_currency(total_cost / len(materiaux) if materiaux else 0))
+
+        st.dataframe(pd.DataFrame(data_bom), use_container_width=True)
+
+        if len(materiaux) > 1:
+            st.markdown("---")
+            st.markdown("##### 📈 Analyse Coûts Matériaux")
+            costs = [(item.get('quantite', 0) or 0) * (item.get('prix_unitaire', 0) or 0) for item in materiaux]
+            labels = [item.get('designation', 'N/A') for item in materiaux]
+
+            TEXT_COLOR_CHARTS = 'var(--text-color)'
+            fig = px.pie(values=costs, names=labels, title="Répartition coûts par matériau")
+            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_gantt():
+    st.markdown("### 📈 Diagramme de Gantt")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+
+    if not gestionnaire.projets:
+        st.info("Aucun projet disponible pour le Gantt.")
+        return
+
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    gantt_data = []
+    for p in gestionnaire.projets:
+        try:
+            s_date = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d") if p.get('date_soumis') else None
+            e_date = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d") if p.get('date_prevu') else None
+
+            if s_date and e_date:
+                client_display_name_gantt = p.get('client_nom_cache', 'N/A')
+                if client_display_name_gantt == 'N/A' and p.get('client_company_id'):
+                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_company_id'))
+                    if entreprise:
+                        client_display_name_gantt = entreprise.get('nom', 'N/A')
+                elif client_display_name_gantt == 'N/A':
+                    client_display_name_gantt = p.get('client_legacy', 'N/A')
+
+                gantt_data.append({
+                    'Projet': f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}",
+                    'Début': s_date,
+                    'Fin': e_date,
+                    'Client': client_display_name_gantt,
+                    'Statut': p.get('statut', 'N/A'),
+                    'Priorité': p.get('priorite', 'N/A')
+                })
+        except:
+            continue
+
+    if not gantt_data:
+        st.warning("Données de dates invalides pour le Gantt.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    df_gantt = pd.DataFrame(gantt_data)
+    colors_gantt = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
+
+    TEXT_COLOR_CHARTS = 'var(--text-color)'
+
+    fig = px.timeline(
+        df_gantt,
+        x_start="Début",
+        x_end="Fin",
+        y="Projet",
+        color="Statut",
+        color_discrete_map=colors_gantt,
+        title="📊 Planning Projets",
+        hover_data=['Client', 'Priorité']
+    )
+
+    fig.update_layout(
+        height=max(400, len(gantt_data) * 40),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color=TEXT_COLOR_CHARTS),
+        xaxis=dict(title="📅 Calendrier", gridcolor='rgba(0,0,0,0.05)'),
+        yaxis=dict(title="📋 Projets", gridcolor='rgba(0,0,0,0.05)', categoryorder='total ascending'),
+        title_x=0.5,
+        legend_title_text=''
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("##### 📊 Statistiques Planning")
+    durees = [(item['Fin'] - item['Début']).days for item in gantt_data if item['Fin'] and item['Début']]
+    if durees:
+        gsc1, gsc2, gsc3 = st.columns(3)
+        with gsc1:
+            st.metric("📅 Durée Moy.", f"{sum(durees) / len(durees):.1f} j")
+        with gsc2:
+            st.metric("⏱️ Min Durée", f"{min(durees)} j")
+        with gsc3:
+            st.metric("🕐 Max Durée", f"{max(durees)} j")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_calendrier():
+    st.markdown("### 📅 Vue Calendrier")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+    curr_date = st.session_state.selected_date
+
+    # Navigation
+    cn1, cn2, cn3 = st.columns([1, 2, 1])
+    with cn1:
+        if st.button("◀️ Mois Préc.", key="cal_prev", use_container_width=True):
+            prev_m = curr_date.replace(day=1) - timedelta(days=1)
+            st.session_state.selected_date = prev_m.replace(day=min(curr_date.day, calendar.monthrange(prev_m.year, prev_m.month)[1]))
+            st.rerun()
+    with cn2:
+        m_names = ["", "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+        st.markdown(f"<div class='project-header' style='margin-bottom:1rem; text-align:center;'><h4 style='margin:0; color:#1E40AF;'>{m_names[curr_date.month]} {curr_date.year}</h4></div>", unsafe_allow_html=True)
+    with cn3:
+        if st.button("Mois Suiv. ▶️", key="cal_next", use_container_width=True):
+            next_m = (curr_date.replace(day=calendar.monthrange(curr_date.year, curr_date.month)[1])) + timedelta(days=1)
+            st.session_state.selected_date = next_m.replace(day=min(curr_date.day, calendar.monthrange(next_m.year, next_m.month)[1]))
+            st.rerun()
+
+    if st.button("📅 Aujourd'hui", key="cal_today", use_container_width=True):
+        st.session_state.selected_date = date.today()
+        st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Préparation des données depuis SQLite
+    events_by_date = {}
+    for p in gestionnaire.projets:
+        try:
+            s_date_obj = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d").date() if p.get('date_soumis') else None
+            e_date_obj = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d").date() if p.get('date_prevu') else None
+
+            client_display_name_cal = p.get('client_nom_cache', 'N/A')
+            if client_display_name_cal == 'N/A':
+                 client_display_name_cal = p.get('client_legacy', 'N/A')
+
+            if s_date_obj:
+                if s_date_obj not in events_by_date:
+                    events_by_date[s_date_obj] = []
+                events_by_date[s_date_obj].append({
+                    'type': '🚀 Début',
+                    'projet': p.get('nom_projet', 'N/A'),
+                    'id': p.get('id'),
+                    'client': client_display_name_cal,
+                    'color_class': 'event-type-debut'
+                })
+            if e_date_obj:
+                if e_date_obj not in events_by_date:
+                    events_by_date[e_date_obj] = []
+                events_by_date[e_date_obj].append({
+                    'type': '🏁 Fin',
+                    'projet': p.get('nom_projet', 'N/A'),
+                    'id': p.get('id'),
+                    'client': client_display_name_cal,
+                    'color_class': 'event-type-fin'
+                })
+        except:
+            continue
+
+    # Affichage de la grille du calendrier
+    cal = calendar.Calendar(firstweekday=6)
+    month_dates = cal.monthdatescalendar(curr_date.year, curr_date.month)
+    day_names = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"]
+
+    st.markdown('<div class="calendar-grid-container">', unsafe_allow_html=True)
+    # En-têtes des jours
+    header_cols = st.columns(7)
+    for i, name in enumerate(day_names):
+        with header_cols[i]:
+            st.markdown(f"<div class='calendar-week-header'><div class='day-name'>{name}</div></div>", unsafe_allow_html=True)
+
+    # Grille des jours
+    for week in month_dates:
+        cols = st.columns(7)
+        for i, day_date_obj in enumerate(week):
+            with cols[i]:
+                day_classes = ["calendar-day-cell"]
+                if day_date_obj.month != curr_date.month:
+                    day_classes.append("other-month")
+                if day_date_obj == date.today():
+                    day_classes.append("today")
+
+                events_html = ""
+                if day_date_obj in events_by_date:
+                    for event in events_by_date[day_date_obj]:
+                        events_html += f"<div class='calendar-event-item {event['color_class']}' title='{event['projet']}'>{event['type']} P#{event['id']}</div>"
+
+                cell_html = f"""
+                <div class='{' '.join(day_classes)}'>
+                    <div class='day-number'>{day_date_obj.day}</div>
+                    <div class='calendar-events-container'>{events_html}</div>
+                </div>
+                """
+                st.markdown(cell_html, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def show_kanban():
+    st.markdown("### 🔄 Vue Kanban (Style Planner)")
+    gestionnaire = st.session_state.gestionnaire
+    crm_manager = st.session_state.gestionnaire_crm
+
+    # Initialisation de l'état de drag & drop
+    if 'dragged_project_id' not in st.session_state:
+        st.session_state.dragged_project_id = None
+    if 'dragged_from_status' not in st.session_state:
+        st.session_state.dragged_from_status = None
+
+    if not gestionnaire.projets:
+        st.info("Aucun projet à afficher dans le Kanban.")
+        return
+
+    # Logique de filtrage
+    with st.expander("🔍 Filtres", expanded=False):
+        recherche = st.text_input("Rechercher par nom, client...", key="kanban_search")
+
+    projets_filtres = gestionnaire.projets
+    if recherche:
+        terme = recherche.lower()
+        projets_filtres = [
+            p for p in projets_filtres if
+            terme in str(p.get('nom_projet', '')).lower() or
+            terme in str(p.get('client_nom_cache', '')).lower() or
+            (p.get('client_company_id') and crm_manager.get_entreprise_by_id(p.get('client_company_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_company_id')).get('nom', '').lower()) or
+            terme in str(p.get('client_legacy', '')).lower()
+        ]
+
+    # Préparation des données pour les colonnes
+    statuts_k = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"]
+    projs_by_statut = {s: [] for s in statuts_k}
+    for p in projets_filtres:
+        stat = p.get('statut', 'À FAIRE')
+        if stat in projs_by_statut:
+            projs_by_statut[stat].append(p)
+        else:
+            projs_by_statut['À FAIRE'].append(p)
+
+    # Définition des couleurs pour les colonnes
+    col_borders_k = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'LIVRAISON': '#8b5cf6'}
+
+    # Indicateur visuel si un projet est en cours de déplacement
+    if st.session_state.dragged_project_id:
+        proj_dragged = next((p for p in gestionnaire.projets if p['id'] == st.session_state.dragged_project_id), None)
+        if proj_dragged:
+            st.markdown(f"""
+            <div class="kanban-drag-indicator">
+                Déplacement de: <strong>#{proj_dragged['id']} - {proj_dragged['nom_projet']}</strong>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.sidebar.button("❌ Annuler le déplacement", use_container_width=True):
+                st.session_state.dragged_project_id = None
+                st.session_state.dragged_from_status = None
+                st.rerun()
+
+    # STRUCTURE HORIZONTALE
+    st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
+
+    # Créer colonnes pour chaque statut
+    cols = st.columns(len(statuts_k))
+
+    for idx, sk in enumerate(statuts_k):
+        with cols[idx]:
+            # En-tête de la colonne
+            st.markdown(f"""
+            <div class="kanban-column" style="border-top: 4px solid {col_borders_k.get(sk, '#ccc')};">
+                <div class="kanban-header">{sk} ({len(projs_by_statut[sk])})</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Si un projet est "soulevé", afficher une zone de dépôt
+            if st.session_state.dragged_project_id and sk != st.session_state.dragged_from_status:
+                if st.button(f"⤵️ Déposer ici", key=f"drop_in_{sk}", use_container_width=True, help=f"Déplacer vers {sk}"):
+                    proj_id_to_move = st.session_state.dragged_project_id
+                    if gestionnaire.modifier_projet(proj_id_to_move, {'statut': sk}):
+                        st.success(f"Projet #{proj_id_to_move} déplacé vers '{sk}' !")
+                    else:
+                        st.error("Erreur lors du déplacement.")
+
+                    st.session_state.dragged_project_id = None
+                    st.session_state.dragged_from_status = None
+                    st.rerun()
+
+            # Zone pour les cartes
+            if not projs_by_statut[sk]:
+                st.markdown("<div style='text-align:center; color:var(--text-color-muted); margin-top:2rem;'><i>Vide</i></div>", unsafe_allow_html=True)
+
+            for pk in projs_by_statut[sk]:
+                prio_k = pk.get('priorite', 'MOYEN')
+                card_borders_k = {'ÉLEVÉ': '#ef4444', 'MOYEN': '#f59e0b', 'BAS': '#10b981'}
+                prio_icons_k = {'ÉLEVÉ': '🔴', 'MOYEN': '🟡', 'BAS': '🟢'}
+
+                client_display_name_kanban = pk.get('client_nom_cache', 'N/A')
+                if client_display_name_kanban == 'N/A' and pk.get('client_company_id'):
+                    entreprise = crm_manager.get_entreprise_by_id(pk.get('client_company_id'))
+                    client_display_name_kanban = entreprise.get('nom', 'N/A') if entreprise else 'N/A'
+                elif client_display_name_kanban == 'N/A':
+                    client_display_name_kanban = pk.get('client_legacy', 'N/A')
+
+                # Affichage de la carte
+                st.markdown(f"""
+                <div class='kanban-card' style='border-left-color:{card_borders_k.get(prio_k, 'var(--border-color)')};'>
+                    <div class='kanban-card-title'>#{pk.get('id')} - {pk.get('nom_projet', 'N/A')}</div>
+                    <div class='kanban-card-info'>👤 {client_display_name_kanban}</div>
+                    <div class='kanban-card-info'>{prio_icons_k.get(prio_k, '⚪')} {prio_k}</div>
+                    <div class='kanban-card-info'>💰 {format_currency(pk.get('prix_estime', 0))}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Boutons d'action pour la carte - MODIFIÉ avec BT et BA
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    if st.button("👁️", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
+                        st.session_state.selected_project = pk
+                        st.session_state.show_project_modal = True
+                        st.rerun()
+                with col2:
+                    # NOUVEAU : Bouton création BT dans Kanban
+                    if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
+                        st.session_state.form_action = "create_bon_travail"
+                        st.session_state.formulaire_project_preselect = pk['id']
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
+                with col3:
+                    # NOUVEAU : Bouton création BA dans Kanban
+                    if st.button("🛒", key=f"ba_kanban_{pk['id']}", help="Créer Bon d'Achat", use_container_width=True):
+                        st.session_state.form_action = "create_bon_achat"
+                        st.session_state.formulaire_project_preselect = pk['id']
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
+                with col4:
+                    if st.button("➡️", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
+                        st.session_state.dragged_project_id = pk['id']
+                        st.session_state.dragged_from_status = sk
+                        st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def show_project_modal():
+    """Affichage des détails d'un projet dans un expander"""
+    if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
+        return
+
+    proj_mod = st.session_state.selected_project
+
+    with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')}", expanded=True):
+        if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
+            st.session_state.show_project_modal = False
+            st.rerun()
+
+        st.markdown("---")
+
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            st.markdown(f"""
+            <div class='info-card'>
+                <h4>📋 {proj_mod.get('nom_projet', 'N/A')}</h4>
+                <p><strong>👤 Client:</strong> {proj_mod.get('client_nom_cache', 'N/A')}</p>
+                <p><strong>🚦 Statut:</strong> {proj_mod.get('statut', 'N/A')}</p>
+                <p><strong>⭐ Priorité:</strong> {proj_mod.get('priorite', 'N/A')}</p>
+                <p><strong>✅ Tâche:</strong> {proj_mod.get('tache', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with mc2:
+            st.markdown(f"""
+            <div class='info-card'>
+                <h4>📊 Finances</h4>
+                <p><strong>💰 Prix:</strong> {format_currency(proj_mod.get('prix_estime', 0))}</p>
+                <p><strong>⏱️ BD-FT:</strong> {proj_mod.get('bd_ft_estime', 'N/A')}h</p>
+                <p><strong>📅 Début:</strong> {proj_mod.get('date_soumis', 'N/A')}</p>
+                <p><strong>🏁 Fin:</strong> {proj_mod.get('date_prevu', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        if proj_mod.get('description'):
+            st.markdown("##### 📝 Description")
+            st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
+
+        tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations"])
+
+        with tabs_mod[0]:
+            sts_mod = proj_mod.get('sous_taches', [])
+            if not sts_mod:
+                st.info("Aucune sous-tâche définie.")
+            else:
+                for st_item in sts_mod:
+                    st_color = {
+                        'À FAIRE': 'orange',
+                        'EN COURS': 'var(--primary-color)',
+                        'TERMINÉ': 'var(--success-color)'
+                    }.get(st_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
+
+                    st.markdown(f"""
+                    <div class='info-card' style='border-left:4px solid {st_color};margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>ST{st_item.get('id')} - {st_item.get('nom', 'N/A')}</h5>
+                        <p style='margin:0 0 0.3rem 0;'>🚦 {st_item.get('statut', 'N/A')}</p>
+                        <p style='margin:0;'>📅 {st_item.get('date_debut', 'N/A')} → {st_item.get('date_fin', 'N/A')}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        with tabs_mod[1]:
+            mats_mod = proj_mod.get('materiaux', [])
+            if not mats_mod:
+                st.info("Aucun matériau défini.")
+            else:
+                total_c_mod = 0
+                for mat in mats_mod:
+                    q, p_u = mat.get('quantite', 0), mat.get('prix_unitaire', 0)
+                    tot = q * p_u
+                    total_c_mod += tot
+                    fournisseur_html = ""
+                    if mat.get("fournisseur"):
+                        fournisseur_html = f"<p style='margin:0.3rem 0 0 0;font-size:0.9em;'>🏪 {mat.get('fournisseur', 'N/A')}</p>"
+
+                    st.markdown(f"""
+                    <div class='info-card' style='margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>{mat.get('code', 'N/A')} - {mat.get('designation', 'N/A')}</h5>
+                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
+                            <span>📊 {q} {mat.get('unite', '')}</span>
+                            <span>💳 {format_currency(p_u)}</span>
+                            <span>💰 {format_currency(tot)}</span>
+                        </div>
+                        {fournisseur_html}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                st.markdown(f"""
+                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
+                    <h5 style='color:var(--primary-color-darker);margin:0;'>💰 Coût Total Mat.: {format_currency(total_c_mod)}</h5>
+                </div>
+                """, unsafe_allow_html=True)
+
+        with tabs_mod[2]:
+            ops_mod = proj_mod.get('operations', [])
+            if not ops_mod:
+                st.info("Aucune opération définie.")
+            else:
+                total_t_mod = 0
+                for op_item in ops_mod:
+                    tps = op_item.get('temps_estime', 0)
+                    total_t_mod += tps
+                    op_color = {
+                        'À FAIRE': 'orange',
+                        'EN COURS': 'var(--primary-color)',
+                        'TERMINÉ': 'var(--success-color)'
+                    }.get(op_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
+
+                    poste_travail = op_item.get('poste_travail', 'Non assigné')
+                    st.markdown(f"""
+                    <div class='info-card' style='border-left:4px solid {op_color};margin-top:0.5rem;'>
+                        <h5 style='margin:0 0 0.3rem 0;'>{op_item.get('sequence', '?')} - {op_item.get('description', 'N/A')}</h5>
+                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
+                            <span>🏭 {poste_travail}</span>
+                            <span>⏱️ {tps}h</span>
+                            <span>👨‍🔧 {op_item.get('ressource', 'N/A')}</span>
+                            <span>🚦 {op_item.get('statut', 'N/A')}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                st.markdown(f"""
+                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
+                    <h5 style='color:var(--primary-color-darker);margin:0;'>⏱️ Temps Total Est.: {total_t_mod}h</h5>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        if st.button("✖️ Fermer", use_container_width=True, key="close_modal_details_btn_bottom"):
+            st.session_state.show_project_modal = False
+            st.rerun()
+
+def show_footer():
+    st.markdown("---")
+    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🏭 TimeTracker & Postes Intégrés • CRM • Inventaire • 📑 Formulaires • 🏪 Fournisseurs"
+    if TIMETRACKER_AVAILABLE:
+        footer_text += " • ✅ Module Unifié Actif"
+
+    # NOUVEAU : Ajouter info stockage persistant dans footer principal
+    if 'storage_manager' in st.session_state and st.session_state.storage_manager:
+        storage_info = st.session_state.storage_manager.get_storage_info()
+        if storage_info['environment_type'] == 'RENDER_PERSISTENT':
+            footer_text += " • 💾 Stockage Persistant Render"
+        elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
+            footer_text += " • ⚠️ Mode Temporaire"
+
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée TimeTracker ↔ Postes • Module Formulaires Intégré • Gestion Fournisseurs Complète • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
+
+# ========================
+# ERP PRINCIPAL AVEC PORTAIL (INTÉGRATION COMPLÈTE)
+# ========================
+
+def show_erp_main():
+    """ERP principal avec authentification et permissions"""
+    # Initialiser l'ERP
+    init_erp_system()
+
+    # Header admin
+    show_admin_header()
+
+    # Permissions utilisateur
+    permissions = st.session_state.get('admin_permissions', [])
+    has_all_permissions = "ALL" in permissions
+
+    # NAVIGATION PRINCIPALE avec permissions
+    available_pages = {}
+
+    # Pages toujours disponibles
+    available_pages["🏠 Tableau de Bord"] = "dashboard"
+
+    # Pages selon permissions
+    if has_all_permissions or "projects" in permissions:
+        available_pages["📋 Liste des Projets"] = "liste"
+        available_pages["🛠️ Itinéraire"] = "routing"
+        available_pages["📊 Nomenclature (BOM)"] = "bom"
+        available_pages["📈 Vue Gantt"] = "gantt"
+        available_pages["📅 Calendrier"] = "calendrier"
+        available_pages["🔄 Kanban"] = "kanban"
+
+    if has_all_permissions or "crm" in permissions:
+        available_pages["🤝 CRM"] = "crm_page"
+
+    if has_all_permissions or "employees" in permissions:
+        available_pages["👥 Employés"] = "employees_page"
+
+    if has_all_permissions or "fournisseurs" in permissions:
+        available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
+
+    if has_all_permissions or "formulaires" in permissions:
+        available_pages["📑 Formulaires"] = "formulaires_page"
+
+    if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
+        available_pages["⏱️🏭 TimeTracker & Postes"] = "timetracker_unified_page"
+
+    if has_all_permissions or "inventory" in permissions:
+        available_pages["📦 Gestion Inventaire"] = "inventory_management"
+
+    # Navigation dans la sidebar
+    st.sidebar.markdown("### 🧭 Navigation ERP")
+
+    # Bouton déconnexion
+    if st.sidebar.button("🚪 Se Déconnecter", use_container_width=True):
+        st.session_state.admin_authenticated = False
+        st.session_state.admin_username = None
+        st.session_state.admin_login_time = None
+        st.session_state.admin_permissions = []
+        st.session_state.app_mode = "portal"
+        st.rerun()
+
+    st.sidebar.markdown("---")
+
+    # Menu de navigation
+    sel_page_key = st.sidebar.radio("Menu Principal:", list(available_pages.keys()), key="main_nav_radio")
+    page_to_show_val = available_pages[sel_page_key]
+
+    # GESTION SIDEBAR SELON CONTEXTE
+    if page_to_show_val == "inventory_management":
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Actions Inventaire</h4>", unsafe_allow_html=True)
+        st.session_state.inv_action_mode = st.sidebar.radio(
+            "Mode:",
+            ["Voir Liste", "Ajouter Article", "Modifier Article"],
+            key="inv_action_mode_selector",
+            index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.get('inv_action_mode', "Voir Liste"))
+        )
+
+    st.sidebar.markdown("---")
+
+    # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
+    show_storage_status_sidebar()
+
+    # Statistiques dans la sidebar
+    try:
+        total_projects_sql = st.session_state.erp_db.get_table_count('projects')
+        total_companies = st.session_state.erp_db.get_table_count('companies')
+        total_employees = st.session_state.erp_db.get_table_count('employees')
+        total_work_centers = st.session_state.erp_db.get_table_count('work_centers')
+
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Base de Données</h3>", unsafe_allow_html=True)
+        st.sidebar.metric("Base: Projets", total_projects_sql)
+        st.sidebar.metric("Base: Entreprises", total_companies)
+        st.sidebar.metric("Base: Employés", total_employees)
+        st.sidebar.metric("Base: Postes", total_work_centers)
+
+        # Informations sur la base
+        schema_info = st.session_state.erp_db.get_schema_info()
+        if schema_info['file_size_mb'] > 0:
+            st.sidebar.metric("Base: Taille", f"{schema_info['file_size_mb']} MB")
+            st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
+
+    except Exception:
+        pass
+
+    # NOUVEAU : Statistiques Formulaires dans la sidebar
+    try:
+        if 'gestionnaire_formulaires' in st.session_state:
+            form_stats = st.session_state.gestionnaire_formulaires.get_statistiques_formulaires()
+            total_formulaires = sum(
+                type_stats.get('total', 0)
+                for type_stats in form_stats.values()
+                if isinstance(type_stats, dict)
+            )
+
+            if total_formulaires > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📑 Formulaires</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("Total Documents", total_formulaires)
+
+                # Formulaires en attente
+                en_attente = form_stats.get('en_attente_validation', 0)
+                if en_attente > 0:
+                    st.sidebar.metric("⏳ En Attente", en_attente)
+
+                # Formulaires en retard
+                en_retard = form_stats.get('en_retard', 0)
+                if en_retard > 0:
+                    st.sidebar.metric("🚨 En Retard", en_retard)
+
+                # ÉTAPE 4 : Navigation vers TimeTracker depuis Formulaires
+                if TIMETRACKER_AVAILABLE and st.sidebar.button("⏱️ Aller au TimeTracker", key="nav_to_tt", use_container_width=True):
+                    st.session_state.page_redirect = "timetracker_page"
+                    st.session_state.navigation_message = "⏱️ Redirection vers TimeTracker..."
+                    st.rerun()
+
+    except Exception:
+        pass  # Silencieux si erreur
+
+    # NOUVEAU : Statistiques Fournisseurs dans la sidebar
+    try:
+        if 'gestionnaire_fournisseurs' not in st.session_state:
+            st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
+
+        fournisseurs_stats = st.session_state.gestionnaire_fournisseurs.get_fournisseurs_statistics()
+
+        if fournisseurs_stats and fournisseurs_stats.get('total_fournisseurs', 0) > 0:
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏪 Fournisseurs</h3>", unsafe_allow_html=True)
+            st.sidebar.metric("Total Fournisseurs", fournisseurs_stats.get('total_fournisseurs', 0))
+            st.sidebar.metric("Fournisseurs Actifs", fournisseurs_stats.get('fournisseurs_actifs', 0))
+
+            # Évaluation moyenne
+            eval_moyenne = fournisseurs_stats.get('evaluation_moyenne', 0)
+            if eval_moyenne > 0:
+                st.sidebar.metric("⭐ Éval. Moyenne", f"{eval_moyenne}/10")
+
+            # Montant total commandes si significatif
+            montant_total = fournisseurs_stats.get('montant_total_commandes', 0)
+            if montant_total > 0:
+                st.sidebar.metric("💰 Total Commandes", f"{montant_total:,.0f}$")
+    except Exception:
+        pass  # Silencieux si erreur
+
+    # ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker
+    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+        try:
+            postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
+            if postes_stats.get('total_postes', 0) > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Postes Travail</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("Postes Actifs", postes_stats.get('total_postes', 0))
+                st.sidebar.metric("🤖 Robots", postes_stats.get('postes_robotises', 0))
+                st.sidebar.metric("💻 CNC", postes_stats.get('postes_cnc', 0))
+        except Exception:
+            pass  # Silencieux si erreur
+
+    # INTÉGRATION TIMETRACKER : Statistiques dans la sidebar
+    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+        try:
+            tt_stats = st.session_state.timetracker_erp.get_timetracker_statistics()
+            if tt_stats.get('total_employees', 0) > 0 or tt_stats.get('active_entries', 0) > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️ TimeTracker ERP</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("👥 Employés", tt_stats.get('total_employees', 0))
+                st.sidebar.metric("🟢 Pointages Actifs", tt_stats.get('active_entries', 0))
+                if tt_stats.get('total_hours_today', 0) > 0:
+                    st.sidebar.metric("⏱️ Heures Jour", f"{tt_stats.get('total_hours_today', 0):.1f}h")
+                if tt_stats.get('total_revenue_today', 0) > 0:
+                    st.sidebar.metric("💰 Revenus Jour", f"{tt_stats.get('total_revenue_today', 0):,.0f}$")
+
+                # ÉTAPE 4 : Navigation vers Bons de Travail depuis TimeTracker
+                if st.sidebar.button("🔧 Voir Mes Bons de Travail", key="nav_to_bt", use_container_width=True):
+                    st.session_state.page_redirect = "formulaires_page"
+                    st.session_state.form_action = "list_bon_travail"
+                    st.session_state.navigation_message = "🔧 Redirection vers les Bons de Travail..."
+                    st.rerun()
+        except Exception:
+            pass  # Silencieux si erreur
+
+    st.sidebar.markdown("---")
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🏭 TimeTracker & Postes Unifiés"
+
+    # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
+    if st.session_state.get('storage_manager'):
+        storage_info = st.session_state.storage_manager.get_storage_info()
+        if storage_info['environment_type'] == 'RENDER_PERSISTENT':
+            footer_text += "<br/>💾 Stockage Persistant Render"
+        elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
+            footer_text += "<br/>⚠️ Mode Temporaire"
+
+    st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
+
+    # PAGES (MODIFIÉES avec module Formulaires et Fournisseurs, SANS Assistant IA)
+    if page_to_show_val == "dashboard":
+        show_dashboard()
+    elif page_to_show_val == "liste":
+        show_liste_projets()
+    elif page_to_show_val == "crm_page":
+        show_crm_page()
+    elif page_to_show_val == "employees_page":
+        show_employees_page()
+    elif page_to_show_val == "fournisseurs_page":
+        if FOURNISSEURS_AVAILABLE:
+            show_fournisseurs_page()
+        else:
+            st.error("❌ Module Fournisseurs non disponible")
+    elif page_to_show_val == "formulaires_page":
+        if FORMULAIRES_AVAILABLE:
+            show_formulaires_page()
+        else:
+            st.error("❌ Module Formulaires non disponible")
+    elif page_to_show_val == "timetracker_unified_page":
+        if TIMETRACKER_AVAILABLE:
+            show_timetracker_interface()
+        else:
+            st.error("❌ TimeTracker non disponible. Veuillez créer les fichiers timetracker.py et database_sync.py")
+            st.info("📋 Consultez le plan d'intégration pour créer les modules manquants.")
+    elif page_to_show_val == "inventory_management":
+        show_inventory_management_page()
+    elif page_to_show_val == "bom":
+        show_nomenclature()
+    elif page_to_show_val == "routing":
+        show_itineraire()
+    elif page_to_show_val == "gantt":
+        show_gantt()
+    elif page_to_show_val == "calendrier":
+        show_calendrier()
+    elif page_to_show_val == "kanban":
+        show_kanban()
+
+    # Affichage des modales et formulaires
+    if st.session_state.get('show_project_modal'):
+        show_project_modal()
+    if st.session_state.get('show_create_project'):
+        render_create_project_form(st.session_state.gestionnaire, st.session_state.gestionnaire_crm)
+    if st.session_state.get('show_edit_project'):
+        render_edit_project_form(st.session_state.gestionnaire, st.session_state.gestionnaire_crm, st.session_state.edit_project_data)
+    if st.session_state.get('show_delete_confirmation'):
+        render_delete_confirmation(st.session_state.gestionnaire)
+
+# ========================
+# FONCTION PRINCIPALE AVEC PORTAIL
+# ========================
+
+def main():
+    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET SANS Assistant IA"""
+
+    # NOUVEAU : Charger le CSS externe en priorité
+    css_loaded = load_external_css()
+    
+    # Fallback si CSS externe indisponible
+    if not css_loaded:
+        apply_fallback_styles()
+
+    # Initialisation des variables de session - COMPLÈTE
+    if 'app_mode' not in st.session_state:
+        st.session_state.app_mode = "portal"
+    if 'admin_authenticated' not in st.session_state:
+        st.session_state.admin_authenticated = False
+    if 'user_role' not in st.session_state:
+        st.session_state.user_role = None
+
+    # Initialisation des variables de session (MISES À JOUR SANS Assistant IA)
+    session_defs = {
+        'show_project_modal': False, 'selected_project': None,
+        'show_create_project': False, 'show_edit_project': False,
+        'edit_project_data': None, 'show_delete_confirmation': False,
+        'delete_project_id': None, 'selected_date': datetime.now().date(),
+        'welcome_seen': False,
+        'inv_action_mode': "Voir Liste",
+        'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
+        'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
+        'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
+        'competences_form': [],
+        'gamme_generated': None, 'gamme_metadata': None,
+        'timetracker_employee_id': None, 'timetracker_project_id': None,
+        'timetracker_task_id': None, 'timetracker_is_clocked_in': False,
+        'timetracker_current_entry_id': None, 'timetracker_view_mode': 'employee',
+        'form_action': None,
+        'selected_formulaire_id': None,
+        'formulaire_filter_type': 'TOUS',
+        'formulaire_filter_statut': 'TOUS',
+        'show_formulaire_modal': False,
+        'formulaire_project_preselect': None,
+        'page_redirect': None,
+        'fournisseur_action': None,
+        'selected_fournisseur_id': None,
+        'fournisseur_filter_category': 'TOUS',
+        'fournisseur_confirm_delete_id': None,
+        'fournisseur_performance_period': 365,
+        'navigation_message': None,
+        'current_page': None,
+        'admin_permissions': [],
+        'pointages_temp': []
+    }
+    for k, v_def in session_defs.items():
+        if k not in st.session_state:
+            st.session_state[k] = v_def
+
+    # Gestion des redirections automatiques depuis les modules intégrés
+    if st.session_state.get('page_redirect'):
+        target_page = st.session_state.page_redirect
+        del st.session_state.page_redirect
+
+        if target_page == "timetracker_page":
+            st.session_state.current_page = "timetracker"
+        elif target_page == "formulaires_page":
+            st.session_state.current_page = "formulaires"
+
+        st.rerun()
+
+    # Affichage de notifications de navigation
+    if st.session_state.get('navigation_message'):
+        st.info(st.session_state.navigation_message)
+        del st.session_state.navigation_message
+
+    # Routage selon le mode
+    if st.session_state.app_mode == "portal":
+        show_portal_home()
+
+    elif st.session_state.app_mode == "employee":
+        init_erp_system()  # Initialiser le système pour avoir accès aux modules
+        show_employee_interface()
+
+    elif st.session_state.app_mode == "admin_auth":
+        show_admin_auth()
+
+    elif st.session_state.app_mode == "erp":
+        if check_admin_session():
+            show_erp_main()
+        else:
+            st.error("Session expirée. Veuillez vous reconnecter.")
+            st.session_state.app_mode = "admin_auth"
+            st.rerun()
+
+    else:
+        # Mode par défaut - retour au portail
+        st.session_state.app_mode = "portal"
+        st.rerun()
+
+    # Sauvegarde périodique automatique
+    if st.session_state.get('storage_manager'):
+        if hasattr(st.session_state, 'action_counter'):
+            st.session_state.action_counter += 1
+        else:
+            st.session_state.action_counter = 1
+
+        # Sauvegarde automatique toutes les 100 actions
+        if st.session_state.action_counter % 100 == 0:
+            try:
+                backup_path = st.session_state.storage_manager.create_backup("auto")
+                if backup_path:
+                    st.toast("💾 Sauvegarde automatique effectuée", icon="✅")
+            except Exception as e:
+                print(f"Erreur sauvegarde automatique: {e}")
+
+if __name__ == "__main__":
+    try:
+        main()
+        if st.session_state.get('admin_authenticated'):
+            show_footer()
+    except Exception as e_main:
+        st.error(f"Une erreur majeure est survenue dans l'application: {str(e_main)}")
+        st.info("Veuillez essayer de rafraîchir la page ou de redémarrer l'application.")
+        import traceback
+        st.code(traceback.format_exc())
+
+        # En cas d'erreur, essayer de créer une sauvegarde d'urgence
+        if 'storage_manager' in st.session_state and st.session_state.storage_manager:
+            try:
+                emergency_backup = st.session_state.storage_manager.create_backup("emergency_error")
+                if emergency_backup:
+                    st.info(f"💾 Sauvegarde d'urgence créée: {emergency_backup}")
+            except Exception:
+                passwith open('style.css', 'r', encoding='utf-8') as f:
             css_content = f.read()
         st.markdown(f'<style>{css_content}</style>', unsafe_allow_html=True)
         return True
@@ -228,14 +1192,6 @@ try:
     FOURNISSEURS_AVAILABLE = True
 except ImportError:
     FOURNISSEURS_AVAILABLE = False
-
-# NOUVEAU : Importation du module Assistant IA
-try:
-    from assistant_ia.expert_logic import ExpertAdvisor, ExpertProfileManager
-    from assistant_ia.conversation_manager import ConversationManager
-    ASSISTANT_IA_AVAILABLE = True
-except ImportError as e:
-    ASSISTANT_IA_AVAILABLE = False
 
 # INTÉGRATION TIMETRACKER : Importation du module TimeTracker unifié
 try:
@@ -871,58 +1827,6 @@ def init_erp_system():
         except Exception as e:
             print(f"Erreur initialisation TimeTracker: {e}")
 
-    # NOUVEAU : Initialisation Assistant IA
-    if ASSISTANT_IA_AVAILABLE and 'assistant_ia_initialized' not in st.session_state:
-        try:
-            # Initialisation du gestionnaire de profils
-            profile_dir_path = os.path.join("assistant_ia", "profiles")
-            if not os.path.exists(profile_dir_path):
-                os.makedirs(profile_dir_path, exist_ok=True)
-                # Créer un profil par défaut si aucun n'existe
-                default_profile_path = os.path.join(profile_dir_path, "expert_metallurgie.txt")
-                if not os.path.exists(default_profile_path):
-                    with open(default_profile_path, "w", encoding="utf-8") as f:
-                        f.write("Expert en Métallurgie DG Inc.\nJe suis un expert spécialisé en fabrication métallique, soudure, et processus industriels chez Desmarais & Gagné.")
-
-            st.session_state.ia_profile_manager = ExpertProfileManager(profile_dir=profile_dir_path)
-
-            # Initialisation de l'expert advisor
-            ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-            if not ANTHROPIC_API_KEY:
-                try:
-                    ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY")
-                except Exception:
-                    pass
-
-            if ANTHROPIC_API_KEY:
-                st.session_state.ia_expert_advisor = ExpertAdvisor(api_key=ANTHROPIC_API_KEY)
-                st.session_state.ia_expert_advisor.profile_manager = st.session_state.ia_profile_manager
-
-                # Chargement du profil initial
-                available_profiles = st.session_state.ia_profile_manager.get_profile_names()
-                if available_profiles:
-                    initial_profile = available_profiles[0]
-                    st.session_state.ia_selected_profile = initial_profile
-                    st.session_state.ia_expert_advisor.set_current_profile_by_name(initial_profile)
-                else:
-                    st.session_state.ia_selected_profile = "Expert par défaut"
-
-            # Gestionnaire de conversations IA
-            ia_db_path = os.path.join("assistant_ia", "conversations.db")
-            os.makedirs(os.path.dirname(ia_db_path), exist_ok=True)
-            st.session_state.ia_conversation_manager = ConversationManager(db_path=ia_db_path)
-
-            # Variables de session IA
-            st.session_state.ia_messages = []
-            st.session_state.ia_current_conversation_id = None
-            st.session_state.ia_processed_messages = set()
-
-            st.session_state.assistant_ia_initialized = True
-
-        except Exception as e:
-            st.warning(f"Assistant IA non initialisé: {e}")
-            st.session_state.assistant_ia_initialized = False
-
 def get_system_stats():
     """Récupère les statistiques système"""
     try:
@@ -1007,7 +1911,6 @@ def show_portal_home():
                 <li>📋 Gestion projets</li>
                 <li>🤝 CRM complet</li>
                 <li>📑 Formulaires DG</li>
-                <li>🤖 Assistant IA</li>
                 <li>🏪 Fournisseurs</li>
                 <li>📊 Reporting avancé</li>
             </ul>
@@ -1060,7 +1963,6 @@ def show_portal_home():
         ("⏱️🏭 TimeTracker & Postes", TIMETRACKER_AVAILABLE),
         ("📑 Formulaires", FORMULAIRES_AVAILABLE),
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
-        ("🤖 Assistant IA", ASSISTANT_IA_AVAILABLE),
         ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE)
     ]
 
@@ -1080,7 +1982,7 @@ def show_portal_home():
         <h4>🏭 ERP Production DG Inc.</h4>
         <p>
             <strong>Desmarais & Gagné Inc.</strong> • Fabrication métallique et industrielle<br>
-            🗄️ Architecture unifiée • 📑 Formulaires • 🤖 Assistant IA • ⏱️🏭 TimeTracker & Postes<br>
+            🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🏭 TimeTracker & Postes<br>
             💾 Stockage persistant • 🔄 Navigation fluide • 🔒 Sécurisé
         </p>
         <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
@@ -2235,123 +3137,6 @@ def show_inventory_management_page():
             else:
                 st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire est vide.")
 
-def show_assistant_ia_page():
-    """Page intégrée de l'Assistant IA dans l'ERP"""
-    st.markdown("### 🤖 Assistant IA Desmarais & Gagné")
-
-    if not ASSISTANT_IA_AVAILABLE:
-        st.error("❌ Module Assistant IA non disponible")
-        st.info("📋 Vérifiez que le dossier 'assistant_ia' existe avec tous les fichiers requis")
-        return
-
-    if not st.session_state.get('assistant_ia_initialized'):
-        st.error("❌ Assistant IA non initialisé")
-        st.info("💡 Vérifiez la configuration ANTHROPIC_API_KEY")
-        return
-
-    # Interface intégrée de l'Assistant IA
-    if 'ia_expert_advisor' not in st.session_state:
-        st.error("Expert Advisor non disponible")
-        return
-
-    # Sidebar pour les contrôles IA (dans une expander pour ne pas encombrer)
-    with st.expander("🔧 Contrôles Assistant IA", expanded=True):
-        ia_col1, ia_col2, ia_col3 = st.columns(3)
-
-        with ia_col1:
-            # Sélection du profil expert
-            if st.session_state.get('ia_profile_manager'):
-                profiles = st.session_state.ia_profile_manager.get_profile_names()
-                if profiles:
-                    current_profile = st.session_state.get('ia_selected_profile', profiles[0])
-                    selected_profile = st.selectbox(
-                        "Profil Expert:",
-                        profiles,
-                        index=profiles.index(current_profile) if current_profile in profiles else 0,
-                        key="ia_profile_select"
-                    )
-                    if selected_profile != current_profile:
-                        st.session_state.ia_expert_advisor.set_current_profile_by_name(selected_profile)
-                        st.session_state.ia_selected_profile = selected_profile
-                        st.success(f"Profil changé: {selected_profile}")
-                        st.rerun()
-
-        with ia_col2:
-            # Nouvelle consultation
-            if st.button("✨ Nouvelle Consultation", key="ia_new_consult"):
-                st.session_state.ia_messages = []
-                st.session_state.ia_current_conversation_id = None
-                st.session_state.ia_processed_messages = set()
-                # Message d'accueil
-                current_profile = st.session_state.ia_expert_advisor.get_current_profile()
-                profile_name = current_profile.get('name', 'Expert') if current_profile else 'Expert'
-                st.session_state.ia_messages.append({
-                    "role": "assistant",
-                    "content": f"Bonjour! Je suis votre expert {profile_name}. Comment puis-je vous aider aujourd'hui?\n\nPour effectuer une recherche web, tapez `/search votre question`"
-                })
-                st.rerun()
-
-        with ia_col3:
-            # Upload de fichiers pour analyse
-            if hasattr(st.session_state.ia_expert_advisor, 'get_supported_filetypes_flat'):
-                supported_types = st.session_state.ia_expert_advisor.get_supported_filetypes_flat()
-                uploaded_files = st.file_uploader(
-                    "📄 Analyser fichiers:",
-                    type=supported_types,
-                    accept_multiple_files=True,
-                    key="ia_file_upload"
-                )
-                if uploaded_files and st.button("🔍 Analyser", key="ia_analyze"):
-                    # Traitement des fichiers uploadés
-                    file_names = ', '.join([f.name for f in uploaded_files])
-                    analysis_prompt = f"Analyse de {len(uploaded_files)} fichier(s): {file_names}"
-                    st.session_state.ia_messages.append({"role": "user", "content": analysis_prompt})
-                    st.session_state.ia_files_to_analyze = uploaded_files
-                    st.rerun()
-
-    # Affichage des messages de conversation
-    st.markdown("---")
-
-    # Interface de chat
-    for i, message in enumerate(st.session_state.get('ia_messages', [])):
-        role = message.get("role", "unknown")
-        content = message.get("content", "")
-
-        if role == "system":
-            continue
-
-        avatar = "🤖"
-        if role == "user":
-            avatar = "👤"
-        elif role == "assistant":
-            avatar = "🏗️"
-        elif role == "search_result":
-            avatar = "🔎"
-
-        with st.chat_message(role, avatar=avatar):
-            st.markdown(content)
-
-    # Zone de saisie
-    ia_prompt = st.chat_input("💬 Posez votre question à l'expert IA...")
-
-    if ia_prompt:
-        # Ajouter le message utilisateur
-        st.session_state.ia_messages.append({"role": "user", "content": ia_prompt})
-
-        # Sauvegarder la conversation
-        if st.session_state.get('ia_conversation_manager'):
-            try:
-                conv_id = st.session_state.ia_conversation_manager.save_conversation(
-                    st.session_state.ia_current_conversation_id,
-                    st.session_state.ia_messages
-                )
-                if conv_id and not st.session_state.ia_current_conversation_id:
-                    st.session_state.ia_current_conversation_id = conv_id
-            except Exception as e:
-                st.warning(f"Erreur sauvegarde: {e}")
-
-        st.rerun()
-
 def show_itineraire():
     """Version améliorée avec vrais postes de travail - Architecture Unifiée"""
     st.markdown("### 🛠️ Itinéraire Fabrication - DG Inc.")
@@ -2444,1020 +3229,3 @@ def show_itineraire():
                 '👨‍🔧 Ress.': op.get('ressource', ''),
                 '🚦 Statut': op.get('statut', 'À FAIRE')
             })
-
-        st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("##### 📈 Analyse Opérations")
-        ac1, ac2 = st.columns(2)
-
-        TEXT_COLOR_CHARTS = 'var(--text-color)'
-
-        with ac1:
-            counts = {}
-            colors_op_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'TERMINÉ': '#10b981', 'EN ATTENTE': '#ef4444'}
-            for op in operations:
-                status = op.get('statut', 'À FAIRE')
-                counts[status] = counts.get(status, 0) + 1
-            if counts:
-                fig = px.bar(x=list(counts.keys()), y=list(counts.values()), title="Répartition par statut", color=list(counts.keys()), color_discrete_map=colors_op_statut)
-                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
-                st.plotly_chart(fig, use_container_width=True)
-        with ac2:
-            res_time = {}
-            for op in operations:
-                res = op.get('poste_travail', 'Non assigné')
-                time = op.get('temps_estime', 0)
-                res_time[res] = res_time.get(res, 0) + time
-            if res_time:
-                fig = px.pie(values=list(res_time.values()), names=list(res_time.keys()), title="Temps par poste")
-                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
-                st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-def show_nomenclature():
-    st.markdown("### 📊 Nomenclature (BOM)")
-    gestionnaire = st.session_state.gestionnaire
-
-    if not gestionnaire.projets:
-        st.warning("Aucun projet disponible.")
-        return
-
-    opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
-    sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="bom_sel")
-    proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
-
-    if not proj:
-        st.error("Projet non trouvé.")
-        return
-
-    st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    materiaux = proj.get('materiaux', [])
-
-    if not materiaux:
-        st.info("Aucun matériau défini.")
-    else:
-        total_cost = 0
-        data_bom = []
-        for item in materiaux:
-            qty, price = item.get('quantite', 0) or 0, item.get('prix_unitaire', 0) or 0
-            total = qty * price
-            total_cost += total
-            data_bom.append({
-                '🆔': item.get('id', '?'),
-                '📝 Code': item.get('code', ''),
-                '📋 Désignation': item.get('designation', 'N/A'),
-                '📊 Qté': f"{qty} {item.get('unite', '')}",
-                '💳 PU': format_currency(price),
-                '💰 Total': format_currency(total),
-                '🏪 Fourn.': item.get('fournisseur', 'N/A')
-            })
-
-        mc1, mc2, mc3 = st.columns(3)
-        with mc1:
-            st.metric("📦 Items", len(materiaux))
-        with mc2:
-            st.metric("💰 Coût Total", format_currency(total_cost))
-        with mc3:
-            st.metric("📊 Coût Moyen/Item", format_currency(total_cost / len(materiaux) if materiaux else 0))
-
-        st.dataframe(pd.DataFrame(data_bom), use_container_width=True)
-
-        if len(materiaux) > 1:
-            st.markdown("---")
-            st.markdown("##### 📈 Analyse Coûts Matériaux")
-            costs = [(item.get('quantite', 0) or 0) * (item.get('prix_unitaire', 0) or 0) for item in materiaux]
-            labels = [item.get('designation', 'N/A') for item in materiaux]
-
-            TEXT_COLOR_CHARTS = 'var(--text-color)'
-            fig = px.pie(values=costs, names=labels, title="Répartition coûts par matériau")
-            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
-            st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-def show_gantt():
-    st.markdown("### 📈 Diagramme de Gantt")
-    gestionnaire = st.session_state.gestionnaire
-    crm_manager = st.session_state.gestionnaire_crm
-
-    if not gestionnaire.projets:
-        st.info("Aucun projet disponible pour le Gantt.")
-        return
-
-    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    gantt_data = []
-    for p in gestionnaire.projets:
-        try:
-            s_date = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d") if p.get('date_soumis') else None
-            e_date = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d") if p.get('date_prevu') else None
-
-            if s_date and e_date:
-                client_display_name_gantt = p.get('client_nom_cache', 'N/A')
-                if client_display_name_gantt == 'N/A' and p.get('client_company_id'):
-                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_company_id'))
-                    if entreprise:
-                        client_display_name_gantt = entreprise.get('nom', 'N/A')
-                elif client_display_name_gantt == 'N/A':
-                    client_display_name_gantt = p.get('client_legacy', 'N/A')
-
-                gantt_data.append({
-                    'Projet': f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}",
-                    'Début': s_date,
-                    'Fin': e_date,
-                    'Client': client_display_name_gantt,
-                    'Statut': p.get('statut', 'N/A'),
-                    'Priorité': p.get('priorite', 'N/A')
-                })
-        except:
-            continue
-
-    if not gantt_data:
-        st.warning("Données de dates invalides pour le Gantt.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    df_gantt = pd.DataFrame(gantt_data)
-    colors_gantt = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'ANNULÉ': '#6b7280', 'LIVRAISON': '#8b5cf6'}
-
-    TEXT_COLOR_CHARTS = 'var(--text-color)'
-
-    fig = px.timeline(
-        df_gantt,
-        x_start="Début",
-        x_end="Fin",
-        y="Projet",
-        color="Statut",
-        color_discrete_map=colors_gantt,
-        title="📊 Planning Projets",
-        hover_data=['Client', 'Priorité']
-    )
-
-    fig.update_layout(
-        height=max(400, len(gantt_data) * 40),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color=TEXT_COLOR_CHARTS),
-        xaxis=dict(title="📅 Calendrier", gridcolor='rgba(0,0,0,0.05)'),
-        yaxis=dict(title="📋 Projets", gridcolor='rgba(0,0,0,0.05)', categoryorder='total ascending'),
-        title_x=0.5,
-        legend_title_text=''
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("---")
-    st.markdown("##### 📊 Statistiques Planning")
-    durees = [(item['Fin'] - item['Début']).days for item in gantt_data if item['Fin'] and item['Début']]
-    if durees:
-        gsc1, gsc2, gsc3 = st.columns(3)
-        with gsc1:
-            st.metric("📅 Durée Moy.", f"{sum(durees) / len(durees):.1f} j")
-        with gsc2:
-            st.metric("⏱️ Min Durée", f"{min(durees)} j")
-        with gsc3:
-            st.metric("🕐 Max Durée", f"{max(durees)} j")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-def show_calendrier():
-    st.markdown("### 📅 Vue Calendrier")
-    gestionnaire = st.session_state.gestionnaire
-    crm_manager = st.session_state.gestionnaire_crm
-    curr_date = st.session_state.selected_date
-
-    # Navigation
-    cn1, cn2, cn3 = st.columns([1, 2, 1])
-    with cn1:
-        if st.button("◀️ Mois Préc.", key="cal_prev", use_container_width=True):
-            prev_m = curr_date.replace(day=1) - timedelta(days=1)
-            st.session_state.selected_date = prev_m.replace(day=min(curr_date.day, calendar.monthrange(prev_m.year, prev_m.month)[1]))
-            st.rerun()
-    with cn2:
-        m_names = ["", "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-        st.markdown(f"<div class='project-header' style='margin-bottom:1rem; text-align:center;'><h4 style='margin:0; color:#1E40AF;'>{m_names[curr_date.month]} {curr_date.year}</h4></div>", unsafe_allow_html=True)
-    with cn3:
-        if st.button("Mois Suiv. ▶️", key="cal_next", use_container_width=True):
-            next_m = (curr_date.replace(day=calendar.monthrange(curr_date.year, curr_date.month)[1])) + timedelta(days=1)
-            st.session_state.selected_date = next_m.replace(day=min(curr_date.day, calendar.monthrange(next_m.year, next_m.month)[1]))
-            st.rerun()
-
-    if st.button("📅 Aujourd'hui", key="cal_today", use_container_width=True):
-        st.session_state.selected_date = date.today()
-        st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Préparation des données depuis SQLite
-    events_by_date = {}
-    for p in gestionnaire.projets:
-        try:
-            s_date_obj = datetime.strptime(p.get('date_soumis', ''), "%Y-%m-%d").date() if p.get('date_soumis') else None
-            e_date_obj = datetime.strptime(p.get('date_prevu', ''), "%Y-%m-%d").date() if p.get('date_prevu') else None
-
-            client_display_name_cal = p.get('client_nom_cache', 'N/A')
-            if client_display_name_cal == 'N/A':
-                 client_display_name_cal = p.get('client_legacy', 'N/A')
-
-            if s_date_obj:
-                if s_date_obj not in events_by_date:
-                    events_by_date[s_date_obj] = []
-                events_by_date[s_date_obj].append({
-                    'type': '🚀 Début',
-                    'projet': p.get('nom_projet', 'N/A'),
-                    'id': p.get('id'),
-                    'client': client_display_name_cal,
-                    'color_class': 'event-type-debut'
-                })
-            if e_date_obj:
-                if e_date_obj not in events_by_date:
-                    events_by_date[e_date_obj] = []
-                events_by_date[e_date_obj].append({
-                    'type': '🏁 Fin',
-                    'projet': p.get('nom_projet', 'N/A'),
-                    'id': p.get('id'),
-                    'client': client_display_name_cal,
-                    'color_class': 'event-type-fin'
-                })
-        except:
-            continue
-
-    # Affichage de la grille du calendrier
-    cal = calendar.Calendar(firstweekday=6)
-    month_dates = cal.monthdatescalendar(curr_date.year, curr_date.month)
-    day_names = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"]
-
-    st.markdown('<div class="calendar-grid-container">', unsafe_allow_html=True)
-    # En-têtes des jours
-    header_cols = st.columns(7)
-    for i, name in enumerate(day_names):
-        with header_cols[i]:
-            st.markdown(f"<div class='calendar-week-header'><div class='day-name'>{name}</div></div>", unsafe_allow_html=True)
-
-    # Grille des jours
-    for week in month_dates:
-        cols = st.columns(7)
-        for i, day_date_obj in enumerate(week):
-            with cols[i]:
-                day_classes = ["calendar-day-cell"]
-                if day_date_obj.month != curr_date.month:
-                    day_classes.append("other-month")
-                if day_date_obj == date.today():
-                    day_classes.append("today")
-
-                events_html = ""
-                if day_date_obj in events_by_date:
-                    for event in events_by_date[day_date_obj]:
-                        events_html += f"<div class='calendar-event-item {event['color_class']}' title='{event['projet']}'>{event['type']} P#{event['id']}</div>"
-
-                cell_html = f"""
-                <div class='{' '.join(day_classes)}'>
-                    <div class='day-number'>{day_date_obj.day}</div>
-                    <div class='calendar-events-container'>{events_html}</div>
-                </div>
-                """
-                st.markdown(cell_html, unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def show_kanban():
-    st.markdown("### 🔄 Vue Kanban (Style Planner)")
-    gestionnaire = st.session_state.gestionnaire
-    crm_manager = st.session_state.gestionnaire_crm
-
-    # Initialisation de l'état de drag & drop
-    if 'dragged_project_id' not in st.session_state:
-        st.session_state.dragged_project_id = None
-    if 'dragged_from_status' not in st.session_state:
-        st.session_state.dragged_from_status = None
-
-    if not gestionnaire.projets:
-        st.info("Aucun projet à afficher dans le Kanban.")
-        return
-
-    # Logique de filtrage
-    with st.expander("🔍 Filtres", expanded=False):
-        recherche = st.text_input("Rechercher par nom, client...", key="kanban_search")
-
-    projets_filtres = gestionnaire.projets
-    if recherche:
-        terme = recherche.lower()
-        projets_filtres = [
-            p for p in projets_filtres if
-            terme in str(p.get('nom_projet', '')).lower() or
-            terme in str(p.get('client_nom_cache', '')).lower() or
-            (p.get('client_company_id') and crm_manager.get_entreprise_by_id(p.get('client_company_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_company_id')).get('nom', '').lower()) or
-            terme in str(p.get('client_legacy', '')).lower()
-        ]
-
-    # Préparation des données pour les colonnes
-    statuts_k = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"]
-    projs_by_statut = {s: [] for s in statuts_k}
-    for p in projets_filtres:
-        stat = p.get('statut', 'À FAIRE')
-        if stat in projs_by_statut:
-            projs_by_statut[stat].append(p)
-        else:
-            projs_by_statut['À FAIRE'].append(p)
-
-    # Définition des couleurs pour les colonnes
-    col_borders_k = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'EN ATTENTE': '#ef4444', 'TERMINÉ': '#10b981', 'LIVRAISON': '#8b5cf6'}
-
-    # Indicateur visuel si un projet est en cours de déplacement
-    if st.session_state.dragged_project_id:
-        proj_dragged = next((p for p in gestionnaire.projets if p['id'] == st.session_state.dragged_project_id), None)
-        if proj_dragged:
-            st.markdown(f"""
-            <div class="kanban-drag-indicator">
-                Déplacement de: <strong>#{proj_dragged['id']} - {proj_dragged['nom_projet']}</strong>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.sidebar.button("❌ Annuler le déplacement", use_container_width=True):
-                st.session_state.dragged_project_id = None
-                st.session_state.dragged_from_status = None
-                st.rerun()
-
-    # STRUCTURE HORIZONTALE
-    st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
-
-    # Créer colonnes pour chaque statut
-    cols = st.columns(len(statuts_k))
-
-    for idx, sk in enumerate(statuts_k):
-        with cols[idx]:
-            # En-tête de la colonne
-            st.markdown(f"""
-            <div class="kanban-column" style="border-top: 4px solid {col_borders_k.get(sk, '#ccc')};">
-                <div class="kanban-header">{sk} ({len(projs_by_statut[sk])})</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Si un projet est "soulevé", afficher une zone de dépôt
-            if st.session_state.dragged_project_id and sk != st.session_state.dragged_from_status:
-                if st.button(f"⤵️ Déposer ici", key=f"drop_in_{sk}", use_container_width=True, help=f"Déplacer vers {sk}"):
-                    proj_id_to_move = st.session_state.dragged_project_id
-                    if gestionnaire.modifier_projet(proj_id_to_move, {'statut': sk}):
-                        st.success(f"Projet #{proj_id_to_move} déplacé vers '{sk}' !")
-                    else:
-                        st.error("Erreur lors du déplacement.")
-
-                    st.session_state.dragged_project_id = None
-                    st.session_state.dragged_from_status = None
-                    st.rerun()
-
-            # Zone pour les cartes
-            if not projs_by_statut[sk]:
-                st.markdown("<div style='text-align:center; color:var(--text-color-muted); margin-top:2rem;'><i>Vide</i></div>", unsafe_allow_html=True)
-
-            for pk in projs_by_statut[sk]:
-                prio_k = pk.get('priorite', 'MOYEN')
-                card_borders_k = {'ÉLEVÉ': '#ef4444', 'MOYEN': '#f59e0b', 'BAS': '#10b981'}
-                prio_icons_k = {'ÉLEVÉ': '🔴', 'MOYEN': '🟡', 'BAS': '🟢'}
-
-                client_display_name_kanban = pk.get('client_nom_cache', 'N/A')
-                if client_display_name_kanban == 'N/A' and pk.get('client_company_id'):
-                    entreprise = crm_manager.get_entreprise_by_id(pk.get('client_company_id'))
-                    client_display_name_kanban = entreprise.get('nom', 'N/A') if entreprise else 'N/A'
-                elif client_display_name_kanban == 'N/A':
-                    client_display_name_kanban = pk.get('client_legacy', 'N/A')
-
-                # Affichage de la carte
-                st.markdown(f"""
-                <div class='kanban-card' style='border-left-color:{card_borders_k.get(prio_k, 'var(--border-color)')};'>
-                    <div class='kanban-card-title'>#{pk.get('id')} - {pk.get('nom_projet', 'N/A')}</div>
-                    <div class='kanban-card-info'>👤 {client_display_name_kanban}</div>
-                    <div class='kanban-card-info'>{prio_icons_k.get(prio_k, '⚪')} {prio_k}</div>
-                    <div class='kanban-card-info'>💰 {format_currency(pk.get('prix_estime', 0))}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Boutons d'action pour la carte - MODIFIÉ avec BT et BA
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    if st.button("👁️", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
-                        st.session_state.selected_project = pk
-                        st.session_state.show_project_modal = True
-                        st.rerun()
-                with col2:
-                    # NOUVEAU : Bouton création BT dans Kanban
-                    if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
-                        st.session_state.form_action = "create_bon_travail"
-                        st.session_state.formulaire_project_preselect = pk['id']
-                        st.session_state.page_redirect = "formulaires_page"
-                        st.rerun()
-                with col3:
-                    # NOUVEAU : Bouton création BA dans Kanban
-                    if st.button("🛒", key=f"ba_kanban_{pk['id']}", help="Créer Bon d'Achat", use_container_width=True):
-                        st.session_state.form_action = "create_bon_achat"
-                        st.session_state.formulaire_project_preselect = pk['id']
-                        st.session_state.page_redirect = "formulaires_page"
-                        st.rerun()
-                with col4:
-                    if st.button("➡️", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
-                        st.session_state.dragged_project_id = pk['id']
-                        st.session_state.dragged_from_status = sk
-                        st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def show_project_modal():
-    """Affichage des détails d'un projet dans un expander"""
-    if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
-        return
-
-    proj_mod = st.session_state.selected_project
-
-    with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')}", expanded=True):
-        if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
-            st.session_state.show_project_modal = False
-            st.rerun()
-
-        st.markdown("---")
-
-        mc1, mc2 = st.columns(2)
-        with mc1:
-            st.markdown(f"""
-            <div class='info-card'>
-                <h4>📋 {proj_mod.get('nom_projet', 'N/A')}</h4>
-                <p><strong>👤 Client:</strong> {proj_mod.get('client_nom_cache', 'N/A')}</p>
-                <p><strong>🚦 Statut:</strong> {proj_mod.get('statut', 'N/A')}</p>
-                <p><strong>⭐ Priorité:</strong> {proj_mod.get('priorite', 'N/A')}</p>
-                <p><strong>✅ Tâche:</strong> {proj_mod.get('tache', 'N/A')}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with mc2:
-            st.markdown(f"""
-            <div class='info-card'>
-                <h4>📊 Finances</h4>
-                <p><strong>💰 Prix:</strong> {format_currency(proj_mod.get('prix_estime', 0))}</p>
-                <p><strong>⏱️ BD-FT:</strong> {proj_mod.get('bd_ft_estime', 'N/A')}h</p>
-                <p><strong>📅 Début:</strong> {proj_mod.get('date_soumis', 'N/A')}</p>
-                <p><strong>🏁 Fin:</strong> {proj_mod.get('date_prevu', 'N/A')}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        if proj_mod.get('description'):
-            st.markdown("##### 📝 Description")
-            st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
-
-        tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations"])
-
-        with tabs_mod[0]:
-            sts_mod = proj_mod.get('sous_taches', [])
-            if not sts_mod:
-                st.info("Aucune sous-tâche définie.")
-            else:
-                for st_item in sts_mod:
-                    st_color = {
-                        'À FAIRE': 'orange',
-                        'EN COURS': 'var(--primary-color)',
-                        'TERMINÉ': 'var(--success-color)'
-                    }.get(st_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
-
-                    st.markdown(f"""
-                    <div class='info-card' style='border-left:4px solid {st_color};margin-top:0.5rem;'>
-                        <h5 style='margin:0 0 0.3rem 0;'>ST{st_item.get('id')} - {st_item.get('nom', 'N/A')}</h5>
-                        <p style='margin:0 0 0.3rem 0;'>🚦 {st_item.get('statut', 'N/A')}</p>
-                        <p style='margin:0;'>📅 {st_item.get('date_debut', 'N/A')} → {st_item.get('date_fin', 'N/A')}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-        with tabs_mod[1]:
-            mats_mod = proj_mod.get('materiaux', [])
-            if not mats_mod:
-                st.info("Aucun matériau défini.")
-            else:
-                total_c_mod = 0
-                for mat in mats_mod:
-                    q, p_u = mat.get('quantite', 0), mat.get('prix_unitaire', 0)
-                    tot = q * p_u
-                    total_c_mod += tot
-                    fournisseur_html = ""
-                    if mat.get("fournisseur"):
-                        fournisseur_html = f"<p style='margin:0.3rem 0 0 0;font-size:0.9em;'>🏪 {mat.get('fournisseur', 'N/A')}</p>"
-
-                    st.markdown(f"""
-                    <div class='info-card' style='margin-top:0.5rem;'>
-                        <h5 style='margin:0 0 0.3rem 0;'>{mat.get('code', 'N/A')} - {mat.get('designation', 'N/A')}</h5>
-                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
-                            <span>📊 {q} {mat.get('unite', '')}</span>
-                            <span>💳 {format_currency(p_u)}</span>
-                            <span>💰 {format_currency(tot)}</span>
-                        </div>
-                        {fournisseur_html}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                st.markdown(f"""
-                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
-                    <h5 style='color:var(--primary-color-darker);margin:0;'>💰 Coût Total Mat.: {format_currency(total_c_mod)}</h5>
-                </div>
-                """, unsafe_allow_html=True)
-
-        with tabs_mod[2]:
-            ops_mod = proj_mod.get('operations', [])
-            if not ops_mod:
-                st.info("Aucune opération définie.")
-            else:
-                total_t_mod = 0
-                for op_item in ops_mod:
-                    tps = op_item.get('temps_estime', 0)
-                    total_t_mod += tps
-                    op_color = {
-                        'À FAIRE': 'orange',
-                        'EN COURS': 'var(--primary-color)',
-                        'TERMINÉ': 'var(--success-color)'
-                    }.get(op_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
-
-                    poste_travail = op_item.get('poste_travail', 'Non assigné')
-                    st.markdown(f"""
-                    <div class='info-card' style='border-left:4px solid {op_color};margin-top:0.5rem;'>
-                        <h5 style='margin:0 0 0.3rem 0;'>{op_item.get('sequence', '?')} - {op_item.get('description', 'N/A')}</h5>
-                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
-                            <span>🏭 {poste_travail}</span>
-                            <span>⏱️ {tps}h</span>
-                            <span>👨‍🔧 {op_item.get('ressource', 'N/A')}</span>
-                            <span>🚦 {op_item.get('statut', 'N/A')}</span>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                st.markdown(f"""
-                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
-                    <h5 style='color:var(--primary-color-darker);margin:0;'>⏱️ Temps Total Est.: {total_t_mod}h</h5>
-                </div>
-                """, unsafe_allow_html=True)
-
-        st.markdown("---")
-        if st.button("✖️ Fermer", use_container_width=True, key="close_modal_details_btn_bottom"):
-            st.session_state.show_project_modal = False
-            st.rerun()
-
-def show_footer():
-    st.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🏭 TimeTracker & Postes Intégrés • CRM • Inventaire • 📑 Formulaires • 🏪 Fournisseurs"
-    if TIMETRACKER_AVAILABLE:
-        footer_text += " • ✅ Module Unifié Actif"
-    if ASSISTANT_IA_AVAILABLE:
-        footer_text += " • 🤖 Assistant IA"
-
-    # NOUVEAU : Ajouter info stockage persistant dans footer principal
-    if 'storage_manager' in st.session_state and st.session_state.storage_manager:
-        storage_info = st.session_state.storage_manager.get_storage_info()
-        if storage_info['environment_type'] == 'RENDER_PERSISTENT':
-            footer_text += " • 💾 Stockage Persistant Render"
-        elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
-            footer_text += " • ⚠️ Mode Temporaire"
-
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée TimeTracker ↔ Postes • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
-
-# ========================
-# ERP PRINCIPAL AVEC PORTAIL (INTÉGRATION COMPLÈTE)
-# ========================
-
-def show_erp_main():
-    """ERP principal avec authentification et permissions"""
-    # Initialiser l'ERP
-    init_erp_system()
-
-    # Header admin
-    show_admin_header()
-
-    # Permissions utilisateur
-    permissions = st.session_state.get('admin_permissions', [])
-    has_all_permissions = "ALL" in permissions
-
-    # NAVIGATION PRINCIPALE avec permissions
-    available_pages = {}
-
-    # Pages toujours disponibles
-    available_pages["🏠 Tableau de Bord"] = "dashboard"
-
-    # Pages selon permissions
-    if has_all_permissions or "projects" in permissions:
-        available_pages["📋 Liste des Projets"] = "liste"
-        available_pages["🛠️ Itinéraire"] = "routing"
-        available_pages["📊 Nomenclature (BOM)"] = "bom"
-        available_pages["📈 Vue Gantt"] = "gantt"
-        available_pages["📅 Calendrier"] = "calendrier"
-        available_pages["🔄 Kanban"] = "kanban"
-
-    if has_all_permissions or "crm" in permissions:
-        available_pages["🤝 CRM"] = "crm_page"
-
-    if has_all_permissions or "employees" in permissions:
-        available_pages["👥 Employés"] = "employees_page"
-
-    if has_all_permissions or "fournisseurs" in permissions:
-        available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
-
-    if has_all_permissions or "formulaires" in permissions:
-        available_pages["📑 Formulaires"] = "formulaires_page"
-
-    if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
-        available_pages["⏱️🏭 TimeTracker & Postes"] = "timetracker_unified_page"
-
-    if has_all_permissions:
-        available_pages["🤖 Assistant IA"] = "assistant_ia_page"
-
-    if has_all_permissions or "inventory" in permissions:
-        available_pages["📦 Gestion Inventaire"] = "inventory_management"
-
-    # Navigation dans la sidebar
-    st.sidebar.markdown("### 🧭 Navigation ERP")
-
-    # Bouton déconnexion
-    if st.sidebar.button("🚪 Se Déconnecter", use_container_width=True):
-        st.session_state.admin_authenticated = False
-        st.session_state.admin_username = None
-        st.session_state.admin_login_time = None
-        st.session_state.admin_permissions = []
-        st.session_state.app_mode = "portal"
-        st.rerun()
-
-    st.sidebar.markdown("---")
-
-    # Menu de navigation
-    sel_page_key = st.sidebar.radio("Menu Principal:", list(available_pages.keys()), key="main_nav_radio")
-    page_to_show_val = available_pages[sel_page_key]
-
-    # GESTION SIDEBAR SELON CONTEXTE
-    if page_to_show_val == "inventory_management":
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Actions Inventaire</h4>", unsafe_allow_html=True)
-        st.session_state.inv_action_mode = st.sidebar.radio(
-            "Mode:",
-            ["Voir Liste", "Ajouter Article", "Modifier Article"],
-            key="inv_action_mode_selector",
-            index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.get('inv_action_mode', "Voir Liste"))
-        )
-
-    st.sidebar.markdown("---")
-
-    # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
-    show_storage_status_sidebar()
-
-    # Statistiques dans la sidebar
-    try:
-        total_projects_sql = st.session_state.erp_db.get_table_count('projects')
-        total_companies = st.session_state.erp_db.get_table_count('companies')
-        total_employees = st.session_state.erp_db.get_table_count('employees')
-        total_work_centers = st.session_state.erp_db.get_table_count('work_centers')
-
-        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📊 Base de Données</h3>", unsafe_allow_html=True)
-        st.sidebar.metric("Base: Projets", total_projects_sql)
-        st.sidebar.metric("Base: Entreprises", total_companies)
-        st.sidebar.metric("Base: Employés", total_employees)
-        st.sidebar.metric("Base: Postes", total_work_centers)
-
-        # Informations sur la base
-        schema_info = st.session_state.erp_db.get_schema_info()
-        if schema_info['file_size_mb'] > 0:
-            st.sidebar.metric("Base: Taille", f"{schema_info['file_size_mb']} MB")
-            st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
-
-    except Exception:
-        pass
-
-    # NOUVEAU : Statistiques Formulaires dans la sidebar
-    try:
-        if 'gestionnaire_formulaires' in st.session_state:
-            form_stats = st.session_state.gestionnaire_formulaires.get_statistiques_formulaires()
-            total_formulaires = sum(
-                type_stats.get('total', 0)
-                for type_stats in form_stats.values()
-                if isinstance(type_stats, dict)
-            )
-
-            if total_formulaires > 0:
-                st.sidebar.markdown("---")
-                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📑 Formulaires</h3>", unsafe_allow_html=True)
-                st.sidebar.metric("Total Documents", total_formulaires)
-
-                # Formulaires en attente
-                en_attente = form_stats.get('en_attente_validation', 0)
-                if en_attente > 0:
-                    st.sidebar.metric("⏳ En Attente", en_attente)
-
-                # Formulaires en retard
-                en_retard = form_stats.get('en_retard', 0)
-                if en_retard > 0:
-                    st.sidebar.metric("🚨 En Retard", en_retard)
-
-                # ÉTAPE 4 : Navigation vers TimeTracker depuis Formulaires
-                if TIMETRACKER_AVAILABLE and st.sidebar.button("⏱️ Aller au TimeTracker", key="nav_to_tt", use_container_width=True):
-                    st.session_state.page_redirect = "timetracker_page"
-                    st.session_state.navigation_message = "⏱️ Redirection vers TimeTracker..."
-                    st.rerun()
-
-    except Exception:
-        pass  # Silencieux si erreur
-
-    # NOUVEAU : Statistiques Fournisseurs dans la sidebar
-    try:
-        if 'gestionnaire_fournisseurs' not in st.session_state:
-            st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
-
-        fournisseurs_stats = st.session_state.gestionnaire_fournisseurs.get_fournisseurs_statistics()
-
-        if fournisseurs_stats and fournisseurs_stats.get('total_fournisseurs', 0) > 0:
-            st.sidebar.markdown("---")
-            st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏪 Fournisseurs</h3>", unsafe_allow_html=True)
-            st.sidebar.metric("Total Fournisseurs", fournisseurs_stats.get('total_fournisseurs', 0))
-            st.sidebar.metric("Fournisseurs Actifs", fournisseurs_stats.get('fournisseurs_actifs', 0))
-
-            # Évaluation moyenne
-            eval_moyenne = fournisseurs_stats.get('evaluation_moyenne', 0)
-            if eval_moyenne > 0:
-                st.sidebar.metric("⭐ Éval. Moyenne", f"{eval_moyenne}/10")
-
-            # Montant total commandes si significatif
-            montant_total = fournisseurs_stats.get('montant_total_commandes', 0)
-            if montant_total > 0:
-                st.sidebar.metric("💰 Total Commandes", f"{montant_total:,.0f}$")
-    except Exception:
-        pass  # Silencieux si erreur
-
-    # NOUVEAU : Statistiques Assistant IA dans la sidebar
-    if ASSISTANT_IA_AVAILABLE and st.session_state.get('assistant_ia_initialized'):
-        try:
-            # Statistiques conversations IA
-            if st.session_state.get('ia_conversation_manager'):
-                conversations_ia = st.session_state.ia_conversation_manager.list_conversations(limit=100)
-                total_conversations_ia = len(conversations_ia)
-
-                if total_conversations_ia > 0 or st.session_state.get('ia_messages'):
-                    st.sidebar.markdown("---")
-                    st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🤖 Assistant IA</h3>", unsafe_allow_html=True)
-                    st.sidebar.metric("Conversations IA", total_conversations_ia)
-
-                    # Messages dans la conversation actuelle
-                    current_messages = len(st.session_state.get('ia_messages', []))
-                    if current_messages > 0:
-                        st.sidebar.metric("Messages Actuels", current_messages)
-
-                    # Profil actuel
-                    current_profile = st.session_state.get('ia_selected_profile', 'Expert')
-                    if current_profile:
-                        st.sidebar.caption(f"Profil: {current_profile}")
-        except Exception:
-            pass  # Silencieux si erreur
-
-    # ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker
-    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
-        try:
-            postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
-            if postes_stats.get('total_postes', 0) > 0:
-                st.sidebar.markdown("---")
-                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Postes Travail</h3>", unsafe_allow_html=True)
-                st.sidebar.metric("Postes Actifs", postes_stats.get('total_postes', 0))
-                st.sidebar.metric("🤖 Robots", postes_stats.get('postes_robotises', 0))
-                st.sidebar.metric("💻 CNC", postes_stats.get('postes_cnc', 0))
-        except Exception:
-            pass  # Silencieux si erreur
-
-    # INTÉGRATION TIMETRACKER : Statistiques dans la sidebar
-    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
-        try:
-            tt_stats = st.session_state.timetracker_erp.get_timetracker_statistics()
-            if tt_stats.get('total_employees', 0) > 0 or tt_stats.get('active_entries', 0) > 0:
-                st.sidebar.markdown("---")
-                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️ TimeTracker ERP</h3>", unsafe_allow_html=True)
-                st.sidebar.metric("👥 Employés", tt_stats.get('total_employees', 0))
-                st.sidebar.metric("🟢 Pointages Actifs", tt_stats.get('active_entries', 0))
-                if tt_stats.get('total_hours_today', 0) > 0:
-                    st.sidebar.metric("⏱️ Heures Jour", f"{tt_stats.get('total_hours_today', 0):.1f}h")
-                if tt_stats.get('total_revenue_today', 0) > 0:
-                    st.sidebar.metric("💰 Revenus Jour", f"{tt_stats.get('total_revenue_today', 0):,.0f}$")
-
-                # ÉTAPE 4 : Navigation vers Bons de Travail depuis TimeTracker
-                if st.sidebar.button("🔧 Voir Mes Bons de Travail", key="nav_to_bt", use_container_width=True):
-                    st.session_state.page_redirect = "formulaires_page"
-                    st.session_state.form_action = "list_bon_travail"
-                    st.session_state.navigation_message = "🔧 Redirection vers les Bons de Travail..."
-                    st.rerun()
-        except Exception:
-            pass  # Silencieux si erreur
-
-    st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🏭 TimeTracker & Postes Unifiés"
-    if ASSISTANT_IA_AVAILABLE:
-        footer_text += "<br/>🤖 Assistant IA Métallurgie"
-
-    # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
-    if st.session_state.get('storage_manager'):
-        storage_info = st.session_state.storage_manager.get_storage_info()
-        if storage_info['environment_type'] == 'RENDER_PERSISTENT':
-            footer_text += "<br/>💾 Stockage Persistant Render"
-        elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
-            footer_text += "<br/>⚠️ Mode Temporaire"
-
-    st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
-
-    # PAGES (MODIFIÉES avec module Formulaires, Assistant IA et Fournisseurs)
-    if page_to_show_val == "dashboard":
-        show_dashboard()
-    elif page_to_show_val == "liste":
-        show_liste_projets()
-    elif page_to_show_val == "crm_page":
-        show_crm_page()
-    elif page_to_show_val == "employees_page":
-        show_employees_page()
-    elif page_to_show_val == "fournisseurs_page":
-        if FOURNISSEURS_AVAILABLE:
-            show_fournisseurs_page()
-        else:
-            st.error("❌ Module Fournisseurs non disponible")
-    elif page_to_show_val == "formulaires_page":
-        if FORMULAIRES_AVAILABLE:
-            show_formulaires_page()
-        else:
-            st.error("❌ Module Formulaires non disponible")
-    elif page_to_show_val == "assistant_ia_page":
-        if ASSISTANT_IA_AVAILABLE:
-            show_assistant_ia_page()
-        else:
-            st.error("❌ Module Assistant IA non disponible")
-            st.info("📋 Vérifiez que le dossier 'assistant_ia' existe avec tous les fichiers requis")
-            st.markdown("### 📁 Structure requise:")
-            st.code("""
-📁 assistant_ia/
-├── 📄 expert_logic.py
-├── 📄 conversation_manager.py
-├── 📄 style.css
-└── 📁 profiles/
-    └── 📄 expert_metallurgie.txt
-            """)
-    elif page_to_show_val == "timetracker_unified_page":
-        if TIMETRACKER_AVAILABLE:
-            show_timetracker_interface()
-        else:
-            st.error("❌ TimeTracker non disponible. Veuillez créer les fichiers timetracker.py et database_sync.py")
-            st.info("📋 Consultez le plan d'intégration pour créer les modules manquants.")
-    elif page_to_show_val == "inventory_management":
-        show_inventory_management_page()
-    elif page_to_show_val == "bom":
-        show_nomenclature()
-    elif page_to_show_val == "routing":
-        show_itineraire()
-    elif page_to_show_val == "gantt":
-        show_gantt()
-    elif page_to_show_val == "calendrier":
-        show_calendrier()
-    elif page_to_show_val == "kanban":
-        show_kanban()
-
-    # Affichage des modales et formulaires
-    if st.session_state.get('show_project_modal'):
-        show_project_modal()
-    if st.session_state.get('show_create_project'):
-        render_create_project_form(st.session_state.gestionnaire, st.session_state.gestionnaire_crm)
-    if st.session_state.get('show_edit_project'):
-        render_edit_project_form(st.session_state.gestionnaire, st.session_state.gestionnaire_crm, st.session_state.edit_project_data)
-    if st.session_state.get('show_delete_confirmation'):
-        render_delete_confirmation(st.session_state.gestionnaire)
-
-# ========================
-# FONCTION PRINCIPALE AVEC PORTAIL
-# ========================
-
-def main():
-    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET"""
-
-    # NOUVEAU : Charger le CSS externe en priorité
-    css_loaded = load_external_css()
-    
-    # Fallback si CSS externe indisponible
-    if not css_loaded:
-        apply_fallback_styles()
-
-    # Initialisation des variables de session - COMPLÈTE
-    if 'app_mode' not in st.session_state:
-        st.session_state.app_mode = "portal"
-    if 'admin_authenticated' not in st.session_state:
-        st.session_state.admin_authenticated = False
-    if 'user_role' not in st.session_state:
-        st.session_state.user_role = None
-
-    # Initialisation des variables de session (MISES À JOUR avec module Formulaires, Assistant IA et Fournisseurs)
-    session_defs = {
-        'show_project_modal': False, 'selected_project': None,
-        'show_create_project': False, 'show_edit_project': False,
-        'edit_project_data': None, 'show_delete_confirmation': False,
-        'delete_project_id': None, 'selected_date': datetime.now().date(),
-        'welcome_seen': False,
-        'inv_action_mode': "Voir Liste",
-        'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
-        'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
-        'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
-        'competences_form': [],
-        'gamme_generated': None, 'gamme_metadata': None,
-        'timetracker_employee_id': None, 'timetracker_project_id': None,
-        'timetracker_task_id': None, 'timetracker_is_clocked_in': False,
-        'timetracker_current_entry_id': None, 'timetracker_view_mode': 'employee',
-        'form_action': None,
-        'selected_formulaire_id': None,
-        'formulaire_filter_type': 'TOUS',
-        'formulaire_filter_statut': 'TOUS',
-        'show_formulaire_modal': False,
-        'formulaire_project_preselect': None,
-        'page_redirect': None,
-        'ia_messages': [],
-        'ia_current_conversation_id': None,
-        'ia_processed_messages': set(),
-        'ia_selected_profile': None,
-        'ia_files_to_analyze': None,
-        'fournisseur_action': None,
-        'selected_fournisseur_id': None,
-        'fournisseur_filter_category': 'TOUS',
-        'fournisseur_confirm_delete_id': None,
-        'fournisseur_performance_period': 365,
-        'navigation_message': None,
-        'current_page': None,
-        'admin_permissions': [],
-        'pointages_temp': []
-    }
-    for k, v_def in session_defs.items():
-        if k not in st.session_state:
-            st.session_state[k] = v_def
-
-    # Gestion des redirections automatiques depuis les modules intégrés
-    if st.session_state.get('page_redirect'):
-        target_page = st.session_state.page_redirect
-        del st.session_state.page_redirect
-
-        if target_page == "timetracker_page":
-            st.session_state.current_page = "timetracker"
-        elif target_page == "formulaires_page":
-            st.session_state.current_page = "formulaires"
-
-        st.rerun()
-
-    # Affichage de notifications de navigation
-    if st.session_state.get('navigation_message'):
-        st.info(st.session_state.navigation_message)
-        del st.session_state.navigation_message
-
-    # Routage selon le mode
-    if st.session_state.app_mode == "portal":
-        show_portal_home()
-
-    elif st.session_state.app_mode == "employee":
-        init_erp_system()  # Initialiser le système pour avoir accès aux modules
-        show_employee_interface()
-
-    elif st.session_state.app_mode == "admin_auth":
-        show_admin_auth()
-
-    elif st.session_state.app_mode == "erp":
-        if check_admin_session():
-            show_erp_main()
-        else:
-            st.error("Session expirée. Veuillez vous reconnecter.")
-            st.session_state.app_mode = "admin_auth"
-            st.rerun()
-
-    else:
-        # Mode par défaut - retour au portail
-        st.session_state.app_mode = "portal"
-        st.rerun()
-
-    # Sauvegarde périodique automatique
-    if st.session_state.get('storage_manager'):
-        if hasattr(st.session_state, 'action_counter'):
-            st.session_state.action_counter += 1
-        else:
-            st.session_state.action_counter = 1
-
-        # Sauvegarde automatique toutes les 100 actions
-        if st.session_state.action_counter % 100 == 0:
-            try:
-                backup_path = st.session_state.storage_manager.create_backup("auto")
-                if backup_path:
-                    st.toast("💾 Sauvegarde automatique effectuée", icon="✅")
-            except Exception as e:
-                print(f"Erreur sauvegarde automatique: {e}")
-
-if __name__ == "__main__":
-    try:
-        main()
-        if st.session_state.get('admin_authenticated'):
-            show_footer()
-    except Exception as e_main:
-        st.error(f"Une erreur majeure est survenue dans l'application: {str(e_main)}")
-        st.info("Veuillez essayer de rafraîchir la page ou de redémarrer l'application.")
-        import traceback
-        st.code(traceback.format_exc())
-
-        # En cas d'erreur, essayer de créer une sauvegarde d'urgence
-        if 'storage_manager' in st.session_state and st.session_state.storage_manager:
-            try:
-                emergency_backup = st.session_state.storage_manager.create_backup("emergency_error")
-                if emergency_backup:
-                    st.info(f"💾 Sauvegarde d'urgence créée: {emergency_backup}")
-            except Exception:
-                pass
