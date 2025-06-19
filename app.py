@@ -1,6 +1,7 @@
 # app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
 # VERSION COMPLÈTE : Portail d'authentification + ERP complet original + CSS externe
 # Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
+# ARCHITECTURE UNIFIÉE : TimeTracker + Postes de Travail fusionnés
 
 import streamlit as st
 import pandas as pd
@@ -204,20 +205,9 @@ try:
 except ImportError:
     EMPLOYEES_AVAILABLE = False
 
-# Importation du module postes de travail
-try:
-    from postes_travail import (
-        GestionnairePostes,
-        integrer_postes_dans_projets,
-        generer_rapport_capacite_production,
-        show_work_centers_page,
-        show_manufacturing_routes_page,
-        show_capacity_analysis_page,
-        update_sidebar_with_work_centers
-    )
-    POSTES_AVAILABLE = True
-except ImportError:
-    POSTES_AVAILABLE = False
+# ARCHITECTURE UNIFIÉE : Postes de travail intégrés dans TimeTracker
+# Les fonctions postes sont maintenant dans timetracker.py
+POSTES_AVAILABLE = False  # Désactivé - maintenant unifié dans TimeTracker
 
 # NOUVEAU : Importation du module Formulaires
 try:
@@ -870,17 +860,9 @@ def init_erp_system():
     if EMPLOYEES_AVAILABLE and 'gestionnaire_employes' not in st.session_state:
         st.session_state.gestionnaire_employes = GestionnaireEmployes()
 
-    # Gestionnaire des postes de travail
-    if POSTES_AVAILABLE and 'gestionnaire_postes' not in st.session_state:
-        st.session_state.gestionnaire_postes = GestionnairePostes()
-        # Intégrer les postes dans les projets existants au premier lancement
-        if not hasattr(st.session_state, 'postes_integres'):
-            if ERP_DATABASE_AVAILABLE and 'gestionnaire' in st.session_state:
-                st.session_state.gestionnaire = integrer_postes_dans_projets(
-                    st.session_state.gestionnaire,
-                    st.session_state.gestionnaire_postes
-                )
-            st.session_state.postes_integres = True
+    # ARCHITECTURE UNIFIÉE : Gestionnaire postes intégré dans TimeTracker
+    # Plus besoin d'initialiser gestionnaire_postes séparément
+    # Il sera initialisé automatiquement dans show_timetracker_interface()
 
     # INTÉGRATION TIMETRACKER : Gestionnaire unifié
     if TIMETRACKER_AVAILABLE and ERP_DATABASE_AVAILABLE and 'timetracker_erp' not in st.session_state:
@@ -996,14 +978,14 @@ def show_portal_home():
             <div class="access-icon">👥</div>
             <div class="access-title">EMPLOYÉ</div>
             <div class="access-description">
-                Interface de pointage et suivi de production
+                Interface unifiée TimeTracker & Postes de travail
             </div>
             <ul class="access-features">
-                <li>⏰ Pointage TimeTracker</li>
+                <li>⏰🏭 TimeTracker & Postes Unifiés</li>
                 <li>🔧 Bons de Travail</li>
                 <li>📊 Suivi temps réel</li>
                 <li>📱 Interface simplifiée</li>
-                <li>🏭 Status postes</li>
+                <li>🎯 Gestion centralisée</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1075,11 +1057,10 @@ def show_portal_home():
         ("📊 Base de Données ERP", ERP_DATABASE_AVAILABLE),
         ("🤝 CRM", CRM_AVAILABLE),
         ("👥 Employés", EMPLOYEES_AVAILABLE),
-        ("⏱️ TimeTracker", TIMETRACKER_AVAILABLE),
+        ("⏱️🏭 TimeTracker & Postes", TIMETRACKER_AVAILABLE),
         ("📑 Formulaires", FORMULAIRES_AVAILABLE),
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
         ("🤖 Assistant IA", ASSISTANT_IA_AVAILABLE),
-        ("🏭 Postes Travail", POSTES_AVAILABLE),
         ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE)
     ]
 
@@ -1099,14 +1080,14 @@ def show_portal_home():
         <h4>🏭 ERP Production DG Inc.</h4>
         <p>
             <strong>Desmarais & Gagné Inc.</strong> • Fabrication métallique et industrielle<br>
-            🗄️ Architecture unifiée • 📑 Formulaires • 🤖 Assistant IA • ⏱️ TimeTracker<br>
+            🗄️ Architecture unifiée • 📑 Formulaires • 🤖 Assistant IA • ⏱️🏭 TimeTracker & Postes<br>
             💾 Stockage persistant • 🔄 Navigation fluide • 🔒 Sécurisé
         </p>
         <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
             <small>
-                👥 <strong>Employés:</strong> Accès direct pointage et Bons de Travail<br>
-                👨‍💼 <strong>Admins:</strong> ERP complet avec authentification<br>
-                🏗️ Version intégrée • ✅ Production Ready
+                👥 <strong>Employés:</strong> Interface unifiée TimeTracker & Postes<br>
+                👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
+                🏗️ Version intégrée • ✅ Production Ready • 🎯 Module Unifié
             </small>
         </div>
     </div>
@@ -1117,19 +1098,19 @@ def show_employee_interface():
     st.markdown("""
     <div class="employee-header">
         <h2>👥 Interface Employé - DG Inc.</h2>
-        <p>Pointage, Bons de Travail et Suivi Production</p>
+        <p>TimeTracker & Postes Unifiés, Bons de Travail et Suivi Production</p>
     </div>
     """, unsafe_allow_html=True)
 
     # Onglets pour organiser l'interface employé
-    tab_pointage, tab_bons_travail, tab_production = st.tabs([
-        "⏰ Pointage", "🔧 Bons de Travail", "🏭 Production"
+    tab_timetracker, tab_bons_travail, tab_production = st.tabs([
+        "⏱️🏭 TimeTracker & Postes", "🔧 Bons de Travail", "📊 Production"
     ])
 
-    with tab_pointage:
+    with tab_timetracker:
         if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
             try:
-                # Interface TimeTracker complète
+                # Interface TimeTracker complète avec postes intégrés
                 show_timetracker_interface()
             except Exception as e:
                 st.error(f"Erreur TimeTracker: {e}")
@@ -1175,12 +1156,20 @@ def show_employee_interface():
     with tab_production:
         st.markdown("### 🏭 État de la Production")
 
-        # Statistiques de production
+        # Statistiques de production - ARCHITECTURE UNIFIÉE
         stats = get_system_stats()
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("🏭 Postes Actifs", stats['postes'])
+            # Stats depuis TimeTracker unifié si disponible
+            postes_count = stats['postes']
+            if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+                try:
+                    postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
+                    postes_count = postes_stats.get('total_postes', stats['postes'])
+                except Exception:
+                    pass
+            st.metric("🏭 Postes Actifs", postes_count)
         with col2:
             st.metric("📊 Projets", stats['projets'])
         with col3:
@@ -1188,8 +1177,8 @@ def show_employee_interface():
             efficacite = random.uniform(82, 87)
             st.metric("⚡ Efficacité", f"{efficacite:.1f}%")
 
-        # État des postes (simulation)
-        st.markdown("#### 🔧 État des Postes de Travail")
+        # État des postes (simulation avec architecture unifiée)
+        st.markdown("#### 🔧 État des Postes de Travail (Architecture Unifiée)")
 
         postes_demo = [
             {"nom": "Robot ABB GMAW Station 1", "statut": "🟢 En Production", "operateur": "Jean D."},
@@ -1207,6 +1196,8 @@ def show_employee_interface():
                 st.write(poste['statut'])
             with col3:
                 st.write(f"👤 {poste['operateur']}")
+
+        st.info("💡 Interface unifiée TimeTracker & Postes - Gestion centralisée")
 
     # Bouton retour
     st.markdown("---")
@@ -1399,7 +1390,15 @@ def show_dashboard():
     
     gestionnaire = st.session_state.gestionnaire
     gestionnaire_employes = st.session_state.gestionnaire_employes
-    gestionnaire_postes = st.session_state.gestionnaire_postes
+    
+    # ARCHITECTURE UNIFIÉE : Postes via TimeTracker
+    postes_stats = {'total_postes': 0, 'postes_robotises': 0, 'postes_cnc': 0, 'par_departement': {}}
+    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+        try:
+            # Récupérer les stats postes depuis TimeTracker unifié
+            postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
+        except Exception:
+            pass  # Utiliser les stats par défaut si erreur
 
     # NOUVEAU : Gestionnaire fournisseurs pour métriques
     if 'gestionnaire_fournisseurs' not in st.session_state:
@@ -1417,7 +1416,9 @@ def show_dashboard():
 
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
-    postes_stats = gestionnaire_postes.get_statistiques_postes()
+    
+    # ARCHITECTURE UNIFIÉE : Stats postes depuis TimeTracker
+    # postes_stats déjà initialisé plus haut
 
     # NOUVEAU : Statistiques formulaires
     form_stats = gestionnaire_formulaires.get_statistiques_formulaires()
@@ -2352,10 +2353,9 @@ def show_assistant_ia_page():
         st.rerun()
 
 def show_itineraire():
-    """Version améliorée avec vrais postes de travail - SQLite"""
+    """Version améliorée avec vrais postes de travail - Architecture Unifiée"""
     st.markdown("### 🛠️ Itinéraire Fabrication - DG Inc.")
     gestionnaire = st.session_state.gestionnaire
-    gestionnaire_postes = st.session_state.gestionnaire_postes
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     if not gestionnaire.projets:
@@ -2372,40 +2372,47 @@ def show_itineraire():
 
     st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
 
-    # Bouton de régénération de gamme
+    # Bouton de régénération de gamme - ARCHITECTURE UNIFIÉE
     col_regen1, col_regen2 = st.columns([3, 1])
     with col_regen2:
-        if st.button("🔄 Régénérer Gamme", help="Régénérer avec les postes DG Inc."):
-            # Déterminer le type de produit
-            nom_projet = proj.get('nom_projet', '').lower()
-            if any(mot in nom_projet for mot in ['chassis', 'structure', 'assemblage']):
-                type_produit = "CHASSIS_SOUDE"
-            elif any(mot in nom_projet for mot in ['batiment', 'pont', 'charpente']):
-                type_produit = "STRUCTURE_LOURDE"
+        if st.button("🔄 Régénérer Gamme", help="Régénérer avec les postes TimeTracker"):
+            if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+                try:
+                    # Utiliser la génération de gamme depuis TimeTracker unifié
+                    nom_projet = proj.get('nom_projet', '').lower()
+                    if any(mot in nom_projet for mot in ['chassis', 'structure', 'assemblage']):
+                        type_produit = "CHASSIS_SOUDE"
+                    elif any(mot in nom_projet for mot in ['batiment', 'pont', 'charpente']):
+                        type_produit = "STRUCTURE_LOURDE"
+                    else:
+                        type_produit = "PIECE_PRECISION"
+
+                    # Générer nouvelle gamme via TimeTracker
+                    gamme = st.session_state.timetracker_erp.generer_gamme_fabrication(type_produit, "MOYEN")
+
+                    # Mettre à jour les opérations en SQLite
+                    nouvelles_operations = []
+                    for i, op in enumerate(gamme, 1):
+                        nouvelles_operations.append({
+                            'id': i,
+                            'sequence': str(op['sequence']),
+                            'description': f"{op['poste']} - {proj.get('nom_projet', '')}",
+                            'temps_estime': op['temps_estime'],
+                            'ressource': op.get('employes_disponibles', ['À assigner'])[0] if op.get('employes_disponibles') else 'À assigner',
+                            'statut': 'À FAIRE',
+                            'poste_travail': op['poste']
+                        })
+
+                    # Mise à jour via SQLite
+                    proj['operations'] = nouvelles_operations
+                    gestionnaire.modifier_projet(proj['id'], {'operations': nouvelles_operations})
+                    st.success("✅ Gamme régénérée avec l'architecture unifiée !")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erreur génération gamme: {e}")
+                    st.info("💡 Utilisez l'interface TimeTracker & Postes pour gérer les gammes")
             else:
-                type_produit = "PIECE_PRECISION"
-
-            # Générer nouvelle gamme
-            gamme = gestionnaire_postes.generer_gamme_fabrication(type_produit, "MOYEN", gestionnaire_employes)
-
-            # Mettre à jour les opérations en SQLite
-            nouvelles_operations = []
-            for i, op in enumerate(gamme, 1):
-                nouvelles_operations.append({
-                    'id': i,
-                    'sequence': str(op['sequence']),
-                    'description': f"{op['poste']} - {proj.get('nom_projet', '')}",
-                    'temps_estime': op['temps_estime'],
-                    'ressource': op['employes_disponibles'][0] if op['employes_disponibles'] else 'À assigner',
-                    'statut': 'À FAIRE',
-                    'poste_travail': op['poste']
-                })
-
-            # Mise à jour via SQLite
-            proj['operations'] = nouvelles_operations
-            gestionnaire.modifier_projet(proj['id'], {'operations': nouvelles_operations})
-            st.success("✅ Gamme régénérée avec les postes DG Inc. !")
-            st.rerun()
+                st.warning("⚠️ TimeTracker non disponible - Gamme non régénérée")
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     operations = proj.get('operations', [])
@@ -2992,9 +2999,9 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • 61 Postes • CRM • Inventaire • 📑 Formulaires • 🏪 Fournisseurs"
+    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🏭 TimeTracker & Postes Intégrés • CRM • Inventaire • 📑 Formulaires • 🏪 Fournisseurs"
     if TIMETRACKER_AVAILABLE:
-        footer_text += " • ⏱️ TimeTracker"
+        footer_text += " • ✅ Module Unifié Actif"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += " • 🤖 Assistant IA"
 
@@ -3006,7 +3013,7 @@ def show_footer():
         elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
             footer_text += " • ⚠️ Mode Temporaire"
 
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Moderne • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète • Stockage Persistant Render • 🔄 Navigation Fluide TimeTracker ↔ BT 100%</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée TimeTracker ↔ Postes • Module Formulaires Intégré • Assistant IA Métallurgie • Gestion Fournisseurs Complète • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
 
 # ========================
 # ERP PRINCIPAL AVEC PORTAIL (INTÉGRATION COMPLÈTE)
@@ -3051,16 +3058,11 @@ def show_erp_main():
     if has_all_permissions or "formulaires" in permissions:
         available_pages["📑 Formulaires"] = "formulaires_page"
 
+    if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
+        available_pages["⏱️🏭 TimeTracker & Postes"] = "timetracker_unified_page"
+
     if has_all_permissions:
         available_pages["🤖 Assistant IA"] = "assistant_ia_page"
-
-    if has_all_permissions or "work_centers" in permissions:
-        available_pages["🏭 Postes de Travail"] = "work_centers_page"
-        available_pages["⚙️ Gammes Fabrication"] = "manufacturing_routes"
-        available_pages["📊 Capacité Production"] = "capacity_analysis"
-
-    if has_all_permissions or "timetracker" in permissions:
-        available_pages["⏱️ TimeTracker"] = "timetracker_page"
 
     if has_all_permissions or "inventory" in permissions:
         available_pages["📦 Gestion Inventaire"] = "inventory_management"
@@ -3205,9 +3207,18 @@ def show_erp_main():
         except Exception:
             pass  # Silencieux si erreur
 
-    # Statistiques des postes de travail dans la sidebar
-    if POSTES_AVAILABLE:
-        update_sidebar_with_work_centers()
+    # ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker
+    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+        try:
+            postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
+            if postes_stats.get('total_postes', 0) > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Postes Travail</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("Postes Actifs", postes_stats.get('total_postes', 0))
+                st.sidebar.metric("🤖 Robots", postes_stats.get('postes_robotises', 0))
+                st.sidebar.metric("💻 CNC", postes_stats.get('postes_cnc', 0))
+        except Exception:
+            pass  # Silencieux si erreur
 
     # INTÉGRATION TIMETRACKER : Statistiques dans la sidebar
     if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
@@ -3233,7 +3244,7 @@ def show_erp_main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>🔄 Navigation Fluide TimeTracker ↔ BT"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🏭 TimeTracker & Postes Unifiés"
     if ASSISTANT_IA_AVAILABLE:
         footer_text += "<br/>🤖 Assistant IA Métallurgie"
 
@@ -3281,22 +3292,7 @@ def show_erp_main():
 └── 📁 profiles/
     └── 📄 expert_metallurgie.txt
             """)
-    elif page_to_show_val == "work_centers_page":
-        if POSTES_AVAILABLE:
-            show_work_centers_page()
-        else:
-            st.error("❌ Module Postes de Travail non disponible")
-    elif page_to_show_val == "manufacturing_routes":
-        if POSTES_AVAILABLE:
-            show_manufacturing_routes_page()
-        else:
-            st.error("❌ Module Postes de Travail non disponible")
-    elif page_to_show_val == "capacity_analysis":
-        if POSTES_AVAILABLE:
-            show_capacity_analysis_page()
-        else:
-            st.error("❌ Module Postes de Travail non disponible")
-    elif page_to_show_val == "timetracker_page":
+    elif page_to_show_val == "timetracker_unified_page":
         if TIMETRACKER_AVAILABLE:
             show_timetracker_interface()
         else:
