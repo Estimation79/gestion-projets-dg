@@ -1,6 +1,7 @@
-# erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ
+# erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ + INTERFACE UNIFIÉE
 # ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet + Corrections Intégrées
 # ÉTAPE 2 : Intégration TimeTracker ↔ Bons de Travail IMPLÉMENTÉE
+# EXTENSION : Interface Unifiée TimeTracker + Postes de Travail COMPLÈTE
 
 import sqlite3
 import json
@@ -18,8 +19,7 @@ logger = logging.getLogger(__name__)
 class ERPDatabase:
     """
     Gestionnaire de base de données SQLite unifié pour ERP Production DG Inc.
-    VERSION CONSOLIDÉE - Toutes corrections intégrées automatiquement
-    ÉTAPE 2 : Intégration TimeTracker ↔ Bons de Travail COMPLÈTE
+    VERSION CONSOLIDÉE + INTERFACE UNIFIÉE TIMETRACKER + POSTES
     
     Remplace tous les fichiers JSON par une base de données relationnelle cohérente :
     - projets_data.json → tables projects, operations, materials
@@ -41,6 +41,13 @@ class ERPDatabase:
     - bt_reservations_postes → réservations postes de travail
     - Traçabilité complète des pointages par BT
     
+    INTERFACE UNIFIÉE TIMETRACKER + POSTES :
+    - Méthodes complètes de gestion des postes de travail
+    - Statistiques avancées pour l'interface fusionnée
+    - Méthodes pour gammes de fabrication
+    - Optimisations pour l'analyse de capacité
+    - Vues spécialisées pour l'interface unifiée
+    
     CORRECTIONS AUTOMATIQUES INTÉGRÉES :
     - Colonnes projects corrigées (date_debut_reel, date_fin_reel)
     - Tables BT spécialisées (bt_assignations, bt_reservations_postes)
@@ -52,15 +59,19 @@ class ERPDatabase:
         self.db_path = db_path
         self.backup_dir = "backup_json"
         self.init_database()
-        logger.info(f"ERPDatabase consolidé initialisé : {db_path}")
+        logger.info(f"ERPDatabase consolidé + Interface Unifiée initialisé : {db_path}")
     
     def init_database(self):
         """Initialise toutes les tables de la base de données ERP avec corrections automatiques intégrées"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
-            # Activer les clés étrangères
+            # Activer les clés étrangères et optimisations SQLite
             cursor.execute("PRAGMA foreign_keys = ON")
+            cursor.execute("PRAGMA journal_mode = WAL")
+            cursor.execute("PRAGMA synchronous = NORMAL")
+            cursor.execute("PRAGMA temp_store = memory")
+            cursor.execute("PRAGMA mmap_size = 268435456")  # 256MB
             
             # 1. ENTREPRISES (CRM)
             cursor.execute('''
@@ -163,7 +174,7 @@ class ERPDatabase:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS work_centers (
                     id INTEGER PRIMARY KEY,
-                    nom TEXT NOT NULL,
+                    nom TEXT NOT NULL UNIQUE,
                     departement TEXT,
                     categorie TEXT,
                     type_machine TEXT,
@@ -541,6 +552,12 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_reservations_bt ON bt_reservations_postes(bt_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_bt_reservations_work_center ON bt_reservations_postes(work_center_id)')
             
+            # INTERFACE UNIFIÉE : Index optimisés pour postes de travail
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_centers_nom ON work_centers(nom)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_centers_departement ON work_centers(departement)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_centers_statut ON work_centers(statut)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_centers_categorie ON work_centers(categorie)')
+            
             # =========================================================================
             # VUES POUR REQUÊTES COMPLEXES FRÉQUENTES
             # =========================================================================
@@ -713,6 +730,132 @@ class ERPDatabase:
                 LEFT JOIN bt_assignations bta ON f.id = bta.bt_id
                 WHERE f.type_formulaire = 'BON_TRAVAIL'
                 GROUP BY f.id
+            ''')
+            
+            # =========================================================================
+            # VUES SPÉCIALISÉES POUR INTERFACE UNIFIÉE TIMETRACKER + POSTES
+            # =========================================================================
+
+            # Vue complète des postes avec statistiques TimeTracker
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_work_centers_with_stats AS
+                SELECT 
+                    wc.*,
+                    COUNT(DISTINCT o.id) as operations_count,
+                    COUNT(DISTINCT te.id) as timetracker_entries,
+                    COALESCE(SUM(te.total_hours), 0) as total_hours_tracked,
+                    COALESCE(SUM(te.total_cost), 0) as total_revenue_generated,
+                    COALESCE(AVG(te.hourly_rate), wc.cout_horaire) as avg_actual_rate,
+                    COUNT(DISTINCT te.employee_id) as unique_employees_used,
+                    COUNT(DISTINCT o.project_id) as projects_touched,
+                    -- Calcul du taux d'utilisation (dernier mois)
+                    CASE 
+                        WHEN wc.capacite_theorique > 0 THEN
+                            ROUND((COALESCE(SUM(CASE WHEN DATE(te.punch_in) >= DATE('now', '-30 days') 
+                                             THEN te.total_hours ELSE 0 END), 0) / 
+                                  (wc.capacite_theorique * 30)) * 100, 2)
+                        ELSE 0
+                    END as utilization_rate_30d,
+                    -- Classification d'efficacité
+                    CASE 
+                        WHEN COALESCE(SUM(te.total_hours), 0) = 0 THEN 'NON_UTILISÉ'
+                        WHEN wc.capacite_theorique > 0 AND 
+                             (COALESCE(SUM(te.total_hours), 0) / (wc.capacite_theorique * 30)) >= 0.8 THEN 'TRÈS_EFFICACE'
+                        WHEN wc.capacite_theorique > 0 AND 
+                             (COALESCE(SUM(te.total_hours), 0) / (wc.capacite_theorique * 30)) >= 0.5 THEN 'EFFICACE'
+                        WHEN wc.capacite_theorique > 0 AND 
+                             (COALESCE(SUM(te.total_hours), 0) / (wc.capacite_theorique * 30)) >= 0.2 THEN 'SOUS_UTILISÉ'
+                        ELSE 'PEU_UTILISÉ'
+                    END as efficiency_classification
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id AND te.total_cost IS NOT NULL
+                GROUP BY wc.id
+                ORDER BY total_revenue_generated DESC
+            ''')
+
+            # Vue des gammes de fabrication avec progression
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_manufacturing_routes_progress AS
+                SELECT 
+                    p.id as project_id,
+                    p.nom_projet as project_name,
+                    p.client_nom_cache as client_name,
+                    p.statut as project_status,
+                    COUNT(o.id) as total_operations,
+                    COUNT(CASE WHEN o.statut = 'TERMINÉ' THEN 1 END) as completed_operations,
+                    COUNT(CASE WHEN o.statut = 'EN COURS' THEN 1 END) as in_progress_operations,
+                    COUNT(CASE WHEN o.statut = 'À FAIRE' THEN 1 END) as pending_operations,
+                    COALESCE(SUM(o.temps_estime), 0) as estimated_total_hours,
+                    COALESCE(SUM(te.total_hours), 0) as actual_total_hours,
+                    -- Calcul de progression
+                    CASE 
+                        WHEN COUNT(o.id) > 0 THEN
+                            ROUND((COUNT(CASE WHEN o.statut = 'TERMINÉ' THEN 1 END) * 100.0 / COUNT(o.id)), 2)
+                        ELSE 0
+                    END as completion_percentage,
+                    -- Calcul d'efficacité temps
+                    CASE 
+                        WHEN COALESCE(SUM(o.temps_estime), 0) > 0 THEN
+                            ROUND((COALESCE(SUM(te.total_hours), 0) / COALESCE(SUM(o.temps_estime), 0) * 100), 2)
+                        ELSE 0
+                    END as time_efficiency_percentage,
+                    -- Départements impliqués
+                    GROUP_CONCAT(DISTINCT wc.departement) as departments_involved,
+                    -- Coût total
+                    COALESCE(SUM(te.total_cost), 0) as total_actual_cost,
+                    -- Délais
+                    MIN(o.created_at) as route_start_date,
+                    MAX(CASE WHEN o.statut = 'TERMINÉ' THEN o.updated_at END) as route_completion_date
+                FROM projects p
+                LEFT JOIN operations o ON p.id = o.project_id
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                LEFT JOIN time_entries te ON o.id = te.operation_id AND te.total_cost IS NOT NULL
+                GROUP BY p.id
+                HAVING COUNT(o.id) > 0
+                ORDER BY completion_percentage DESC
+            ''')
+
+            # Vue des goulots d'étranglement en temps réel
+            cursor.execute('''
+                CREATE VIEW IF NOT EXISTS view_bottlenecks_realtime AS
+                SELECT 
+                    wc.id, wc.nom as work_center_name, wc.departement, wc.capacite_theorique,
+                    -- Charge planifiée
+                    COUNT(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN 1 END) as pending_operations,
+                    COALESCE(SUM(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN o.temps_estime ELSE 0 END), 0) as planned_workload_hours,
+                    -- Charge en cours (pointages actifs)
+                    COUNT(CASE WHEN te.punch_out IS NULL THEN 1 END) as active_time_entries,
+                    -- Taux de charge
+                    CASE 
+                        WHEN wc.capacite_theorique > 0 THEN
+                            ROUND(((COALESCE(SUM(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN o.temps_estime ELSE 0 END), 0) / 
+                                   (wc.capacite_theorique * 5)) * 100), 2)
+                        ELSE 0
+                    END as workload_percentage,
+                    -- Classification
+                    CASE 
+                        WHEN wc.capacite_theorique > 0 AND 
+                             ((COALESCE(SUM(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN o.temps_estime ELSE 0 END), 0) / 
+                              (wc.capacite_theorique * 5)) >= 1.0) THEN 'CRITIQUE'
+                        WHEN wc.capacite_theorique > 0 AND 
+                             ((COALESCE(SUM(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN o.temps_estime ELSE 0 END), 0) / 
+                              (wc.capacite_theorique * 5)) >= 0.9) THEN 'ÉLEVÉ'
+                        WHEN wc.capacite_theorique > 0 AND 
+                             ((COALESCE(SUM(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN o.temps_estime ELSE 0 END), 0) / 
+                              (wc.capacite_theorique * 5)) >= 0.7) THEN 'MODÉRÉ'
+                        ELSE 'NORMAL'
+                    END as bottleneck_level,
+                    -- Projets affectés
+                    GROUP_CONCAT(DISTINCT p.nom_projet) as affected_projects
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id
+                LEFT JOIN projects p ON o.project_id = p.id
+                WHERE wc.statut = 'ACTIF'
+                GROUP BY wc.id
+                HAVING workload_percentage > 50  -- Seuil de surveillance
+                ORDER BY workload_percentage DESC
             ''')
             
             # =========================================================================
@@ -891,7 +1034,10 @@ class ERPDatabase:
             self._apply_automatic_fixes(cursor)
             
             conn.commit()
-            logger.info("Base de données ERP consolidée initialisée avec succès - ÉTAPE 2 Intégration BT ↔ TimeTracker COMPLÈTE")
+            logger.info("Base de données ERP consolidée + Interface Unifiée initialisée avec succès")
+            
+            # Optimisation finale de la base
+            cursor.execute("PRAGMA optimize")
     
     def _apply_automatic_fixes(self, cursor):
         """Applique automatiquement toutes les corrections nécessaires - ÉTAPE 2 AMÉLIORÉE"""
@@ -922,11 +1068,597 @@ class ERPDatabase:
             # Vérifier et corriger d'autres tables si nécessaire
             # (Cette section peut être étendue pour d'autres corrections automatiques)
             
-            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 INTÉGRÉE")
+            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 + Interface Unifiée INTÉGRÉE")
             
         except Exception as e:
             logger.warning(f"Avertissement lors des corrections automatiques: {e}")
     
+    # =========================================================================
+    # MÉTHODES SPÉCIFIQUES AUX POSTES DE TRAVAIL - INTERFACE UNIFIÉE
+    # =========================================================================
+
+    def get_work_center_by_id(self, work_center_id: int) -> Optional[Dict]:
+        """Récupère un poste de travail par son ID avec détails complets"""
+        try:
+            query = '''
+                SELECT wc.*, 
+                       COUNT(DISTINCT o.id) as operations_count,
+                       COUNT(DISTINCT te.id) as timetracker_entries,
+                       COALESCE(SUM(te.total_hours), 0) as total_hours_tracked,
+                       COALESCE(SUM(te.total_cost), 0) as total_revenue_generated,
+                       COALESCE(AVG(te.hourly_rate), wc.cout_horaire) as avg_actual_rate
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id AND te.total_cost IS NOT NULL
+                WHERE wc.id = ?
+                GROUP BY wc.id
+            '''
+            result = self.execute_query(query, (work_center_id,))
+            return dict(result[0]) if result else None
+        except Exception as e:
+            logger.error(f"Erreur récupération poste {work_center_id}: {e}")
+            return None
+
+    def get_work_center_by_name(self, work_center_name: str) -> Optional[Dict]:
+        """Récupère un poste de travail par son nom avec statistiques"""
+        try:
+            query = '''
+                SELECT wc.*, 
+                       COUNT(DISTINCT o.id) as operations_count,
+                       COUNT(DISTINCT te.id) as timetracker_entries,
+                       COALESCE(SUM(te.total_hours), 0) as total_hours_tracked,
+                       COALESCE(SUM(te.total_cost), 0) as total_revenue_generated
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id AND te.total_cost IS NOT NULL
+                WHERE wc.nom = ?
+                GROUP BY wc.id
+            '''
+            result = self.execute_query(query, (work_center_name,))
+            return dict(result[0]) if result else None
+        except Exception as e:
+            logger.error(f"Erreur récupération poste '{work_center_name}': {e}")
+            return None
+
+    def add_work_center(self, work_center_data: Dict) -> Optional[int]:
+        """Ajoute un nouveau poste de travail avec validation"""
+        try:
+            # Validation des données requises
+            required_fields = ['nom', 'departement', 'categorie']
+            for field in required_fields:
+                if field not in work_center_data or not work_center_data[field]:
+                    raise ValueError(f"Champ requis manquant: {field}")
+            
+            # Vérifier l'unicité du nom
+            existing = self.get_work_center_by_name(work_center_data['nom'])
+            if existing:
+                raise ValueError(f"Un poste avec le nom '{work_center_data['nom']}' existe déjà")
+            
+            query = '''
+                INSERT INTO work_centers 
+                (nom, departement, categorie, type_machine, capacite_theorique, 
+                 operateurs_requis, cout_horaire, competences_requises, statut, localisation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            work_center_id = self.execute_insert(query, (
+                work_center_data['nom'],
+                work_center_data['departement'],
+                work_center_data.get('categorie', ''),
+                work_center_data.get('type_machine', ''),
+                work_center_data.get('capacite_theorique', 8.0),
+                work_center_data.get('operateurs_requis', 1),
+                work_center_data.get('cout_horaire', 50.0),
+                work_center_data.get('competences_requises', '[]'),
+                work_center_data.get('statut', 'ACTIF'),
+                work_center_data.get('localisation', '')
+            ))
+            
+            logger.info(f"Poste de travail créé: ID={work_center_id}, nom={work_center_data['nom']}")
+            return work_center_id
+            
+        except Exception as e:
+            logger.error(f"Erreur ajout poste de travail: {e}")
+            return None
+
+    def update_work_center(self, work_center_id: int, work_center_data: Dict) -> bool:
+        """Met à jour un poste de travail existant"""
+        try:
+            # Vérifier que le poste existe
+            existing = self.get_work_center_by_id(work_center_id)
+            if not existing:
+                raise ValueError(f"Poste de travail {work_center_id} non trouvé")
+            
+            # Vérifier l'unicité du nom si changé
+            if 'nom' in work_center_data and work_center_data['nom'] != existing['nom']:
+                name_check = self.get_work_center_by_name(work_center_data['nom'])
+                if name_check and name_check['id'] != work_center_id:
+                    raise ValueError(f"Un autre poste avec le nom '{work_center_data['nom']}' existe déjà")
+            
+            query = '''
+                UPDATE work_centers SET
+                nom = ?, departement = ?, categorie = ?, type_machine = ?,
+                capacite_theorique = ?, operateurs_requis = ?, cout_horaire = ?,
+                competences_requises = ?, statut = ?, localisation = ?
+                WHERE id = ?
+            '''
+            
+            affected = self.execute_update(query, (
+                work_center_data.get('nom', existing['nom']),
+                work_center_data.get('departement', existing['departement']),
+                work_center_data.get('categorie', existing['categorie']),
+                work_center_data.get('type_machine', existing['type_machine']),
+                work_center_data.get('capacite_theorique', existing['capacite_theorique']),
+                work_center_data.get('operateurs_requis', existing['operateurs_requis']),
+                work_center_data.get('cout_horaire', existing['cout_horaire']),
+                work_center_data.get('competences_requises', existing['competences_requises']),
+                work_center_data.get('statut', existing['statut']),
+                work_center_data.get('localisation', existing['localisation']),
+                work_center_id
+            ))
+            
+            logger.info(f"Poste de travail mis à jour: ID={work_center_id}")
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour poste {work_center_id}: {e}")
+            return False
+
+    def delete_work_center(self, work_center_id: int) -> bool:
+        """Supprime un poste de travail avec vérification des dépendances"""
+        try:
+            # Vérifier les dépendances - opérations
+            operations_count = self.execute_query(
+                "SELECT COUNT(*) as count FROM operations WHERE work_center_id = ?",
+                (work_center_id,)
+            )
+            if operations_count and operations_count[0]['count'] > 0:
+                raise ValueError(f"Impossible de supprimer: {operations_count[0]['count']} opération(s) liée(s)")
+            
+            # Vérifier les dépendances - réservations BT
+            reservations_count = self.execute_query(
+                "SELECT COUNT(*) as count FROM bt_reservations_postes WHERE work_center_id = ?",
+                (work_center_id,)
+            )
+            if reservations_count and reservations_count[0]['count'] > 0:
+                raise ValueError(f"Impossible de supprimer: {reservations_count[0]['count']} réservation(s) BT active(s)")
+            
+            affected = self.execute_update("DELETE FROM work_centers WHERE id = ?", (work_center_id,))
+            
+            logger.info(f"Poste de travail supprimé: ID={work_center_id}")
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression poste {work_center_id}: {e}")
+            return False
+
+    def get_work_centers_statistics(self) -> Dict[str, Any]:
+        """Statistiques complètes des postes de travail pour interface unifiée"""
+        try:
+            stats = {
+                'total_work_centers': 0,
+                'by_department': {},
+                'by_category': {},
+                'by_status': {},
+                'capacity_analysis': {},
+                'timetracker_integration': {},
+                'cost_analysis': {}
+            }
+            
+            # Statistiques de base
+            basic_stats = self.execute_query('''
+                SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN statut = 'ACTIF' THEN 1 END) as actif,
+                    COUNT(CASE WHEN statut = 'MAINTENANCE' THEN 1 END) as maintenance,
+                    COUNT(CASE WHEN statut = 'INACTIF' THEN 1 END) as inactif,
+                    SUM(capacite_theorique) as capacite_totale,
+                    AVG(capacite_theorique) as capacite_moyenne,
+                    SUM(cout_horaire * capacite_theorique) as cout_total_theorique,
+                    AVG(cout_horaire) as cout_horaire_moyen
+                FROM work_centers
+            ''')
+            
+            if basic_stats:
+                base = dict(basic_stats[0])
+                stats['total_work_centers'] = base['total']
+                stats['by_status'] = {
+                    'ACTIF': base['actif'],
+                    'MAINTENANCE': base['maintenance'], 
+                    'INACTIF': base['inactif']
+                }
+                stats['capacity_analysis'] = {
+                    'capacite_totale_heures_jour': base['capacite_totale'],
+                    'capacite_moyenne_par_poste': base['capacite_moyenne'],
+                    'cout_total_theorique_jour': base['cout_total_theorique'],
+                    'cout_horaire_moyen': base['cout_horaire_moyen']
+                }
+            
+            # Par département
+            dept_stats = self.execute_query('''
+                SELECT departement, COUNT(*) as count, 
+                       SUM(capacite_theorique) as capacite,
+                       AVG(cout_horaire) as cout_moyen
+                FROM work_centers 
+                GROUP BY departement
+                ORDER BY count DESC
+            ''')
+            stats['by_department'] = {row['departement']: dict(row) for row in dept_stats}
+            
+            # Par catégorie
+            cat_stats = self.execute_query('''
+                SELECT categorie, COUNT(*) as count,
+                       SUM(capacite_theorique) as capacite,
+                       AVG(cout_horaire) as cout_moyen
+                FROM work_centers 
+                GROUP BY categorie
+                ORDER BY count DESC
+            ''')
+            stats['by_category'] = {row['categorie']: dict(row) for row in cat_stats}
+            
+            # Intégration TimeTracker
+            tt_stats = self.execute_query('''
+                SELECT 
+                    COUNT(DISTINCT wc.id) as postes_avec_pointages,
+                    COUNT(DISTINCT te.id) as total_pointages,
+                    COALESCE(SUM(te.total_hours), 0) as total_heures,
+                    COALESCE(SUM(te.total_cost), 0) as total_revenus,
+                    COUNT(DISTINCT te.employee_id) as employes_ayant_pointe
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id AND te.total_cost IS NOT NULL
+            ''')
+            
+            if tt_stats:
+                tt_data = dict(tt_stats[0])
+                stats['timetracker_integration'] = tt_data
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur statistiques postes de travail: {e}")
+            return {}
+
+    def get_work_center_utilization_analysis(self, period_days: int = 30) -> List[Dict]:
+        """Analyse d'utilisation des postes de travail avec TimeTracker"""
+        try:
+            start_date = (datetime.now() - timedelta(days=period_days)).strftime('%Y-%m-%d')
+            
+            query = '''
+                SELECT 
+                    wc.id, wc.nom, wc.departement, wc.categorie, wc.type_machine,
+                    wc.capacite_theorique, wc.cout_horaire, wc.operateurs_requis,
+                    COALESCE(SUM(te.total_hours), 0) as heures_reelles,
+                    COALESCE(SUM(te.total_cost), 0) as revenus_generes,
+                    COALESCE(AVG(te.hourly_rate), wc.cout_horaire) as taux_horaire_reel,
+                    COUNT(DISTINCT te.id) as nombre_pointages,
+                    COUNT(DISTINCT te.employee_id) as employes_distincts,
+                    COUNT(DISTINCT o.project_id) as projets_touches,
+                    -- Calcul du taux d'utilisation
+                    CASE 
+                        WHEN wc.capacite_theorique > 0 THEN
+                            ROUND((COALESCE(SUM(te.total_hours), 0) / (wc.capacite_theorique * ?)) * 100, 2)
+                        ELSE 0
+                    END as taux_utilisation_pct
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id 
+                    AND te.total_cost IS NOT NULL 
+                    AND DATE(te.punch_in) >= ?
+                WHERE wc.statut = 'ACTIF'
+                GROUP BY wc.id
+                ORDER BY heures_reelles DESC
+            '''
+            
+            rows = self.execute_query(query, (period_days, start_date))
+            
+            analysis = []
+            for row in rows:
+                data = dict(row)
+                
+                # Calculs additionnels
+                if data['heures_reelles'] > 0:
+                    data['efficacite_cout'] = data['revenus_generes'] / data['heures_reelles']
+                    data['rentabilite_vs_theorique'] = (data['efficacite_cout'] / data['cout_horaire']) * 100 if data['cout_horaire'] > 0 else 0
+                else:
+                    data['efficacite_cout'] = 0
+                    data['rentabilite_vs_theorique'] = 0
+                
+                # Classification d'utilisation
+                utilisation = data['taux_utilisation_pct']
+                if utilisation >= 80:
+                    data['classification_utilisation'] = 'ÉLEVÉE'
+                elif utilisation >= 50:
+                    data['classification_utilisation'] = 'MOYENNE'
+                elif utilisation >= 20:
+                    data['classification_utilisation'] = 'FAIBLE'
+                else:
+                    data['classification_utilisation'] = 'TRÈS_FAIBLE'
+                
+                analysis.append(data)
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Erreur analyse utilisation postes: {e}")
+            return []
+
+    def get_work_center_capacity_bottlenecks(self) -> List[Dict]:
+        """Identifie les goulots d'étranglement dans les postes de travail"""
+        try:
+            query = '''
+                SELECT 
+                    wc.id, wc.nom, wc.departement, wc.categorie,
+                    wc.capacite_theorique, wc.operateurs_requis,
+                    -- Charge planifiée (opérations en cours)
+                    COALESCE(SUM(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN o.temps_estime ELSE 0 END), 0) as charge_planifiee,
+                    -- Charge réelle (TimeTracker)
+                    COALESCE(SUM(CASE WHEN te.punch_out IS NULL THEN 
+                        (JULIANDAY('now') - JULIANDAY(te.punch_in)) * 24 
+                    ELSE 0 END), 0) as charge_en_cours,
+                    COUNT(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN 1 END) as operations_en_attente,
+                    COUNT(CASE WHEN te.punch_out IS NULL THEN 1 END) as pointages_actifs,
+                    -- Calcul du taux de charge
+                    CASE 
+                        WHEN wc.capacite_theorique > 0 THEN
+                            ROUND(((COALESCE(SUM(CASE WHEN o.statut IN ('À FAIRE', 'EN COURS') THEN o.temps_estime ELSE 0 END), 0) / 
+                                   (wc.capacite_theorique * 5)) * 100), 2) -- Sur 5 jours
+                        ELSE 0
+                    END as taux_charge_planifiee_pct
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id
+                WHERE wc.statut = 'ACTIF'
+                GROUP BY wc.id
+                HAVING taux_charge_planifiee_pct > 70  -- Seuil de goulot d'étranglement
+                ORDER BY taux_charge_planifiee_pct DESC
+            '''
+            
+            rows = self.execute_query(query)
+            
+            bottlenecks = []
+            for row in rows:
+                data = dict(row)
+                
+                # Classification du niveau de goulot
+                charge = data['taux_charge_planifiee_pct']
+                if charge >= 100:
+                    data['niveau_goulot'] = 'CRITIQUE'
+                    data['priorite'] = 1
+                elif charge >= 90:
+                    data['niveau_goulot'] = 'ÉLEVÉ'
+                    data['priorite'] = 2
+                elif charge >= 80:
+                    data['niveau_goulot'] = 'MODÉRÉ'
+                    data['priorite'] = 3
+                else:
+                    data['niveau_goulot'] = 'FAIBLE'
+                    data['priorite'] = 4
+                
+                # Recommandations automatiques
+                recommendations = []
+                if data['operations_en_attente'] > 5:
+                    recommendations.append("Réorganiser la séquence des opérations")
+                if data['pointages_actifs'] > data['operateurs_requis']:
+                    recommendations.append("Surcharge d'opérateurs détectée")
+                if charge >= 100:
+                    recommendations.append("Considérer des heures supplémentaires")
+                    recommendations.append("Évaluer la sous-traitance")
+                
+                data['recommandations'] = recommendations
+                bottlenecks.append(data)
+            
+            return bottlenecks
+            
+        except Exception as e:
+            logger.error(f"Erreur analyse goulots postes: {e}")
+            return []
+
+    # =========================================================================
+    # MÉTHODES POUR GAMMES DE FABRICATION - INTERFACE UNIFIÉE
+    # =========================================================================
+
+    def create_manufacturing_route(self, project_id: int, route_data: Dict) -> int:
+        """Crée une gamme de fabrication complète pour un projet"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Créer les opérations de la gamme
+                created_operations = []
+                
+                for operation_data in route_data.get('operations', []):
+                    # Trouver le work_center_id par nom
+                    wc_result = self.execute_query(
+                        "SELECT id FROM work_centers WHERE nom = ?",
+                        (operation_data['poste_travail'],)
+                    )
+                    work_center_id = wc_result[0]['id'] if wc_result else None
+                    
+                    op_query = '''
+                        INSERT INTO operations 
+                        (project_id, work_center_id, sequence_number, description, 
+                         temps_estime, ressource, statut, poste_travail)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    '''
+                    
+                    op_id = self.execute_insert(op_query, (
+                        project_id,
+                        work_center_id,
+                        operation_data.get('sequence_number', 0),
+                        operation_data.get('description', ''),
+                        operation_data.get('temps_estime', 0.0),
+                        operation_data.get('ressource', ''),
+                        operation_data.get('statut', 'À FAIRE'),
+                        operation_data['poste_travail']
+                    ))
+                    
+                    created_operations.append(op_id)
+                
+                logger.info(f"Gamme créée pour projet {project_id}: {len(created_operations)} opérations")
+                return len(created_operations)
+                
+        except Exception as e:
+            logger.error(f"Erreur création gamme projet {project_id}: {e}")
+            return 0
+
+    def get_manufacturing_route_templates(self) -> Dict[str, Any]:
+        """Récupère les templates de gammes disponibles avec validation postes"""
+        try:
+            # Templates de base (équivalent à initialiser_gammes_types)
+            templates = {
+                "CHASSIS_SOUDE": {
+                    "nom": "Châssis Soudé",
+                    "description": "Châssis métallique avec soudage",
+                    "operations": [
+                        {"sequence": "10", "poste": "Programmation Bureau", "description": "Programmation des pièces", "temps_base": 2.5},
+                        {"sequence": "20", "poste": "Laser CNC", "description": "Découpe laser des tôles", "temps_base": 4.0},
+                        {"sequence": "30", "poste": "Plieuse CNC 1", "description": "Pliage des éléments", "temps_base": 3.5},
+                        {"sequence": "40", "poste": "Perçage 1", "description": "Perçage des fixations", "temps_base": 2.0},
+                        {"sequence": "50", "poste": "Assemblage Léger 1", "description": "Pré-assemblage", "temps_base": 6.0},
+                        {"sequence": "60", "poste": "Robot ABB GMAW", "description": "Soudage robotisé", "temps_base": 8.0},
+                        {"sequence": "70", "poste": "Soudage GMAW 1", "description": "Finition soudure", "temps_base": 4.0},
+                        {"sequence": "80", "poste": "Meulage 1", "description": "Meulage des cordons", "temps_base": 3.0},
+                        {"sequence": "90", "poste": "Contrôle dimensionnel", "description": "Vérification dimensions", "temps_base": 1.5},
+                        {"sequence": "100", "poste": "Peinture poudre", "description": "Finition peinture", "temps_base": 2.5}
+                    ]
+                },
+                "STRUCTURE_LOURDE": {
+                    "nom": "Structure Lourde", 
+                    "description": "Charpente métallique industrielle",
+                    "operations": [
+                        {"sequence": "10", "poste": "Programmation Bureau", "description": "Étude et programmation", "temps_base": 4.0},
+                        {"sequence": "20", "poste": "Plasma CNC", "description": "Découpe plasma gros éléments", "temps_base": 6.0},
+                        {"sequence": "30", "poste": "Oxycoupage", "description": "Découpe éléments épais", "temps_base": 8.0},
+                        {"sequence": "40", "poste": "Plieuse conventionnelle 1", "description": "Formage éléments", "temps_base": 5.0},
+                        {"sequence": "50", "poste": "Perçage 2", "description": "Perçage assemblage", "temps_base": 4.0},
+                        {"sequence": "60", "poste": "Assemblage Lourd", "description": "Assemblage structure", "temps_base": 12.0},
+                        {"sequence": "70", "poste": "Soudage SAW", "description": "Soudage à l'arc submergé", "temps_base": 10.0},
+                        {"sequence": "80", "poste": "Soudage SMAW 1", "description": "Soudage manuel finition", "temps_base": 6.0},
+                        {"sequence": "90", "poste": "Meulage 2", "description": "Finition soudures", "temps_base": 4.0},
+                        {"sequence": "100", "poste": "Tests non destructifs", "description": "Contrôle soudures", "temps_base": 2.0},
+                        {"sequence": "110", "poste": "Galvanisation", "description": "Protection anticorrosion", "temps_base": 3.0}
+                    ]
+                },
+                "PIECE_PRECISION": {
+                    "nom": "Pièce de Précision",
+                    "description": "Composant haute précision", 
+                    "operations": [
+                        {"sequence": "10", "poste": "Programmation Bureau", "description": "Programmation complexe", "temps_base": 3.0},
+                        {"sequence": "20", "poste": "Sciage métal", "description": "Débit matière", "temps_base": 1.5},
+                        {"sequence": "30", "poste": "Tour CNC 1", "description": "Tournage CNC", "temps_base": 5.0},
+                        {"sequence": "40", "poste": "Fraiseuse CNC 1", "description": "Fraisage CNC", "temps_base": 6.0},
+                        {"sequence": "50", "poste": "Centre d'usinage", "description": "Usinage complexe", "temps_base": 8.0},
+                        {"sequence": "60", "poste": "Perçage 1", "description": "Perçage précision", "temps_base": 2.0},
+                        {"sequence": "70", "poste": "Taraudage", "description": "Taraudage", "temps_base": 1.5},
+                        {"sequence": "80", "poste": "Rectifieuse", "description": "Rectification", "temps_base": 4.0},
+                        {"sequence": "90", "poste": "Ébavurage", "description": "Ébavurage", "temps_base": 2.0},
+                        {"sequence": "100", "poste": "Polissage", "description": "Polissage", "temps_base": 3.0},
+                        {"sequence": "110", "poste": "Contrôle métrologique", "description": "Contrôle dimensions", "temps_base": 2.5},
+                        {"sequence": "120", "poste": "Anodisation", "description": "Traitement surface", "temps_base": 2.0}
+                    ]
+                }
+            }
+            
+            # Valider que tous les postes existent
+            for template_key, template in templates.items():
+                postes_valides = []
+                postes_manquants = []
+                
+                for operation in template['operations']:
+                    poste_nom = operation['poste']
+                    poste_exists = self.execute_query(
+                        "SELECT id FROM work_centers WHERE nom = ?",
+                        (poste_nom,)
+                    )
+                    
+                    if poste_exists:
+                        postes_valides.append(poste_nom)
+                    else:
+                        postes_manquants.append(poste_nom)
+                
+                template['validation'] = {
+                    'postes_valides': postes_valides,
+                    'postes_manquants': postes_manquants,
+                    'taux_validite': len(postes_valides) / len(template['operations']) * 100 if template['operations'] else 0
+                }
+            
+            return templates
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération templates gammes: {e}")
+            return {}
+
+    def optimize_manufacturing_route(self, project_id: int) -> Dict[str, Any]:
+        """Optimise une gamme de fabrication existante"""
+        try:
+            # Récupérer les opérations actuelles
+            current_operations = self.execute_query('''
+                SELECT o.*, wc.nom as work_center_name, wc.capacite_theorique, 
+                       wc.cout_horaire, wc.departement
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE o.project_id = ?
+                ORDER BY o.sequence_number
+            ''', (project_id,))
+            
+            if not current_operations:
+                return {'error': 'Aucune opération trouvée pour ce projet'}
+            
+            optimization_results = {
+                'project_id': project_id,
+                'current_operations_count': len(current_operations),
+                'analysis': {
+                    'departements_utilises': set(),
+                    'temps_total_estime': 0,
+                    'cout_total_estime': 0,
+                    'goulots_detectes': [],
+                    'suggestions_amelioration': []
+                },
+                'optimizations': []
+            }
+            
+            # Analyse des opérations actuelles
+            for op in current_operations:
+                op_dict = dict(op)
+                optimization_results['analysis']['departements_utilises'].add(op_dict.get('departement', 'N/A'))
+                optimization_results['analysis']['temps_total_estime'] += op_dict.get('temps_estime', 0)
+                optimization_results['analysis']['cout_total_estime'] += (op_dict.get('temps_estime', 0) * op_dict.get('cout_horaire', 0))
+            
+            # Convertir set en list pour JSON
+            optimization_results['analysis']['departements_utilises'] = list(optimization_results['analysis']['departements_utilises'])
+            
+            # Détecter les goulots d'étranglement
+            bottlenecks = self.get_work_center_capacity_bottlenecks()
+            current_work_centers = [op['work_center_id'] for op in current_operations if op['work_center_id']]
+            
+            for bottleneck in bottlenecks:
+                if bottleneck['id'] in current_work_centers:
+                    optimization_results['analysis']['goulots_detectes'].append({
+                        'poste': bottleneck['nom'],
+                        'charge': bottleneck['taux_charge_planifiee_pct'],
+                        'niveau': bottleneck['niveau_goulot']
+                    })
+            
+            # Suggestions d'amélioration
+            suggestions = []
+            if len(optimization_results['analysis']['goulots_detectes']) > 0:
+                suggestions.append("Réorganiser les opérations pour éviter les goulots d'étranglement")
+            
+            if optimization_results['analysis']['temps_total_estime'] > 40:  # Plus de 40h
+                suggestions.append("Considérer la parallélisation des opérations")
+            
+            if len(optimization_results['analysis']['departements_utilises']) > 3:
+                suggestions.append("Réduire les déplacements inter-départements")
+            
+            optimization_results['analysis']['suggestions_amelioration'] = suggestions
+            
+            return optimization_results
+            
+        except Exception as e:
+            logger.error(f"Erreur optimisation gamme projet {project_id}: {e}")
+            return {'error': str(e)}
+
     # =========================================================================
     # MÉTHODES SPÉCIFIQUES À L'INTÉGRATION TIMETRACKER ↔ BONS DE TRAVAIL (ÉTAPE 2)
     # =========================================================================
@@ -1288,6 +2020,14 @@ class ERPDatabase:
                 ''')
                 checks['operations_projects_fk'] = cursor.fetchone()['orphans'] == 0
                 
+                # Operations → Work Centers
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM operations o
+                    WHERE o.work_center_id IS NOT NULL
+                    AND o.work_center_id NOT IN (SELECT id FROM work_centers)
+                ''')
+                checks['operations_work_centers_fk'] = cursor.fetchone()['orphans'] == 0
+                
                 # Materials → Projects
                 cursor.execute('''
                     SELECT COUNT(*) as orphans FROM materials m
@@ -1384,6 +2124,15 @@ class ERPDatabase:
                 ''')
                 checks['time_entries_bt_employee_required'] = cursor.fetchone()['orphans'] == 0
                 
+                # INTERFACE UNIFIÉE : Vérifications postes de travail
+                
+                # Work centers avec noms uniques
+                cursor.execute('''
+                    SELECT COUNT(*) - COUNT(DISTINCT nom) as duplicates
+                    FROM work_centers
+                ''')
+                checks['work_centers_unique_names'] = cursor.fetchone()['duplicates'] == 0
+                
         except Exception as e:
             logger.error(f"Erreur validation intégrité: {e}")
             checks['error'] = str(e)
@@ -1402,8 +2151,10 @@ class ERPDatabase:
             'stocks_critiques': 0,
             'bt_info': {},
             'timetracker_bt_integration': {},  # ÉTAPE 2
+            'work_centers_unified': {},  # INTERFACE UNIFIÉE
             'corrections_appliquees': True,
-            'etape_2_complete': True  # ÉTAPE 2
+            'etape_2_complete': True,  # ÉTAPE 2
+            'interface_unifiee_complete': True  # INTERFACE UNIFIÉE
         }
         
         with self.get_connection() as conn:
@@ -1491,6 +2242,31 @@ class ERPDatabase:
                 ''')
                 result = cursor.fetchone()
                 info['timetracker_bt_integration']['employes_actifs_bt'] = result['count'] if result else 0
+            
+            # INTERFACE UNIFIÉE : Informations postes de travail
+            if 'work_centers' in tables:
+                cursor.execute('SELECT COUNT(*) as count FROM work_centers')
+                result = cursor.fetchone()
+                info['work_centers_unified']['total_postes'] = result['count'] if result else 0
+                
+                cursor.execute('SELECT COUNT(*) as count FROM work_centers WHERE statut = "ACTIF"')
+                result = cursor.fetchone()
+                info['work_centers_unified']['postes_actifs'] = result['count'] if result else 0
+                
+                cursor.execute('SELECT COALESCE(SUM(capacite_theorique), 0) as capacite FROM work_centers')
+                result = cursor.fetchone()
+                info['work_centers_unified']['capacite_totale'] = round(result['capacite'], 2) if result else 0
+                
+                # Postes avec pointages TimeTracker
+                cursor.execute('''
+                    SELECT COUNT(DISTINCT wc.id) as count
+                    FROM work_centers wc
+                    JOIN operations o ON wc.id = o.work_center_id
+                    JOIN time_entries te ON o.id = te.operation_id
+                    WHERE te.total_cost IS NOT NULL
+                ''')
+                result = cursor.fetchone()
+                info['work_centers_unified']['postes_avec_pointages'] = result['count'] if result else 0
         
         return info
     
@@ -2171,7 +2947,7 @@ class ERPDatabase:
     # =========================================================================
     
     def get_dashboard_metrics(self) -> Dict[str, Any]:
-        """Retourne les métriques principales pour le dashboard"""
+        """Retourne les métriques principales pour le dashboard unifié"""
         try:
             metrics = {
                 'projects': {'total': 0, 'actifs': 0, 'ca_total': 0.0},
@@ -2180,7 +2956,16 @@ class ERPDatabase:
                 'fournisseurs': {'total': 0, 'actifs': 0},
                 'employees': {'total': 0, 'actifs': 0},
                 'bt_specialise': {'total': 0, 'assignations': 0, 'postes_reserves': 0},
-                'timetracker_bt_integration': {'total_pointages_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0}  # ÉTAPE 2
+                'timetracker_bt_integration': {'total_pointages_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},
+                # NOUVEAU: Métriques postes de travail unifiées
+                'work_centers_unified': {
+                    'total_postes': 0,
+                    'postes_actifs': 0,
+                    'capacite_totale_jour': 0.0,
+                    'utilisation_moyenne': 0.0,
+                    'revenus_generes': 0.0,
+                    'goulots_detectes': 0
+                }
             }
             
             # Métriques projets
@@ -2257,10 +3042,46 @@ class ERPDatabase:
                 metrics['timetracker_bt_integration']['heures_bt'] = round(result[0]['heures_bt'], 1)
                 metrics['timetracker_bt_integration']['cout_bt'] = round(result[0]['cout_bt'], 2)
             
+            # NOUVEAU: Métriques postes de travail unifiées
+            wc_stats_result = self.execute_query('''
+                SELECT 
+                    COUNT(*) as total_postes,
+                    COUNT(CASE WHEN statut = 'ACTIF' THEN 1 END) as postes_actifs,
+                    COALESCE(SUM(capacite_theorique), 0) as capacite_totale,
+                    COALESCE(AVG(CASE WHEN utilization_rate_30d > 0 THEN utilization_rate_30d END), 0) as utilisation_moyenne
+                FROM view_work_centers_with_stats
+            ''')
+            
+            if wc_stats_result:
+                wc_data = dict(wc_stats_result[0])
+                metrics['work_centers_unified'].update({
+                    'total_postes': wc_data['total_postes'],
+                    'postes_actifs': wc_data['postes_actifs'],
+                    'capacite_totale_jour': wc_data['capacite_totale'],
+                    'utilisation_moyenne': wc_data['utilisation_moyenne']
+                })
+            
+            # Revenus générés par les postes
+            revenue_result = self.execute_query('''
+                SELECT COALESCE(SUM(total_revenue_generated), 0) as total_revenue
+                FROM view_work_centers_with_stats
+            ''')
+            if revenue_result:
+                metrics['work_centers_unified']['revenus_generes'] = revenue_result[0]['total_revenue']
+            
+            # Goulots détectés
+            bottlenecks_result = self.execute_query('''
+                SELECT COUNT(*) as goulots_count
+                FROM view_bottlenecks_realtime
+                WHERE bottleneck_level IN ('CRITIQUE', 'ÉLEVÉ')
+            ''')
+            if bottlenecks_result:
+                metrics['work_centers_unified']['goulots_detectes'] = bottlenecks_result[0]['goulots_count']
+            
             return metrics
             
         except Exception as e:
-            logger.error(f"Erreur métriques dashboard: {e}")
+            logger.error(f"Erreur métriques dashboard unifié: {e}")
             return {}
     
     def generate_monthly_report(self, year: int, month: int) -> Dict[str, Any]:
@@ -2275,6 +3096,7 @@ class ERPDatabase:
                 'performances_fournisseurs': [],
                 'bt_performance': {'total_bt': 0, 'assignations_mois': 0, 'completion_rate': 0.0},
                 'timetracker_bt_mensuel': {'sessions_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},  # ÉTAPE 2
+                'work_centers_performance': {'nouveaux_postes': 0, 'utilisation_moyenne': 0.0, 'revenus_generes': 0.0},  # INTERFACE UNIFIÉE
                 'alertes': []
             }
             
@@ -2374,11 +3196,46 @@ class ERPDatabase:
                 report['timetracker_bt_mensuel']['heures_bt'] = round(result[0]['heures_bt'], 1)
                 report['timetracker_bt_mensuel']['cout_bt'] = round(result[0]['cout_bt'], 2)
             
+            # INTERFACE UNIFIÉE : Performance postes de travail mensuelle
+            query = '''
+                SELECT COUNT(*) as nouveaux_postes
+                FROM work_centers
+                WHERE strftime('%Y-%m', created_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['work_centers_performance']['nouveaux_postes'] = result[0]['nouveaux_postes']
+            
+            # Utilisation moyenne des postes sur le mois
+            query = '''
+                SELECT 
+                    COALESCE(AVG(wc.capacite_theorique), 0) as capacite_moyenne,
+                    COALESCE(SUM(te.total_hours), 0) as heures_utilisees,
+                    COALESCE(SUM(te.total_cost), 0) as revenus_generes
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                LEFT JOIN time_entries te ON o.id = te.operation_id 
+                    AND strftime('%Y-%m', te.punch_in) = ?
+                WHERE wc.statut = 'ACTIF'
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                data = dict(result[0])
+                if data['capacite_moyenne'] > 0:
+                    # Calcul approximatif de l'utilisation moyenne du mois (30 jours)
+                    days_in_month = 30
+                    capacity_total_month = data['capacite_moyenne'] * days_in_month
+                    utilization = (data['heures_utilisees'] / capacity_total_month * 100) if capacity_total_month > 0 else 0
+                    report['work_centers_performance']['utilisation_moyenne'] = round(utilization, 2)
+                
+                report['work_centers_performance']['revenus_generes'] = round(data['revenus_generes'], 2)
+            
             return report
             
         except Exception as e:
             logger.error(f"Erreur génération rapport mensuel: {e}")
             return {}
+
 
 # Utilitaires pour conversion mesures impériales (préservation fonction existante)
 def convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_str: str) -> float:
