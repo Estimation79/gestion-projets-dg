@@ -1,5 +1,5 @@
 # app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
-# VERSION COMPLÈTE : Portail d'authentification + ERP complet original + CSS externe
+# VERSION REFACTORISÉE : Module Production Unifié intégré
 # Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
 # ARCHITECTURE UNIFIÉE : TimeTracker + Postes de Travail fusionnés
 # SANS ASSISTANT IA
@@ -175,6 +175,15 @@ try:
 except ImportError:
     ERP_DATABASE_AVAILABLE = False
 
+# ========================
+# NOUVEAU : Import du module unifié
+# ========================
+try:
+    from production_management import show_production_management_page
+    PRODUCTION_MANAGEMENT_AVAILABLE = True
+except ImportError:
+    PRODUCTION_MANAGEMENT_AVAILABLE = False
+
 # Importations pour le CRM (avec toutes les fonctions décommentées)
 try:
     from crm import (
@@ -246,76 +255,11 @@ st.set_page_config(
 )
 
 # ========================
-# FONCTIONS UTILITAIRES ERP (ORIGINALES COMPLÈTES)
+# FONCTIONS UTILITAIRES ERP (RÉDUITES - MODULE UNIFIÉ)
 # ========================
 
-UNITES_MESURE = ["IMPÉRIAL", "MÉTRIQUE"]
-TYPES_PRODUITS_INVENTAIRE = ["BOIS", "MÉTAL", "QUINCAILLERIE", "OUTILLAGE", "MATÉRIAUX", "ACCESSOIRES", "AUTRE"]
-STATUTS_STOCK_INVENTAIRE = ["DISPONIBLE", "FAIBLE", "CRITIQUE", "EN COMMANDE", "ÉPUISÉ", "INDÉTERMINÉ"]
-
-def convertir_en_pieds_pouces_fractions(valeur_decimale_pieds_input):
-    try:
-        valeur_pieds_dec = float(valeur_decimale_pieds_input)
-        if valeur_pieds_dec < 0:
-            valeur_pieds_dec = 0
-        pieds_entiers = int(valeur_pieds_dec)
-        pouces_decimaux_restants_total = (valeur_pieds_dec - pieds_entiers) * 12.0
-        pouces_entiers = int(pouces_decimaux_restants_total)
-        fraction_decimale_de_pouce = pouces_decimaux_restants_total - pouces_entiers
-        fraction_denominateur = 8
-        fraction_numerateur_arrondi = round(fraction_decimale_de_pouce * fraction_denominateur)
-        fraction_display_str = ""
-        if fraction_numerateur_arrondi > 0:
-            if fraction_numerateur_arrondi == fraction_denominateur:
-                pouces_entiers += 1
-            else:
-                common_divisor = gcd(fraction_numerateur_arrondi, fraction_denominateur)
-                num_simplifie, den_simplifie = fraction_numerateur_arrondi // common_divisor, fraction_denominateur // common_divisor
-                fraction_display_str = f" {num_simplifie}/{den_simplifie}"
-        if pouces_entiers >= 12:
-            pieds_entiers += pouces_entiers // 12
-            pouces_entiers %= 12
-        if pieds_entiers == 0 and pouces_entiers == 0 and not fraction_display_str:
-            return "0' 0\""
-        return f"{pieds_entiers}' {pouces_entiers}{fraction_display_str}\""
-    except Exception as e:
-        print(f"Erreur de conversion en pieds/pouces : {e}")
-        return "0' 0\""
-
-def valider_mesure_saisie(mesure_saisie_str):
-    mesure_nettoyee = str(mesure_saisie_str).strip()
-    if not mesure_nettoyee:
-        return True, "0' 0\""
-    try:
-        valeur_pieds_dec = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_saisie_str)
-        entree_est_zero_explicite = mesure_nettoyee in ["0", "0'", "0\"", "0.0", "0.0'"]
-        if valeur_pieds_dec > 0.000001 or entree_est_zero_explicite:
-            format_standardise = convertir_en_pieds_pouces_fractions(valeur_pieds_dec)
-            return True, format_standardise
-        else:
-            return False, f"Format non reconnu ou invalide: '{mesure_nettoyee}'"
-    except Exception as e_valid:
-        return False, f"Erreur de validation: {e_valid}"
-
-def mettre_a_jour_statut_stock(produit_dict_stat):
-    if not isinstance(produit_dict_stat, dict):
-        return
-    try:
-        qty_act_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('quantite_imperial', "0' 0\""))
-        lim_min_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('limite_minimale_imperial', "0' 0\""))
-        qty_res_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('quantite_reservee_imperial', "0' 0\""))
-        stock_disp_dec_stat = qty_act_dec_stat - qty_res_dec_stat
-        epsilon_stat = 0.0001
-        if stock_disp_dec_stat <= epsilon_stat:
-            produit_dict_stat['statut'] = "ÉPUISÉ"
-        elif lim_min_dec_stat > epsilon_stat and stock_disp_dec_stat <= lim_min_dec_stat + epsilon_stat:
-            produit_dict_stat['statut'] = "CRITIQUE"
-        elif lim_min_dec_stat > epsilon_stat and stock_disp_dec_stat <= (lim_min_dec_stat * 1.5) + epsilon_stat:
-            produit_dict_stat['statut'] = "FAIBLE"
-        else:
-            produit_dict_stat['statut'] = "DISPONIBLE"
-    except Exception:
-        produit_dict_stat['statut'] = "INDÉTERMINÉ"
+# Les constantes et fonctions utilitaires ont été déplacées vers production_management.py
+# Seules les fonctions encore utilisées dans app.py sont conservées ici
 
 def format_currency(value):
     if value is None:
@@ -572,68 +516,6 @@ class GestionnaireProjetSQL:
         except Exception as e:
             st.error(f"Erreur suppression projet: {e}")
             return False
-
-# ========================
-# GESTIONNAIRE INVENTAIRE SQLite (ORIGINAL)
-# ========================
-
-class GestionnaireInventaireSQL:
-    """Gestionnaire inventaire utilisant SQLite au lieu de JSON"""
-
-    def __init__(self, db: ERPDatabase):
-        self.db = db
-
-    def get_all_inventory(self):
-        """Récupère tout l'inventaire depuis SQLite"""
-        try:
-            rows = self.db.execute_query("SELECT * FROM inventory_items ORDER BY id")
-            return {str(row['id']): dict(row) for row in rows}
-        except Exception as e:
-            st.error(f"Erreur récupération inventaire: {e}")
-            return {}
-
-    def add_inventory_item(self, item_data):
-        """Ajoute un article d'inventaire"""
-        try:
-            query = '''
-                INSERT INTO inventory_items
-                (nom, type_produit, quantite_imperial, quantite_metric,
-                 limite_minimale_imperial, limite_minimale_metric,
-                 quantite_reservee_imperial, quantite_reservee_metric,
-                 statut, description, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            '''
-
-            # Conversions métriques
-            quantite_metric = convertir_imperial_vers_metrique(item_data.get('quantite_imperial', '0\' 0"'))
-            limite_metric = convertir_imperial_vers_metrique(item_data.get('limite_minimale_imperial', '0\' 0"'))
-            reservee_metric = convertir_imperial_vers_metrique(item_data.get('quantite_reservee_imperial', '0\' 0"'))
-
-            item_id = self.db.execute_insert(query, (
-                item_data['nom'],
-                item_data.get('type_produit'),
-                item_data.get('quantite_imperial'),
-                quantite_metric,
-                item_data.get('limite_minimale_imperial'),
-                limite_metric,
-                item_data.get('quantite_reservee_imperial', '0\' 0"'),
-                reservee_metric,
-                item_data.get('statut'),
-                item_data.get('description'),
-                item_data.get('notes')
-            ))
-
-            # Ajouter entrée historique
-            self.db.execute_update(
-                "INSERT INTO inventory_history (inventory_item_id, action, quantite_apres, notes) VALUES (?, ?, ?, ?)",
-                (item_id, 'CRÉATION', item_data.get('quantite_imperial'), 'Création initiale')
-            )
-
-            return item_id
-
-        except Exception as e:
-            st.error(f"Erreur ajout inventaire: {e}")
-            return None
 
 # ========================
 # INITIALISATION ERP SYSTÈME (ORIGINAL)
@@ -1000,6 +882,7 @@ def show_portal_home():
         ("⏱️🏭 TimeTracker & Postes", TIMETRACKER_AVAILABLE),
         ("📑 Formulaires", FORMULAIRES_AVAILABLE),
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
+        ("🏭 Production Unifié", PRODUCTION_MANAGEMENT_AVAILABLE),
         ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE)
     ]
 
@@ -1026,7 +909,7 @@ def show_portal_home():
             <small>
                 👥 <strong>Employés:</strong> Interface unifiée TimeTracker & Postes<br>
                 👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
-                🏗️ Version intégrée • ✅ Production Ready • 🎯 Module Unifié
+                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié
             </small>
         </div>
     </div>
@@ -1283,7 +1166,7 @@ def show_erp_main():
     permissions = st.session_state.get('admin_permissions', [])
     has_all_permissions = "ALL" in permissions
 
-    # NAVIGATION PRINCIPALE avec permissions
+    # NAVIGATION PRINCIPALE avec permissions - MODIFIÉE SELON PLAN
     available_pages = {}
 
     # Pages toujours disponibles
@@ -1292,8 +1175,6 @@ def show_erp_main():
     # Pages selon permissions
     if has_all_permissions or "projects" in permissions:
         available_pages["📋 Liste des Projets"] = "liste"
-        available_pages["🛠️ Itinéraire"] = "routing"
-        available_pages["📊 Nomenclature (BOM)"] = "bom"
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
         available_pages["🔄 Kanban"] = "kanban"
@@ -1313,8 +1194,9 @@ def show_erp_main():
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         available_pages["⏱️🏭 TimeTracker & Postes"] = "timetracker_unified_page"
 
-    if has_all_permissions or "inventory" in permissions:
-        available_pages["📦 Gestion Inventaire"] = "inventory_management"
+    # NOUVEAU : Page unifiée Production remplace les 3 pages séparées
+    if has_all_permissions or "projects" in permissions or "inventory" in permissions:
+        available_pages["🏭 Production"] = "production_management"
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
@@ -1334,12 +1216,12 @@ def show_erp_main():
     sel_page_key = st.sidebar.radio("Menu Principal:", list(available_pages.keys()), key="main_nav_radio")
     page_to_show_val = available_pages[sel_page_key]
 
-    # GESTION SIDEBAR SELON CONTEXTE
-    if page_to_show_val == "inventory_management":
+    # GESTION SIDEBAR SELON CONTEXTE - MISE À JOUR pour module unifié
+    if page_to_show_val == "production_management":
         st.sidebar.markdown("---")
-        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Actions Inventaire</h4>", unsafe_allow_html=True)
+        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Production Unifié</h4>", unsafe_allow_html=True)
         st.session_state.inv_action_mode = st.sidebar.radio(
-            "Mode:",
+            "Mode Inventaire:",
             ["Voir Liste", "Ajouter Article", "Modifier Article"],
             key="inv_action_mode_selector",
             index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.get('inv_action_mode', "Voir Liste"))
@@ -1350,7 +1232,7 @@ def show_erp_main():
     # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
     show_storage_status_sidebar()
 
-    # Statistiques dans la sidebar
+    # Statistiques dans la sidebar - MISE À JOUR avec module unifié
     try:
         total_projects_sql = st.session_state.erp_db.get_table_count('projects')
         total_companies = st.session_state.erp_db.get_table_count('companies')
@@ -1368,6 +1250,18 @@ def show_erp_main():
         if schema_info['file_size_mb'] > 0:
             st.sidebar.metric("Base: Taille", f"{schema_info['file_size_mb']} MB")
             st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
+
+        # NOUVEAU : Statistiques inventaire depuis module unifié
+        try:
+            if 'inventory_manager_sql' not in st.session_state:
+                from production_management import GestionnaireInventaireSQL
+                st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
+            
+            inventory_count = len(st.session_state.inventory_manager_sql.get_all_inventory())
+            if inventory_count > 0:
+                st.sidebar.metric("📦 Articles Stock", inventory_count)
+        except Exception:
+            pass
 
     except Exception:
         pass
@@ -1468,7 +1362,7 @@ def show_erp_main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🏭 TimeTracker & Postes Unifiés"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🏭 TimeTracker & Postes Unifiés<br/>🏭 Module Production Unifié"
 
     # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
     if st.session_state.get('storage_manager'):
@@ -1480,7 +1374,7 @@ def show_erp_main():
 
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # PAGES (MODIFIÉES avec module Formulaires et Fournisseurs, SANS Assistant IA)
+    # PAGES (MODIFIÉES avec module unifié)
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -1505,12 +1399,13 @@ def show_erp_main():
         else:
             st.error("❌ TimeTracker non disponible. Veuillez créer les fichiers timetracker.py et database_sync.py")
             st.info("📋 Consultez le plan d'intégration pour créer les modules manquants.")
-    elif page_to_show_val == "inventory_management":
-        show_inventory_management_page()
-    elif page_to_show_val == "bom":
-        show_nomenclature()
-    elif page_to_show_val == "routing":
-        show_itineraire()
+    elif page_to_show_val == "production_management":
+        # NOUVEAU : Routage vers module unifié
+        if PRODUCTION_MANAGEMENT_AVAILABLE:
+            show_production_management_page()
+        else:
+            st.error("❌ Module Production non disponible")
+            st.info("Le module production_management.py est requis pour cette fonctionnalité.")
     elif page_to_show_val == "gantt":
         show_gantt()
     elif page_to_show_val == "calendrier":
@@ -1577,7 +1472,7 @@ def show_storage_status_sidebar():
         st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
 
 # ========================
-# FONCTIONS DE VUE ET DE RENDU ERP (COMPLÈTES)
+# FONCTIONS DE VUE ET DE RENDU ERP (RÉDUITES SELON PLAN)
 # ========================
 
 def show_dashboard():
@@ -1612,7 +1507,7 @@ def show_dashboard():
 
     # Affichage notification migration
     if st.session_state.get('migration_completed'):
-        st.success("🎉 Migration complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée.")
+        st.success("🎉 Migration complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée avec module production unifié.")
 
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
@@ -1630,7 +1525,7 @@ def show_dashboard():
         st.markdown("""
         <div class='welcome-card'>
             <h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3>
-            <p>Architecture unifiée avec base de données relationnelle. Créez votre premier projet ou explorez les données migrées.</p>
+            <p>Architecture unifiée avec module production refactorisé. Créez votre premier projet ou explorez les données migrées.</p>
         </div>
         """, unsafe_allow_html=True)
         return
@@ -1647,6 +1542,46 @@ def show_dashboard():
             st.metric("✅ Taux Completion", f"{stats['taux_completion']:.1f}%")
         with c4:
             st.metric("💰 CA Total", format_currency(stats['ca_total']))
+
+    # NOUVEAU : Métriques Production Unifiée
+    if PRODUCTION_MANAGEMENT_AVAILABLE:
+        st.markdown("### 🏭 Aperçu Production Unifiée")
+        prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
+
+        with prod_c1:
+            # Stats inventaire depuis module unifié
+            try:
+                if 'inventory_manager_sql' not in st.session_state:
+                    from production_management import GestionnaireInventaireSQL
+                    st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
+                
+                inventory_count = len(st.session_state.inventory_manager_sql.get_all_inventory())
+                st.metric("📦 Articles Stock", inventory_count)
+            except Exception:
+                st.metric("📦 Articles Stock", 0)
+
+        with prod_c2:
+            # Stats BOM depuis projets
+            total_materials = 0
+            try:
+                for project in gestionnaire.projets:
+                    total_materials += len(project.get('materiaux', []))
+                st.metric("📋 Matériaux BOM", total_materials)
+            except Exception:
+                st.metric("📋 Matériaux BOM", 0)
+
+        with prod_c3:
+            # Stats opérations itinéraire
+            total_operations = 0
+            try:
+                for project in gestionnaire.projets:
+                    total_operations += len(project.get('operations', []))
+                st.metric("🛠️ Opérations", total_operations)
+            except Exception:
+                st.metric("🛠️ Opérations", 0)
+
+        with prod_c4:
+            st.metric("✅ Module Unifié", "ACTIF" if PRODUCTION_MANAGEMENT_AVAILABLE else "INACTIF")
 
     # NOUVEAU : Métriques Formulaires
     if any(form_stats.values()):
@@ -2120,6 +2055,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
                 elif ',' in prix_str and '.' in prix_str and prix_str.find('.') > prix_str.find(','):
                     prix_str = prix_str.replace(',', '')
+
                 prix_val = float(prix_str) if prix_str else 0.0
             except (ValueError, TypeError):
                 prix_val = 0.0
@@ -2349,278 +2285,6 @@ def show_employees_page():
     elif action == "view_employe_details" and selected_id:
         employe_data = gestionnaire_employes.get_employe_by_id(selected_id)
         render_employe_details(gestionnaire_employes, gestionnaire_projets, employe_data)
-
-def show_inventory_management_page():
-    st.markdown("### 📦 Gestion de l'Inventaire")
-
-    # Adaptation pour utiliser SQLite
-    if 'inventory_manager_sql' not in st.session_state:
-        st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
-
-    inventory_manager = st.session_state.inventory_manager_sql
-    inventory_data = inventory_manager.get_all_inventory()
-
-    action_mode = st.session_state.get('inv_action_mode', "Voir Liste")
-
-    if action_mode == "Ajouter Article":
-        st.subheader("➕ Ajouter un Nouvel Article")
-        with st.form("add_inventory_item_form", clear_on_submit=True):
-            st.info("Les données seront sauvegardées automatiquement")
-            nom = st.text_input("Nom de l'article *:")
-            type_art = st.selectbox("Type *:", TYPES_PRODUITS_INVENTAIRE)
-            quantite_imp = st.text_input("Quantité Stock (Impérial) *:", "0' 0\"")
-            limite_min_imp = st.text_input("Limite Minimale (Impérial):", "0' 0\"")
-            description = st.text_area("Description:")
-            notes = st.text_area("Notes Internes:")
-
-            submitted_add = st.form_submit_button("💾 Ajouter Article")
-            if submitted_add:
-                if not nom or not quantite_imp:
-                    st.error("Le nom et la quantité sont obligatoires.")
-                else:
-                    is_valid_q, quantite_std = valider_mesure_saisie(quantite_imp)
-                    is_valid_l, limite_std = valider_mesure_saisie(limite_min_imp)
-                    if not is_valid_q:
-                        st.error(f"Format de quantité invalide: {quantite_std}")
-                    elif not is_valid_l:
-                        st.error(f"Format de limite minimale invalide: {limite_std}")
-                    else:
-                        new_item = {
-                            "nom": nom,
-                            "type_produit": type_art,
-                            "quantite_imperial": quantite_std,
-                            "limite_minimale_imperial": limite_std,
-                            "quantite_reservee_imperial": "0' 0\"",
-                            "statut": "DISPONIBLE",
-                            "description": description,
-                            "notes": notes
-                        }
-
-                        item_id = inventory_manager.add_inventory_item(new_item)
-                        if item_id:
-                            st.success(f"Article '{nom}' (ID: {item_id}) ajouté avec succès !")
-                            st.rerun()
-                        else:
-                            st.error("Erreur lors de la sauvegarde.")
-
-    elif action_mode == "Voir Liste" or not inventory_data:
-        st.subheader("📋 Liste des Articles en Inventaire")
-        if not inventory_data:
-            st.info("L'inventaire est vide. Cliquez sur 'Ajouter Article' pour commencer.")
-        else:
-            search_term_inv = st.text_input("Rechercher dans l'inventaire (nom, ID):", key="inv_search").lower()
-
-            items_display_list = []
-            for item_id, data in inventory_data.items():
-                if search_term_inv:
-                    if search_term_inv not in str(data.get("id", "")).lower() and \
-                       search_term_inv not in data.get("nom", "").lower():
-                        continue
-
-                items_display_list.append({
-                    "ID": data.get("id", item_id),
-                    "Nom": data.get("nom", "N/A"),
-                    "Type": data.get("type_produit", "N/A"),
-                    "Stock (Imp.)": data.get("quantite_imperial", "N/A"),
-                    "Stock (Métr.)": f"{data.get('quantite_metric', 0):.3f} m",
-                    "Limite Min.": data.get("limite_minimale_imperial", "N/A"),
-                    "Réservé": data.get("quantite_reservee_imperial", "N/A"),
-                    "Statut": data.get("statut", "N/A")
-                })
-
-            if items_display_list:
-                df_inventory = pd.DataFrame(items_display_list)
-                st.dataframe(df_inventory, use_container_width=True)
-                st.info(f"📊 {len(items_display_list)} articles en inventaire")
-            else:
-                st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire est vide.")
-
-def show_nomenclature():
-    st.markdown("### 📊 Nomenclature (BOM)")
-    gestionnaire = st.session_state.gestionnaire
-
-    if not gestionnaire.projets:
-        st.warning("Aucun projet disponible.")
-        return
-
-    opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
-    sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="bom_sel")
-    proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
-
-    if not proj:
-        st.error("Projet non trouvé.")
-        return
-
-    st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    materiaux = proj.get('materiaux', [])
-
-    if not materiaux:
-        st.info("Aucun matériau défini.")
-    else:
-        total_cost = 0
-        data_bom = []
-        for item in materiaux:
-            qty, price = item.get('quantite', 0) or 0, item.get('prix_unitaire', 0) or 0
-            total = qty * price
-            total_cost += total
-            data_bom.append({
-                '🆔': item.get('id', '?'),
-                '📝 Code': item.get('code', ''),
-                '📋 Désignation': item.get('designation', 'N/A'),
-                '📊 Qté': f"{qty} {item.get('unite', '')}",
-                '💳 PU': format_currency(price),
-                '💰 Total': format_currency(total),
-                '🏪 Fourn.': item.get('fournisseur', 'N/A')
-            })
-
-        mc1, mc2, mc3 = st.columns(3)
-        with mc1:
-            st.metric("📦 Items", len(materiaux))
-        with mc2:
-            st.metric("💰 Coût Total", format_currency(total_cost))
-        with mc3:
-            st.metric("📊 Coût Moyen/Item", format_currency(total_cost / len(materiaux) if materiaux else 0))
-
-        st.dataframe(pd.DataFrame(data_bom), use_container_width=True)
-
-        if len(materiaux) > 1:
-            st.markdown("---")
-            st.markdown("##### 📈 Analyse Coûts Matériaux")
-            costs = [(item.get('quantite', 0) or 0) * (item.get('prix_unitaire', 0) or 0) for item in materiaux]
-            labels = [item.get('designation', 'N/A') for item in materiaux]
-
-            TEXT_COLOR_CHARTS = 'var(--text-color)'
-            fig = px.pie(values=costs, names=labels, title="Répartition coûts par matériau")
-            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
-            st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-def show_itineraire():
-    """Version améliorée avec vrais postes de travail - Architecture Unifiée"""
-    st.markdown("### 🛠️ Itinéraire Fabrication - DG Inc.")
-    gestionnaire = st.session_state.gestionnaire
-    gestionnaire_employes = st.session_state.gestionnaire_employes
-
-    if not gestionnaire.projets:
-        st.warning("Aucun projet disponible.")
-        return
-
-    opts = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}") for p in gestionnaire.projets]
-    sel_id = st.selectbox("Projet:", options=[pid for pid, _ in opts], format_func=lambda pid: next((name for id, name in opts if id == pid), ""), key="iti_sel")
-    proj = next((p for p in gestionnaire.projets if p.get('id') == sel_id), None)
-
-    if not proj:
-        st.error("Projet non trouvé.")
-        return
-
-    st.markdown(f"<div class='project-header'><h2>{proj.get('nom_projet', 'N/A')}</h2></div>", unsafe_allow_html=True)
-
-    # Bouton de régénération de gamme - ARCHITECTURE UNIFIÉE
-    col_regen1, col_regen2 = st.columns([3, 1])
-    with col_regen2:
-        if st.button("🔄 Régénérer Gamme", help="Régénérer avec les postes TimeTracker"):
-            if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
-                try:
-                    # Utiliser la génération de gamme depuis TimeTracker unifié
-                    nom_projet = proj.get('nom_projet', '').lower()
-                    if any(mot in nom_projet for mot in ['chassis', 'structure', 'assemblage']):
-                        type_produit = "CHASSIS_SOUDE"
-                    elif any(mot in nom_projet for mot in ['batiment', 'pont', 'charpente']):
-                        type_produit = "STRUCTURE_LOURDE"
-                    else:
-                        type_produit = "PIECE_PRECISION"
-
-                    # Générer nouvelle gamme via TimeTracker
-                    gamme = st.session_state.timetracker_erp.generer_gamme_fabrication(type_produit, "MOYEN")
-
-                    # Mettre à jour les opérations en SQLite
-                    nouvelles_operations = []
-                    for i, op in enumerate(gamme, 1):
-                        nouvelles_operations.append({
-                            'id': i,
-                            'sequence': str(op['sequence']),
-                            'description': f"{op['poste']} - {proj.get('nom_projet', '')}",
-                            'temps_estime': op['temps_estime'],
-                            'ressource': op.get('employes_disponibles', ['À assigner'])[0] if op.get('employes_disponibles') else 'À assigner',
-                            'statut': 'À FAIRE',
-                            'poste_travail': op['poste']
-                        })
-
-                    # Mise à jour via SQLite
-                    proj['operations'] = nouvelles_operations
-                    gestionnaire.modifier_projet(proj['id'], {'operations': nouvelles_operations})
-                    st.success("✅ Gamme régénérée avec l'architecture unifiée !")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erreur génération gamme: {e}")
-                    st.info("💡 Utilisez l'interface TimeTracker & Postes pour gérer les gammes")
-            else:
-                st.warning("⚠️ TimeTracker non disponible - Gamme non régénérée")
-
-    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    operations = proj.get('operations', [])
-    if not operations:
-        st.info("Aucune opération définie.")
-    else:
-        total_time = sum(op.get('temps_estime', 0) for op in operations)
-        finished_ops = sum(1 for op in operations if op.get('statut') == 'TERMINÉ')
-        progress = (finished_ops / len(operations) * 100) if operations else 0
-
-        mc1, mc2, mc3 = st.columns(3)
-        with mc1:
-            st.metric("🔧 Opérations", len(operations))
-        with mc2:
-            st.metric("⏱️ Durée Totale", f"{total_time:.1f}h")
-        with mc3:
-            st.metric("📊 Progression", f"{progress:.1f}%")
-
-        # Tableau enrichi avec postes de travail
-        data_iti = []
-        for op in operations:
-            poste_travail = op.get('poste_travail', 'Non assigné')
-            data_iti.append({
-                '🆔': op.get('id', '?'),
-                '📊 Séq.': op.get('sequence', ''),
-                '🏭 Poste': poste_travail,
-                '📋 Desc.': op.get('description', ''),
-                '⏱️ Tps (h)': f"{(op.get('temps_estime', 0) or 0):.1f}",
-                '👨‍🔧 Ress.': op.get('ressource', ''),
-                '🚦 Statut': op.get('statut', 'À FAIRE')
-            })
-
-        st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("##### 📈 Analyse Opérations")
-        ac1, ac2 = st.columns(2)
-
-        TEXT_COLOR_CHARTS = 'var(--text-color)'
-
-        with ac1:
-            counts = {}
-            colors_op_statut = {'À FAIRE': '#f59e0b', 'EN COURS': '#3b82f6', 'TERMINÉ': '#10b981', 'EN ATTENTE': '#ef4444'}
-            for op in operations:
-                status = op.get('statut', 'À FAIRE')
-                counts[status] = counts.get(status, 0) + 1
-            if counts:
-                fig = px.bar(x=list(counts.keys()), y=list(counts.values()), title="Répartition par statut", color=list(counts.keys()), color_discrete_map=colors_op_statut)
-                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), showlegend=False, title_x=0.5)
-                st.plotly_chart(fig, use_container_width=True)
-        with ac2:
-            res_time = {}
-            for op in operations:
-                res = op.get('poste_travail', 'Non assigné')
-                time = op.get('temps_estime', 0)
-                res_time[res] = res_time.get(res, 0) + time
-            if res_time:
-                fig = px.pie(values=list(res_time.values()), names=list(res_time.keys()), title="Temps par poste")
-                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color=TEXT_COLOR_CHARTS), legend_title_text='', title_x=0.5)
-                st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 def show_gantt():
     st.markdown("### 📈 Diagramme de Gantt")
@@ -3082,7 +2746,7 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🏭 TimeTracker & Postes Intégrés • CRM • Inventaire • 📑 Formulaires • 🏪 Fournisseurs"
+    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🏭 TimeTracker & Postes Intégrés • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
     if TIMETRACKER_AVAILABLE:
         footer_text += " • ✅ Module Unifié Actif"
 
@@ -3094,14 +2758,14 @@ def show_footer():
         elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
             footer_text += " • ⚠️ Mode Temporaire"
 
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée TimeTracker ↔ Postes • Module Formulaires Intégré • Gestion Fournisseurs Complète • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • Module Production Refactorisé • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
 
 # ========================
 # FONCTION PRINCIPALE AVEC PORTAIL
 # ========================
 
 def main():
-    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET SANS Assistant IA"""
+    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ"""
 
     # NOUVEAU : Charger le CSS externe en priorité
     css_loaded = load_external_css()
@@ -3118,7 +2782,7 @@ def main():
     if 'user_role' not in st.session_state:
         st.session_state.user_role = None
 
-    # Initialisation des variables de session (MISES À JOUR SANS Assistant IA)
+    # Initialisation des variables de session (MISES À JOUR)
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
         'show_create_project': False, 'show_edit_project': False,
