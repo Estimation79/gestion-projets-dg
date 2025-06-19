@@ -677,7 +677,7 @@ def show_timetracker_interface():
     
     # En-tête TimeTracker avec style ERP harmonisé
     st.markdown("""
-    <div class='project-header' style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;'>
+    <div class='project-header' style='background: linear-gradient(135deg, #00A971 0%, #00673D 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;'>
         <h2 style='margin: 0; text-align: center;'>⏱️ TimeTracker Pro - ERP Production DG Inc.</h2>
         <p style='margin: 5px 0 0 0; text-align: center; opacity: 0.9;'>🗄️ Architecture SQLite Unifiée • Intégration Complète</p>
     </div>
