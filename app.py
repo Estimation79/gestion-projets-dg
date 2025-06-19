@@ -1192,7 +1192,7 @@ def show_erp_main():
         available_pages["📑 Formulaires"] = "formulaires_page"
 
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
-        available_pages["⏱️🏭 TimeTracker & Postes"] = "timetracker_unified_page"
+        available_pages["⏱️ TimeTracker"] = "timetracker_unified_page"
 
     # NOUVEAU : Page unifiée Production remplace les 3 pages séparées
     if has_all_permissions or "projects" in permissions or "inventory" in permissions:
