@@ -3,6 +3,7 @@
 # ÉTAPE 2 : Intégration TimeTracker ↔ Bons de Travail IMPLÉMENTÉE
 # ÉTAPE 3 : Module Production Unifié COMPLET
 # EXTENSION : Interface Unifiée TimeTracker + Postes de Travail COMPLÈTE
+# NOUVEAU : Intégration Operations ↔ Bons de Travail INTÉGRÉE
 
 import sqlite3
 import json
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 class ERPDatabase:
     """
     Gestionnaire de base de données SQLite unifié pour ERP Production DG Inc.
-    VERSION CONSOLIDÉE + INTERFACE UNIFIÉE TIMETRACKER + POSTES + MODULE PRODUCTION
+    VERSION CONSOLIDÉE + INTERFACE UNIFIÉE TIMETRACKER + POSTES + MODULE PRODUCTION + INTÉGRATION OPERATIONS ↔ BT
     
     Remplace tous les fichiers JSON par une base de données relationnelle cohérente :
     - projets_data.json → tables projects, operations, materials
@@ -42,6 +43,11 @@ class ERPDatabase:
     - bt_reservations_postes → réservations postes de travail
     - Traçabilité complète des pointages par BT
     
+    NOUVELLE INTÉGRATION OPERATIONS ↔ BONS DE TRAVAIL :
+    - operations.formulaire_bt_id → liaison opérations aux BT qui les ont créées
+    - Traçabilité des gammes de fabrication par BT
+    - Gestion unifiée des opérations de production
+    
     INTERFACE UNIFIÉE TIMETRACKER + POSTES :
     - Méthodes complètes de gestion des postes de travail
     - Statistiques avancées pour l'interface fusionnée
@@ -59,6 +65,7 @@ class ERPDatabase:
     - Colonnes projects corrigées (date_debut_reel, date_fin_reel)
     - Tables BT spécialisées (bt_assignations, bt_reservations_postes)
     - Colonne formulaire_bt_id dans time_entries (ÉTAPE 2)
+    - Colonne formulaire_bt_id dans operations (NOUVEAU)
     - Toutes les améliorations de fix_database.py
     """
     
@@ -66,7 +73,7 @@ class ERPDatabase:
         self.db_path = db_path
         self.backup_dir = "backup_json"
         self.init_database()
-        logger.info(f"ERPDatabase consolidé + Interface Unifiée + Production initialisé : {db_path}")
+        logger.info(f"ERPDatabase consolidé + Interface Unifiée + Production + Operations↔BT initialisé : {db_path}")
     
     def init_database(self):
         """Initialise toutes les tables de la base de données ERP avec corrections automatiques intégrées"""
@@ -195,12 +202,13 @@ class ERPDatabase:
                 )
             ''')
             
-            # 7. OPÉRATIONS (Gammes)
+            # 7. OPÉRATIONS (Gammes) - CORRIGÉ AVEC LIEN VERS BT
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS operations (
                     id INTEGER PRIMARY KEY,
                     project_id INTEGER,
                     work_center_id INTEGER,
+                    formulaire_bt_id INTEGER, -- AJOUT : Lien vers le BT qui a créé l'opération
                     sequence_number INTEGER,
                     description TEXT,
                     temps_estime REAL,
@@ -210,7 +218,8 @@ class ERPDatabase:
                     operation_legacy_id INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (project_id) REFERENCES projects(id),
-                    FOREIGN KEY (work_center_id) REFERENCES work_centers(id)
+                    FOREIGN KEY (work_center_id) REFERENCES work_centers(id),
+                    FOREIGN KEY (formulaire_bt_id) REFERENCES formulaires(id) ON DELETE SET NULL -- Si BT supprimé, l'opération reste
                 )
             ''')
             
@@ -513,6 +522,7 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_projects_dates ON projects(date_soumis, date_prevu)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_operations_project ON operations(project_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_operations_work_center ON operations(work_center_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_operations_bt ON operations(formulaire_bt_id)') # AJOUT : Index sur la nouvelle colonne
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_materials_project ON materials(project_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_time_entries_employee ON time_entries(employee_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_time_entries_project ON time_entries(project_id)')
@@ -1041,13 +1051,13 @@ class ERPDatabase:
             self._apply_automatic_fixes(cursor)
             
             conn.commit()
-            logger.info("Base de données ERP consolidée + Interface Unifiée + Production initialisée avec succès")
+            logger.info("Base de données ERP consolidée + Interface Unifiée + Production + Operations↔BT initialisée avec succès")
             
             # Optimisation finale de la base
             cursor.execute("PRAGMA optimize")
     
     def _apply_automatic_fixes(self, cursor):
-        """Applique automatiquement toutes les corrections nécessaires - ÉTAPE 2 AMÉLIORÉE"""
+        """Applique automatiquement toutes les corrections nécessaires - ÉTAPE 2 AMÉLIORÉE + OPERATIONS↔BT"""
         try:
             # Vérifier les colonnes existantes dans projects
             cursor.execute("PRAGMA table_info(projects)")
@@ -1072,10 +1082,20 @@ class ERPDatabase:
                 logger.info("✅ ÉTAPE 2 : Colonne formulaire_bt_id ajoutée à time_entries")
                 logger.info("✅ ÉTAPE 2 : Index idx_time_entries_bt créé pour performance")
             
+            # NOUVEAU : Vérifier et ajouter la colonne formulaire_bt_id dans operations
+            cursor.execute("PRAGMA table_info(operations)")
+            operations_columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'formulaire_bt_id' not in operations_columns:
+                cursor.execute("ALTER TABLE operations ADD COLUMN formulaire_bt_id INTEGER")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_operations_bt ON operations(formulaire_bt_id)")
+                logger.info("✅ NOUVEAU : Colonne formulaire_bt_id ajoutée à operations")
+                logger.info("✅ NOUVEAU : Index idx_operations_bt créé pour performance")
+            
             # Vérifier et corriger d'autres tables si nécessaire
             # (Cette section peut être étendue pour d'autres corrections automatiques)
             
-            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 + Interface Unifiée + Production INTÉGRÉE")
+            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 + Interface Unifiée + Production + Lien Operations-BT INTÉGRÉE")
             
         except Exception as e:
             logger.warning(f"Avertissement lors des corrections automatiques: {e}")
@@ -1473,6 +1493,7 @@ class ERPDatabase:
                 
                 # Créer les opérations de la gamme
                 created_operations = []
+                bt_id = route_data.get('formulaire_bt_id')  # AJOUT : Récupérer le BT lié si fourni
                 
                 for operation_data in route_data.get('operations', []):
                     # Trouver le work_center_id par nom
@@ -1484,14 +1505,15 @@ class ERPDatabase:
                     
                     op_query = '''
                         INSERT INTO operations 
-                        (project_id, work_center_id, sequence_number, description, 
+                        (project_id, work_center_id, formulaire_bt_id, sequence_number, description, 
                          temps_estime, ressource, statut, poste_travail)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     '''
                     
                     op_id = self.execute_insert(op_query, (
                         project_id,
                         work_center_id,
+                        bt_id,  # AJOUT : Lier l'opération au BT si fourni
                         operation_data.get('sequence_number', 0),
                         operation_data.get('description', ''),
                         operation_data.get('temps_estime', 0.0),
@@ -1502,7 +1524,7 @@ class ERPDatabase:
                     
                     created_operations.append(op_id)
                 
-                logger.info(f"Gamme créée pour projet {project_id}: {len(created_operations)} opérations")
+                logger.info(f"Gamme créée pour projet {project_id}: {len(created_operations)} opérations{' (liées au BT #' + str(bt_id) + ')' if bt_id else ''}")
                 return len(created_operations)
                 
         except Exception as e:
@@ -1665,6 +1687,104 @@ class ERPDatabase:
         except Exception as e:
             logger.error(f"Erreur optimisation gamme projet {project_id}: {e}")
             return {'error': str(e)}
+
+    def create_operation_for_bt(self, bt_id: int, operation_data: Dict) -> Optional[int]:
+        """Crée une opération spécifiquement liée à un Bon de Travail"""
+        try:
+            # Vérifier que le BT existe et récupérer le project_id
+            bt_info = self.execute_query(
+                "SELECT project_id FROM formulaires WHERE id = ? AND type_formulaire = 'BON_TRAVAIL'",
+                (bt_id,)
+            )
+            
+            if not bt_info:
+                logger.error(f"BT {bt_id} non trouvé ou n'est pas un Bon de Travail")
+                return None
+            
+            project_id = bt_info[0]['project_id']
+            
+            # Trouver le work_center_id par nom si fourni
+            work_center_id = None
+            if operation_data.get('poste_travail'):
+                wc_result = self.execute_query(
+                    "SELECT id FROM work_centers WHERE nom = ?",
+                    (operation_data['poste_travail'],)
+                )
+                work_center_id = wc_result[0]['id'] if wc_result else None
+            
+            # Créer l'opération
+            query = '''
+                INSERT INTO operations 
+                (project_id, work_center_id, formulaire_bt_id, sequence_number, description, 
+                 temps_estime, ressource, statut, poste_travail)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            operation_id = self.execute_insert(query, (
+                project_id,
+                work_center_id,
+                bt_id,
+                operation_data.get('sequence_number', 1),
+                operation_data.get('description', ''),
+                operation_data.get('temps_estime', 0.0),
+                operation_data.get('ressource', ''),
+                operation_data.get('statut', 'À FAIRE'),
+                operation_data.get('poste_travail', '')
+            ))
+            
+            logger.info(f"✅ Opération créée pour BT #{bt_id}: operation_id={operation_id}")
+            return operation_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création opération pour BT: {e}")
+            return None
+
+    def get_operations_by_bt(self, bt_id: int) -> List[Dict]:
+        """Récupère toutes les opérations liées à un Bon de Travail"""
+        try:
+            query = '''
+                SELECT o.*, 
+                       wc.nom as work_center_name, 
+                       wc.departement as work_center_departement,
+                       wc.capacite_theorique,
+                       wc.cout_horaire as work_center_cout_horaire,
+                       p.nom_projet
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                LEFT JOIN projects p ON o.project_id = p.id
+                WHERE o.formulaire_bt_id = ?
+                ORDER BY o.sequence_number, o.id
+            '''
+            rows = self.execute_query(query, (bt_id,))
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération opérations BT {bt_id}: {e}")
+            return []
+
+    def get_bts_with_operations(self) -> List[Dict]:
+        """Récupère tous les BTs qui ont des opérations liées"""
+        try:
+            query = '''
+                SELECT f.id as bt_id, f.numero_document, f.statut as bt_statut,
+                       p.nom_projet, c.nom as company_nom,
+                       COUNT(o.id) as nb_operations,
+                       COALESCE(SUM(o.temps_estime), 0) as temps_total_estime,
+                       GROUP_CONCAT(DISTINCT wc.nom) as postes_utilises
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON f.company_id = c.id
+                LEFT JOIN operations o ON f.id = o.formulaire_bt_id
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                AND o.id IS NOT NULL
+                GROUP BY f.id
+                ORDER BY f.numero_document
+            '''
+            rows = self.execute_query(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération BTs avec opérations: {e}")
+            return []
 
     # =========================================================================
     # MÉTHODES SPÉCIFIQUES À L'INTÉGRATION TIMETRACKER ↔ BONS DE TRAVAIL (ÉTAPE 2)
@@ -1962,9 +2082,12 @@ class ERPDatabase:
                        wc.cout_horaire as work_center_cout_horaire,
                        wc.operateurs_requis,
                        wc.competences_requises,
-                       wc.statut as work_center_statut
+                       wc.statut as work_center_statut,
+                       f.numero_document as bt_numero,
+                       f.statut as bt_statut
                 FROM operations o
                 LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                LEFT JOIN formulaires f ON o.formulaire_bt_id = f.id AND f.type_formulaire = 'BON_TRAVAIL'
                 WHERE o.project_id = ?
                 ORDER BY o.sequence_number, o.id
             '''
@@ -2343,6 +2466,14 @@ class ERPDatabase:
                 ''')
                 checks['operations_work_centers_fk'] = cursor.fetchone()['orphans'] == 0
                 
+                # NOUVEAU : Operations → Formulaires BT
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM operations o
+                    WHERE o.formulaire_bt_id IS NOT NULL
+                    AND o.formulaire_bt_id NOT IN (SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL')
+                ''')
+                checks['operations_bt_fk'] = cursor.fetchone()['orphans'] == 0
+                
                 # Materials → Projects
                 cursor.execute('''
                     SELECT COUNT(*) as orphans FROM materials m
@@ -2468,10 +2599,12 @@ class ERPDatabase:
             'timetracker_bt_integration': {},  # ÉTAPE 2
             'work_centers_unified': {},  # INTERFACE UNIFIÉE
             'production_module': {},  # ÉTAPE 3
+            'operations_bt_integration': {},  # NOUVEAU : Intégration Operations ↔ BT
             'corrections_appliquees': True,
             'etape_2_complete': True,  # ÉTAPE 2
             'etape_3_complete': True,  # ÉTAPE 3
-            'interface_unifiee_complete': True  # INTERFACE UNIFIÉE
+            'interface_unifiee_complete': True,  # INTERFACE UNIFIÉE
+            'operations_bt_integration_complete': True  # NOUVEAU
         }
         
         with self.get_connection() as conn:
@@ -2616,6 +2749,32 @@ class ERPDatabase:
                 cursor.execute('SELECT COALESCE(SUM(temps_estime), 0) as temps FROM operations')
                 result = cursor.fetchone()
                 info['production_module']['temps_total_planifie'] = round(result['temps'], 2) if result else 0
+            
+            # NOUVEAU : Informations intégration Operations ↔ BT
+            if 'operations' in tables:
+                # Opérations liées à des BT
+                cursor.execute('SELECT COUNT(*) as count FROM operations WHERE formulaire_bt_id IS NOT NULL')
+                result = cursor.fetchone()
+                info['operations_bt_integration']['operations_liees_bt'] = result['count'] if result else 0
+                
+                # BT avec opérations
+                cursor.execute('SELECT COUNT(DISTINCT formulaire_bt_id) as count FROM operations WHERE formulaire_bt_id IS NOT NULL')
+                result = cursor.fetchone()
+                info['operations_bt_integration']['bt_avec_operations'] = result['count'] if result else 0
+                
+                # Temps total des opérations BT
+                cursor.execute('SELECT COALESCE(SUM(temps_estime), 0) as temps FROM operations WHERE formulaire_bt_id IS NOT NULL')
+                result = cursor.fetchone()
+                info['operations_bt_integration']['temps_total_operations_bt'] = round(result['temps'], 2) if result else 0
+                
+                # Postes utilisés par les opérations BT
+                cursor.execute('''
+                    SELECT COUNT(DISTINCT work_center_id) as count 
+                    FROM operations 
+                    WHERE formulaire_bt_id IS NOT NULL AND work_center_id IS NOT NULL
+                ''')
+                result = cursor.fetchone()
+                info['operations_bt_integration']['postes_utilises_bt'] = result['count'] if result else 0
         
         return info
     
@@ -2845,6 +3004,9 @@ class ERPDatabase:
                 
                 # ÉTAPE 2 : Ajouter les statistiques TimeTracker
                 formulaire['timetracker_stats'] = self.get_statistiques_bt_timetracker(formulaire_id)
+                
+                # NOUVEAU : Ajouter les opérations liées au BT
+                formulaire['operations_bt'] = self.get_operations_by_bt(formulaire_id)
             
             return formulaire
             
@@ -3323,6 +3485,13 @@ class ERPDatabase:
                     'operations_total': 0,
                     'valeur_bom_total': 0.0,
                     'temps_planifie_total': 0.0
+                },
+                # NOUVEAU: Métriques Operations ↔ BT
+                'operations_bt_integration': {
+                    'operations_liees_bt': 0,
+                    'bt_avec_operations': 0,
+                    'temps_operations_bt': 0.0,
+                    'postes_utilises_bt': 0
                 }
             }
             
@@ -3448,6 +3617,20 @@ class ERPDatabase:
                     'temps_planifie_total': production_metrics.get('itineraires', {}).get('temps_total_planifie', 0.0)
                 }
             
+            # NOUVEAU: Métriques Operations ↔ BT
+            operations_bt_result = self.execute_query('''
+                SELECT 
+                    COUNT(*) as operations_liees_bt,
+                    COUNT(DISTINCT formulaire_bt_id) as bt_avec_operations,
+                    COALESCE(SUM(temps_estime), 0) as temps_operations_bt,
+                    COUNT(DISTINCT work_center_id) as postes_utilises_bt
+                FROM operations 
+                WHERE formulaire_bt_id IS NOT NULL
+            ''')
+            if operations_bt_result:
+                ops_bt_data = dict(operations_bt_result[0])
+                metrics['operations_bt_integration'].update(ops_bt_data)
+            
             return metrics
             
         except Exception as e:
@@ -3468,6 +3651,7 @@ class ERPDatabase:
                 'timetracker_bt_mensuel': {'sessions_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},  # ÉTAPE 2
                 'work_centers_performance': {'nouveaux_postes': 0, 'utilisation_moyenne': 0.0, 'revenus_generes': 0.0},  # INTERFACE UNIFIÉE
                 'production_performance': {'nouveaux_bom': 0, 'nouvelles_operations': 0, 'projets_production': 0},  # ÉTAPE 3
+                'operations_bt_performance': {'operations_bt_creees': 0, 'bt_operations_mois': 0, 'temps_operations_bt': 0.0},  # NOUVEAU
                 'alertes': []
             }
             
@@ -3629,6 +3813,37 @@ class ERPDatabase:
             result = self.execute_query(query, (f"{year}-{month:02d}",))
             if result:
                 report['production_performance']['projets_production'] = result[0]['projets_production']
+            
+            # NOUVEAU : Performance Operations ↔ BT mensuelle
+            query = '''
+                SELECT COUNT(*) as operations_bt_creees
+                FROM operations
+                WHERE formulaire_bt_id IS NOT NULL
+                AND strftime('%Y-%m', created_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['operations_bt_performance']['operations_bt_creees'] = result[0]['operations_bt_creees']
+            
+            query = '''
+                SELECT COUNT(DISTINCT formulaire_bt_id) as bt_operations_mois
+                FROM operations
+                WHERE formulaire_bt_id IS NOT NULL
+                AND strftime('%Y-%m', created_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['operations_bt_performance']['bt_operations_mois'] = result[0]['bt_operations_mois']
+            
+            query = '''
+                SELECT COALESCE(SUM(temps_estime), 0) as temps_operations_bt
+                FROM operations
+                WHERE formulaire_bt_id IS NOT NULL
+                AND strftime('%Y-%m', created_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['operations_bt_performance']['temps_operations_bt'] = round(result[0]['temps_operations_bt'], 2)
             
             return report
             
