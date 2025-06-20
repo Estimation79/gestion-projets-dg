@@ -1,10 +1,11 @@
 # formulaires/bons_travail/gestionnaire_bt.py
-# Gestionnaire spécialisé pour les Bons de Travail - VERSION COMPLÈTE ÉTAPE 3 INTÉGRATION TIMETRACKER
+# Gestionnaire spécialisé pour les Bons de Travail - VERSION CORRIGÉE AVEC INSERTION OPÉRATIONS
 
 """
 Gestionnaire spécialisé pour les Bons de Travail (BT).
 Contient la logique métier spécifique aux documents de travail interne.
-VERSION ÉTAPE 3 : Intégration complète TimeTracker ↔ Bons de Travail
+VERSION CORRIGÉE : Gère l'insertion des opérations dans la table 'operations'
+ÉTAPE 3 : Intégration complète TimeTracker ↔ Bons de Travail
 """
 
 import streamlit as st
@@ -34,6 +35,7 @@ class GestionnaireBonsTravail:
     - Interface avec les postes de travail
     - Gestion robuste des erreurs de base de données
     - ÉTAPE 3 : Intégration complète avec TimeTracker
+    - CORRECTION : Insertion réelle des opérations en base
     """
     
     def __init__(self, gestionnaire_base: GestionnaireFormulaires):
@@ -186,7 +188,8 @@ class GestionnaireBonsTravail:
     
     def creer_bon_travail(self, data: Dict) -> Optional[int]:
         """
-        Crée un nouveau Bon de Travail avec validations spécifiques.
+        Crée un nouveau Bon de Travail avec validation et insertion des opérations.
+        VERSION CORRIGÉE : Insère réellement les opérations dans la table 'operations'
         
         Args:
             data: Données du bon de travail
@@ -205,25 +208,25 @@ class GestionnaireBonsTravail:
             # Enrichissement des données BT
             data['type_formulaire'] = 'BON_TRAVAIL'
             
-            # Métadonnées spécifiques BT
+            # Métadonnées BT sans les opérations détaillées qui seront en base
             metadonnees_bt = {
-                'operations_selectionnees': data.get('operations_selectionnees', []),
-                'employes_assignes': data.get('employes_assignes', []),
-                'work_centers_utilises': data.get('work_centers_utilises', []),
                 'temps_estime_total': data.get('temps_estime_total', 0),
                 'cout_main_oeuvre_estime': data.get('cout_main_oeuvre_estime', 0),
                 'date_creation_bt': datetime.now().isoformat(),
-                'version_bt': '2.0'
+                'version_bt': '2.1'  # Version corrigée
             }
             
             data['metadonnees_json'] = json.dumps(metadonnees_bt)
             
-            # Création via le gestionnaire de base
+            # Création du formulaire de base pour obtenir un ID
             bt_id = self.base.creer_formulaire(data)
             
             if bt_id:
-                # Actions post-création spécifiques BT
-                self._post_creation_bt(bt_id, data)
+                # CORRECTION MAJEURE : Insérer les opérations dans la table 'operations'
+                operations_creees_ids = self._inserer_operations_bt(bt_id, data)
+
+                # Actions post-création avec les IDs des opérations réelles
+                self._post_creation_bt(bt_id, data, operations_creees_ids)
                 
                 # Log de création
                 print(f"✅ BT #{bt_id} créé avec succès - {data.get('numero_document', 'N/A')}")
@@ -234,14 +237,82 @@ class GestionnaireBonsTravail:
             st.error(f"Erreur création BT: {e}")
             print(f"❌ Erreur détaillée création BT: {e}")
             return None
-    
-    def _post_creation_bt(self, bt_id: int, data: Dict) -> None:
+
+    def _inserer_operations_bt(self, bt_id: int, data: Dict) -> List[int]:
+        """
+        Insère les opérations définies dans le BT dans la table 'operations'.
+        NOUVELLE MÉTHODE pour corriger le problème d'insertion des opérations.
+        
+        Args:
+            bt_id (int): ID du formulaire BT parent.
+            data (Dict): Données complètes du BT contenant 'operations_detaillees'.
+
+        Returns:
+            List[int]: Liste des IDs des opérations créées.
+        """
+        operations_creees_ids = []
+        operations_data = data.get('operations_detaillees', [])
+        project_id = data.get('project_id')
+
+        if not operations_data:
+            print(f"ℹ️ Aucune opération détaillée à insérer pour BT #{bt_id}")
+            return []
+
+        for op_data in operations_data:
+            try:
+                # 1. Trouver l'ID du poste de travail à partir de son nom
+                work_center_id = None
+                poste_nom = op_data.get('poste_travail')
+                if poste_nom:
+                    # Nettoyer le nom du poste (enlever les infos entre parenthèses)
+                    poste_clean = poste_nom.split(' (')[0]
+                    wc_result = self.db.execute_query(
+                        "SELECT id FROM work_centers WHERE nom = ?", (poste_clean,)
+                    )
+                    if wc_result:
+                        work_center_id = wc_result[0]['id']
+
+                # 2. Préparer les données pour l'insertion
+                query = """
+                    INSERT INTO operations 
+                    (project_id, formulaire_bt_id, work_center_id, description, 
+                     temps_estime, ressource, statut, poste_travail)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                params = (
+                    project_id,
+                    bt_id,
+                    work_center_id,
+                    op_data.get('description'),
+                    op_data.get('temps_prevu', 0.0),
+                    op_data.get('assigne'),
+                    op_data.get('statut', 'À FAIRE'),
+                    op_data.get('poste_travail')
+                )
+                
+                # 3. Exécuter l'insertion et récupérer l'ID
+                op_id = self.db.execute_insert(query, params)
+                if op_id:
+                    operations_creees_ids.append(op_id)
+                    print(f"✅ Opération '{op_data.get('description')}' insérée avec ID #{op_id}")
+
+            except Exception as e:
+                st.warning(f"Impossible d'insérer l'opération '{op_data.get('description')}': {e}")
+                print(f"❌ Erreur insertion opération: {e}")
+                continue
+        
+        print(f"✅ {len(operations_creees_ids)} opération(s) insérée(s) pour le BT #{bt_id}")
+        return operations_creees_ids
+
+    def _post_creation_bt(self, bt_id: int, data: Dict, operations_creees_ids: List[int] = None) -> None:
         """
         Actions post-création spécifiques aux BT.
+        VERSION CORRIGÉE : Prend en compte les IDs des opérations réellement créées.
         
         Args:
             bt_id: ID du BT créé
             data: Données originales du BT
+            operations_creees_ids: IDs des opérations insérées dans la DB
         """
         try:
             # 1. Assignation automatique aux employés
@@ -252,12 +323,21 @@ class GestionnaireBonsTravail:
             # 2. Réservation des postes de travail si spécifiés
             work_centers = data.get('work_centers_utilises', [])
             if work_centers:
-                self._reserver_postes_travail(bt_id, work_centers, data.get('date_echeance'))
+                # Convertir les noms de postes en IDs
+                wc_ids_to_reserve = []
+                for wc_name in work_centers:
+                    wc_clean = wc_name.split(' (')[0]  # Nettoyer le nom
+                    wc_result = self.db.execute_query(
+                        "SELECT id FROM work_centers WHERE nom = ?", (wc_clean,)
+                    )
+                    if wc_result:
+                        wc_ids_to_reserve.append(wc_result[0]['id'])
+                
+                self._reserver_postes_travail(bt_id, wc_ids_to_reserve, data.get('date_echeance'))
             
-            # 3. Initialisation du suivi d'avancement
-            operations_selectionnees = data.get('operations_selectionnees', [])
-            if operations_selectionnees:
-                self._initialiser_avancement_bt(bt_id, operations_selectionnees)
+            # 3. Initialisation du suivi d'avancement avec les vrais IDs d'opérations
+            if operations_creees_ids:
+                self._initialiser_avancement_bt(bt_id, operations_creees_ids)
             
             # 4. Mise à jour du statut du projet si applicable
             if data.get('project_id'):
@@ -465,6 +545,9 @@ class GestionnaireBonsTravail:
                     # Informations complémentaires
                     bt['metadata_parsed'] = self._parse_metadata_bt(bt.get('metadonnees_json', '{}'))
                     
+                    # NOUVEAU : Opérations réelles de la base
+                    bt['operations_reelles'] = self._get_operations_bt(bt['id'])
+                    
                 except Exception as e_enrich:
                     # Continuer avec données partielles si erreur d'enrichissement
                     print(f"⚠️ Erreur enrichissement BT #{bt['id']}: {e_enrich}")
@@ -472,6 +555,7 @@ class GestionnaireBonsTravail:
                     bt['reservations_postes'] = []
                     bt['avancement'] = {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0}
                     bt['metadata_parsed'] = {}
+                    bt['operations_reelles'] = []
             
             print(f"✅ {len(bts)} BT récupéré(s) avec enrichissement")
             return bts
@@ -479,6 +563,34 @@ class GestionnaireBonsTravail:
         except Exception as e:
             st.error(f"Erreur récupération BT: {e}")
             print(f"❌ Erreur récupération BT: {e}")
+            return []
+
+    def _get_operations_bt(self, bt_id: int) -> List[Dict]:
+        """
+        Récupère les opérations réelles d'un BT depuis la table operations.
+        
+        Args:
+            bt_id: ID du BT
+            
+        Returns:
+            List[Dict]: Liste des opérations avec détails
+        """
+        try:
+            query = """
+                SELECT 
+                    o.*,
+                    wc.nom as work_center_nom,
+                    wc.departement as work_center_dept
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE o.formulaire_bt_id = ?
+                ORDER BY o.id
+            """
+            rows = self.db.execute_query(query, (bt_id,))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            print(f"❌ Erreur récupération opérations BT #{bt_id}: {e}")
             return []
     
     def _parse_metadata_bt(self, metadonnees_json: str) -> Dict:
@@ -570,40 +682,29 @@ class GestionnaireBonsTravail:
             Dict: Informations d'avancement détaillées
         """
         try:
-            # Récupérer les métadonnées du BT
-            bt_details = self.base.get_formulaire_details(bt_id)
-            if not bt_details:
-                return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0}
-            
-            # Parser les opérations sélectionnées
-            try:
-                metadonnees = json.loads(bt_details.get('metadonnees_json', '{}'))
-                operations_ids = metadonnees.get('operations_selectionnees', [])
-            except (json.JSONDecodeError, TypeError):
-                operations_ids = []
-            
-            if not operations_ids:
-                return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0}
-            
             # Vérifier l'avancement via la table bt_avancement
             avancement_reel = self._get_avancement_reel_bt(bt_id)
             if avancement_reel:
                 return avancement_reel
             
-            # Fallback : calculer basé sur le statut des opérations
+            # Fallback : calculer basé sur les opérations réelles de la table operations
+            operations = self._get_operations_bt(bt_id)
+            if not operations:
+                return {'pourcentage': 0, 'operations_terminees': 0, 'operations_totales': 0}
+            
             operations_terminees = 0
-            for operation_id in operations_ids:
-                if self._operation_terminee(operation_id):
+            for operation in operations:
+                if operation.get('statut') == 'TERMINÉ':
                     operations_terminees += 1
             
-            operations_totales = len(operations_ids)
+            operations_totales = len(operations)
             pourcentage = (operations_terminees / operations_totales * 100) if operations_totales > 0 else 0
             
             return {
                 'pourcentage': round(pourcentage, 1),
                 'operations_terminees': operations_terminees,
                 'operations_totales': operations_totales,
-                'mode_calcul': 'statut_operations'
+                'mode_calcul': 'statut_operations_reelles'
             }
             
         except Exception as e:
@@ -1189,6 +1290,7 @@ class GestionnaireBonsTravail:
             bt_details['avancement_detaille'] = self._get_avancement_detaille_bt(bt_id)
             bt_details['historique_modifications'] = self._get_historique_bt(bt_id)
             bt_details['metadata_parsed'] = self._parse_metadata_bt(bt_details.get('metadonnees_json', '{}'))
+            bt_details['operations_reelles'] = self._get_operations_bt(bt_id)
             
             print(f"✅ Détails complets récupérés pour BT #{bt_id}")
             return bt_details
