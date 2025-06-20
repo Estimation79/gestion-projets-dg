@@ -241,7 +241,7 @@ class GestionnaireBonsTravail:
     def _inserer_operations_bt(self, bt_id: int, data: Dict) -> List[int]:
         """
         Insère les opérations définies dans le BT dans la table 'operations'.
-        NOUVELLE MÉTHODE pour corriger le problème d'insertion des opérations.
+        VERSION CORRIGÉE ET ROBUSTE
         
         Args:
             bt_id (int): ID du formulaire BT parent.
@@ -253,31 +253,35 @@ class GestionnaireBonsTravail:
         operations_creees_ids = []
         operations_data = data.get('operations_detaillees', [])
         project_id = data.get('project_id')
-
+        
         if not operations_data:
             print(f"ℹ️ Aucune opération détaillée à insérer pour BT #{bt_id}")
             return []
-
-        for op_data in operations_data:
+        
+        for i, op_data in enumerate(operations_data):
+            work_center_id = None
+            poste_nom = op_data.get('poste_travail')
+            
+            if not op_data.get('description'):  # Ignorer les opérations vides
+                continue
+            
+            if poste_nom:
+                # Logique de recherche d'ID plus robuste
+                poste_clean = poste_nom.split(' (')[0].strip()
+                wc_result = self.db.execute_query(
+                    "SELECT id FROM work_centers WHERE nom = ?", (poste_clean,)
+                )
+                if wc_result:
+                    work_center_id = wc_result[0]['id']
+                else:
+                    st.warning(f"Opération {i+1} : Poste de travail '{poste_clean}' non trouvé. L'opération sera créée sans poste lié.")
+            
             try:
-                # 1. Trouver l'ID du poste de travail à partir de son nom
-                work_center_id = None
-                poste_nom = op_data.get('poste_travail')
-                if poste_nom:
-                    # Nettoyer le nom du poste (enlever les infos entre parenthèses)
-                    poste_clean = poste_nom.split(' (')[0]
-                    wc_result = self.db.execute_query(
-                        "SELECT id FROM work_centers WHERE nom = ?", (poste_clean,)
-                    )
-                    if wc_result:
-                        work_center_id = wc_result[0]['id']
-
-                # 2. Préparer les données pour l'insertion
                 query = """
                     INSERT INTO operations 
                     (project_id, formulaire_bt_id, work_center_id, description, 
-                     temps_estime, ressource, statut, poste_travail)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     temps_estime, ressource, statut, poste_travail, sequence_number)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     project_id,
@@ -287,17 +291,17 @@ class GestionnaireBonsTravail:
                     op_data.get('temps_prevu', 0.0),
                     op_data.get('assigne'),
                     op_data.get('statut', 'À FAIRE'),
-                    op_data.get('poste_travail')
+                    op_data.get('poste_travail'),
+                    (i + 1) * 10  # Générer un numéro de séquence automatique
                 )
                 
-                # 3. Exécuter l'insertion et récupérer l'ID
                 op_id = self.db.execute_insert(query, params)
                 if op_id:
                     operations_creees_ids.append(op_id)
                     print(f"✅ Opération '{op_data.get('description')}' insérée avec ID #{op_id}")
-
+            
             except Exception as e:
-                st.warning(f"Impossible d'insérer l'opération '{op_data.get('description')}': {e}")
+                st.error(f"Impossible d'insérer l'opération '{op_data.get('description')}': {e}")
                 print(f"❌ Erreur insertion opération: {e}")
                 continue
         
