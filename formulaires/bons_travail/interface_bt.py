@@ -1628,12 +1628,14 @@ Postes de travail: {', '.join(set([op['poste_travail'] for op in operations_data
                 'montant_total': 0,  # Calculé plus tard si nécessaire
                 'notes': notes_completes,
                 'operations_selectionnees': [op['operation'] for op in operations_data],
-                'employes_assignes': list(set([op['assigne'] for op in operations_data if op['assigne']])),
-                'work_centers_utilises': list(set([op['poste_travail'] for op in operations_data if op['poste_travail']])),
                 'description': instructions,
                 'temps_estime_total': sum(op['temps_prevu'] for op in operations_data),
                 'materiaux_requis': materiaux_data,
-                'operations_detaillees': operations_data
+                'operations_detaillees': operations_data,  # Assurez-vous que c'est bien passé
+                
+                # CORRECTION : S'assurer que les employés assignés sont inclus
+                'employes_assignes': list(set([op['assigne'] for op in operations_data if op['assigne']])),
+                'work_centers_utilises': list(set([op['poste_travail'] for op in operations_data if op['poste_travail']]))
             }
             
             bt_id = gestionnaire_bt.creer_bon_travail(data)
