@@ -1809,7 +1809,7 @@ def render_bon_travail_list_dg(gestionnaire_bt):
         </div>
         """, unsafe_allow_html=True)
         
-        # Boutons fonctionnels avec Streamlit (CORRECTION INDENTATION)
+        # Boutons fonctionnels avec Streamlit
         col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
         
         with col_btn1:
