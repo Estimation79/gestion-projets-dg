@@ -1573,9 +1573,11 @@ def show_dashboard():
     gestionnaire_fournisseurs = st.session_state.gestionnaire_fournisseurs
 
     # NOUVEAU : Gestionnaire formulaires pour métriques
-    if 'gestionnaire_formulaires' not in st.session_state:
+    # NOUVEAU : Gestionnaire formulaires pour métriques
+    if FORMULAIRES_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
-    gestionnaire_formulaires = st.session_state.gestionnaire_formulaires
+
+    gestionnaire_formulaires = st.session_state.get('gestionnaire_formulaires')
 
     # Affichage notification migration
     if st.session_state.get('migration_completed'):
@@ -1600,7 +1602,7 @@ def show_dashboard():
     # postes_stats déjà initialisé plus haut
 
     # NOUVEAU : Statistiques formulaires
-    form_stats = gestionnaire_formulaires.get_statistiques_formulaires()
+    form_stats = gestionnaire_formulaires.get_statistiques_formulaires() if gestionnaire_formulaires else {}
 
     # NOUVEAU : Statistiques fournisseurs
     fournisseurs_stats = gestionnaire_fournisseurs.get_fournisseurs_statistics()
@@ -1668,7 +1670,7 @@ def show_dashboard():
             st.metric("✅ Module Unifié", "ACTIF" if PRODUCTION_MANAGEMENT_AVAILABLE else "INACTIF")
 
     # NOUVEAU : Métriques Formulaires
-    if any(form_stats.values()):
+    if gestionnaire_formulaires and any(form_stats.values()):
         st.markdown("### 📑 Aperçu Formulaires DG Inc.")
         form_c1, form_c2, form_c3, form_c4, form_c5 = st.columns(5)
 
