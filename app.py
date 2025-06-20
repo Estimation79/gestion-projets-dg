@@ -1,8 +1,8 @@
 # app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
 # VERSION REFACTORISÉE : Module Production Unifié intégré
 # Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
-# ARCHITECTURE UNIFIÉE : TimeTracker + Postes de Travail fusionnés
-# SANS ASSISTANT IA
+# ARCHITECTURE UNIFIÉE : TimeTracker Pro + Postes de Travail fusionnés
+# CHECKPOINT 6 : TIMETRACKER PRO UNIFIÉ AVEC BTS INTÉGRÉS
 
 import streamlit as st
 import pandas as pd
@@ -158,7 +158,7 @@ def show_admin_header():
     """, unsafe_allow_html=True)
 
 # ========================
-# IMPORTS MODULES ERP (ORIGINAL)
+# IMPORTS MODULES ERP (MODIFIÉS POUR TIMETRACKER PRO)
 # ========================
 
 # PERSISTENT STORAGE : Import du gestionnaire de stockage persistant
@@ -216,8 +216,8 @@ except ImportError:
     EMPLOYEES_AVAILABLE = False
 
 # ARCHITECTURE UNIFIÉE : Postes de travail intégrés dans TimeTracker
-# Les fonctions postes sont maintenant dans timetracker.py
-POSTES_AVAILABLE = False  # Désactivé - maintenant unifié dans TimeTracker
+# Les fonctions postes sont maintenant dans timetracker_unified.py
+POSTES_AVAILABLE = False  # Désactivé - maintenant unifié dans TimeTracker Pro
 
 # NOUVEAU : Importation du module Formulaires
 try:
@@ -239,12 +239,13 @@ try:
 except ImportError:
     FOURNISSEURS_AVAILABLE = False
 
-# INTÉGRATION TIMETRACKER : Importation du module TimeTracker unifié
+# CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO UNIFIÉ
 try:
-    from timetracker import show_timetracker_interface, TimeTrackerERP
+    from timetracker_unified import show_timetracker_unified_interface, TimeTrackerUnified
     TIMETRACKER_AVAILABLE = True
 except ImportError as e:
     TIMETRACKER_AVAILABLE = False
+    print(f"Erreur import TimeTracker Pro: {e}")
 
 # Configuration de la page
 st.set_page_config(
@@ -737,14 +738,16 @@ def init_erp_system():
 
     # ARCHITECTURE UNIFIÉE : Gestionnaire postes intégré dans TimeTracker
     # Plus besoin d'initialiser gestionnaire_postes séparément
-    # Il sera initialisé automatiquement dans show_timetracker_interface()
+    # Il sera initialisé automatiquement dans show_timetracker_unified_interface()
 
-    # INTÉGRATION TIMETRACKER : Gestionnaire unifié
-    if TIMETRACKER_AVAILABLE and ERP_DATABASE_AVAILABLE and 'timetracker_erp' not in st.session_state:
+    # CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO UNIFIÉ
+    if TIMETRACKER_AVAILABLE and ERP_DATABASE_AVAILABLE and 'timetracker_unified' not in st.session_state:
         try:
-            st.session_state.timetracker_erp = TimeTrackerERP(st.session_state.erp_db)
+            st.session_state.timetracker_unified = TimeTrackerUnified(st.session_state.erp_db)
+            print("✅ TimeTracker Pro Unifié initialisé avec intégration BT complète")
         except Exception as e:
-            print(f"Erreur initialisation TimeTracker: {e}")
+            print(f"Erreur initialisation TimeTracker Pro: {e}")
+            st.session_state.timetracker_unified = None
 
 def get_system_stats():
     """Récupère les statistiques système"""
@@ -801,11 +804,11 @@ def show_portal_home():
             <div class="access-icon">👥</div>
             <div class="access-title">EMPLOYÉ</div>
             <div class="access-description">
-                Interface unifiée TimeTracker & Postes de travail
+                Interface unifiée TimeTracker Pro & Postes de travail
             </div>
             <ul class="access-features">
-                <li>⏰🏭 TimeTracker & Postes Unifiés</li>
-                <li>🔧 Bons de Travail</li>
+                <li>⏱️🔧 TimeTracker Pro & Postes Unifiés</li>
+                <li>🔧 Bons de Travail Intégrés</li>
                 <li>📊 Suivi temps réel</li>
                 <li>📱 Interface simplifiée</li>
                 <li>🎯 Gestion centralisée</li>
@@ -879,7 +882,7 @@ def show_portal_home():
         ("📊 Base de Données ERP", ERP_DATABASE_AVAILABLE),
         ("🤝 CRM", CRM_AVAILABLE),
         ("👥 Employés", EMPLOYEES_AVAILABLE),
-        ("⏱️🏭 TimeTracker & Postes", TIMETRACKER_AVAILABLE),
+        ("⏱️🔧 TimeTracker Pro", TIMETRACKER_AVAILABLE),
         ("📑 Formulaires", FORMULAIRES_AVAILABLE),
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
         ("🏭 Production Unifié", PRODUCTION_MANAGEMENT_AVAILABLE),
@@ -902,12 +905,12 @@ def show_portal_home():
         <h4>🏭 ERP Production DG Inc.</h4>
         <p>
             <strong>Desmarais & Gagné Inc.</strong> • Fabrication métallique et industrielle<br>
-            🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🏭 TimeTracker & Postes<br>
+            🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🔧 TimeTracker Pro & Postes<br>
             💾 Stockage persistant • 🔄 Navigation fluide • 🔒 Sécurisé
         </p>
         <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
             <small>
-                👥 <strong>Employés:</strong> Interface unifiée TimeTracker & Postes<br>
+                👥 <strong>Employés:</strong> Interface unifiée TimeTracker Pro & Postes<br>
                 👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
                 🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié
             </small>
@@ -915,27 +918,44 @@ def show_portal_home():
     </div>
     """, unsafe_allow_html=True)
 
+# ========================
+# GESTION REDIRECTION TIMETRACKER PRO (NOUVEAU)
+# ========================
+
+def handle_timetracker_redirect():
+    """Gère la redirection vers TimeTracker Pro avec focus BT"""
+    if st.session_state.get('timetracker_redirect_to_bt'):
+        del st.session_state.timetracker_redirect_to_bt
+        
+        # Forcer l'affichage de TimeTracker Pro avec onglet BT
+        if 'timetracker_unified' in st.session_state:
+            st.session_state.timetracker_focus_tab = "bt_management"
+            st.success("🔧 Redirection vers TimeTracker Pro - Onglet Gestion BTs")
+            show_timetracker_unified_interface()
+            return True
+    return False
+
 def show_employee_interface():
     """Interface simplifiée pour les employés"""
     st.markdown("""
     <div class="employee-header">
         <h2>👥 Interface Employé - DG Inc.</h2>
-        <p>TimeTracker & Postes Unifiés, Bons de Travail et Suivi Production</p>
+        <p>TimeTracker Pro & Postes Unifiés, Bons de Travail et Suivi Production</p>
     </div>
     """, unsafe_allow_html=True)
 
     # Onglets pour organiser l'interface employé
     tab_timetracker, tab_bons_travail, tab_production = st.tabs([
-        "⏱️🏭 TimeTracker & Postes", "🔧 Bons de Travail", "📊 Production"
+        "⏱️🔧 TimeTracker Pro", "🔧 Bons de Travail", "📊 Production"
     ])
 
     with tab_timetracker:
-        if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+        if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
             try:
-                # Interface TimeTracker complète avec postes intégrés
-                show_timetracker_interface()
+                # Interface TimeTracker Pro complète avec BT intégrés
+                show_timetracker_unified_interface()
             except Exception as e:
-                st.error(f"Erreur TimeTracker: {e}")
+                st.error(f"Erreur TimeTracker Pro: {e}")
                 show_fallback_timetracker()
         else:
             show_fallback_timetracker()
@@ -943,34 +963,23 @@ def show_employee_interface():
     with tab_bons_travail:
         if FORMULAIRES_AVAILABLE:
             st.markdown("### 🔧 Mes Bons de Travail")
-            try:
-                # Interface simplifiée pour les formulaires
-                if 'gestionnaire_formulaires' in st.session_state:
-                    formulaires = st.session_state.gestionnaire_formulaires.get_all_formulaires()
-                    bons_travail = [f for f in formulaires if f.get('type_formulaire') == 'BON_TRAVAIL']
-
-                    if bons_travail:
-                        st.success(f"📊 {len(bons_travail)} Bons de Travail disponibles")
-
-                        # Affichage simplifié des BT
-                        for bt in bons_travail[:10]:  # Limiter à 10
-                            with st.expander(f"🔧 BT-{bt.get('numero', 'N/A')} - {bt.get('titre', 'Sans titre')}"):
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.write(f"**Statut:** {bt.get('statut', 'N/A')}")
-                                    st.write(f"**Priorité:** {bt.get('priorite', 'N/A')}")
-                                with col2:
-                                    st.write(f"**Date:** {bt.get('date_creation', 'N/A')}")
-                                    st.write(f"**Projet:** #{bt.get('project_id', 'N/A')}")
-
-                                if bt.get('description'):
-                                    st.write(f"**Description:** {bt.get('description')}")
-                    else:
-                        st.info("Aucun Bon de Travail assigné")
-                else:
-                    st.warning("Gestionnaire formulaires non initialisé")
-            except Exception as e:
-                st.error(f"Erreur chargement Bons de Travail: {e}")
+            
+            # CHECKPOINT 6: Redirection vers TimeTracker Pro
+            st.info("""
+            🚀 **Nouveauté : Bons de Travail Intégrés au TimeTracker Pro !**
+            
+            Les Bons de Travail sont maintenant entièrement intégrés dans l'onglet **⏱️🔧 TimeTracker Pro**.
+            
+            **Workflow unifié :**
+            ✅ Création/Assignation BT → Pointage temps → Suivi progression → Finalisation
+            
+            **Fonctionnalités disponibles :**
+            • 🔧 Gestion complète des BTs • ⏱️ Pointage temps associé • 📊 Analytics temps réel
+            """)
+            
+            if st.button("🚀 Aller à TimeTracker Pro (BTs Intégrés)", use_container_width=True, type="primary"):
+                st.session_state.timetracker_focus_tab = "bt_management"
+                st.rerun()
         else:
             st.warning("❌ Module Formulaires non disponible")
             st.info("Les Bons de Travail ne peuvent pas être affichés")
@@ -985,9 +994,9 @@ def show_employee_interface():
         with col1:
             # Stats depuis TimeTracker unifié si disponible
             postes_count = stats['postes']
-            if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+            if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
                 try:
-                    postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
+                    postes_stats = st.session_state.timetracker_unified.get_work_centers_statistics()
                     postes_count = postes_stats.get('total_postes', stats['postes'])
                 except Exception:
                     pass
@@ -1019,7 +1028,7 @@ def show_employee_interface():
             with col3:
                 st.write(f"👤 {poste['operateur']}")
 
-        st.info("💡 Interface unifiée TimeTracker & Postes - Gestion centralisée")
+        st.info("💡 Interface unifiée TimeTracker Pro & Postes - Gestion centralisée")
 
     # Bouton retour
     st.markdown("---")
@@ -1030,7 +1039,7 @@ def show_employee_interface():
 def show_fallback_timetracker():
     """Interface de pointage de substitution"""
     st.markdown("### ⏰ Pointage Simplifié")
-    st.info("Interface de pointage temporaire en attendant le déploiement complet du TimeTracker")
+    st.info("Interface de pointage temporaire en attendant le déploiement complet du TimeTracker Pro")
 
     # Interface basique de pointage
     with st.container():
@@ -1192,9 +1201,9 @@ def show_erp_main():
     if has_all_permissions or "projects" in permissions or "inventory" in permissions:
         available_pages["🏭 Production"] = "production_management"
 
-    # 7. SUIVI TEMPS RÉEL
+    # 7. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
-        available_pages["⏱️ TimeTracker"] = "timetracker_unified_page"
+        available_pages["⏱️🔧 TimeTracker Pro"] = "timetracker_pro_page"
 
     # 8. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
@@ -1233,7 +1242,7 @@ def show_erp_main():
         "formulaires_page": "📑 Création devis",
         "liste": "📋 Gestion projet",
         "production_management": "🏭 Fabrication",
-        "timetracker_unified_page": "⏱️ Suivi temps",
+        "timetracker_pro_page": "⏱️🔧 Suivi temps",
         "employees_page": "👥 Équipes",
         "gantt": "📈 Planning",
         "calendrier": "📅 Calendrier",
@@ -1320,9 +1329,9 @@ def show_erp_main():
                     st.sidebar.metric("🚨 En Retard", en_retard)
 
                 # ÉTAPE 4 : Navigation vers TimeTracker depuis Formulaires
-                if TIMETRACKER_AVAILABLE and st.sidebar.button("⏱️ Aller au TimeTracker", key="nav_to_tt", use_container_width=True):
-                    st.session_state.page_redirect = "timetracker_page"
-                    st.session_state.navigation_message = "⏱️ Redirection vers TimeTracker..."
+                if TIMETRACKER_AVAILABLE and st.sidebar.button("⏱️ Aller au TimeTracker Pro", key="nav_to_tt", use_container_width=True):
+                    st.session_state.page_redirect = "timetracker_pro_page"
+                    st.session_state.navigation_message = "⏱️ Redirection vers TimeTracker Pro..."
                     st.rerun()
 
     except Exception:
@@ -1353,10 +1362,10 @@ def show_erp_main():
     except Exception:
         pass  # Silencieux si erreur
 
-    # ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker
-    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+    # CHECKPOINT 6 : ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker Pro
+    if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
-            postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
+            postes_stats = st.session_state.timetracker_unified.get_work_centers_statistics()
             if postes_stats.get('total_postes', 0) > 0:
                 st.sidebar.markdown("---")
                 st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Postes Travail</h3>", unsafe_allow_html=True)
@@ -1366,19 +1375,32 @@ def show_erp_main():
         except Exception:
             pass  # Silencieux si erreur
 
-    # INTÉGRATION TIMETRACKER : Statistiques dans la sidebar
-    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+    # CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO : Statistiques dans la sidebar
+    if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
-            tt_stats = st.session_state.timetracker_erp.get_timetracker_statistics()
+            tt_stats = st.session_state.timetracker_unified.get_timetracker_statistics_unified()
             if tt_stats.get('total_employees', 0) > 0 or tt_stats.get('active_entries', 0) > 0:
                 st.sidebar.markdown("---")
-                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️ TimeTracker ERP</h3>", unsafe_allow_html=True)
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️🔧 TimeTracker Pro</h3>", unsafe_allow_html=True)
                 st.sidebar.metric("👥 Employés", tt_stats.get('total_employees', 0))
-                st.sidebar.metric("🟢 Pointages Actifs", tt_stats.get('active_entries', 0))
+                
+                # NOUVEAU : Distinction BT
+                active_total = tt_stats.get('active_entries', 0)
+                active_bt = tt_stats.get('active_entries_bt', 0)
+                st.sidebar.metric("🟢 Pointages Actifs", f"{active_total} ({active_bt} BT)")
+                
                 if tt_stats.get('total_hours_today', 0) > 0:
                     st.sidebar.metric("⏱️ Heures Jour", f"{tt_stats.get('total_hours_today', 0):.1f}h")
                 if tt_stats.get('total_revenue_today', 0) > 0:
                     st.sidebar.metric("💰 Revenus Jour", f"{tt_stats.get('total_revenue_today', 0):,.0f}$")
+                
+                # NOUVEAU : Métriques BT spécifiques
+                bt_entries_today = tt_stats.get('bt_entries_today', 0)
+                if bt_entries_today > 0:
+                    st.sidebar.metric("🔧 Pointages BT", bt_entries_today)
+                    bt_revenue_today = tt_stats.get('bt_revenue_today', 0)
+                    if bt_revenue_today > 0:
+                        st.sidebar.metric("💰 Revenus BT", f"{bt_revenue_today:,.0f}$")
 
                 # ÉTAPE 4 : Navigation vers Bons de Travail depuis TimeTracker
                 if st.sidebar.button("🔧 Voir Mes Bons de Travail", key="nav_to_bt", use_container_width=True):
@@ -1390,7 +1412,7 @@ def show_erp_main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🏭 TimeTracker & Postes Unifiés<br/>🏭 Module Production Unifié"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés<br/>🏭 Module Production Unifié"
 
     # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
     if st.session_state.get('storage_manager'):
@@ -1418,15 +1440,37 @@ def show_erp_main():
             st.error("❌ Module Fournisseurs non disponible")
     elif page_to_show_val == "formulaires_page":
         if FORMULAIRES_AVAILABLE:
+            # CHECKPOINT 6: REDIRECTION BT vers TimeTracker Pro
+            st.info("""
+            📋 **Formulaires DG Inc. - Évolution du Système**
+            
+            🔧 **Bons de Travail** → Désormais intégrés dans **⏱️🔧 TimeTracker Pro**
+            
+            Cette section est réservée aux autres types de formulaires :
+            • 🛒 Bons d'Achat • 📦 Bons de Commande • 💰 Demandes de Prix • 📊 Estimations
+            """)
+            
+            col_redirect1, col_redirect2 = st.columns(2)
+            with col_redirect1:
+                if st.button("🚀 Aller à TimeTracker Pro (pour BTs)", use_container_width=True, type="primary"):
+                    # Redirection vers TimeTracker Pro avec onglet BT
+                    st.session_state.timetracker_redirect_to_bt = True
+                    st.rerun()
+            
+            with col_redirect2:
+                if st.button("📋 Continuer vers Autres Formulaires", use_container_width=True):
+                    pass  # Continue vers formulaires non-BT
+            
+            st.markdown("---")
             show_formulaires_page()
         else:
             st.error("❌ Module Formulaires non disponible")
-    elif page_to_show_val == "timetracker_unified_page":
+    elif page_to_show_val == "timetracker_pro_page":
         if TIMETRACKER_AVAILABLE:
-            show_timetracker_interface()
+            show_timetracker_unified_interface()
         else:
-            st.error("❌ TimeTracker non disponible. Veuillez créer les fichiers timetracker.py et database_sync.py")
-            st.info("📋 Consultez le plan d'intégration pour créer les modules manquants.")
+            st.error("❌ TimeTracker Pro non disponible")
+            st.info("Le module timetracker_unified.py est requis pour cette fonctionnalité.")
     elif page_to_show_val == "production_management":
         # NOUVEAU : Routage vers module unifié
         if PRODUCTION_MANAGEMENT_AVAILABLE:
@@ -1516,10 +1560,10 @@ def show_dashboard():
     
     # ARCHITECTURE UNIFIÉE : Postes via TimeTracker
     postes_stats = {'total_postes': 0, 'postes_robotises': 0, 'postes_cnc': 0, 'par_departement': {}}
-    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+    if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
             # Récupérer les stats postes depuis TimeTracker unifié
-            postes_stats = st.session_state.timetracker_erp.get_work_centers_statistics()
+            postes_stats = st.session_state.timetracker_unified.get_work_centers_statistics()
         except Exception:
             pass  # Utiliser les stats par défaut si erreur
 
@@ -1537,6 +1581,18 @@ def show_dashboard():
     if st.session_state.get('migration_completed'):
         st.success("🎉 Migration complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée avec module production unifié.")
 
+    # CHECKPOINT 6: Notification TimeTracker Pro
+    if st.session_state.get('timetracker_unified'):
+        st.info("""
+        🚀 **TimeTracker Pro Unifié Actif !**
+        
+        ✅ Intégration complète Bons de Travail ↔ TimeTracker
+        ✅ Interface unique : Pointage + Gestion BTs + Analytics + Productivité  
+        ✅ Workflow seamless : Création BT → Assignation → Pointage → Suivi → Finalisation
+        
+        📍 **Accès :** Navigation → ⏱️🔧 TimeTracker Pro
+        """)
+
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
     
@@ -1553,7 +1609,7 @@ def show_dashboard():
         st.markdown("""
         <div class='welcome-card'>
             <h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3>
-            <p>Architecture unifiée avec module production refactorisé. Créez votre premier projet ou explorez les données migrées.</p>
+            <p>Architecture unifiée avec TimeTracker Pro intégré. Créez votre premier projet ou explorez les données migrées.</p>
         </div>
         """, unsafe_allow_html=True)
         return
@@ -1676,24 +1732,26 @@ def show_dashboard():
             efficacite_globale = random.uniform(82, 87)  # Simulation temps réel
             st.metric("⚡ Efficacité", f"{efficacite_globale:.1f}%")
 
-    # INTÉGRATION TIMETRACKER : Métriques temps et revenus
-    if TIMETRACKER_AVAILABLE and 'timetracker_erp' in st.session_state:
+    # CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO : Métriques temps et revenus
+    if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
-            timetracker_stats = st.session_state.timetracker_erp.get_timetracker_statistics()
+            timetracker_stats = st.session_state.timetracker_unified.get_timetracker_statistics_unified()
             if timetracker_stats.get('total_employees', 0) > 0 or timetracker_stats.get('total_entries_today', 0) > 0:
-                st.markdown("### ⏱️ Aperçu TimeTracker DG")
+                st.markdown("### ⏱️🔧 Aperçu TimeTracker Pro")
                 tt_c1, tt_c2, tt_c3, tt_c4 = st.columns(4)
                 with tt_c1:
                     st.metric("👥 Employés ERP", timetracker_stats.get('total_employees', 0))
                 with tt_c2:
-                    st.metric("🟢 Pointages Actifs", timetracker_stats.get('active_entries', 0))
+                    active_total = timetracker_stats.get('active_entries', 0)
+                    active_bt = timetracker_stats.get('active_entries_bt', 0)
+                    st.metric("🟢 Pointages Actifs", f"{active_total} ({active_bt} BT)")
                 with tt_c3:
                     st.metric("📊 Heures Jour", f"{timetracker_stats.get('total_hours_today', 0):.1f}h")
                 with tt_c4:
                     revenue_display = f"{timetracker_stats.get('total_revenue_today', 0):,.0f}$ CAD"
                     st.metric("💰 Revenus Jour", revenue_display)
         except Exception as e:
-            st.warning(f"TimeTracker stats non disponibles: {str(e)}")
+            st.warning(f"TimeTracker Pro stats non disponibles: {str(e)}")
 
     # Métriques RH
     if emp_stats.get('total', 0) > 0:
@@ -2617,11 +2675,11 @@ def show_kanban():
                         st.session_state.show_project_modal = True
                         st.rerun()
                 with col2:
-                    # NOUVEAU : Bouton création BT dans Kanban
+                    # NOUVEAU : Bouton création BT dans Kanban - REDIRECTION vers TimeTracker Pro
                     if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
-                        st.session_state.form_action = "create_bon_travail"
+                        st.session_state.timetracker_redirect_to_bt = True
                         st.session_state.formulaire_project_preselect = pk['id']
-                        st.session_state.page_redirect = "formulaires_page"
+                        st.session_state.page_redirect = "timetracker_pro_page"
                         st.rerun()
                 with col3:
                     # NOUVEAU : Bouton création BA dans Kanban
@@ -2774,9 +2832,10 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🏭 TimeTracker & Postes Intégrés • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
-    if TIMETRACKER_AVAILABLE:
-        footer_text += " • ✅ Module Unifié Actif"
+    # CHECKPOINT 6 : FOOTER MISE À JOUR
+    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🔧 TimeTracker Pro Unifié • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
+    if 'timetracker_unified' in st.session_state and st.session_state.timetracker_unified:
+        footer_text += " • ✅ TimeTracker Pro Actif avec BT Intégrés"
 
     # NOUVEAU : Ajouter info stockage persistant dans footer principal
     if 'storage_manager' in st.session_state and st.session_state.storage_manager:
@@ -2786,7 +2845,7 @@ def show_footer():
         elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
             footer_text += " • ⚠️ Mode Temporaire"
 
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • Module Production Refactorisé • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • TimeTracker Pro Refactorisé • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
 
 # ========================
 # FONCTION PRINCIPALE AVEC PORTAIL
@@ -2841,19 +2900,26 @@ def main():
         'navigation_message': None,
         'current_page': None,
         'admin_permissions': [],
-        'pointages_temp': []
+        'pointages_temp': [],
+        # CHECKPOINT 6 : NOUVELLES VARIABLES TIMETRACKER PRO
+        'timetracker_focus_tab': None,
+        'timetracker_redirect_to_bt': False
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
             st.session_state[k] = v_def
+
+    # CHECKPOINT 6 : GESTION REDIRECTION TIMETRACKER PRO
+    if handle_timetracker_redirect():
+        return
 
     # Gestion des redirections automatiques depuis les modules intégrés
     if st.session_state.get('page_redirect'):
         target_page = st.session_state.page_redirect
         del st.session_state.page_redirect
 
-        if target_page == "timetracker_page":
-            st.session_state.current_page = "timetracker"
+        if target_page == "timetracker_pro_page":
+            st.session_state.current_page = "timetracker_pro"
         elif target_page == "formulaires_page":
             st.session_state.current_page = "formulaires"
 
@@ -2923,3 +2989,7 @@ if __name__ == "__main__":
                     st.info(f"💾 Sauvegarde d'urgence créée: {emergency_backup}")
             except Exception:
                 pass
+
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
+print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
+print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
