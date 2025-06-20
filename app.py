@@ -1198,13 +1198,13 @@ def show_erp_main():
     if has_all_permissions or "projects" in permissions:
         available_pages["📋 Projets"] = "liste"
 
-    # 6. PLANIFICATION FABRICATION
+    # 6. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
+    if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
+        available_pages["⏱️ TimeTracker"] = "timetracker_pro_page"
+
+    # 7. PLANIFICATION FABRICATION
     if has_all_permissions or "projects" in permissions or "inventory" in permissions:
         available_pages["🏭 Production"] = "production_management"
-
-    # 7. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
-    if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
-        available_pages["⏱️🔧 TimeTracker Pro"] = "timetracker_pro_page"
 
     # 8. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
@@ -1218,7 +1218,7 @@ def show_erp_main():
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
-    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>Contact → Prix → Devis → Projet → Production → Suivi</small>", unsafe_allow_html=True)
+    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>Contact → Prix → Devis → Projet → Suivi → Production</small>", unsafe_allow_html=True)
     
     # Bouton déconnexion
     if st.sidebar.button("🚪 Se Déconnecter", use_container_width=True):
@@ -1242,8 +1242,8 @@ def show_erp_main():
         "fournisseurs_page": "🏪 Prix matériaux",
         "formulaires_page": "📑 Création devis",
         "liste": "📋 Gestion projet",
-        "production_management": "🏭 Fabrication",
         "timetracker_pro_page": "⏱️🔧 Suivi temps",
+        "production_management": "🏭 Fabrication",
         "employees_page": "👥 Équipes",
         "gantt": "📈 Planning",
         "calendrier": "📅 Calendrier",
