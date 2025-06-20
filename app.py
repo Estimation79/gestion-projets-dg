@@ -1190,8 +1190,9 @@ def show_erp_main():
         available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
 
     # 4. CRÉER DEVIS AVEC VRAIS PRIX
-    if has_all_permissions or "formulaires" in permissions:
-        available_pages["📑 Formulaires"] = "formulaires_page"
+    # SUPPRIMÉ : Formulaires retiré du menu principal
+    # if has_all_permissions or "formulaires" in permissions:
+    #     available_pages["📑 Formulaires"] = "formulaires_page"
 
     # 5. DEVIS ACCEPTÉ → PROJET CONFIRMÉ
     if has_all_permissions or "projects" in permissions:
