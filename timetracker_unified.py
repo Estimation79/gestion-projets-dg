@@ -357,9 +357,14 @@ class TimeTrackerUnified:
     def creer_bon_travail_integre(self, data: Dict) -> Optional[int]:
         """Crée un BT avec intégration TimeTracker automatique"""
         try:
-            # Validation spécifique BT
-            from formulaires.utils.validations import valider_bon_travail
-            is_valid, erreurs = valider_bon_travail(data)
+            # ANCIENNE VERSION (PROBLÉMATIQUE):
+            # from formulaires.utils.validations import valider_bon_travail
+            # is_valid, erreurs = valider_bon_travail(data)
+            
+            # NOUVELLE VERSION (SOLUTION):
+            # Validation spécifique BT - interne
+            is_valid, erreurs = self._valider_bon_travail_interne(data)
+            
             if not is_valid:
                 for erreur in erreurs:
                     st.error(f"❌ {erreur}")
@@ -398,6 +403,58 @@ class TimeTrackerUnified:
             st.error(f"Erreur création BT: {e}")
             logger.error(f"❌ Erreur détaillée création BT: {e}")
             return None
+
+    def _valider_bon_travail_interne(self, data: Dict) -> Tuple[bool, List[str]]:
+        """Validation interne des données de Bon de Travail"""
+        erreurs = []
+        
+        # Vérifications obligatoires
+        if not data.get('project_id'):
+            erreurs.append("Le projet est obligatoire")
+        
+        if not data.get('employee_id'):
+            erreurs.append("Le responsable est obligatoire")
+        
+        if not data.get('description') and not data.get('notes'):
+            erreurs.append("Une description du travail est obligatoire")
+        
+        if not data.get('numero_document'):
+            erreurs.append("Le numéro de document est obligatoire")
+        
+        # Vérifications de cohérence
+        temps_estime = data.get('temps_estime_total', 0)
+        if temps_estime <= 0:
+            erreurs.append("Le temps estimé doit être supérieur à 0")
+        
+        if temps_estime > 1000:  # Plus de 1000 heures semble excessif
+            erreurs.append("Le temps estimé semble trop élevé (>1000h)")
+        
+        cout_estime = data.get('cout_main_oeuvre_estime', 0)
+        if cout_estime <= 0:
+            erreurs.append("Le coût estimé doit être supérieur à 0")
+        
+        # Vérification des dates
+        date_debut = data.get('date_creation')
+        date_fin = data.get('date_echeance')
+        
+        if date_debut and date_fin:
+            if isinstance(date_debut, str):
+                date_debut = datetime.fromisoformat(date_debut).date()
+            if isinstance(date_fin, str):
+                date_fin = datetime.fromisoformat(date_fin).date()
+            
+            if date_fin < date_debut:
+                erreurs.append("La date de fin ne peut pas être antérieure à la date de début")
+        
+        # Vérification des employés assignés
+        employes_assignes = data.get('employes_assignes', [])
+        if not employes_assignes:
+            erreurs.append("Au moins un employé doit être assigné au BT")
+        
+        # Validation réussie si aucune erreur
+        is_valid = len(erreurs) == 0
+        
+        return is_valid, erreurs
     
     def _create_formulaire_bt(self, data: Dict) -> int:
         """Crée l'entrée formulaire pour le BT"""
