@@ -2701,7 +2701,7 @@ def render_bt_creation_unifiee(tt_unified: TimeTrackerUnified):
         
         with col_info1:
             # Génération du numéro BT
-            numero_bt = f"BT{datetime.now().strftime('%Y%m%d')}{len(projets):03d}"
+            numero_bt = f"BT-{datetime.now().strftime('%Y%m%d')}{len(projets):03d}"
             st.text_input("Numéro BT", value=numero_bt, disabled=True)
             
             # Projet obligatoire
