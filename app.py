@@ -882,7 +882,7 @@ def show_portal_home():
         ("📊 Base de Données ERP", ERP_DATABASE_AVAILABLE),
         ("🤝 CRM", CRM_AVAILABLE),
         ("👥 Employés", EMPLOYEES_AVAILABLE),
-        ("⏱️🔧 TimeTracker Pro", TIMETRACKER_AVAILABLE),
+        ("⏱️ TimeTracker Pro", TIMETRACKER_AVAILABLE),
         ("📑 Formulaires", FORMULAIRES_AVAILABLE),
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
         ("🏭 Production Unifié", PRODUCTION_MANAGEMENT_AVAILABLE),
@@ -2675,7 +2675,7 @@ def show_kanban():
                         st.session_state.show_project_modal = True
                         st.rerun()
                 with col2:
-                    # NOUVEAU : Bouton création BT dans Kanban - REDIRECTION vers TimeTracker Pro
+                    # NOUVEAU : Bouton création BT dans Kanban - REDIRECTION vers 
                     if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
                         st.session_state.timetracker_redirect_to_bt = True
                         st.session_state.formulaire_project_preselect = pk['id']
