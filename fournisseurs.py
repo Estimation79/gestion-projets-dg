@@ -566,11 +566,26 @@ def render_create_demande_prix_form(gestionnaire):
     with st.form("demande_prix_form", clear_on_submit=False):
         # En-tête du formulaire
         col1, col2 = st.columns(2)
+        
+        with col1:
+            # Pré-sélection si définie depuis un autre onglet
+            preselected_id = st.session_state.get('preselected_fournisseur_id')
+            default_index = 0
+            
+            if preselected_id:
+                for i, f in enumerate(fournisseurs_actifs):
+                    if f.get('id') == preselected_id:
+                        default_index = i
+                        break
+                # Réinitialiser après utilisation
+                if 'preselected_fournisseur_id' in st.session_state:
+                    del st.session_state.preselected_fournisseur_id
             
             selected_fournisseur = st.selectbox(
                 "Fournisseur *:",
                 options=fournisseurs_actifs,
                 format_func=lambda f: f.get('nom', 'N/A'),
+                index=default_index,
                 help="Sélectionnez le fournisseur pour la demande de prix"
             )
             
