@@ -940,7 +940,7 @@ def show_employee_interface():
     st.markdown("""
     <div class="employee-header">
         <h2>👥 Interface Employé - DG Inc.</h2>
-        <p>TimeTracker Pro & Postes Unifiés, Bons de Travail et Suivi Production</p>
+        <p>TimeTracker Pro & Postes Unifiés et Suivi Production</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -952,37 +952,13 @@ def show_employee_interface():
     with tab_timetracker:
         if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
             try:
-                # Interface TimeTracker Pro complète avec BT intégrés
+                # Interface TimeTracker Pro complète
                 show_timetracker_unified_interface()
             except Exception as e:
                 st.error(f"Erreur TimeTracker Pro: {e}")
                 show_fallback_timetracker()
         else:
             show_fallback_timetracker()
-
-    with tab_bons_travail:
-        if FORMULAIRES_AVAILABLE:
-            st.markdown("### 🔧 Mes Bons de Travail")
-            
-            # CHECKPOINT 6: Redirection vers TimeTracker Pro
-            st.info("""
-            🚀 **Nouveauté : Bons de Travail Intégrés au TimeTracker Pro !**
-            
-            Les Bons de Travail sont maintenant entièrement intégrés dans l'onglet **⏱️🔧 TimeTracker Pro**.
-            
-            **Workflow unifié :**
-            ✅ Création/Assignation BT → Pointage temps → Suivi progression → Finalisation
-            
-            **Fonctionnalités disponibles :**
-            • 🔧 Gestion complète des BTs • ⏱️ Pointage temps associé • 📊 Analytics temps réel
-            """)
-            
-            if st.button("🚀 Aller à TimeTracker Pro (BTs Intégrés)", use_container_width=True, type="primary"):
-                st.session_state.timetracker_focus_tab = "bt_management"
-                st.rerun()
-        else:
-            st.warning("❌ Module Formulaires non disponible")
-            st.info("Les Bons de Travail ne peuvent pas être affichés")
 
     with tab_production:
         st.markdown("### 🏭 État de la Production")
