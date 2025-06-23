@@ -550,18 +550,22 @@ def render_create_demande_prix_form(gestionnaire):
     """Formulaire de création de Demande de Prix"""
     st.markdown("#### ➕ Nouvelle Demande de Prix")
     
+    # Vérification préalable des fournisseurs
+    fournisseurs = gestionnaire.get_all_fournisseurs()
+    fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
+    
+    if not fournisseurs_actifs:
+        st.warning("⚠️ Aucun fournisseur actif disponible.")
+        st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer une demande de prix.")
+        
+        if st.button("➕ Aller créer un fournisseur", use_container_width=True):
+            st.session_state.fournisseur_action = "create_fournisseur"
+            st.rerun()
+        return
+    
     with st.form("demande_prix_form", clear_on_submit=False):
         # En-tête du formulaire
         col1, col2 = st.columns(2)
-        
-        with col1:
-            # Sélection du fournisseur
-            fournisseurs = gestionnaire.get_all_fournisseurs()
-            fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
-            
-            if not fournisseurs_actifs:
-                st.error("Aucun fournisseur actif disponible.")
-                return
             
             selected_fournisseur = st.selectbox(
                 "Fournisseur *:",
@@ -739,23 +743,42 @@ def render_create_bon_achat_form(gestionnaire):
     """Formulaire de création de Bon d'Achat"""
     st.markdown("#### 🛒 Nouveau Bon d'Achat")
     
+    # Vérification préalable des fournisseurs
+    fournisseurs = gestionnaire.get_all_fournisseurs()
+    fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
+    
+    if not fournisseurs_actifs:
+        st.warning("⚠️ Aucun fournisseur actif disponible.")
+        st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer un bon d'achat.")
+        
+        if st.button("➕ Aller créer un fournisseur", use_container_width=True):
+            st.session_state.fournisseur_action = "create_fournisseur"
+            st.rerun()
+        return
+    
     with st.form("bon_achat_form", clear_on_submit=False):
         # En-tête du formulaire
         col1, col2 = st.columns(2)
         
         with col1:
-            # Sélection du fournisseur
-            fournisseurs = gestionnaire.get_all_fournisseurs()
-            fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
+            # Pré-sélection si définie depuis un autre onglet
+            preselected_id = st.session_state.get('preselected_fournisseur_id')
+            default_index = 0
             
-            if not fournisseurs_actifs:
-                st.error("Aucun fournisseur actif disponible.")
-                return
+            if preselected_id:
+                for i, f in enumerate(fournisseurs_actifs):
+                    if f.get('id') == preselected_id:
+                        default_index = i
+                        break
+                # Réinitialiser après utilisation
+                if 'preselected_fournisseur_id' in st.session_state:
+                    del st.session_state.preselected_fournisseur_id
             
             selected_fournisseur = st.selectbox(
                 "Fournisseur *:",
                 options=fournisseurs_actifs,
                 format_func=lambda f: f.get('nom', 'N/A'),
+                index=default_index,
                 help="Sélectionnez le fournisseur pour le bon d'achat"
             )
             
