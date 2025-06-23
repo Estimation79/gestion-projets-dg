@@ -2605,7 +2605,7 @@ def show_liste_projets():
             st.markdown(f"**🔍 {projets_affiches} projet(s) sur {total_projets} total**")
         with result_col2:
             if projets_filtres:
-                ca_filtre = sum(float(str(p.get('prix_estime', 0)).replace(', '').replace(',', '') or 0) for p in projets_filtres)
+                ca_filtre = sum(float(str(p.get('prix_estime', 0)).replace('$', '').replace(',', '') or 0) for p in projets_filtres)
                 st.markdown(f"**💰 CA filtré: {format_currency(ca_filtre)}**")
         with result_col3:
             if projets_filtres:
