@@ -402,8 +402,8 @@ def show_timetracker_unified_interface():
     st.markdown("### ⏱️ TimeTracker Simple - Pointage Employés")
     
     # Onglets principaux
-    tab_punch, tab_history, tab_stats, tab_admin = st.tabs([
-        "🕐 Pointage", "📊 Historique", "📈 Statistiques", "⚙️ Administration"
+    tab_punch, tab_history, tab_stats = st.tabs([
+        "🕐 Pointage", "📊 Historique", "📈 Statistiques"
     ])
     
     with tab_punch:
