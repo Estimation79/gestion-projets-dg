@@ -28,17 +28,54 @@ class GestionnaireFournisseurs:
             st.error(f"Erreur récupération fournisseurs: {e}")
             return []
     
+    def diagnose_fournisseur_issue(self, fournisseur_id: int):
+        """Diagnostique les problèmes avec un fournisseur spécifique"""
+        try:
+            fournisseur_id = int(fournisseur_id)
+            
+            # 1. Vérifier si le fournisseur existe
+            query1 = "SELECT id, company_id, code_fournisseur FROM fournisseurs WHERE id = ?"
+            result1 = self.db.execute_query(query1, (fournisseur_id,))
+            
+            if not result1:
+                return f"❌ Aucun fournisseur avec l'ID {fournisseur_id}"
+            
+            fournisseur = dict(result1[0])
+            
+            # 2. Vérifier si l'entreprise associée existe
+            query2 = "SELECT id, nom FROM companies WHERE id = ?"
+            result2 = self.db.execute_query(query2, (fournisseur['company_id'],))
+            
+            if not result2:
+                return f"❌ Entreprise manquante (ID: {fournisseur['company_id']}) pour le fournisseur {fournisseur['code_fournisseur']}"
+            
+            company = dict(result2[0])
+            return f"✅ Fournisseur OK: {fournisseur['code_fournisseur']} → Entreprise: {company['nom']}"
+            
+        except Exception as e:
+            return f"❌ Erreur diagnostic: {e}"
+
     def get_fournisseur_by_id(self, fournisseur_id: int) -> Dict:
         """Récupère un fournisseur par ID avec détails complets"""
         try:
+            # Conversion explicite en int si nécessaire
+            fournisseur_id = int(fournisseur_id) if isinstance(fournisseur_id, str) else fournisseur_id
+            
+            # Utiliser LEFT JOIN pour éviter les problèmes si l'entreprise n'existe pas
             query = '''
-                SELECT f.*, c.nom, c.secteur, c.adresse, c.site_web, c.notes as company_notes
+                SELECT f.*, 
+                       COALESCE(c.nom, 'Entreprise inconnue') as nom,
+                       COALESCE(c.secteur, 'N/A') as secteur,
+                       COALESCE(c.adresse, 'N/A') as adresse,
+                       COALESCE(c.site_web, 'N/A') as site_web,
+                       COALESCE(c.notes, 'N/A') as company_notes
                 FROM fournisseurs f
-                JOIN companies c ON f.company_id = c.id
+                LEFT JOIN companies c ON f.company_id = c.id
                 WHERE f.id = ?
             '''
             result = self.db.execute_query(query, (fournisseur_id,))
             return dict(result[0]) if result else {}
+            
         except Exception as e:
             st.error(f"Erreur récupération fournisseur: {e}")
             return {}
@@ -1579,7 +1616,7 @@ def render_fournisseurs_liste(gestionnaire):
         )
         
         if selected_fournisseur_id:
-            action_col1, action_col2, action_col3, action_col4, action_col5 = st.columns(5)
+            action_col1, action_col2, action_col3, action_col4, action_col5, action_col6 = st.columns(6)
             
             with action_col1:
                 if st.button("👁️ Voir Détails", use_container_width=True, key=f"liste_view_fournisseur_{selected_fournisseur_id}"):
@@ -1606,6 +1643,14 @@ def render_fournisseurs_liste(gestionnaire):
                     st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
             
             with action_col5:
+                if st.button("🔍 Diagnostic", use_container_width=True, key=f"liste_diagnostic_fournisseur_{selected_fournisseur_id}"):
+                    diagnostic = gestionnaire.diagnose_fournisseur_issue(selected_fournisseur_id)
+                    if "✅" in diagnostic:
+                        st.success(diagnostic)
+                    else:
+                        st.error(diagnostic)
+            
+            with action_col6:
                 if st.button("🗑️ Désactiver", use_container_width=True, key=f"liste_delete_fournisseur_{selected_fournisseur_id}"):
                     if st.warning("Êtes-vous sûr de vouloir désactiver ce fournisseur ?"):
                         if gestionnaire.delete_fournisseur(selected_fournisseur_id):
@@ -1994,7 +2039,13 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
 def render_fournisseur_details(gestionnaire, fournisseur_data):
     """Affichage détaillé d'un fournisseur"""
     if not fournisseur_data:
-        st.error("Fournisseur non trouvé.")
+        st.error("❌ Fournisseur non trouvé.")
+        st.info("💡 Vérifiez que le fournisseur existe et que l'entreprise associée est valide.")
+        
+        # Bouton pour retourner à la liste
+        if st.button("🔙 Retour à la liste", key="error_return_to_list"):
+            st.session_state.fournisseur_action = None
+            st.rerun()
         return
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
