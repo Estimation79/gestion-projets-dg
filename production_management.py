@@ -632,20 +632,22 @@ def show_main_navigation():
     
     with nav_col1:
         if st.button("🔧 Bons de Travail", use_container_width=True, 
-                     type="primary" if st.session_state.main_mode == 'bt' else "secondary"):
+                     type="primary" if st.session_state.main_mode == 'bt' else "secondary",
+                     key="main_nav_bt"):
             st.session_state.main_mode = 'bt'
             st.session_state.bt_mode = 'create'
             st.rerun()
     
     with nav_col2:
         if st.button("🏭 Postes de Travail", use_container_width=True,
-                     type="primary" if st.session_state.main_mode == 'postes' else "secondary"):
+                     type="primary" if st.session_state.main_mode == 'postes' else "secondary",
+                     key="main_nav_postes"):
             st.session_state.main_mode = 'postes'
             st.session_state.wc_action = 'list'
             st.rerun()
     
     with nav_col3:
-        if st.button("📋 Gestion", use_container_width=True):
+        if st.button("📋 Gestion", use_container_width=True, key="main_nav_gestion"):
             if st.session_state.main_mode == 'bt':
                 st.session_state.bt_mode = 'manage'
             else:
@@ -653,7 +655,7 @@ def show_main_navigation():
             st.rerun()
     
     with nav_col4:
-        if st.button("📊 Statistiques", use_container_width=True):
+        if st.button("📊 Statistiques", use_container_width=True, key="main_nav_stats"):
             if st.session_state.main_mode == 'bt':
                 st.session_state.bt_mode = 'stats'
             else:
@@ -661,7 +663,7 @@ def show_main_navigation():
             st.rerun()
     
     with nav_col5:
-        if st.button("⏱️ TimeTracker Pro", use_container_width=True):
+        if st.button("⏱️ TimeTracker Pro", use_container_width=True, key="main_nav_timetracker"):
             st.session_state.page_redirect = "timetracker_pro_page"
             st.rerun()
     
@@ -675,7 +677,8 @@ def show_bt_navigation():
     
     with nav_col1:
         if st.button("🔧 Nouveau Bon", use_container_width=True, 
-                     type="primary" if st.session_state.bt_mode == 'create' else "secondary"):
+                     type="primary" if st.session_state.bt_mode == 'create' else "secondary",
+                     key="bt_nav_create"):
             st.session_state.bt_mode = 'create'
             st.session_state.bt_current_form_data = st.session_state.gestionnaire_bt.get_empty_bt_form()
             st.session_state.bt_selected_id = None
@@ -683,18 +686,20 @@ def show_bt_navigation():
     
     with nav_col2:
         if st.button("📋 Gestion", use_container_width=True,
-                     type="primary" if st.session_state.bt_mode == 'manage' else "secondary"):
+                     type="primary" if st.session_state.bt_mode == 'manage' else "secondary",
+                     key="bt_nav_manage"):
             st.session_state.bt_mode = 'manage'
             st.rerun()
     
     with nav_col3:
         if st.button("📊 Stats BT", use_container_width=True,
-                     type="primary" if st.session_state.bt_mode == 'stats' else "secondary"):
+                     type="primary" if st.session_state.bt_mode == 'stats' else "secondary",
+                     key="bt_nav_stats"):
             st.session_state.bt_mode = 'stats'
             st.rerun()
     
     with nav_col4:
-        if st.button("🔗 Opérations", use_container_width=True):
+        if st.button("🔗 Opérations", use_container_width=True, key="bt_nav_operations"):
             st.info("🔗 Lien vers module opérations en développement")
 
 def show_bt_form_section():
@@ -930,7 +935,7 @@ def show_tasks_section():
     # Bouton ajouter tâche
     col_add, col_total = st.columns([1, 2])
     with col_add:
-        if st.button("➕ Ajouter une tâche", type="secondary"):
+        if st.button("➕ Ajouter une tâche", type="secondary", key="add_task_btn"):
             form_data['tasks'].append(st.session_state.gestionnaire_bt.get_empty_task())
             st.rerun()
     
@@ -1037,7 +1042,7 @@ def show_materials_section():
         st.rerun()
     
     # Bouton ajouter matériau
-    if st.button("➕ Ajouter un matériau/outil", type="secondary"):
+    if st.button("➕ Ajouter un matériau/outil", type="secondary", key="add_material_btn"):
         form_data['materials'].append(st.session_state.gestionnaire_bt.get_empty_material())
         st.rerun()
 
@@ -1078,7 +1083,7 @@ def show_bt_actions():
     gestionnaire = st.session_state.gestionnaire_bt
     
     with action_col1:
-        if st.button("💾 Sauvegarder Bon de Travail", type="primary", use_container_width=True):
+        if st.button("💾 Sauvegarder Bon de Travail", type="primary", use_container_width=True, key="bt_save_btn"):
             # Validation
             if not form_data.get('project_name'):
                 st.error("❌ Le nom du projet est obligatoire")
@@ -1105,17 +1110,17 @@ def show_bt_actions():
                     st.error("❌ Erreur lors de la sauvegarde")
     
     with action_col2:
-        if st.button("🖨️ Imprimer", use_container_width=True):
+        if st.button("🖨️ Imprimer", use_container_width=True, key="bt_print_btn"):
             st.info("📋 Fonction d'impression en développement")
     
     with action_col3:
-        if st.button("📄 Exporter PDF", use_container_width=True):
+        if st.button("📄 Exporter PDF", use_container_width=True, key="bt_pdf_btn"):
             st.info("📄 Fonction PDF en développement")
     
     with action_col4:
-        if st.button("🗑️ Nouveau Bon", use_container_width=True):
+        if st.button("🗑️ Nouveau Bon", use_container_width=True, key="bt_new_btn"):
             if st.session_state.get('bt_form_has_changes', False):
-                if st.button("⚠️ Confirmer - Perdre les modifications", type="secondary"):
+                if st.button("⚠️ Confirmer - Perdre les modifications", type="secondary", key="bt_confirm_new_btn"):
                     st.session_state.bt_current_form_data = gestionnaire.get_empty_bt_form()
                     st.session_state.bt_form_has_changes = False
                     st.rerun()
@@ -1335,27 +1340,31 @@ def show_work_centers_navigation():
     
     with nav_col1:
         if st.button("📋 Liste Postes", use_container_width=True,
-                     type="primary" if st.session_state.wc_action == 'list' else "secondary"):
+                     type="primary" if st.session_state.wc_action == 'list' else "secondary",
+                     key="wc_nav_list"):
             st.session_state.wc_action = 'list'
             st.session_state.wc_selected_id = None
             st.rerun()
     
     with nav_col2:
         if st.button("➕ Nouveau Poste", use_container_width=True,
-                     type="primary" if st.session_state.wc_action == 'create' else "secondary"):
+                     type="primary" if st.session_state.wc_action == 'create' else "secondary",
+                     key="wc_nav_create"):
             st.session_state.wc_action = 'create'
             st.session_state.wc_selected_id = None
             st.rerun()
     
     with nav_col3:
         if st.button("📊 Stats Postes", use_container_width=True,
-                     type="primary" if st.session_state.wc_action == 'stats' else "secondary"):
+                     type="primary" if st.session_state.wc_action == 'stats' else "secondary",
+                     key="wc_nav_stats"):
             st.session_state.wc_action = 'stats'
             st.rerun()
     
     with nav_col4:
         if st.button("📈 Analyses", use_container_width=True,
-                     type="primary" if st.session_state.wc_action == 'analysis' else "secondary"):
+                     type="primary" if st.session_state.wc_action == 'analysis' else "secondary",
+                     key="wc_nav_analysis"):
             st.session_state.wc_action = 'analysis'
             st.rerun()
 
@@ -1383,7 +1392,7 @@ def show_work_centers_list():
     
     if not postes:
         st.info("🏭 Aucun poste de travail configuré. Commencez par créer votre premier poste !")
-        if st.button("➕ Créer le premier poste", type="primary"):
+        if st.button("➕ Créer le premier poste", type="primary", key="create_first_wc_btn"):
             st.session_state.wc_action = 'create'
             st.rerun()
         return
@@ -1684,12 +1693,12 @@ def show_work_center_details(poste_id):
         action_col1, action_col2 = st.columns(2)
         
         with action_col1:
-            if st.button("✏️ Modifier ce poste", use_container_width=True, type="primary"):
+            if st.button("✏️ Modifier ce poste", use_container_width=True, type="primary", key="edit_this_wc_btn"):
                 st.session_state.wc_action = 'edit'
                 st.rerun()
         
         with action_col2:
-            if st.button("📋 Retour à la liste", use_container_width=True):
+            if st.button("📋 Retour à la liste", use_container_width=True, key="back_to_wc_list_btn"):
                 st.session_state.wc_action = 'list'
                 st.session_state.wc_selected_id = None
                 st.rerun()
@@ -1958,7 +1967,7 @@ def show_delete_confirmation(poste_id):
         col_confirm, col_cancel = st.columns(2)
         
         with col_confirm:
-            if st.button("🗑️ CONFIRMER LA SUPPRESSION", type="primary", use_container_width=True):
+            if st.button("🗑️ CONFIRMER LA SUPPRESSION", type="primary", use_container_width=True, key="confirm_delete_wc_btn"):
                 try:
                     if st.session_state.erp_db.delete_work_center(poste_id):
                         st.success(f"✅ Poste {poste['nom']} supprimé avec succès !")
@@ -1970,7 +1979,7 @@ def show_delete_confirmation(poste_id):
                     st.error(f"❌ Erreur: {e}")
         
         with col_cancel:
-            if st.button("❌ Annuler", use_container_width=True):
+            if st.button("❌ Annuler", use_container_width=True, key="cancel_delete_wc_btn"):
                 st.session_state.wc_confirm_delete = None
                 st.rerun()
     
