@@ -3,6 +3,7 @@
 # Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
 # ARCHITECTURE UNIFIÉE : TimeTracker Pro + Postes de Travail fusionnés
 # CHECKPOINT 6 : TIMETRACKER PRO UNIFIÉ AVEC BTS INTÉGRÉS
+# GESTION PROJETS COMPLÈTE : CRUD + Actions en lot + Recherche avancée
 
 import streamlit as st
 import pandas as pd
@@ -18,6 +19,7 @@ import random
 import hashlib
 from math import gcd
 from fractions import Fraction
+import csv
 
 # ========================
 # CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
@@ -75,6 +77,118 @@ def apply_fallback_styles():
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .css-1d391kg {display: none;}
+    </style>
+    """, unsafe_allow_html=True)
+
+def apply_additional_project_styles():
+    """Styles CSS supplémentaires pour la gestion des projets"""
+    st.markdown("""
+    <style>
+    .project-card {
+        border-left: 5px solid var(--primary-color);
+        margin-bottom: 1rem;
+        padding: 1rem;
+        border-radius: 8px;
+        background: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .project-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    
+    .project-card h4 {
+        margin: 0;
+        color: #1e40af;
+        font-size: 1.1rem;
+    }
+    
+    .project-card p {
+        margin: 0.5rem 0;
+        color: #6b7280;
+    }
+    
+    .status-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: white;
+        display: inline-block;
+    }
+    
+    .priority-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: white;
+        display: inline-block;
+        margin-left: 0.5rem;
+    }
+    
+    .batch-actions-container {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    
+    .batch-actions-container h5 {
+        margin: 0 0 1rem 0;
+        color: #374151;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+    
+    .action-buttons .stButton > button {
+        font-size: 0.8rem;
+        padding: 0.25rem 0.5rem;
+        height: auto;
+        min-height: 2rem;
+    }
+    
+    .filter-container {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    .project-stats {
+        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, var(--primary-color-light) 100%);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        color: var(--primary-color-darker);
+    }
+    
+    .project-stats h5 {
+        margin: 0;
+        font-weight: 600;
+    }
+    
+    @media (max-width: 768px) {
+        .action-buttons {
+            flex-direction: column;
+        }
+        
+        .action-buttons .stButton {
+            width: 100%;
+        }
+        
+        .project-card {
+            padding: 0.75rem;
+        }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -306,6 +420,530 @@ def get_project_statistics(gestionnaire):
     termines = stats['par_statut'].get('TERMINÉ', 0)
     stats['taux_completion'] = (termines / stats['total'] * 100) if stats['total'] > 0 else 0
     return stats
+
+# ========================
+# NOUVELLES FONCTIONS UTILITAIRES POUR GESTION PROJETS
+# ========================
+
+def get_client_display_name(project, crm_manager):
+    """Récupère le nom d'affichage du client"""
+    client_display_name = project.get('client_nom_cache', 'N/A')
+    if client_display_name == 'N/A' and project.get('client_company_id'):
+        entreprise = crm_manager.get_entreprise_by_id(project.get('client_company_id'))
+        if entreprise:
+            client_display_name = entreprise.get('nom', 'N/A')
+    elif client_display_name == 'N/A':
+        client_display_name = project.get('client_legacy', 'N/A')
+    return client_display_name
+
+def get_status_color(status):
+    """Retourne la couleur associée au statut"""
+    colors = {
+        'À FAIRE': '#f59e0b',
+        'EN COURS': '#3b82f6',
+        'EN ATTENTE': '#ef4444',
+        'TERMINÉ': '#10b981',
+        'ANNULÉ': '#6b7280',
+        'LIVRAISON': '#8b5cf6'
+    }
+    return colors.get(status, '#6b7280')
+
+def get_priority_color(priority):
+    """Retourne la couleur associée à la priorité"""
+    colors = {
+        'ÉLEVÉ': '#ef4444',
+        'MOYEN': '#f59e0b',
+        'BAS': '#10b981'
+    }
+    return colors.get(priority, '#6b7280')
+
+def duplicate_project(gestionnaire, original_project):
+    """Duplique un projet existant"""
+    try:
+        # Créer une copie du projet avec un nouveau nom
+        new_project_data = original_project.copy()
+        new_project_data['nom_projet'] = f"COPIE - {original_project.get('nom_projet', 'N/A')}"
+        new_project_data['statut'] = 'À FAIRE'
+        
+        # Supprimer l'ID pour forcer une nouvelle création
+        if 'id' in new_project_data:
+            del new_project_data['id']
+        
+        # Ajuster les dates
+        today = datetime.now().date()
+        new_project_data['date_soumis'] = today.strftime('%Y-%m-%d')
+        new_project_data['date_prevu'] = (today + timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        # Créer le nouveau projet
+        new_id = gestionnaire.ajouter_projet(new_project_data)
+        if new_id:
+            st.success(f"✅ Projet #{new_id} créé par duplication !")
+        else:
+            st.error("❌ Erreur lors de la duplication")
+    except Exception as e:
+        st.error(f"❌ Erreur lors de la duplication: {str(e)}")
+
+def export_projects_to_csv(projects, crm_manager):
+    """Exporte les projets au format CSV"""
+    try:
+        # Préparer les données pour l'export
+        export_data = []
+        for p in projects:
+            client_name = get_client_display_name(p, crm_manager)
+            
+            export_data.append({
+                'ID': p.get('id', ''),
+                'Nom du Projet': p.get('nom_projet', ''),
+                'Client': client_name,
+                'Statut': p.get('statut', ''),
+                'Priorité': p.get('priorite', ''),
+                'Type de Tâche': p.get('tache', ''),
+                'Date de Soumission': p.get('date_soumis', ''),
+                'Date Prévue': p.get('date_prevu', ''),
+                'BD-FT Estimé (h)': p.get('bd_ft_estime', ''),
+                'Prix Estimé': p.get('prix_estime', ''),
+                'Description': p.get('description', '')
+            })
+        
+        # Créer le fichier CSV en mémoire
+        output = io.StringIO()
+        fieldnames = ['ID', 'Nom du Projet', 'Client', 'Statut', 'Priorité', 'Type de Tâche', 
+                     'Date de Soumission', 'Date Prévue', 'BD-FT Estimé (h)', 'Prix Estimé', 'Description']
+        
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(export_data)
+        
+        # Retourner le contenu CSV
+        csv_content = output.getvalue()
+        output.close()
+        
+        return csv_content
+        
+    except Exception as e:
+        st.error(f"Erreur lors de l'export: {str(e)}")
+        return None
+
+def show_project_statistics(projects, crm_manager):
+    """Affiche des statistiques avancées sur les projets"""
+    if not projects:
+        return
+    
+    st.markdown("### 📊 Statistiques Détaillées")
+    
+    # Calculs statistiques
+    total_projets = len(projects)
+    projets_termines = len([p for p in projects if p.get('statut') == 'TERMINÉ'])
+    projets_en_cours = len([p for p in projects if p.get('statut') == 'EN COURS'])
+    projets_en_attente = len([p for p in projects if p.get('statut') == 'EN ATTENTE'])
+    
+    # Calcul du CA total et moyen
+    ca_total = 0
+    ca_values = []
+    for p in projects:
+        try:
+            prix_str = str(p.get('prix_estime', '0')).replace('$', '').replace(',', '')
+            prix_num = float(prix_str) if prix_str else 0
+            ca_total += prix_num
+            if prix_num > 0:
+                ca_values.append(prix_num)
+        except:
+            pass
+    
+    ca_moyen = sum(ca_values) / len(ca_values) if ca_values else 0
+    
+    # Temps total estimé
+    temps_total = 0
+    for p in projects:
+        try:
+            temps = float(p.get('bd_ft_estime', 0))
+            temps_total += temps
+        except:
+            pass
+    
+    # Affichage des métriques
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("📈 Total Projets", total_projets)
+    with col2:
+        taux_completion = (projets_termines / total_projets * 100) if total_projets > 0 else 0
+        st.metric("✅ Taux Completion", f"{taux_completion:.1f}%")
+    with col3:
+        st.metric("🚀 En Cours", projets_en_cours)
+    with col4:
+        st.metric("⏳ En Attente", projets_en_attente)
+    with col5:
+        st.metric("⏱️ Temps Total", f"{temps_total:.1f}h")
+    
+    # Métriques financières
+    col6, col7, col8 = st.columns(3)
+    with col6:
+        st.metric("💰 CA Total", format_currency(ca_total))
+    with col7:
+        st.metric("💳 CA Moyen", format_currency(ca_moyen))
+    with col8:
+        ca_par_heure = ca_total / temps_total if temps_total > 0 else 0
+        st.metric("💎 CA/Heure", format_currency(ca_par_heure))
+
+def advanced_project_search(projects, search_term, crm_manager):
+    """Recherche avancée dans les projets"""
+    if not search_term:
+        return projects
+    
+    search_term = search_term.lower()
+    results = []
+    
+    for p in projects:
+        # Recherche dans tous les champs texte
+        searchable_fields = [
+            str(p.get('nom_projet', '')),
+            str(p.get('description', '')),
+            str(p.get('tache', '')),
+            str(p.get('statut', '')),
+            str(p.get('priorite', '')),
+            get_client_display_name(p, crm_manager),
+            str(p.get('id', ''))
+        ]
+        
+        # Recherche dans les opérations et matériaux
+        for operation in p.get('operations', []):
+            searchable_fields.extend([
+                str(operation.get('description', '')),
+                str(operation.get('poste_travail', '')),
+                str(operation.get('ressource', ''))
+            ])
+        
+        for materiau in p.get('materiaux', []):
+            searchable_fields.extend([
+                str(materiau.get('designation', '')),
+                str(materiau.get('code', '')),
+                str(materiau.get('fournisseur', ''))
+            ])
+        
+        # Vérifier si le terme de recherche est trouvé
+        if any(search_term in field.lower() for field in searchable_fields):
+            results.append(p)
+    
+    return results
+
+def sort_projects(projects, sort_by, crm_manager):
+    """Trie les projets selon le critère sélectionné"""
+    try:
+        if sort_by == "ID (Desc)":
+            return sorted(projects, key=lambda x: x.get('id', 0), reverse=True)
+        elif sort_by == "ID (Asc)":
+            return sorted(projects, key=lambda x: x.get('id', 0))
+        elif sort_by == "Nom":
+            return sorted(projects, key=lambda x: x.get('nom_projet', '').lower())
+        elif sort_by == "Client":
+            return sorted(projects, key=lambda x: get_client_display_name(x, crm_manager).lower())
+        elif sort_by == "Date Début":
+            return sorted(projects, key=lambda x: x.get('date_soumis', ''), reverse=True)
+        elif sort_by == "Prix":
+            return sorted(projects, key=lambda x: float(str(x.get('prix_estime', 0)).replace('$', '').replace(',', '') or 0), reverse=True)
+        elif sort_by == "Statut":
+            return sorted(projects, key=lambda x: x.get('statut', ''))
+        else:
+            return projects
+    except Exception as e:
+        st.error(f"Erreur de tri: {str(e)}")
+        return projects
+
+def show_projects_detailed_view(projects, crm_manager):
+    """Vue liste détaillée avec toutes les actions"""
+    
+    # Sélection pour actions en lot
+    st.markdown("##### 🎯 Actions en Lot")
+    selected_ids = st.multiselect(
+        "Sélectionner des projets:",
+        options=[p.get('id') for p in projects],
+        format_func=lambda x: f"#{x} - {next((p.get('nom_projet', 'N/A') for p in projects if p.get('id') == x), 'N/A')}",
+        key="batch_select_detailed"
+    )
+    
+    if selected_ids:
+        batch_col1, batch_col2, batch_col3, batch_col4 = st.columns(4)
+        with batch_col1:
+            if st.button("🔄 Changer Statut", use_container_width=True, key="batch_status"):
+                st.session_state.batch_action = "change_status"
+                st.session_state.batch_selected_ids = selected_ids
+                st.rerun()
+        with batch_col2:
+            if st.button("⭐ Changer Priorité", use_container_width=True, key="batch_priority"):
+                st.session_state.batch_action = "change_priority"
+                st.session_state.batch_selected_ids = selected_ids
+                st.rerun()
+        with batch_col3:
+            if st.button("📋 Export Sélection", use_container_width=True, key="batch_export"):
+                selected_projects = [p for p in projects if p.get('id') in selected_ids]
+                csv_content = export_projects_to_csv(selected_projects, crm_manager)
+                if csv_content:
+                    st.download_button(
+                        label="⬇️ Télécharger",
+                        data=csv_content,
+                        file_name=f"projets_selection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+        with batch_col4:
+            if st.button("🗑️ Supprimer", use_container_width=True, key="batch_delete"):
+                st.session_state.batch_action = "delete_multiple"
+                st.session_state.batch_selected_ids = selected_ids
+                st.rerun()
+
+    st.markdown("---")
+    
+    # Affichage des projets
+    for i, p in enumerate(projects):
+        client_display_name = get_client_display_name(p, crm_manager)
+        
+        # Carte projet
+        statut_color = get_status_color(p.get('statut', 'N/A'))
+        priority_color = get_priority_color(p.get('priorite', 'N/A'))
+        
+        # Indicateur si sélectionné
+        selected_indicator = "✅ " if p.get('id') in selected_ids else ""
+        
+        st.markdown(f"""
+        <div class="project-card" style="border-left-color: {statut_color};">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="flex: 1;">
+                    <h4>{selected_indicator}#{p.get('id')} - {p.get('nom_projet', 'N/A')}</h4>
+                    <p><strong>👤 Client:</strong> {client_display_name}</p>
+                    <p><strong>📝 Description:</strong> {(p.get('description', 'Aucune description'))[:100]}{'...' if len(p.get('description', '')) > 100 else ''}</p>
+                </div>
+                <div style="text-align: right; min-width: 200px;">
+                    <span class="status-badge" style="background-color: {statut_color};">{p.get('statut', 'N/A')}</span>
+                    <span class="priority-badge" style="background-color: {priority_color};">{p.get('priorite', 'N/A')}</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Informations détaillées
+        info_col1, info_col2, info_col3, info_col4 = st.columns(4)
+        with info_col1:
+            st.markdown(f"**📅 Début:** {p.get('date_soumis', 'N/A')}")
+        with info_col2:
+            st.markdown(f"**🏁 Fin:** {p.get('date_prevu', 'N/A')}")
+        with info_col3:
+            st.markdown(f"**💰 Prix:** {format_currency(p.get('prix_estime', 0))}")
+        with info_col4:
+            st.markdown(f"**⏱️ BD-FT:** {p.get('bd_ft_estime', 'N/A')}h")
+        
+        # Boutons d'action
+        action_col1, action_col2, action_col3, action_col4, action_col5, action_col6 = st.columns(6)
+        
+        with action_col1:
+            if st.button("👁️", key=f"view_{p.get('id')}", help="Voir détails", use_container_width=True):
+                st.session_state.selected_project = p
+                st.session_state.show_project_modal = True
+                st.rerun()
+        
+        with action_col2:
+            if st.button("✏️", key=f"edit_{p.get('id')}", help="Modifier", use_container_width=True):
+                st.session_state.show_edit_project = True
+                st.session_state.edit_project_data = p
+                st.rerun()
+        
+        with action_col3:
+            if st.button("🗑️", key=f"delete_{p.get('id')}", help="Supprimer", use_container_width=True):
+                st.session_state.show_delete_confirmation = True
+                st.session_state.delete_project_id = p.get('id')
+                st.rerun()
+        
+        with action_col4:
+            if st.button("🔧", key=f"bt_{p.get('id')}", help="Bon de Travail", use_container_width=True):
+                st.session_state.timetracker_redirect_to_bt = True
+                st.session_state.formulaire_project_preselect = p.get('id')
+                st.session_state.page_redirect = "timetracker_pro_page"
+                st.rerun()
+        
+        with action_col5:
+            if st.button("🛒", key=f"ba_{p.get('id')}", help="Bon d'Achat", use_container_width=True):
+                st.session_state.form_action = "create_bon_achat"
+                st.session_state.formulaire_project_preselect = p.get('id')
+                st.session_state.page_redirect = "formulaires_page"
+                st.rerun()
+        
+        with action_col6:
+            if st.button("📋", key=f"duplicate_{p.get('id')}", help="Dupliquer", use_container_width=True):
+                duplicate_project(st.session_state.gestionnaire, p)
+                st.rerun()
+        
+        st.markdown("---")
+
+def show_projects_table_view(projects, crm_manager):
+    """Vue tableau compacte"""
+    df_data = []
+    for p in projects:
+        client_display_name = get_client_display_name(p, crm_manager)
+        df_data.append({
+            '🆔': p.get('id', '?'),
+            '📋 Projet': p.get('nom_projet', 'N/A')[:30] + ('...' if len(p.get('nom_projet', '')) > 30 else ''),
+            '👤 Client': client_display_name[:20] + ('...' if len(client_display_name) > 20 else ''),
+            '🚦 Statut': p.get('statut', 'N/A'),
+            '⭐ Priorité': p.get('priorite', 'N/A'),
+            '📅 Début': p.get('date_soumis', 'N/A'),
+            '🏁 Fin': p.get('date_prevu', 'N/A'),
+            '💰 Prix': format_currency(p.get('prix_estime', 0))
+        })
+    
+    df_projets = pd.DataFrame(df_data)
+    st.dataframe(df_projets, use_container_width=True, height=400)
+    
+    # Actions rapides sous le tableau
+    st.markdown("##### Actions Rapides")
+    quick_action_col1, quick_action_col2, quick_action_col3 = st.columns(3)
+    
+    with quick_action_col1:
+        project_id_input = st.number_input("ID Projet:", min_value=1, step=1, key="quick_project_id")
+    
+    with quick_action_col2:
+        if st.button("🔧 Créer BT", use_container_width=True, key="quick_bt"):
+            if project_id_input:
+                st.session_state.timetracker_redirect_to_bt = True
+                st.session_state.formulaire_project_preselect = project_id_input
+                st.session_state.page_redirect = "timetracker_pro_page"
+                st.rerun()
+    
+    with quick_action_col3:
+        if st.button("✏️ Modifier", use_container_width=True, key="quick_edit"):
+            if project_id_input:
+                project = next((p for p in projects if p.get('id') == project_id_input), None)
+                if project:
+                    st.session_state.show_edit_project = True
+                    st.session_state.edit_project_data = project
+                    st.rerun()
+                else:
+                    st.error(f"Projet #{project_id_input} non trouvé")
+
+def show_projects_card_view(projects, crm_manager):
+    """Vue cartes compactes en grille"""
+    # Organiser en grille de 2 colonnes
+    for i in range(0, len(projects), 2):
+        cols = st.columns(2)
+        
+        for j, col in enumerate(cols):
+            if i + j < len(projects):
+                p = projects[i + j]
+                client_name = get_client_display_name(p, crm_manager)
+                statut_color = get_status_color(p.get('statut', 'N/A'))
+                
+                with col:
+                    st.markdown(f"""
+                    <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; border-left: 4px solid {statut_color};">
+                        <h5 style="margin: 0 0 0.5rem 0; color: #1e40af;">#{p.get('id')} - {p.get('nom_projet', 'N/A')[:25]}{'...' if len(p.get('nom_projet', '')) > 25 else ''}</h5>
+                        <p style="margin: 0.25rem 0; font-size: 0.9em;">👤 {client_name[:20]}{'...' if len(client_name) > 20 else ''}</p>
+                        <p style="margin: 0.25rem 0; font-size: 0.9em;">🚦 {p.get('statut', 'N/A')} | ⭐ {p.get('priorite', 'N/A')}</p>
+                        <p style="margin: 0.25rem 0; font-size: 0.9em;">💰 {format_currency(p.get('prix_estime', 0))}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Boutons compacts
+                    btn_col1, btn_col2, btn_col3 = st.columns(3)
+                    with btn_col1:
+                        if st.button("👁️", key=f"card_view_{p.get('id')}", help="Voir", use_container_width=True):
+                            st.session_state.selected_project = p
+                            st.session_state.show_project_modal = True
+                            st.rerun()
+                    with btn_col2:
+                        if st.button("✏️", key=f"card_edit_{p.get('id')}", help="Modifier", use_container_width=True):
+                            st.session_state.show_edit_project = True
+                            st.session_state.edit_project_data = p
+                            st.rerun()
+                    with btn_col3:
+                        if st.button("🔧", key=f"card_bt_{p.get('id')}", help="BT", use_container_width=True):
+                            st.session_state.timetracker_redirect_to_bt = True
+                            st.session_state.formulaire_project_preselect = p.get('id')
+                            st.session_state.page_redirect = "timetracker_pro_page"
+                            st.rerun()
+
+def handle_batch_actions():
+    """Gère les actions en lot sur les projets"""
+    if st.session_state.get('batch_action') and st.session_state.get('batch_selected_ids'):
+        batch_action = st.session_state.batch_action
+        selected_ids = st.session_state.batch_selected_ids
+        gestionnaire = st.session_state.gestionnaire
+        
+        st.markdown("---")
+        st.markdown("### 🎯 Action en Lot")
+        
+        if batch_action == "change_status":
+            st.markdown("#### 🔄 Changement de Statut en Lot")
+            st.info(f"Modification du statut pour {len(selected_ids)} projet(s) sélectionné(s)")
+            
+            new_status = st.selectbox("Nouveau statut:", ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON"])
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Appliquer", use_container_width=True, type="primary"):
+                    success_count = 0
+                    for project_id in selected_ids:
+                        if gestionnaire.modifier_projet(project_id, {'statut': new_status}):
+                            success_count += 1
+                    
+                    st.success(f"✅ Statut modifié pour {success_count}/{len(selected_ids)} projets")
+                    st.session_state.batch_action = None
+                    st.session_state.batch_selected_ids = None
+                    st.rerun()
+            with col2:
+                if st.button("❌ Annuler", use_container_width=True):
+                    st.session_state.batch_action = None
+                    st.session_state.batch_selected_ids = None
+                    st.rerun()
+        
+        elif batch_action == "change_priority":
+            st.markdown("#### ⭐ Changement de Priorité en Lot")
+            st.info(f"Modification de la priorité pour {len(selected_ids)} projet(s) sélectionné(s)")
+            
+            new_priority = st.selectbox("Nouvelle priorité:", ["BAS", "MOYEN", "ÉLEVÉ"])
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Appliquer", use_container_width=True, type="primary"):
+                    success_count = 0
+                    for project_id in selected_ids:
+                        if gestionnaire.modifier_projet(project_id, {'priorite': new_priority}):
+                            success_count += 1
+                    
+                    st.success(f"✅ Priorité modifiée pour {success_count}/{len(selected_ids)} projets")
+                    st.session_state.batch_action = None
+                    st.session_state.batch_selected_ids = None
+                    st.rerun()
+            with col2:
+                if st.button("❌ Annuler", use_container_width=True):
+                    st.session_state.batch_action = None
+                    st.session_state.batch_selected_ids = None
+                    st.rerun()
+        
+        elif batch_action == "delete_multiple":
+            st.markdown("#### 🗑️ Suppression en Lot")
+            st.error(f"⚠️ Vous êtes sur le point de supprimer {len(selected_ids)} projet(s). Cette action est irréversible.")
+            
+            # Afficher la liste des projets à supprimer
+            projects_to_delete = [p for p in gestionnaire.projets if p.get('id') in selected_ids]
+            for p in projects_to_delete:
+                st.markdown(f"- **#{p.get('id')}** - {p.get('nom_projet', 'N/A')}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🗑️ Confirmer Suppression", type="primary", use_container_width=True):
+                    success_count = 0
+                    for project_id in selected_ids:
+                        if gestionnaire.supprimer_projet(project_id):
+                            success_count += 1
+                    
+                    st.success(f"✅ {success_count}/{len(selected_ids)} projets supprimés")
+                    st.session_state.batch_action = None
+                    st.session_state.batch_selected_ids = None
+                    st.rerun()
+            
+            with col2:
+                if st.button("❌ Annuler", use_container_width=True):
+                    st.session_state.batch_action = None
+                    st.session_state.batch_selected_ids = None
+                    st.rerun()
 
 # ========================
 # GESTIONNAIRE PROJETS SQLite (ORIGINAL)
@@ -1471,6 +2109,10 @@ def show_erp_main():
         render_edit_project_form(st.session_state.gestionnaire, st.session_state.gestionnaire_crm, st.session_state.edit_project_data)
     if st.session_state.get('show_delete_confirmation'):
         render_delete_confirmation(st.session_state.gestionnaire)
+    
+    # NOUVEAU : Gestion des actions en lot
+    if st.session_state.get('batch_action'):
+        handle_batch_actions()
 
 # ========================
 # AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR (ORIGINAL)
@@ -1521,7 +2163,7 @@ def show_storage_status_sidebar():
         st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
 
 # ========================
-# FONCTIONS DE VUE ET DE RENDU ERP (RÉDUITES SELON PLAN)
+# FONCTIONS DE VUE ET DE RENDU ERP (MODIFIÉES AVEC GESTION PROJETS COMPLÈTE)
 # ========================
 
 def show_dashboard():
@@ -1549,7 +2191,6 @@ def show_dashboard():
         st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
     gestionnaire_fournisseurs = st.session_state.gestionnaire_fournisseurs
 
-    # NOUVEAU : Gestionnaire formulaires pour métriques
     # NOUVEAU : Gestionnaire formulaires pour métriques
     if FORMULAIRES_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
@@ -1824,71 +2465,180 @@ def show_dashboard():
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
-    st.markdown("### 📋 Liste des Projets")
+    """Liste des projets avec fonctionnalités CRUD complètes - VERSION FINALE"""
+    
+    # Appliquer les styles CSS supplémentaires
+    apply_additional_project_styles()
+    
+    st.markdown("### 📋 Gestion des Projets DG Inc.")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
-    col_create, _ = st.columns([1, 3])
+    # Gestion des actions en lot en priorité
+    if st.session_state.get('batch_action'):
+        handle_batch_actions()
+        return
+
+    # Boutons d'actions principales
+    col_create, col_refresh, col_export, col_stats = st.columns([2, 1, 1, 1])
     with col_create:
-        if st.button("➕ Nouveau Projet", use_container_width=True, key="create_btn_liste"):
+        if st.button("➕ Nouveau Projet", use_container_width=True, key="create_btn_liste", type="primary"):
             st.session_state.show_create_project = True
+            st.rerun()
+    with col_refresh:
+        if st.button("🔄 Actualiser", use_container_width=True, key="refresh_btn_liste"):
+            st.rerun()
+    with col_export:
+        if st.button("📊 Export CSV", use_container_width=True, key="export_btn_liste"):
+            if gestionnaire.projets:
+                csv_content = export_projects_to_csv(gestionnaire.projets, crm_manager)
+                if csv_content:
+                    st.download_button(
+                        label="⬇️ Télécharger CSV",
+                        data=csv_content,
+                        file_name=f"projets_dg_inc_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            else:
+                st.info("Aucun projet à exporter")
+    with col_stats:
+        if st.button("📈 Statistiques", use_container_width=True, key="stats_btn_liste"):
+            st.session_state.show_project_stats = not st.session_state.get('show_project_stats', False)
+
+    # Affichage des statistiques si activé
+    if st.session_state.get('show_project_stats', False) and gestionnaire.projets:
+        with st.expander("📊 Statistiques Détaillées", expanded=True):
+            show_project_statistics(gestionnaire.projets, crm_manager)
+
     st.markdown("---")
 
     if not gestionnaire.projets and not st.session_state.get('show_create_project'):
-        st.info("Aucun projet en base. Cliquez sur 'Nouveau Projet' pour commencer.")
+        st.markdown("""
+        <div class="project-stats">
+            <h5>🚀 Commencez votre premier projet !</h5>
+            <p>Aucun projet en base. Cliquez sur 'Nouveau Projet' pour commencer.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        return
 
     if gestionnaire.projets:
-        # Interface de filtrage
-        with st.expander("🔍 Filtres", expanded=False):
-            fcol1, fcol2, fcol3 = st.columns(3)
+        # Interface de filtrage et recherche avancée
+        with st.expander("🔍 Filtres et Recherche Avancée", expanded=False):
+            search_col, filter_col1, filter_col2, sort_col = st.columns(4)
+            
+            # Récupération des valeurs uniques pour les filtres
             statuts_dispo = sorted(list(set([p.get('statut', 'N/A') for p in gestionnaire.projets])))
             priorites_dispo = sorted(list(set([p.get('priorite', 'N/A') for p in gestionnaire.projets])))
-            with fcol1:
-                filtre_statut = st.multiselect("Statut:", ['Tous'] + statuts_dispo, default=['Tous'])
-            with fcol2:
-                filtre_priorite = st.multiselect("Priorité:", ['Toutes'] + priorites_dispo, default=['Toutes'])
-            with fcol3:
-                recherche = st.text_input("🔍 Rechercher:", placeholder="Nom, client...")
+            
+            with search_col:
+                recherche = st.text_input(
+                    "🔍 Recherche globale:", 
+                    placeholder="Nom, client, description, ID...",
+                    value=st.session_state.get('project_search_term', ''),
+                    key="project_search_input"
+                )
+                st.session_state.project_search_term = recherche
+            
+            with filter_col1:
+                filtre_statut = st.multiselect(
+                    "Statut:", 
+                    ['Tous'] + statuts_dispo, 
+                    default=st.session_state.get('project_filter_statut', ['Tous']),
+                    key="project_filter_statut_input"
+                )
+                st.session_state.project_filter_statut = filtre_statut
+            
+            with filter_col2:
+                filtre_priorite = st.multiselect(
+                    "Priorité:", 
+                    ['Toutes'] + priorites_dispo, 
+                    default=st.session_state.get('project_filter_priorite', ['Toutes']),
+                    key="project_filter_priorite_input"
+                )
+                st.session_state.project_filter_priorite = filtre_priorite
+            
+            with sort_col:
+                tri_par = st.selectbox(
+                    "Trier par:", 
+                    ["ID (Desc)", "ID (Asc)", "Nom", "Client", "Date Début", "Prix", "Statut"],
+                    index=["ID (Desc)", "ID (Asc)", "Nom", "Client", "Date Début", "Prix", "Statut"].index(
+                        st.session_state.get('project_sort_by', "ID (Desc)")
+                    ),
+                    key="project_sort_input"
+                )
+                st.session_state.project_sort_by = tri_par
 
-        # Logique de filtrage
+            # Bouton de réinitialisation des filtres
+            if st.button("🔄 Réinitialiser Filtres", key="reset_filters"):
+                st.session_state.project_search_term = ''
+                st.session_state.project_filter_statut = ['Tous']
+                st.session_state.project_filter_priorite = ['Toutes']
+                st.session_state.project_sort_by = "ID (Desc)"
+                st.rerun()
+
+        # Application des filtres et recherche
         projets_filtres = gestionnaire.projets
+        
+        # Recherche avancée
+        if recherche:
+            projets_filtres = advanced_project_search(projets_filtres, recherche, crm_manager)
+        
+        # Filtres par statut
         if 'Tous' not in filtre_statut and filtre_statut:
             projets_filtres = [p for p in projets_filtres if p.get('statut') in filtre_statut]
+        
+        # Filtres par priorité
         if 'Toutes' not in filtre_priorite and filtre_priorite:
             projets_filtres = [p for p in projets_filtres if p.get('priorite') in filtre_priorite]
-        if recherche:
-            terme = recherche.lower()
-            projets_filtres = [p for p in projets_filtres if
-                               terme in str(p.get('nom_projet', '')).lower() or
-                               terme in str(p.get('client_nom_cache', '')).lower() or
-                               (p.get('client_company_id') and crm_manager.get_entreprise_by_id(p.get('client_company_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_company_id')).get('nom', '').lower()) or
-                               terme in str(p.get('client_legacy', '')).lower()
-                              ]
 
-        st.markdown(f"**{len(projets_filtres)} projet(s) trouvé(s)**")
+        # Application du tri
+        projets_filtres = sort_projects(projets_filtres, tri_par, crm_manager)
+
+        # Résultats de la recherche
+        total_projets = len(gestionnaire.projets)
+        projets_affiches = len(projets_filtres)
+        
+        # Barre de résultats avec métriques rapides
+        result_col1, result_col2, result_col3 = st.columns(3)
+        with result_col1:
+            st.markdown(f"**🔍 {projets_affiches} projet(s) sur {total_projets} total**")
+        with result_col2:
+            if projets_filtres:
+                ca_filtre = sum(float(str(p.get('prix_estime', 0)).replace(', '').replace(',', '') or 0) for p in projets_filtres)
+                st.markdown(f"**💰 CA filtré: {format_currency(ca_filtre)}**")
+        with result_col3:
+            if projets_filtres:
+                temps_filtre = sum(float(p.get('bd_ft_estime', 0) or 0) for p in projets_filtres)
+                st.markdown(f"**⏱️ Temps filtré: {temps_filtre:.1f}h**")
+        
         if projets_filtres:
-            # Tableau des projets
-            df_data = []
-            for p in projets_filtres:
-                client_display_name_df = p.get('client_nom_cache', 'N/A')
-                if client_display_name_df == 'N/A' and p.get('client_company_id'):
-                    entreprise = crm_manager.get_entreprise_by_id(p.get('client_company_id'))
-                    if entreprise:
-                        client_display_name_df = entreprise.get('nom', 'N/A')
-                elif client_display_name_df == 'N/A':
-                    client_display_name_df = p.get('client_legacy', 'N/A')
-
-                df_data.append({
-                    '🆔': p.get('id', '?'),
-                    '📋 Projet': p.get('nom_projet', 'N/A'),
-                    '👤 Client': client_display_name_df,
-                    '🚦 Statut': p.get('statut', 'N/A'),
-                    '⭐ Priorité': p.get('priorite', 'N/A'),
-                    '📅 Début': p.get('date_soumis', 'N/A'),
-                    '🏁 Fin': p.get('date_prevu', 'N/A'),
-                    '💰 Prix': format_currency(p.get('prix_estime', 0))
-                })
-            st.dataframe(pd.DataFrame(df_data), use_container_width=True)
+            # Mode d'affichage
+            view_mode = st.radio(
+                "Mode d'affichage:", 
+                ["📋 Liste Détaillée", "📊 Tableau Compact", "🃏 Cartes Compactes"], 
+                horizontal=True,
+                index=["📋 Liste Détaillée", "📊 Tableau Compact", "🃏 Cartes Compactes"].index(
+                    st.session_state.get('project_view_mode', "📋 Liste Détaillée")
+                ),
+                key="project_view_mode_input"
+            )
+            st.session_state.project_view_mode = view_mode
+            
+            if view_mode == "📊 Tableau Compact":
+                show_projects_table_view(projets_filtres, crm_manager)
+            elif view_mode == "🃏 Cartes Compactes":
+                show_projects_card_view(projets_filtres, crm_manager)
+            else:
+                show_projects_detailed_view(projets_filtres, crm_manager)
+        
+        else:
+            st.markdown("""
+            <div class="project-stats">
+                <h5>🔍 Aucun résultat trouvé</h5>
+                <p>Essayez d'ajuster vos critères de recherche ou de filtrage.</p>
+            </div>
+            """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
     """FORMULAIRE CRÉATION PROJET - VERSION CORRIGÉE avec validation FK"""
@@ -2114,7 +2864,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -2882,7 +3632,16 @@ def main():
         'pointages_temp': [],
         # CHECKPOINT 6 : NOUVELLES VARIABLES TIMETRACKER PRO
         'timetracker_focus_tab': None,
-        'timetracker_redirect_to_bt': False
+        'timetracker_redirect_to_bt': False,
+        # NOUVELLES VARIABLES POUR GESTION PROJETS AMÉLIORÉE
+        'batch_action': None,
+        'batch_selected_ids': None,
+        'show_project_stats': False,
+        'project_search_term': '',
+        'project_filter_statut': ['Tous'],
+        'project_filter_priorite': ['Toutes'],
+        'project_sort_by': "ID (Desc)",
+        'project_view_mode': "📋 Liste Détaillée"
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
@@ -2971,4 +3730,5 @@ if __name__ == "__main__":
 
 print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
 print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
+print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
 print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
