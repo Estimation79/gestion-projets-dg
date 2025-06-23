@@ -558,7 +558,7 @@ def render_create_demande_prix_form(gestionnaire):
         st.warning("⚠️ Aucun fournisseur actif disponible.")
         st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer une demande de prix.")
         
-        if st.button("➕ Aller créer un fournisseur", use_container_width=True):
+        if st.button("➕ Aller créer un fournisseur", use_container_width=True, key="dp_goto_create_fournisseur"):
             st.session_state.fournisseur_action = "create_fournisseur"
             st.rerun()
         return
@@ -766,7 +766,7 @@ def render_create_bon_achat_form(gestionnaire):
         st.warning("⚠️ Aucun fournisseur actif disponible.")
         st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer un bon d'achat.")
         
-        if st.button("➕ Aller créer un fournisseur", use_container_width=True):
+        if st.button("➕ Aller créer un fournisseur", use_container_width=True, key="ba_goto_create_fournisseur"):
             st.session_state.fournisseur_action = "create_fournisseur"
             st.rerun()
         return
@@ -1058,12 +1058,12 @@ def render_list_demandes_prix(gestionnaire):
                 action_col1, action_col2, action_col3 = st.columns(3)
                 
                 with action_col1:
-                    if st.button("👁️ Voir Détails", use_container_width=True):
+                    if st.button("👁️ Voir Détails", use_container_width=True, key="view_dp_details"):
                         st.session_state.selected_formulaire_id = selected_dp_id
                         st.session_state.selected_formulaire_type = 'DEMANDE_PRIX'
                 
                 with action_col2:
-                    if st.button("📤 Marquer Envoyé", use_container_width=True):
+                    if st.button("📤 Marquer Envoyé", use_container_width=True, key="mark_dp_sent"):
                         # Mettre à jour le statut
                         gestionnaire.db.execute_update(
                             "UPDATE formulaires SET statut = 'ENVOYÉ' WHERE id = ?",
@@ -1073,7 +1073,7 @@ def render_list_demandes_prix(gestionnaire):
                         st.rerun()
                 
                 with action_col3:
-                    if st.button("🛒 Convertir en BA", use_container_width=True):
+                    if st.button("🛒 Convertir en BA", use_container_width=True, key="convert_dp_to_ba"):
                         st.info("💡 Consultez l'onglet 'Bon d'Achat' pour créer un nouveau BA basé sur cette DP.")
         
     except Exception as e:
@@ -1168,12 +1168,12 @@ def render_list_bons_achat(gestionnaire):
                 action_col1, action_col2, action_col3 = st.columns(3)
                 
                 with action_col1:
-                    if st.button("👁️ Voir Détails", use_container_width=True):
+                    if st.button("👁️ Voir Détails", use_container_width=True, key="view_ba_details"):
                         st.session_state.selected_formulaire_id = selected_ba_id
                         st.session_state.selected_formulaire_type = 'BON_ACHAT'
                 
                 with action_col2:
-                    if st.button("📤 Marquer Envoyé", use_container_width=True):
+                    if st.button("📤 Marquer Envoyé", use_container_width=True, key="mark_ba_sent"):
                         gestionnaire.db.execute_update(
                             "UPDATE formulaires SET statut = 'ENVOYÉ' WHERE id = ?",
                             (selected_ba_id,)
@@ -1182,7 +1182,7 @@ def render_list_bons_achat(gestionnaire):
                         st.rerun()
                 
                 with action_col3:
-                    if st.button("✅ Marquer Livré", use_container_width=True):
+                    if st.button("✅ Marquer Livré", use_container_width=True, key="mark_ba_delivered"):
                         gestionnaire.db.execute_update(
                             "UPDATE formulaires SET statut = 'TERMINÉ' WHERE id = ?",
                             (selected_ba_id,)
@@ -1261,17 +1261,17 @@ def render_view_demande_prix(gestionnaire):
     action_col1, action_col2, action_col3 = st.columns(3)
     
     with action_col1:
-        if st.button("🔙 Retour à la liste", use_container_width=True):
+        if st.button("🔙 Retour à la liste", use_container_width=True, key="return_to_dp_list"):
             del st.session_state.selected_formulaire_id
             del st.session_state.selected_formulaire_type
             st.rerun()
     
     with action_col2:
-        if st.button("📄 Générer PDF", use_container_width=True):
+        if st.button("📄 Générer PDF", use_container_width=True, key="generate_dp_pdf"):
             st.info("🚧 Fonctionnalité à développer - Génération PDF")
     
     with action_col3:
-        if st.button("🛒 Créer BA basé sur DP", use_container_width=True):
+        if st.button("🛒 Créer BA basé sur DP", use_container_width=True, key="create_ba_from_dp"):
             # Préparer les données pour un nouveau BA
             st.session_state.ba_lines = [
                 {
@@ -1364,17 +1364,17 @@ def render_view_bon_achat(gestionnaire):
     action_col1, action_col2, action_col3 = st.columns(3)
     
     with action_col1:
-        if st.button("🔙 Retour à la liste", use_container_width=True):
+        if st.button("🔙 Retour à la liste", use_container_width=True, key="return_to_ba_list"):
             del st.session_state.selected_formulaire_id
             del st.session_state.selected_formulaire_type
             st.rerun()
     
     with action_col2:
-        if st.button("📄 Générer PDF", use_container_width=True):
+        if st.button("📄 Générer PDF", use_container_width=True, key="generate_ba_pdf"):
             st.info("🚧 Fonctionnalité à développer - Génération PDF")
     
     with action_col3:
-        if st.button("📦 Suivi Livraison", use_container_width=True):
+        if st.button("📦 Suivi Livraison", use_container_width=True, key="track_ba_delivery"):
             st.info("🚧 Fonctionnalité à développer - Suivi livraison")
 
 # =========================================================================
@@ -1390,7 +1390,7 @@ def render_fournisseurs_dashboard(gestionnaire):
     
     if not stats:
         st.info("Aucune donnée fournisseur disponible.")
-        if st.button("➕ Ajouter Premier Fournisseur", use_container_width=True):
+        if st.button("➕ Ajouter Premier Fournisseur", use_container_width=True, key="dashboard_add_first_fournisseur"):
             st.session_state.fournisseur_action = "create_fournisseur"
             st.rerun()
         return
@@ -1473,20 +1473,20 @@ def render_fournisseurs_dashboard(gestionnaire):
     action_col1, action_col2, action_col3, action_col4 = st.columns(4)
     
     with action_col1:
-        if st.button("➕ Nouveau Fournisseur", use_container_width=True):
+        if st.button("➕ Nouveau Fournisseur", use_container_width=True, key="dashboard_new_fournisseur"):
             st.session_state.fournisseur_action = "create_fournisseur"
             st.rerun()
     
     with action_col2:
-        if st.button("📋 Nouvelle Demande Prix", use_container_width=True):
+        if st.button("📋 Nouvelle Demande Prix", use_container_width=True, key="dashboard_new_dp"):
             st.info("💡 Consultez l'onglet 'Demande de Prix' pour créer une nouvelle DP.")
     
     with action_col3:
-        if st.button("🛒 Nouveau Bon d'Achat", use_container_width=True):
+        if st.button("🛒 Nouveau Bon d'Achat", use_container_width=True, key="dashboard_new_ba"):
             st.info("💡 Consultez l'onglet 'Bon d'Achat' pour créer un nouveau BA.")
     
     with action_col4:
-        if st.button("🔄 Actualiser Stats", use_container_width=True):
+        if st.button("🔄 Actualiser Stats", use_container_width=True, key="dashboard_refresh"):
             st.rerun()
 
 def render_fournisseurs_liste(gestionnaire):
@@ -1496,7 +1496,7 @@ def render_fournisseurs_liste(gestionnaire):
     # Bouton d'ajout
     col_add, _ = st.columns([1, 3])
     with col_add:
-        if st.button("➕ Nouveau Fournisseur", use_container_width=True, key="create_fournisseur_btn"):
+        if st.button("➕ Nouveau Fournisseur", use_container_width=True, key="liste_create_fournisseur_btn"):
             st.session_state.fournisseur_action = "create_fournisseur"
             st.rerun()
     
@@ -1582,31 +1582,31 @@ def render_fournisseurs_liste(gestionnaire):
             action_col1, action_col2, action_col3, action_col4, action_col5 = st.columns(5)
             
             with action_col1:
-                if st.button("👁️ Voir Détails", use_container_width=True, key=f"view_fournisseur_{selected_fournisseur_id}"):
+                if st.button("👁️ Voir Détails", use_container_width=True, key=f"liste_view_fournisseur_{selected_fournisseur_id}"):
                     st.session_state.selected_fournisseur_id = selected_fournisseur_id
                     st.session_state.fournisseur_action = "view_fournisseur_details"
                     st.rerun()
             
             with action_col2:
-                if st.button("✏️ Modifier", use_container_width=True, key=f"edit_fournisseur_{selected_fournisseur_id}"):
+                if st.button("✏️ Modifier", use_container_width=True, key=f"liste_edit_fournisseur_{selected_fournisseur_id}"):
                     st.session_state.selected_fournisseur_id = selected_fournisseur_id
                     st.session_state.fournisseur_action = "edit_fournisseur"
                     st.rerun()
             
             with action_col3:
-                if st.button("📋 Demande Prix", use_container_width=True, key=f"dp_fournisseur_{selected_fournisseur_id}"):
+                if st.button("📋 Demande Prix", use_container_width=True, key=f"liste_dp_fournisseur_{selected_fournisseur_id}"):
                     # Pré-sélectionner le fournisseur dans l'onglet DP
                     st.session_state.preselected_fournisseur_id = selected_fournisseur_id
                     st.info("💡 Consultez l'onglet 'Demande de Prix' - Fournisseur pré-sélectionné !")
             
             with action_col4:
-                if st.button("🛒 Bon d'Achat", use_container_width=True, key=f"ba_fournisseur_{selected_fournisseur_id}"):
+                if st.button("🛒 Bon d'Achat", use_container_width=True, key=f"liste_ba_fournisseur_{selected_fournisseur_id}"):
                     # Pré-sélectionner le fournisseur dans l'onglet BA
                     st.session_state.preselected_fournisseur_id = selected_fournisseur_id
                     st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
             
             with action_col5:
-                if st.button("🗑️ Désactiver", use_container_width=True, key=f"delete_fournisseur_{selected_fournisseur_id}"):
+                if st.button("🗑️ Désactiver", use_container_width=True, key=f"liste_delete_fournisseur_{selected_fournisseur_id}"):
                     if st.warning("Êtes-vous sûr de vouloir désactiver ce fournisseur ?"):
                         if gestionnaire.delete_fournisseur(selected_fournisseur_id):
                             st.success("Fournisseur désactivé avec succès !")
@@ -2096,21 +2096,21 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
     action_col1, action_col2, action_col3, action_col4 = st.columns(4)
     
     with action_col1:
-        if st.button("✏️ Modifier", use_container_width=True, key="edit_from_details"):
+        if st.button("✏️ Modifier", use_container_width=True, key="details_edit_from_details"):
             st.session_state.fournisseur_action = "edit_fournisseur"
             st.rerun()
     
     with action_col2:
-        if st.button("📊 Voir Performance", use_container_width=True, key="perf_from_details"):
+        if st.button("📊 Voir Performance", use_container_width=True, key="details_perf_from_details"):
             st.info("💡 Consultez l'onglet 'Performances' pour l'analyse complète.")
     
     with action_col3:
-        if st.button("📋 Créer Demande Prix", use_container_width=True, key="create_dp_from_details"):
+        if st.button("📋 Créer Demande Prix", use_container_width=True, key="details_create_dp_from_details"):
             st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
             st.info("💡 Consultez l'onglet 'Demande de Prix' - Fournisseur pré-sélectionné !")
     
     with action_col4:
-        if st.button("🛒 Créer Bon d'Achat", use_container_width=True, key="create_ba_from_details"):
+        if st.button("🛒 Créer Bon d'Achat", use_container_width=True, key="details_create_ba_from_details"):
             st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
             st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
     
