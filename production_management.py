@@ -1,1096 +1,1299 @@
-# production_management.py - Module Production Unifié
-# ERP Production DG Inc. - Inventaire + Nomenclature + Itinéraire
-# Architecture unifiée avec interface à onglets
+# production_management.py - Gestion des Bons de Travail - Desmarais & Gagné Inc.
+# Interface inspirée du fichier Bons_travail R00.html
+# Intégration complète avec erp_database.py
+# NOUVEAU MODULE FOCALISÉ SUR LES BONS DE TRAVAIL
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import io
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-from math import gcd
-from fractions import Fraction
+from datetime import datetime, timedelta, date
+import json
+import uuid
+from typing import Dict, List, Optional, Any
+import logging
 
-# Import conditionnel pour les dépendances
-try:
-    from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
-    ERP_DATABASE_AVAILABLE = True
-except ImportError:
-    ERP_DATABASE_AVAILABLE = False
+# Configuration logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Import networkx avec gestion d'erreur pour itinéraire
-try:
-    import networkx as nx
-    NETWORKX_AVAILABLE = True
-except ImportError:
-    NETWORKX_AVAILABLE = False
-
-# =========================================================================
-# CONSTANTES ET UTILITAIRES (extraits de app.py)
-# =========================================================================
-
-UNITES_MESURE = ["IMPÉRIAL", "MÉTRIQUE"]
-TYPES_PRODUITS_INVENTAIRE = ["BOIS", "MÉTAL", "QUINCAILLERIE", "OUTILLAGE", "MATÉRIAUX", "ACCESSOIRES", "AUTRE"]
-STATUTS_STOCK_INVENTAIRE = ["DISPONIBLE", "FAIBLE", "CRITIQUE", "EN COMMANDE", "ÉPUISÉ", "INDÉTERMINÉ"]
-
-# Fonctions utilitaires extraites de app.py
-def convertir_en_pieds_pouces_fractions(valeur_decimale_pieds_input):
-    """Convertit une valeur décimale en pieds vers format pieds' pouces fractions\""""
-    try:
-        valeur_pieds_dec = float(valeur_decimale_pieds_input)
-        if valeur_pieds_dec < 0:
-            valeur_pieds_dec = 0
-        pieds_entiers = int(valeur_pieds_dec)
-        pouces_decimaux_restants_total = (valeur_pieds_dec - pieds_entiers) * 12.0
-        pouces_entiers = int(pouces_decimaux_restants_total)
-        fraction_decimale_de_pouce = pouces_decimaux_restants_total - pouces_entiers
-        fraction_denominateur = 8
-        fraction_numerateur_arrondi = round(fraction_decimale_de_pouce * fraction_denominateur)
-        fraction_display_str = ""
-        if fraction_numerateur_arrondi > 0:
-            if fraction_numerateur_arrondi == fraction_denominateur:
-                pouces_entiers += 1
-            else:
-                common_divisor = gcd(fraction_numerateur_arrondi, fraction_denominateur)
-                num_simplifie, den_simplifie = fraction_numerateur_arrondi // common_divisor, fraction_denominateur // common_divisor
-                fraction_display_str = f" {num_simplifie}/{den_simplifie}"
-        if pouces_entiers >= 12:
-            pieds_entiers += pouces_entiers // 12
-            pouces_entiers %= 12
-        if pieds_entiers == 0 and pouces_entiers == 0 and not fraction_display_str:
-            return "0' 0\""
-        return f"{pieds_entiers}' {pouces_entiers}{fraction_display_str}\""
-    except Exception as e:
-        print(f"Erreur de conversion en pieds/pouces : {e}")
-        return "0' 0\""
-
-def valider_mesure_saisie(mesure_saisie_str):
-    """Valide une mesure saisie et retourne le format standardisé"""
-    mesure_nettoyee = str(mesure_saisie_str).strip()
-    if not mesure_nettoyee:
-        return True, "0' 0\""
-    try:
-        valeur_pieds_dec = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_saisie_str)
-        entree_est_zero_explicite = mesure_nettoyee in ["0", "0'", "0\"", "0.0", "0.0'"]
-        if valeur_pieds_dec > 0.000001 or entree_est_zero_explicite:
-            format_standardise = convertir_en_pieds_pouces_fractions(valeur_pieds_dec)
-            return True, format_standardise
-        else:
-            return False, f"Format non reconnu ou invalide: '{mesure_nettoyee}'"
-    except Exception as e_valid:
-        return False, f"Erreur de validation: {e_valid}"
-
-def mettre_a_jour_statut_stock(produit_dict_stat):
-    """Met à jour le statut de stock selon les quantités"""
-    if not isinstance(produit_dict_stat, dict):
-        return
-    try:
-        qty_act_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('quantite_imperial', "0' 0\""))
-        lim_min_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('limite_minimale_imperial', "0' 0\""))
-        qty_res_dec_stat = convertir_pieds_pouces_fractions_en_valeur_decimale(produit_dict_stat.get('quantite_reservee_imperial', "0' 0\""))
-        stock_disp_dec_stat = qty_act_dec_stat - qty_res_dec_stat
-        epsilon_stat = 0.0001
-        if stock_disp_dec_stat <= epsilon_stat:
-            produit_dict_stat['statut'] = "ÉPUISÉ"
-        elif lim_min_dec_stat > epsilon_stat and stock_disp_dec_stat <= lim_min_dec_stat + epsilon_stat:
-            produit_dict_stat['statut'] = "CRITIQUE"
-        elif lim_min_dec_stat > epsilon_stat and stock_disp_dec_stat <= (lim_min_dec_stat * 1.5) + epsilon_stat:
-            produit_dict_stat['statut'] = "FAIBLE"
-        else:
-            produit_dict_stat['statut'] = "DISPONIBLE"
-    except Exception:
-        produit_dict_stat['statut'] = "INDÉTERMINÉ"
-
-def format_currency(value):
-    """Formate une valeur numérique en devise CAD (extrait de nomenclature.py)"""
-    if value is None:
-        return "$0.00"
-    try:
-        s_value = str(value).replace(' ', '').replace('€', '').replace('$', '')
-        if ',' in s_value and ('.' not in s_value or s_value.find(',') > s_value.find('.')):
-            s_value = s_value.replace('.', '').replace(',', '.')
-        elif ',' in s_value and '.' in s_value and s_value.find('.') > s_value.find(','):
-            s_value = s_value.replace(',', '')
-
-        num_value = float(s_value)
-        if num_value == 0:
-            return "$0.00"
-        return f"${num_value:,.2f}"
-    except (ValueError, TypeError):
-        if isinstance(value, (int, float)):
-            return f"${value:,.2f}"
-        return str(value) + " $ (Err)"
-
-# =========================================================================
-# GESTIONNAIRE INVENTAIRE (extrait de app.py)
-# =========================================================================
-
-class GestionnaireInventaireSQL:
-    """Gestionnaire inventaire utilisant SQLite au lieu de JSON"""
-
-    def __init__(self, db: ERPDatabase):
+class GestionnaireBonsTravail:
+    """
+    Gestionnaire principal pour les Bons de Travail
+    Reproduit les fonctionnalités du fichier HTML en version Streamlit
+    """
+    
+    def __init__(self, db):
         self.db = db
-
-    def get_all_inventory(self):
-        """Récupère tout l'inventaire depuis SQLite"""
-        try:
-            rows = self.db.execute_query("SELECT * FROM inventory_items ORDER BY id")
-            return {str(row['id']): dict(row) for row in rows}
-        except Exception as e:
-            st.error(f"Erreur récupération inventaire: {e}")
-            return {}
-
-    def add_inventory_item(self, item_data):
-        """Ajoute un article d'inventaire"""
-        try:
-            query = '''
-                INSERT INTO inventory_items
-                (nom, type_produit, quantite_imperial, quantite_metric,
-                 limite_minimale_imperial, limite_minimale_metric,
-                 quantite_reservee_imperial, quantite_reservee_metric,
-                 statut, description, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            '''
-
-            # Conversions métriques
-            quantite_metric = convertir_imperial_vers_metrique(item_data.get('quantite_imperial', '0\' 0"'))
-            limite_metric = convertir_imperial_vers_metrique(item_data.get('limite_minimale_imperial', '0\' 0"'))
-            reservee_metric = convertir_imperial_vers_metrique(item_data.get('quantite_reservee_imperial', '0\' 0"'))
-
-            item_id = self.db.execute_insert(query, (
-                item_data['nom'],
-                item_data.get('type_produit'),
-                item_data.get('quantite_imperial'),
-                quantite_metric,
-                item_data.get('limite_minimale_imperial'),
-                limite_metric,
-                item_data.get('quantite_reservee_imperial', '0\' 0"'),
-                reservee_metric,
-                item_data.get('statut'),
-                item_data.get('description'),
-                item_data.get('notes')
-            ))
-
-            # Ajouter entrée historique
-            self.db.execute_update(
-                "INSERT INTO inventory_history (inventory_item_id, action, quantite_apres, notes) VALUES (?, ?, ?, ?)",
-                (item_id, 'CRÉATION', item_data.get('quantite_imperial'), 'Création initiale')
-            )
-
-            return item_id
-
-        except Exception as e:
-            st.error(f"Erreur ajout inventaire: {e}")
-            return None
-
-# =========================================================================
-# GESTIONNAIRE NOMENCLATURE (extrait de nomenclature.py)
-# =========================================================================
-
-def calculate_totals(bom_items):
-    """Calcule les totaux pour la BOM"""
-    total_cost = 0
-    item_count = len(bom_items)
+        self.init_session_state()
     
-    for item in bom_items:
-        qty = item.get('quantite', 0) or 0
-        price = item.get('prix_unitaire', 0) or 0
-        total_cost += qty * price
+    def init_session_state(self):
+        """Initialise les variables de session pour les BT"""
+        if 'bt_current_form_data' not in st.session_state:
+            st.session_state.bt_current_form_data = self.get_empty_bt_form()
         
-    return {
-        'total_cost': total_cost,
-        'item_count': item_count
-    }
+        if 'bt_task_counter' not in st.session_state:
+            st.session_state.bt_task_counter = 1
+            
+        if 'bt_material_counter' not in st.session_state:
+            st.session_state.bt_material_counter = 1
+            
+        if 'bt_mode' not in st.session_state:
+            st.session_state.bt_mode = 'create'  # 'create', 'edit', 'view'
+            
+        if 'bt_selected_id' not in st.session_state:
+            st.session_state.bt_selected_id = None
+            
+        if 'bt_show_success' not in st.session_state:
+            st.session_state.bt_show_success = False
 
-def display_bom_stats(bom_items, is_mobile=False):
-    """Affiche des statistiques sur la BOM avec style amélioré"""
-    if not bom_items:
-        st.info("Aucun matériau à analyser.")
-        return
-        
-    totals = calculate_totals(bom_items)
-    
-    if is_mobile:
-        st.metric("📦 Matériaux", totals['item_count'])
-        st.metric("💰 Coût Total", format_currency(totals['total_cost']))
-        st.metric("📊 Coût Moyen", format_currency(totals['total_cost'] / totals['item_count'] if totals['item_count'] > 0 else 0))
-    else:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("📦 Matériaux", totals['item_count'])
-        with col2:
-            st.metric("💰 Coût Total", format_currency(totals['total_cost']))
-        with col3:
-            avg_cost = totals['total_cost'] / totals['item_count'] if totals['item_count'] > 0 else 0
-            st.metric("📊 Coût Moyen", format_currency(avg_cost))
-
-def plot_bom_cost_distribution(bom_items):
-    """Crée un graphique de distribution des coûts avec style amélioré"""
-    if not bom_items:
-        return
-        
-    data = []
-    for item in bom_items:
-        qty = item.get('quantite', 0) or 0
-        price = item.get('prix_unitaire', 0) or 0
-        total_item_cost = qty * price
-        
-        data.append({
-            'designation': item.get('designation', 'Sans nom'),
-            'code': item.get('code_materiau', ''),
-            'cout_total': total_item_cost
-        })
-    
-    df = pd.DataFrame(data)
-    if df.empty or df['cout_total'].sum() == 0:
-        st.info("Pas assez de données pour générer un graphique.")
-        return
-        
-    df = df.sort_values('cout_total', ascending=False)
-    
-    if len(df) > 10:
-        df_display = df.iloc[:10].copy()
-        df_display.loc[len(df_display)] = {
-            'designation': 'Autres', 
-            'cout_total': df.iloc[10:]['cout_total'].sum(),
-            'code': '-'
+    def get_empty_bt_form(self) -> Dict:
+        """Retourne un formulaire BT vide"""
+        today = datetime.now().strftime('%Y-%m-%d')
+        return {
+            'numero_document': self.generate_bt_number(),
+            'project_name': '',
+            'client_name': '',
+            'project_manager': '',
+            'priority': 'NORMAL',
+            'start_date': today,
+            'end_date': (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d'),
+            'work_instructions': '',
+            'safety_notes': '',
+            'quality_requirements': '',
+            'tasks': [self.get_empty_task()],
+            'materials': [self.get_empty_material()],
+            'created_by': 'Utilisateur'
         }
-    else:
-        df_display = df
     
-    fig = px.pie(
-        df_display, 
-        values='cout_total', 
-        names='designation',
-        title="Répartition des coûts par matériau",
-        hole=0.4,
-        color_discrete_sequence=px.colors.sequential.Blues_r
-    )
+    def get_empty_task(self) -> Dict:
+        """Retourne une tâche vide"""
+        return {
+            'operation': '',
+            'description': '',
+            'quantity': 1,
+            'planned_hours': 0.0,
+            'actual_hours': 0.0,
+            'assigned_to': '',
+            'status': 'pending',
+            'start_date': '',
+            'end_date': ''
+        }
     
-    fig.update_layout(
-        plot_bgcolor='rgba(247, 249, 252, 0.8)',
-        paper_bgcolor='rgba(247, 249, 252, 0)',
-        font=dict(family="Arial, sans-serif", size=12, color="#444444")
-    )
+    def get_empty_material(self) -> Dict:
+        """Retourne un matériau vide"""
+        return {
+            'name': '',
+            'description': '',
+            'quantity': 1.0,
+            'unit': 'pcs',
+            'available': 'yes',
+            'notes': ''
+        }
     
-    st.plotly_chart(fig, use_container_width=True)
-
-class BOMManagerSQLite:
-    """Gestionnaire de nomenclature (BOM) utilisant SQLite"""
-    
-    def __init__(self, db: ERPDatabase):
-        self.db = db
-    
-    def get_materials_by_project(self, project_id):
-        """Récupère tous les matériaux d'un projet depuis SQLite"""
+    def generate_bt_number(self) -> str:
+        """Génère un numéro de BT automatique"""
         try:
-            query = '''
-                SELECT m.*, p.nom_projet
-                FROM materials m
-                LEFT JOIN projects p ON m.project_id = p.id
-                WHERE m.project_id = ?
-                ORDER BY m.id
-            '''
-            rows = self.db.execute_query(query, (project_id,))
-            return [dict(row) for row in rows]
+            year = datetime.now().year
+            
+            # Compter les BT existants pour cette année
+            count_result = self.db.execute_query(
+                "SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL' AND numero_document LIKE ?",
+                (f"BT-{year}-%",)
+            )
+            
+            if count_result:
+                count = count_result[0]['count'] + 1
+            else:
+                count = 1
+            
+            return f"BT-{year}-{count:03d}"
+            
         except Exception as e:
-            st.error(f"Erreur récupération matériaux: {e}")
+            logger.error(f"Erreur génération numéro BT: {e}")
+            return f"BT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    def save_bon_travail(self, form_data: Dict) -> Optional[int]:
+        """Sauvegarde un bon de travail dans la base"""
+        try:
+            # Créer le formulaire principal
+            formulaire_data = {
+                'type_formulaire': 'BON_TRAVAIL',
+                'numero_document': form_data['numero_document'],
+                'statut': 'BROUILLON',
+                'priorite': form_data['priority'],
+                'date_echeance': form_data['end_date'],
+                'notes': form_data.get('work_instructions', ''),
+                'metadonnees_json': json.dumps({
+                    'project_name': form_data['project_name'],
+                    'client_name': form_data['client_name'],
+                    'project_manager': form_data['project_manager'],
+                    'start_date': form_data['start_date'],
+                    'safety_notes': form_data.get('safety_notes', ''),
+                    'quality_requirements': form_data.get('quality_requirements', ''),
+                    'created_by': form_data.get('created_by', 'Utilisateur')
+                })
+            }
+            
+            # Insérer le formulaire
+            bt_id = self.db.execute_insert('''
+                INSERT INTO formulaires 
+                (type_formulaire, numero_document, statut, priorite, date_echeance, notes, metadonnees_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                formulaire_data['type_formulaire'],
+                formulaire_data['numero_document'], 
+                formulaire_data['statut'],
+                formulaire_data['priorite'],
+                formulaire_data['date_echeance'],
+                formulaire_data['notes'],
+                formulaire_data['metadonnees_json']
+            ))
+            
+            if not bt_id:
+                return None
+            
+            # Sauvegarder les tâches comme lignes de formulaire
+            for i, task in enumerate(form_data.get('tasks', []), 1):
+                if task['description']:  # Seulement si la tâche a une description
+                    self.db.execute_insert('''
+                        INSERT INTO formulaire_lignes 
+                        (formulaire_id, sequence_ligne, description, quantite, prix_unitaire, notes_ligne)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        bt_id, i, 
+                        f"{task['operation']} - {task['description']}", 
+                        task['quantity'], 
+                        task['planned_hours'],  # Utiliser planned_hours comme "prix"
+                        json.dumps({
+                            'operation': task['operation'],
+                            'actual_hours': task['actual_hours'],
+                            'assigned_to': task['assigned_to'],
+                            'status': task['status'],
+                            'start_date': task.get('start_date', ''),
+                            'end_date': task.get('end_date', '')
+                        })
+                    ))
+            
+            # Sauvegarder les matériaux comme lignes spéciales
+            for i, material in enumerate(form_data.get('materials', []), 1000):  # Commencer à 1000 pour différencier
+                if material['name']:  # Seulement si le matériau a un nom
+                    self.db.execute_insert('''
+                        INSERT INTO formulaire_lignes 
+                        (formulaire_id, sequence_ligne, description, quantite, unite, notes_ligne)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        bt_id, i, 
+                        f"MATERIAU: {material['name']} - {material['description']}", 
+                        material['quantity'], 
+                        material['unit'],
+                        json.dumps({
+                            'type': 'material',
+                            'available': material['available'],
+                            'notes': material.get('notes', '')
+                        })
+                    ))
+            
+            # Enregistrer l'action dans l'historique
+            self.db.execute_insert('''
+                INSERT INTO formulaire_validations
+                (formulaire_id, type_validation, commentaires)
+                VALUES (?, 'CREATION', ?)
+            ''', (bt_id, f"Bon de Travail créé par {form_data.get('created_by', 'Utilisateur')}"))
+            
+            logger.info(f"Bon de Travail {formulaire_data['numero_document']} sauvegardé avec ID {bt_id}")
+            return bt_id
+            
+        except Exception as e:
+            logger.error(f"Erreur sauvegarde BT: {e}")
+            return None
+    
+    def load_bon_travail(self, bt_id: int) -> Optional[Dict]:
+        """Charge un bon de travail depuis la base"""
+        try:
+            # Récupérer le formulaire principal
+            bt_result = self.db.execute_query('''
+                SELECT * FROM formulaires 
+                WHERE id = ? AND type_formulaire = 'BON_TRAVAIL'
+            ''', (bt_id,))
+            
+            if not bt_result:
+                return None
+            
+            bt_data = dict(bt_result[0])
+            
+            # Parser les métadonnées
+            metadonnees = {}
+            try:
+                metadonnees = json.loads(bt_data.get('metadonnees_json', '{}'))
+            except:
+                pass
+            
+            # Récupérer les lignes (tâches et matériaux)
+            lignes_result = self.db.execute_query('''
+                SELECT * FROM formulaire_lignes 
+                WHERE formulaire_id = ? 
+                ORDER BY sequence_ligne
+            ''', (bt_id,))
+            
+            tasks = []
+            materials = []
+            
+            for ligne in lignes_result:
+                ligne_data = dict(ligne)
+                notes_data = {}
+                try:
+                    notes_data = json.loads(ligne_data.get('notes_ligne', '{}'))
+                except:
+                    pass
+                
+                if ligne_data['sequence_ligne'] >= 1000:  # Matériaux
+                    # Extraire le nom du matériau de la description
+                    desc = ligne_data['description']
+                    if desc.startswith('MATERIAU: '):
+                        desc = desc[10:]  # Enlever "MATERIAU: "
+                    
+                    name_desc = desc.split(' - ', 1)
+                    material = {
+                        'name': name_desc[0] if name_desc else desc,
+                        'description': name_desc[1] if len(name_desc) > 1 else '',
+                        'quantity': ligne_data.get('quantite', 1.0),
+                        'unit': ligne_data.get('unite', 'pcs'),
+                        'available': notes_data.get('available', 'yes'),
+                        'notes': notes_data.get('notes', '')
+                    }
+                    materials.append(material)
+                    
+                else:  # Tâches
+                    # Extraire l'opération de la description
+                    desc = ligne_data['description']
+                    op_desc = desc.split(' - ', 1)
+                    
+                    task = {
+                        'operation': op_desc[0] if op_desc else '',
+                        'description': op_desc[1] if len(op_desc) > 1 else desc,
+                        'quantity': ligne_data.get('quantite', 1),
+                        'planned_hours': ligne_data.get('prix_unitaire', 0.0),
+                        'actual_hours': notes_data.get('actual_hours', 0.0),
+                        'assigned_to': notes_data.get('assigned_to', ''),
+                        'status': notes_data.get('status', 'pending'),
+                        'start_date': notes_data.get('start_date', ''),
+                        'end_date': notes_data.get('end_date', '')
+                    }
+                    tasks.append(task)
+            
+            # Construire le formulaire complet
+            form_data = {
+                'id': bt_data['id'],
+                'numero_document': bt_data['numero_document'],
+                'project_name': metadonnees.get('project_name', ''),
+                'client_name': metadonnees.get('client_name', ''),
+                'project_manager': metadonnees.get('project_manager', ''),
+                'priority': bt_data.get('priorite', 'NORMAL'),
+                'start_date': metadonnees.get('start_date', ''),
+                'end_date': bt_data.get('date_echeance', ''),
+                'work_instructions': bt_data.get('notes', ''),
+                'safety_notes': metadonnees.get('safety_notes', ''),
+                'quality_requirements': metadonnees.get('quality_requirements', ''),
+                'tasks': tasks if tasks else [self.get_empty_task()],
+                'materials': materials if materials else [self.get_empty_material()],
+                'created_by': metadonnees.get('created_by', 'Utilisateur'),
+                'statut': bt_data.get('statut', 'BROUILLON'),
+                'date_creation': bt_data.get('created_at', ''),
+                'date_modification': bt_data.get('updated_at', '')
+            }
+            
+            return form_data
+            
+        except Exception as e:
+            logger.error(f"Erreur chargement BT {bt_id}: {e}")
+            return None
+    
+    def get_all_bons_travail(self) -> List[Dict]:
+        """Récupère tous les bons de travail"""
+        try:
+            results = self.db.execute_query('''
+                SELECT f.*, 
+                       COUNT(fl.id) as nb_lignes,
+                       COALESCE(SUM(CASE WHEN fl.sequence_ligne < 1000 THEN fl.prix_unitaire ELSE 0 END), 0) as total_heures_prevues
+                FROM formulaires f
+                LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                GROUP BY f.id
+                ORDER BY f.created_at DESC
+            ''')
+            
+            bons = []
+            for row in results:
+                row_data = dict(row)
+                
+                # Parser les métadonnées
+                metadonnees = {}
+                try:
+                    metadonnees = json.loads(row_data.get('metadonnees_json', '{}'))
+                except:
+                    pass
+                
+                bon = {
+                    'id': row_data['id'],
+                    'numero_document': row_data['numero_document'],
+                    'project_name': metadonnees.get('project_name', 'N/A'),
+                    'client_name': metadonnees.get('client_name', 'N/A'),
+                    'project_manager': metadonnees.get('project_manager', 'Non assigné'),
+                    'priorite': row_data.get('priorite', 'NORMAL'),
+                    'statut': row_data.get('statut', 'BROUILLON'),
+                    'date_creation': row_data.get('created_at', ''),
+                    'date_echeance': row_data.get('date_echeance', ''),
+                    'nb_lignes': row_data.get('nb_lignes', 0),
+                    'total_heures_prevues': row_data.get('total_heures_prevues', 0.0)
+                }
+                bons.append(bon)
+            
+            return bons
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération BTs: {e}")
             return []
     
-    def add_material(self, project_id, code, designation, quantite, unite, prix_unitaire, fournisseur=""):
-        """Ajoute un matériau en SQLite"""
+    def get_bt_statistics(self) -> Dict:
+        """Récupère les statistiques des BT"""
         try:
-            query = '''
-                INSERT INTO materials 
-                (project_id, code_materiau, designation, quantite, unite, prix_unitaire, fournisseur)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            '''
-            material_id = self.db.execute_insert(query, (
-                project_id, code, designation, quantite, unite, prix_unitaire, fournisseur
-            ))
-            return material_id
-        except Exception as e:
-            st.error(f"Erreur ajout matériau: {e}")
-            return None
-    
-    def update_material(self, material_id, code, designation, quantite, unite, prix_unitaire, fournisseur=""):
-        """Modifie un matériau en SQLite"""
-        try:
-            query = '''
-                UPDATE materials 
-                SET code_materiau = ?, designation = ?, quantite = ?, 
-                    unite = ?, prix_unitaire = ?, fournisseur = ?
-                WHERE id = ?
-            '''
-            rows_affected = self.db.execute_update(query, (
-                code, designation, quantite, unite, prix_unitaire, fournisseur, material_id
-            ))
-            return rows_affected > 0
-        except Exception as e:
-            st.error(f"Erreur modification matériau: {e}")
-            return False
-    
-    def delete_material(self, material_id):
-        """Supprime un matériau de SQLite"""
-        try:
-            rows_affected = self.db.execute_update("DELETE FROM materials WHERE id = ?", (material_id,))
-            return rows_affected > 0
-        except Exception as e:
-            st.error(f"Erreur suppression matériau: {e}")
-            return False
-
-# =========================================================================
-# GESTIONNAIRE ITINÉRAIRE (extrait de itineraire.py)
-# =========================================================================
-
-def is_mobile_device():
-    """Estimation si l'appareil est mobile basée sur la largeur de viewport"""
-    if 'is_mobile' not in st.session_state:
-        st.session_state.is_mobile = False
-    return st.session_state.is_mobile
-
-def format_duration(hours):
-    """Formate un nombre d'heures en jours, heures"""
-    if hours is None:
-        return "0h"
-    
-    days = int(hours // 8)  # Considère 8h par jour de travail
-    remaining_hours = hours % 8
-    
-    if days > 0:
-        return f"{days}j {remaining_hours:.1f}h"
-    else:
-        return f"{hours:.1f}h"
-
-def create_gantt_chart(routing_items):
-    """Crée un diagramme de Gantt pour visualiser les opérations"""
-    if not routing_items:
-        return None
-    
-    # Calcul des dates de début optimisées
-    early_starts = {}
-    
-    if NETWORKX_AVAILABLE:
-        G = nx.DiGraph()
-        
-        # Ajouter les nœuds et les arêtes (dépendances)
-        for op in routing_items:
-            op_id = op.get('id')
-            G.add_node(op_id, duration=op.get('temps_estime', 0) or 0)
+            # Statistiques de base
+            stats_result = self.db.execute_query('''
+                SELECT 
+                    COUNT(*) as total_bt,
+                    COUNT(CASE WHEN statut = 'BROUILLON' THEN 1 END) as brouillons,
+                    COUNT(CASE WHEN statut = 'VALIDÉ' THEN 1 END) as valides,
+                    COUNT(CASE WHEN statut = 'EN COURS' THEN 1 END) as en_cours,
+                    COUNT(CASE WHEN statut = 'TERMINÉ' THEN 1 END) as termines,
+                    COUNT(CASE WHEN priorite = 'CRITIQUE' THEN 1 END) as critiques,
+                    COUNT(CASE WHEN priorite = 'URGENT' THEN 1 END) as urgents
+                FROM formulaires 
+                WHERE type_formulaire = 'BON_TRAVAIL'
+            ''')
             
-            # Ajouter les dépendances
-            pred_id = op.get('predecesseur_id')
-            if pred_id is not None and pred_id != op_id:
-                G.add_edge(pred_id, op_id)
-        
-        # Trouver les nœuds sans prédécesseurs (départs)
-        start_nodes = [n for n in G.nodes() if G.in_degree(n) == 0]
-        
-        # Initialiser les dates de départ
-        for node in start_nodes:
-            early_starts[node] = 0
-        
-        # Parcourir le graphe topologiquement pour calculer les dates de début
-        try:
-            for node in nx.topological_sort(G):
-                if node not in early_starts:
-                    # Trouver la date la plus tardive parmi tous les prédécesseurs
-                    predecessors = list(G.predecessors(node))
-                    if predecessors:
-                        max_end_time = max(early_starts[p] + G.nodes[p]['duration'] for p in predecessors)
-                        early_starts[node] = max_end_time
-                    else:
-                        early_starts[node] = 0
-        except nx.NetworkXUnfeasible:
-            # En cas de cycle dans le graphe
-            st.warning("Impossible de calculer les dates de début en raison de dépendances cycliques.")
-            # Fallback simple
-            for op in routing_items:
-                early_starts[op.get('id')] = 0
-    else:
-        # Méthode simplifiée sans networkx
-        for op in routing_items:
-            early_starts[op.get('id')] = 0
-    
-    # Préparer les données pour Plotly
-    df_data = []
-    for op in routing_items:
-        op_id = op.get('id')
-        start_time = early_starts.get(op_id, 0)
-        duration = op.get('temps_estime', 0) or 0
-        end_time = start_time + duration
-        
-        df_data.append({
-            'Task': f"{op.get('sequence', '?')} - {op.get('description', 'Sans nom')}",
-            'Resource': op.get('ressource', 'N/A'),
-            'Start': start_time,
-            'Finish': end_time,
-            'ID': op_id,
-            'Status': op.get('statut', 'À FAIRE'),
-            'Duration': duration
-        })
-    
-    df = pd.DataFrame(df_data)
-    
-    # Couleurs selon le statut
-    color_map = {
-        'À FAIRE': '#9ebdd8',
-        'EN COURS': '#8fd1cd', 
-        'TERMINÉ': '#a5d8a7',
-        'EN ATTENTE': '#f8d0a9',
-        'ANNULÉ': '#f4a6a6'
-    }
-    
-    # Créer le diagramme
-    fig = px.timeline(
-        df, 
-        x_start='Start', 
-        x_end='Finish', 
-        y='Task',
-        color='Status',
-        color_discrete_map=color_map,
-        title="Planification des opérations"
-    )
-    
-    fig.update_layout(
-        autosize=True,
-        height=max(400, 100 + 40 * len(df)),
-        plot_bgcolor='rgba(248, 249, 250, 1)',
-        paper_bgcolor='rgba(248, 249, 250, 0)',
-        font=dict(family="Arial, sans-serif", size=12, color="#444444")
-    )
-    
-    return fig
+            if stats_result:
+                stats = dict(stats_result[0])
+            else:
+                stats = {
+                    'total_bt': 0, 'brouillons': 0, 'valides': 0, 
+                    'en_cours': 0, 'termines': 0, 'critiques': 0, 'urgents': 0
+                }
+            
+            # Statistiques TimeTracker
+            tt_stats_result = self.db.execute_query('''
+                SELECT 
+                    COUNT(DISTINCT te.formulaire_bt_id) as bt_avec_pointages,
+                    COUNT(te.id) as total_sessions,
+                    COALESCE(SUM(te.total_hours), 0) as total_heures,
+                    COALESCE(SUM(te.total_cost), 0) as total_cout
+                FROM time_entries te
+                WHERE te.formulaire_bt_id IS NOT NULL
+            ''')
+            
+            if tt_stats_result:
+                tt_stats = dict(tt_stats_result[0])
+                stats.update(tt_stats)
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur statistiques BT: {e}")
+            return {}
 
-def visualize_network(routing_items):
-    """Visualise le réseau de dépendances des opérations"""
-    if not routing_items or not NETWORKX_AVAILABLE:
-        return None
-    
-    # Créer un graphe dirigé
-    G = nx.DiGraph()
-    
-    # Ajouter les nœuds avec attributs
-    for op in routing_items:
-        op_id = op.get('id')
-        G.add_node(
-            op_id, 
-            label=f"{op.get('sequence', '?')}: {op.get('description', '')}",
-            status=op.get('statut', 'À FAIRE'),
-            duration=op.get('temps_estime', 0) or 0,
-            resource=op.get('ressource', '')
-        )
-        
-        # Ajouter les dépendances
-        pred_id = op.get('predecesseur_id')
-        if pred_id is not None and pred_id != op_id:
-            G.add_edge(pred_id, op_id)
-    
-    # Mise en page du graphe
-    pos = nx.spring_layout(G, k=0.5, iterations=100)
-    
-    # Créer le graphique avec Plotly
-    edge_trace = go.Scatter(
-        x=[], y=[],
-        line=dict(width=1.5, color='rgba(180, 200, 220, 0.7)'),
-        hoverinfo='none',
-        mode='lines'
-    )
-    
-    # Ajouter les arêtes
-    for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_trace['x'] += (x0, x1, None)
-        edge_trace['y'] += (y0, y1, None)
-    
-    # Couleurs des nœuds selon le statut
-    node_colors = {
-        'À FAIRE': '#9ebdd8',
-        'EN COURS': '#8fd1cd',
-        'TERMINÉ': '#a5d8a7',
-        'EN ATTENTE': '#f8d0a9',
-        'ANNULÉ': '#f4a6a6'
-    }
-    
-    node_trace = go.Scatter(
-        x=[pos[node][0] for node in G.nodes()],
-        y=[pos[node][1] for node in G.nodes()],
-        mode='markers+text',
-        text=[G.nodes[node]['label'] for node in G.nodes()],
-        textposition="bottom center",
-        textfont=dict(family="Arial", size=10, color="#444"),
-        hovertext=[f"<b>{G.nodes[node]['label']}</b><br>Durée: {format_duration(G.nodes[node]['duration'])}<br>Ressource: {G.nodes[node]['resource']}<br>Statut: {G.nodes[node]['status']}" for node in G.nodes()],
-        hoverinfo='text',
-        marker=dict(
-            size=22,
-            color=[node_colors.get(G.nodes[node]['status'], '#9ebdd8') for node in G.nodes()],
-            line=dict(width=2, color='white'),
-            symbol='circle',
-            opacity=0.9
-        )
-    )
-    
-    # Créer la figure
-    fig = go.Figure(data=[edge_trace, node_trace],
-                  layout=go.Layout(
-                      title="Réseau de dépendances des opérations",
-                      showlegend=False,
-                      hovermode='closest',
-                      margin=dict(b=20, l=5, r=5, t=60),
-                      xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                      yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                      plot_bgcolor='rgba(248,249,250,1)',
-                      paper_bgcolor='rgba(248,249,250,0)'
-                  ))
-    
-    return fig
-
-def calculate_critical_path(routing_items):
-    """Calcule et renvoie le chemin critique du projet"""
-    if not routing_items:
-        return []
-    
-    if not NETWORKX_AVAILABLE:
-        # Version simplifiée sans networkx
-        result = []
-        op_ids_with_successors = set()
-        
-        for op in routing_items:
-            pred_id = op.get('predecesseur_id')
-            if pred_id is not None:
-                op_ids_with_successors.add(pred_id)
-        
-        for op in routing_items:
-            if op.get('id') not in op_ids_with_successors:
-                result.append(op)
-        
-        return result
-    
-    # Méthode complète avec networkx
-    G = nx.DiGraph()
-    
-    # Ajouter les nœuds et les arêtes avec durées
-    for op in routing_items:
-        op_id = op.get('id')
-        G.add_node(op_id, duration=op.get('temps_estime', 0) or 0, description=op.get('description', ''))
-        
-        # Ajouter les dépendances
-        pred_id = op.get('predecesseur_id')
-        if pred_id is not None and pred_id != op_id:
-            pred_op = next((item for item in routing_items if item.get('id') == pred_id), None)
-            if pred_op:
-                weight = pred_op.get('temps_estime', 0) or 0
-                G.add_edge(pred_id, op_id, weight=weight)
-    
-    # Trouver les nœuds de départ et d'arrivée
-    start_nodes = [n for n in G.nodes() if G.in_degree(n) == 0]
-    end_nodes = [n for n in G.nodes() if G.out_degree(n) == 0]
-    
-    if len(start_nodes) == 0:
-        return []  # Graphe cyclique, pas de chemin critique
-    
-    # Trouver le chemin critique (le plus long)
-    critical_path = None
-    max_path_length = -1
-    
-    for start_node in start_nodes:
-        for end_node in end_nodes:
-            try:
-                for path in nx.all_simple_paths(G, start_node, end_node):
-                    path_length = sum(G.nodes[node]['duration'] for node in path)
-                    
-                    if path_length > max_path_length:
-                        max_path_length = path_length
-                        critical_path = path
-            except nx.NetworkXNoPath:
-                continue
-    
-    # Convertir les IDs du chemin critique en données complètes
-    if critical_path:
-        critical_ops = []
-        for op_id in critical_path:
-            op = next((item for item in routing_items if item.get('id') == op_id), None)
-            if op:
-                critical_ops.append(op)
-        return critical_ops
-    else:
-        return []
-
-# =========================================================================
-# FONCTIONS D'INITIALISATION
-# =========================================================================
-
-def init_production_session_state():
-    """Initialise les variables de session pour production"""
-    session_vars = {
-        'inv_action_mode': "Voir Liste",
-        'show_add_material_sqlite': False,
-        'show_edit_material_sqlite': False,
-        'show_delete_material_sqlite': False,
-        'edit_material_id_sqlite': None,
-        'delete_material_id_sqlite': None,
-        'show_add_operation': False,
-        'show_edit_operation': False,
-        'show_delete_operation': False,
-        'edit_operation_id': None,
-        'delete_operation_id': None,
-        'show_update_status': False,
-        'update_status_id': None
-    }
-    
-    for key, default_value in session_vars.items():
-        if key not in st.session_state:
-            st.session_state[key] = default_value
-
-def apply_production_styles():
-    """Applique les styles CSS pour le module production"""
+def apply_dg_styles():
+    """Applique les styles DG Inc. cohérents avec le HTML"""
     st.markdown("""
     <style>
-    .main-title {
-        background: linear-gradient(135deg, #a5d8ff 0%, #ffd6e0 100%);
+    /* Variables DG Inc. */
+    :root {
+        --primary-color: #00A971;
+        --primary-color-darker: #00673D;
+        --primary-color-darkest: #004C2E;
+        --background-color: #F9FAFB;
+        --secondary-background-color: #FFFFFF;
+        --text-color: #374151;
+        --text-color-light: #6B7280;
+        --border-color: #E5E7EB;
+        --border-radius-md: 0.5rem;
+        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }
+    
+    /* Header DG style */
+    .dg-header {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+        color: white;
+        padding: 25px 30px;
+        border-radius: 12px 12px 0 0;
+        margin: -1rem -1rem 1rem -1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .dg-logo-container {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+    
+    .dg-logo-box {
+        background-color: white;
+        width: 60px;
+        height: 40px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    .dg-logo-text {
+        font-family: 'Segoe UI', sans-serif;
+        font-weight: 800;
+        font-size: 20px;
+        color: var(--primary-color);
+        letter-spacing: 1px;
+    }
+    
+    .dg-company-name {
+        font-weight: 600;
+        font-size: 24px;
+        color: white;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    
+    .dg-contact {
+        text-align: right;
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 14px;
+        line-height: 1.4;
+    }
+    
+    /* Section d'information */
+    .dg-info-section {
+        background: linear-gradient(to right, #e6f7f1, #ffffff);
         padding: 20px;
-        border-radius: 12px;
-        color: #333;
-        text-align: center;
+        border-radius: var(--border-radius-md);
         margin-bottom: 25px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+        border-left: 5px solid var(--primary-color);
+        box-shadow: var(--box-shadow-md);
     }
-    .production-tab-content {
-        background: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        margin-top: 10px;
+    
+    .dg-info-title {
+        color: var(--primary-color-darker);
+        margin: 0 0 15px 0;
+        font-size: 24px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
     }
-    /* Styles pour inventaire */
-    .inventory-metrics {
-        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-        padding: 15px;
+    
+    /* Styles pour les formulaires */
+    .dg-form-container {
+        background-color: var(--secondary-background-color);
         border-radius: 12px;
-        margin-bottom: 20px;
+        box-shadow: var(--box-shadow-md);
+        padding: 20px;
+        margin: 10px 0;
     }
-    /* Styles pour nomenclature */
-    .bom-stats {
-        background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-        padding: 15px;
-        border-radius: 12px;
-        margin-bottom: 20px;
+    
+    /* Badges de statut */
+    .status-badge {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: inline-block;
     }
-    /* Styles pour itinéraire */
-    .routing-operations {
-        background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
-        padding: 15px;
-        border-radius: 12px;
-        margin-bottom: 20px;
+    
+    .status-brouillon { background: #fef3c7; color: #92400e; }
+    .status-valide { background: #dbeafe; color: #1e40af; }
+    .status-en-cours { background: #e0e7ff; color: #3730a3; }
+    .status-termine { background: #d1fae5; color: #065f46; }
+    .status-annule { background: #fee2e2; color: #991b1b; }
+    
+    .priority-critique { background: #fee2e2; color: #991b1b; }
+    .priority-urgent { background: #fef3c7; color: #92400e; }
+    .priority-normal { background: #d1fae5; color: #065f46; }
+    
+    /* Tables */
+    .dg-table {
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        overflow: hidden;
     }
+    
+    /* Boutons DG */
+    .dg-btn-primary {
+        background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: var(--border-radius-md);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .dg-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--box-shadow-md);
+    }
+    
+    /* Navigation */
+    .dg-nav-container {
+        background: white;
+        padding: 15px 0;
+        border-bottom: 2px solid var(--border-color);
+        margin-bottom: 20px;
+        border-radius: var(--border-radius-md);
+        box-shadow: var(--box-shadow-md);
+    }
+    
+    /* Masquer les éléments Streamlit */
+    .stDeployButton {display:none;}
+    footer {visibility: hidden;}
+    .stApp > header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
-# =========================================================================
-# INTERFACE PRINCIPALE UNIFIÉE
-# =========================================================================
-
-def show_production_management_page():
-    """Interface principale avec onglets unifiés"""
-    # Appliquer les styles
-    apply_production_styles()
-    
-    # Initialiser les variables de session
-    init_production_session_state()
-    
-    # Vérifier les gestionnaires
-    if 'erp_db' not in st.session_state:
-        st.error("❌ Base de données non initialisée")
-        return
-    
-    # Header unifié
+def show_dg_header():
+    """Affiche l'en-tête DG Inc. comme dans le HTML"""
     st.markdown("""
-    <div class="main-title">
-        <h1>🏭 Gestion de Production - DG Inc.</h1>
-        <p>Interface unifiée : Inventaire • Nomenclature • Itinéraire</p>
+    <div class="dg-header">
+        <div class="dg-logo-container">
+            <div class="dg-logo-box">
+                <div class="dg-logo-text">DG</div>
+            </div>
+            <div class="dg-company-name">Desmarais & Gagné inc.</div>
+        </div>
+        <div class="dg-contact">
+            565 rue Maisonneuve<br>
+            Granby, QC J2G 3H5<br>
+            Tél.: (450) 372-9630<br>
+            Téléc.: (450) 372-8122
+        </div>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Onglets principaux
-    tabs = st.tabs([
-        "📦 Inventaire", 
-        "📋 Nomenclature (BOM)", 
-        "🛠️ Itinéraire de Fabrication"
-    ])
-    
-    with tabs[0]:
-        show_inventory_tab()
-    
-    with tabs[1]:
-        show_nomenclature_tab()
-    
-    with tabs[2]:
-        show_itineraire_tab()
 
-def show_inventory_tab():
-    """Onglet gestion inventaire (extrait de show_inventory_management_page)"""
-    st.markdown("### 📦 Gestion de l'Inventaire")
-
-    # Adaptation pour utiliser SQLite
-    if 'inventory_manager_sql' not in st.session_state:
-        st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
-
-    inventory_manager = st.session_state.inventory_manager_sql
-    inventory_data = inventory_manager.get_all_inventory()
-
-    action_mode = st.session_state.get('inv_action_mode', "Voir Liste")
-
-    if action_mode == "Ajouter Article":
-        st.subheader("➕ Ajouter un Nouvel Article")
-        with st.form("add_inventory_item_form", clear_on_submit=True):
-            st.info("Les données seront sauvegardées automatiquement")
-            nom = st.text_input("Nom de l'article *:")
-            type_art = st.selectbox("Type *:", TYPES_PRODUITS_INVENTAIRE)
-            quantite_imp = st.text_input("Quantité Stock (Impérial) *:", "0' 0\"")
-            limite_min_imp = st.text_input("Limite Minimale (Impérial):", "0' 0\"")
-            description = st.text_area("Description:")
-            notes = st.text_area("Notes Internes:")
-
-            submitted_add = st.form_submit_button("💾 Ajouter Article")
-            if submitted_add:
-                if not nom or not quantite_imp:
-                    st.error("Le nom et la quantité sont obligatoires.")
-                else:
-                    is_valid_q, quantite_std = valider_mesure_saisie(quantite_imp)
-                    is_valid_l, limite_std = valider_mesure_saisie(limite_min_imp)
-                    if not is_valid_q:
-                        st.error(f"Format de quantité invalide: {quantite_std}")
-                    elif not is_valid_l:
-                        st.error(f"Format de limite minimale invalide: {limite_std}")
-                    else:
-                        new_item = {
-                            "nom": nom,
-                            "type_produit": type_art,
-                            "quantite_imperial": quantite_std,
-                            "limite_minimale_imperial": limite_std,
-                            "quantite_reservee_imperial": "0' 0\"",
-                            "statut": "DISPONIBLE",
-                            "description": description,
-                            "notes": notes
-                        }
-
-                        item_id = inventory_manager.add_inventory_item(new_item)
-                        if item_id:
-                            st.success(f"Article '{nom}' (ID: {item_id}) ajouté avec succès !")
-                            st.rerun()
-                        else:
-                            st.error("Erreur lors de la sauvegarde.")
-
-    elif action_mode == "Voir Liste" or not inventory_data:
-        st.subheader("📋 Liste des Articles en Inventaire")
-        if not inventory_data:
-            st.info("L'inventaire est vide. Cliquez sur 'Ajouter Article' pour commencer.")
-        else:
-            search_term_inv = st.text_input("Rechercher dans l'inventaire (nom, ID):", key="inv_search").lower()
-
-            items_display_list = []
-            for item_id, data in inventory_data.items():
-                if search_term_inv:
-                    if search_term_inv not in str(data.get("id", "")).lower() and \
-                       search_term_inv not in data.get("nom", "").lower():
-                        continue
-
-                items_display_list.append({
-                    "ID": data.get("id", item_id),
-                    "Nom": data.get("nom", "N/A"),
-                    "Type": data.get("type_produit", "N/A"),
-                    "Stock (Imp.)": data.get("quantite_imperial", "N/A"),
-                    "Stock (Métr.)": f"{data.get('quantite_metric', 0):.3f} m",
-                    "Limite Min.": data.get("limite_minimale_imperial", "N/A"),
-                    "Réservé": data.get("quantite_reservee_imperial", "N/A"),
-                    "Statut": data.get("statut", "N/A")
-                })
-
-            if items_display_list:
-                df_inventory = pd.DataFrame(items_display_list)
-                st.dataframe(df_inventory, use_container_width=True)
-                st.info(f"📊 {len(items_display_list)} articles en inventaire")
-            else:
-                st.info("Aucun article ne correspond à votre recherche." if search_term_inv else "L'inventaire est vide.")
-
-def show_nomenclature_tab():
-    """Onglet nomenclature BOM (extrait de nomenclature.py)"""
-    is_mobile = is_mobile_device()
+def show_bt_navigation():
+    """Navigation principale comme dans le HTML"""
+    st.markdown('<div class="dg-nav-container">', unsafe_allow_html=True)
     
-    st.markdown("### 📋 Nomenclature des Matériaux (BOM)")
+    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
     
-    # Initialiser le gestionnaire BOM SQLite
-    if 'bom_manager_sqlite' not in st.session_state:
-        st.session_state.bom_manager_sqlite = BOMManagerSQLite(st.session_state.erp_db)
+    with nav_col1:
+        if st.button("🔧 Nouveau Bon de Travail", use_container_width=True, type="primary"):
+            st.session_state.bt_mode = 'create'
+            st.session_state.bt_current_form_data = st.session_state.gestionnaire_bt.get_empty_bt_form()
+            st.session_state.bt_selected_id = None
+            st.rerun()
     
-    bom_manager = st.session_state.bom_manager_sqlite
+    with nav_col2:
+        if st.button("📋 Gestion des Bons", use_container_width=True):
+            st.session_state.bt_mode = 'manage'
+            st.rerun()
     
-    # Récupérer les projets depuis SQLite
-    try:
-        projects_rows = st.session_state.erp_db.execute_query('''
-            SELECT id, nom_projet, client_nom_cache, statut, date_soumis 
-            FROM projects 
-            ORDER BY id DESC
-        ''')
-        projects = [dict(row) for row in projects_rows]
-    except Exception as e:
-        st.error(f"Erreur récupération projets: {e}")
-        return
+    with nav_col3:
+        if st.button("📊 Statistiques", use_container_width=True):
+            st.session_state.bt_mode = 'stats'
+            st.rerun()
     
-    # Sélection du projet
-    if not projects:
-        st.warning("Aucun projet disponible. Créez d'abord un projet dans l'application principale.")
-        return
+    with nav_col4:
+        if st.button("⏱️ TimeTracker Pro", use_container_width=True):
+            st.session_state.page_redirect = "timetracker_pro_page"
+            st.rerun()
     
-    projet_options = [(p['id'], f"#{p['id']} - {p['nom_projet']}") for p in projects]
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def show_bt_form_section():
+    """Section principale du formulaire BT"""
+    gestionnaire = st.session_state.gestionnaire_bt
+    form_data = st.session_state.bt_current_form_data
     
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        selected_project_id = st.selectbox(
-            "Sélectionner un projet:",
-            options=[pid for pid, _ in projet_options],
-            format_func=lambda pid: next((name for id, name in projet_options if id == pid), ""),
-            key="bom_project_select_unified"
-        )
-    
-    with col2:
-        if st.button("➕ Ajouter un matériau", use_container_width=True):
-            st.session_state.show_add_material_sqlite = True
-    
-    # Récupérer le projet sélectionné
-    projet = next((p for p in projects if p['id'] == selected_project_id), None)
-    if not projet:
-        st.error(f"Projet #{selected_project_id} non trouvé.")
-        return
-    
-    # Information du projet
+    # Titre de section
+    mode_text = "Modifier" if st.session_state.bt_mode == 'edit' else "Créer"
     st.markdown(f"""
-    <div class="bom-stats">
-        <h4>📊 {projet['nom_projet']}</h4>
-        <p><strong>Client:</strong> {projet.get('client_nom_cache', 'N/A')} | 
-           <strong>Statut:</strong> {projet.get('statut', 'N/A')} | 
-           <strong>Date:</strong> {projet.get('date_soumis', 'N/A')}</p>
+    <div class="dg-info-section">
+        <h2 class="dg-info-title">🔧 {mode_text} Bon de Travail</h2>
+        <p><strong>Date de création:</strong> {datetime.now().strftime('%Y-%m-%d')}</p>
+        <p><strong>N° Bon de Travail:</strong> {form_data['numero_document']}</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Récupérer les matériaux du projet
-    bom_items = bom_manager.get_materials_by_project(selected_project_id)
-    
-    # Onglets secondaires pour BOM
-    bom_tabs = st.tabs(["📋 Liste des matériaux", "📊 Analyse", "🔄 Import/Export"])
-    
-    with bom_tabs[0]:  # Liste des matériaux
-        if not bom_items:
-            st.info("Aucun matériau défini pour ce projet. Utilisez le bouton 'Ajouter un matériau' pour commencer.")
-        else:
-            # Préparer les données pour l'affichage
-            display_data = []
-            for item in bom_items:
-                qty = item.get('quantite', 0) or 0
-                price = item.get('prix_unitaire', 0) or 0
-                total = qty * price
-                
-                display_data.append({
-                    "ID": item.get('id', '?'),
-                    "Code": item.get('code_materiau', ''),
-                    "Désignation": item.get('designation', 'Sans nom'),
-                    "Quantité": qty,
-                    "Unité": item.get('unite', ''),
-                    "Prix unitaire": format_currency(price),
-                    "Total": format_currency(total),
-                    "Fournisseur": item.get('fournisseur', '')
-                })
-            
-            bom_df = pd.DataFrame(display_data)
-            st.dataframe(bom_df, use_container_width=True)
-            
-            # Actions sur les matériaux
-            selected_material_id = st.selectbox(
-                "Sélectionner un matériau pour le modifier ou le supprimer:",
-                options=[item.get('id') for item in bom_items],
-                format_func=lambda id: next((f"{item.get('code_materiau', '')} - {item.get('designation', '')}" 
-                                          for item in bom_items if item.get('id') == id), ""),
-                key="material_select_unified"
+    # Informations générales
+    with st.container():
+        st.markdown("### 📋 Informations Générales")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            form_data['project_name'] = st.text_input(
+                "Nom du projet *:", 
+                value=form_data.get('project_name', ''),
+                placeholder="Nom du projet"
             )
             
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("✏️ Modifier", use_container_width=True, key="edit_material_unified"):
-                    st.session_state.show_edit_material_sqlite = True
-                    st.session_state.edit_material_id_sqlite = selected_material_id
+            form_data['client_name'] = st.text_input(
+                "Client *:", 
+                value=form_data.get('client_name', ''),
+                placeholder="Nom du client"
+            )
             
-            with col2:
-                if st.button("🗑️ Supprimer", use_container_width=True, key="delete_material_unified"):
-                    st.session_state.show_delete_material_sqlite = True
-                    st.session_state.delete_material_id_sqlite = selected_material_id
-    
-    with bom_tabs[1]:  # Analyse des coûts
-        if not bom_items:
-            st.info("Ajoutez des matériaux pour voir l'analyse des coûts.")
-        else:
-            display_bom_stats(bom_items, is_mobile)
-            plot_bom_cost_distribution(bom_items)
-    
-    with bom_tabs[2]:  # Import/Export
-        st.info("Fonctionnalités d'import/export à implémenter")
+            # Récupérer la liste des employés
+            try:
+                employees = st.session_state.gestionnaire_employes.employes if hasattr(st.session_state, 'gestionnaire_employes') else []
+                employee_options = [''] + [f"{emp.get('prenom', '')} {emp.get('nom', '')}" for emp in employees if emp.get('statut') == 'ACTIF']
+            except:
+                employee_options = ['', 'Jean Martin', 'Marie Dubois', 'Pierre Gagnon', 'Louise Tremblay']
+            
+            current_manager = form_data.get('project_manager', '')
+            manager_index = employee_options.index(current_manager) if current_manager in employee_options else 0
+            
+            form_data['project_manager'] = st.selectbox(
+                "Chargé de projet:",
+                options=employee_options,
+                index=manager_index
+            )
+        
+        with col2:
+            priority_options = ['NORMAL', 'URGENT', 'CRITIQUE']
+            priority_labels = {
+                'NORMAL': '🟢 Normal',
+                'URGENT': '🟡 Urgent', 
+                'CRITIQUE': '🔴 Critique'
+            }
+            
+            current_priority = form_data.get('priority', 'NORMAL')
+            priority_index = priority_options.index(current_priority) if current_priority in priority_options else 0
+            
+            form_data['priority'] = st.selectbox(
+                "Priorité:",
+                options=priority_options,
+                index=priority_index,
+                format_func=lambda x: priority_labels.get(x, x)
+            )
+            
+            form_data['start_date'] = st.date_input(
+                "Date de début prévue:",
+                value=datetime.strptime(form_data.get('start_date', datetime.now().strftime('%Y-%m-%d')), '%Y-%m-%d').date()
+            ).strftime('%Y-%m-%d')
+            
+            form_data['end_date'] = st.date_input(
+                "Date de fin prévue:",
+                value=datetime.strptime(form_data.get('end_date', (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')), '%Y-%m-%d').date()
+            ).strftime('%Y-%m-%d')
 
-def show_itineraire_tab():
-    """Onglet itinéraire fabrication (extrait de itineraire.py)"""
-    st.markdown("### 🛠️ Itinéraire de Fabrication")
+def show_tasks_section():
+    """Section des tâches et opérations"""
+    form_data = st.session_state.bt_current_form_data
     
-    # Vérifier le gestionnaire de projets
-    if 'gestionnaire' not in st.session_state:
-        st.error("Gestionnaire de projets non initialisé.")
+    st.markdown("### 📋 Tâches et Opérations")
+    
+    # Operations disponibles (comme dans le HTML)
+    operation_options = [
+        '', 'Programmation CNC', 'Découpe plasma', 'Poinçonnage', 
+        'Soudage TIG', 'Assemblage', 'Meulage', 'Polissage', 'Emballage'
+    ]
+    
+    # Employés disponibles
+    try:
+        employees = st.session_state.gestionnaire_employes.employes if hasattr(st.session_state, 'gestionnaire_employes') else []
+        employee_options = [''] + [f"{emp.get('prenom', '')} {emp.get('nom', '')}" for emp in employees if emp.get('statut') == 'ACTIF']
+    except:
+        employee_options = ['', 'Technicien 1', 'Technicien 2', 'Soudeur 1', 'Soudeur 2', 'Programmeur CNC']
+    
+    status_options = ['pending', 'in-progress', 'completed', 'on-hold']
+    status_labels = {
+        'pending': 'En attente',
+        'in-progress': 'En cours', 
+        'completed': 'Terminé',
+        'on-hold': 'En pause'
+    }
+    
+    if 'tasks' not in form_data or not form_data['tasks']:
+        form_data['tasks'] = [st.session_state.gestionnaire_bt.get_empty_task()]
+    
+    # Affichage des tâches
+    tasks_to_remove = []
+    
+    for i, task in enumerate(form_data['tasks']):
+        with st.expander(f"Tâche {i+1}" + (f" - {task['operation']}" if task['operation'] else ""), expanded=True):
+            task_col1, task_col2, task_col3 = st.columns([2, 1, 1])
+            
+            with task_col1:
+                # Opération
+                op_index = operation_options.index(task.get('operation', '')) if task.get('operation', '') in operation_options else 0
+                task['operation'] = st.selectbox(
+                    "Opération:", 
+                    options=operation_options,
+                    index=op_index,
+                    key=f"task_op_{i}"
+                )
+                
+                # Description
+                task['description'] = st.text_input(
+                    "Description:", 
+                    value=task.get('description', ''),
+                    placeholder="Description détaillée de la tâche",
+                    key=f"task_desc_{i}"
+                )
+            
+            with task_col2:
+                # Quantité
+                task['quantity'] = st.number_input(
+                    "Quantité:", 
+                    value=task.get('quantity', 1),
+                    min_value=1,
+                    key=f"task_qty_{i}"
+                )
+                
+                # Heures prévues
+                task['planned_hours'] = st.number_input(
+                    "Heures prévues:", 
+                    value=task.get('planned_hours', 0.0),
+                    min_value=0.0,
+                    step=0.25,
+                    key=f"task_planned_{i}"
+                )
+                
+                # Heures réelles
+                task['actual_hours'] = st.number_input(
+                    "Heures réelles:", 
+                    value=task.get('actual_hours', 0.0),
+                    min_value=0.0,
+                    step=0.25,
+                    key=f"task_actual_{i}"
+                )
+            
+            with task_col3:
+                # Assigné à
+                assigned_index = employee_options.index(task.get('assigned_to', '')) if task.get('assigned_to', '') in employee_options else 0
+                task['assigned_to'] = st.selectbox(
+                    "Assigné à:", 
+                    options=employee_options,
+                    index=assigned_index,
+                    key=f"task_assigned_{i}"
+                )
+                
+                # Statut
+                status_index = status_options.index(task.get('status', 'pending')) if task.get('status', 'pending') in status_options else 0
+                task['status'] = st.selectbox(
+                    "Statut:", 
+                    options=status_options,
+                    index=status_index,
+                    format_func=lambda x: status_labels.get(x, x),
+                    key=f"task_status_{i}"
+                )
+                
+                # Dates
+                if task.get('start_date'):
+                    try:
+                        start_date = datetime.strptime(task['start_date'], '%Y-%m-%d').date()
+                    except:
+                        start_date = None
+                else:
+                    start_date = None
+                
+                task['start_date'] = st.date_input(
+                    "Date début:", 
+                    value=start_date,
+                    key=f"task_start_{i}"
+                )
+                if task['start_date']:
+                    task['start_date'] = task['start_date'].strftime('%Y-%m-%d')
+                
+                if task.get('end_date'):
+                    try:
+                        end_date = datetime.strptime(task['end_date'], '%Y-%m-%d').date()
+                    except:
+                        end_date = None
+                else:
+                    end_date = None
+                
+                task['end_date'] = st.date_input(
+                    "Date fin:", 
+                    value=end_date,
+                    key=f"task_end_{i}"
+                )
+                if task['end_date']:
+                    task['end_date'] = task['end_date'].strftime('%Y-%m-%d')
+                
+                # Bouton supprimer
+                if len(form_data['tasks']) > 1:
+                    if st.button("🗑️ Supprimer", key=f"del_task_{i}", type="secondary"):
+                        tasks_to_remove.append(i)
+    
+    # Supprimer les tâches marquées
+    for i in reversed(tasks_to_remove):
+        form_data['tasks'].pop(i)
+        st.rerun()
+    
+    # Bouton ajouter tâche
+    col_add, col_total = st.columns([1, 2])
+    with col_add:
+        if st.button("➕ Ajouter une tâche", type="secondary"):
+            form_data['tasks'].append(st.session_state.gestionnaire_bt.get_empty_task())
+            st.rerun()
+    
+    with col_total:
+        # Totaux
+        total_planned = sum(task.get('planned_hours', 0) for task in form_data['tasks'])
+        total_actual = sum(task.get('actual_hours', 0) for task in form_data['tasks'])
+        
+        st.markdown(f"""
+        **Totaux:** 
+        - Heures prévues: **{total_planned:.2f}h**
+        - Heures réelles: **{total_actual:.2f}h**
+        """)
+
+def show_materials_section():
+    """Section des matériaux et outils"""
+    form_data = st.session_state.bt_current_form_data
+    
+    st.markdown("### 📝 Matériaux et Outils Requis")
+    
+    unit_options = ['pcs', 'kg', 'm', 'm2', 'l', 'h']
+    unit_labels = {
+        'pcs': 'Pièces', 'kg': 'Kilogrammes', 'm': 'Mètres', 
+        'm2': 'Mètres²', 'l': 'Litres', 'h': 'Heures'
+    }
+    
+    available_options = ['yes', 'no', 'partial', 'ordered']
+    available_labels = {
+        'yes': '✅ Disponible',
+        'no': '❌ Non disponible', 
+        'partial': '⚠️ Partiellement',
+        'ordered': '📦 Commandé'
+    }
+    
+    if 'materials' not in form_data or not form_data['materials']:
+        form_data['materials'] = [st.session_state.gestionnaire_bt.get_empty_material()]
+    
+    # Affichage des matériaux
+    materials_to_remove = []
+    
+    for i, material in enumerate(form_data['materials']):
+        with st.expander(f"Matériau/Outil {i+1}" + (f" - {material['name']}" if material['name'] else ""), expanded=True):
+            mat_col1, mat_col2, mat_col3 = st.columns([2, 1, 1])
+            
+            with mat_col1:
+                material['name'] = st.text_input(
+                    "Nom du matériau/outil:", 
+                    value=material.get('name', ''),
+                    placeholder="Nom du matériau/outil",
+                    key=f"mat_name_{i}"
+                )
+                
+                material['description'] = st.text_input(
+                    "Description:", 
+                    value=material.get('description', ''),
+                    placeholder="Description détaillée",
+                    key=f"mat_desc_{i}"
+                )
+            
+            with mat_col2:
+                material['quantity'] = st.number_input(
+                    "Quantité:", 
+                    value=material.get('quantity', 1.0),
+                    min_value=0.1,
+                    step=0.1,
+                    key=f"mat_qty_{i}"
+                )
+                
+                unit_index = unit_options.index(material.get('unit', 'pcs')) if material.get('unit', 'pcs') in unit_options else 0
+                material['unit'] = st.selectbox(
+                    "Unité:", 
+                    options=unit_options,
+                    index=unit_index,
+                    format_func=lambda x: unit_labels.get(x, x),
+                    key=f"mat_unit_{i}"
+                )
+            
+            with mat_col3:
+                available_index = available_options.index(material.get('available', 'yes')) if material.get('available', 'yes') in available_options else 0
+                material['available'] = st.selectbox(
+                    "Disponibilité:", 
+                    options=available_options,
+                    index=available_index,
+                    format_func=lambda x: available_labels.get(x, x),
+                    key=f"mat_avail_{i}"
+                )
+                
+                material['notes'] = st.text_area(
+                    "Notes:", 
+                    value=material.get('notes', ''),
+                    placeholder="Notes spéciales",
+                    height=100,
+                    key=f"mat_notes_{i}"
+                )
+                
+                # Bouton supprimer
+                if len(form_data['materials']) > 1:
+                    if st.button("🗑️ Supprimer", key=f"del_mat_{i}", type="secondary"):
+                        materials_to_remove.append(i)
+    
+    # Supprimer les matériaux marqués
+    for i in reversed(materials_to_remove):
+        form_data['materials'].pop(i)
+        st.rerun()
+    
+    # Bouton ajouter matériau
+    if st.button("➕ Ajouter un matériau/outil", type="secondary"):
+        form_data['materials'].append(st.session_state.gestionnaire_bt.get_empty_material())
+        st.rerun()
+
+def show_instructions_section():
+    """Section des instructions et notes"""
+    form_data = st.session_state.bt_current_form_data
+    
+    st.markdown("### 📄 Instructions et Notes")
+    
+    form_data['work_instructions'] = st.text_area(
+        "Instructions de travail:",
+        value=form_data.get('work_instructions', ''),
+        placeholder="Instructions détaillées pour l'exécution du travail...",
+        height=100
+    )
+    
+    form_data['safety_notes'] = st.text_area(
+        "Notes de sécurité:",
+        value=form_data.get('safety_notes', ''),
+        placeholder="Consignes de sécurité particulières...",
+        height=80
+    )
+    
+    form_data['quality_requirements'] = st.text_area(
+        "Exigences qualité:",
+        value=form_data.get('quality_requirements', ''),
+        placeholder="Standards et contrôles qualité requis...",
+        height=80
+    )
+
+def show_bt_actions():
+    """Boutons d'action pour le BT"""
+    st.markdown("---")
+    
+    action_col1, action_col2, action_col3, action_col4 = st.columns(4)
+    
+    form_data = st.session_state.bt_current_form_data
+    gestionnaire = st.session_state.gestionnaire_bt
+    
+    with action_col1:
+        if st.button("💾 Sauvegarder Bon de Travail", type="primary", use_container_width=True):
+            # Validation
+            if not form_data.get('project_name'):
+                st.error("❌ Le nom du projet est obligatoire")
+                return
+            
+            if not form_data.get('client_name'):
+                st.error("❌ Le nom du client est obligatoire")
+                return
+            
+            # Sauvegarder
+            if st.session_state.bt_mode == 'edit' and form_data.get('id'):
+                # TODO: Implémenter la modification
+                st.success("✅ Modification en cours de développement")
+            else:
+                bt_id = gestionnaire.save_bon_travail(form_data)
+                if bt_id:
+                    st.success(f"✅ Bon de Travail {form_data['numero_document']} sauvegardé avec succès!")
+                    st.session_state.bt_show_success = True
+                    
+                    # Réinitialiser le formulaire
+                    st.session_state.bt_current_form_data = gestionnaire.get_empty_bt_form()
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la sauvegarde")
+    
+    with action_col2:
+        if st.button("🖨️ Imprimer", use_container_width=True):
+            st.info("📋 Fonction d'impression en développement")
+    
+    with action_col3:
+        if st.button("📄 Exporter PDF", use_container_width=True):
+            st.info("📄 Fonction PDF en développement")
+    
+    with action_col4:
+        if st.button("🗑️ Nouveau Bon", use_container_width=True):
+            if st.session_state.get('bt_form_has_changes', False):
+                if st.button("⚠️ Confirmer - Perdre les modifications", type="secondary"):
+                    st.session_state.bt_current_form_data = gestionnaire.get_empty_bt_form()
+                    st.session_state.bt_form_has_changes = False
+                    st.rerun()
+            else:
+                st.session_state.bt_current_form_data = gestionnaire.get_empty_bt_form()
+                st.rerun()
+
+def show_bt_management():
+    """Interface de gestion des bons de travail"""
+    gestionnaire = st.session_state.gestionnaire_bt
+    
+    st.markdown("### 📋 Gestion des Bons de Travail")
+    
+    # Récupérer tous les BT
+    bons = gestionnaire.get_all_bons_travail()
+    
+    if not bons:
+        st.info("📋 Aucun bon de travail trouvé. Créez votre premier bon !")
         return
     
-    gestionnaire = st.session_state.gestionnaire
+    # Filtres
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
     
-    # Sélection du projet
-    projet_options = [(p.get('id'), f"#{p.get('id')} - {p.get('nom_projet', 'Sans Nom')}") 
-                     for p in gestionnaire.projets]
+    with filter_col1:
+        statuts = ['TOUS'] + list(set(bon['statut'] for bon in bons))
+        statut_filter = st.selectbox("Filtrer par statut:", statuts)
     
-    if not projet_options:
-        st.warning("Aucun projet disponible. Veuillez d'abord créer un projet.")
+    with filter_col2:
+        priorities = ['TOUTES'] + list(set(bon['priorite'] for bon in bons))
+        priority_filter = st.selectbox("Filtrer par priorité:", priorities)
+    
+    with filter_col3:
+        search_term = st.text_input("🔍 Rechercher:", placeholder="Projet, client, numéro...")
+    
+    # Appliquer les filtres
+    filtered_bons = bons
+    
+    if statut_filter != 'TOUS':
+        filtered_bons = [b for b in filtered_bons if b['statut'] == statut_filter]
+    
+    if priority_filter != 'TOUTES':
+        filtered_bons = [b for b in filtered_bons if b['priorite'] == priority_filter]
+    
+    if search_term:
+        search_lower = search_term.lower()
+        filtered_bons = [
+            b for b in filtered_bons 
+            if search_lower in b['numero_document'].lower() 
+            or search_lower in b['project_name'].lower()
+            or search_lower in b['client_name'].lower()
+        ]
+    
+    st.markdown(f"**{len(filtered_bons)} bon(s) trouvé(s)**")
+    
+    # Affichage en tableau
+    if filtered_bons:
+        for bon in filtered_bons:
+            with st.expander(f"🔧 {bon['numero_document']} - {bon['project_name']}", expanded=False):
+                detail_col1, detail_col2, detail_col3 = st.columns(3)
+                
+                with detail_col1:
+                    st.markdown(f"""
+                    **Client:** {bon['client_name']}  
+                    **Chargé de projet:** {bon['project_manager']}  
+                    **Nb. lignes:** {bon['nb_lignes']}
+                    """)
+                
+                with detail_col2:
+                    statut_class = f"status-{bon['statut'].lower().replace(' ', '-').replace('é', 'e')}"
+                    priority_class = f"priority-{bon['priorite'].lower()}"
+                    
+                    st.markdown(f"""
+                    **Statut:** <span class="status-badge {statut_class}">{bon['statut']}</span>  
+                    **Priorité:** <span class="status-badge {priority_class}">{bon['priorite']}</span>  
+                    **Heures prévues:** {bon['total_heures_prevues']:.1f}h
+                    """, unsafe_allow_html=True)
+                
+                with detail_col3:
+                    st.markdown(f"""
+                    **Créé le:** {bon['date_creation'][:10] if bon['date_creation'] else 'N/A'}  
+                    **Échéance:** {bon['date_echeance'] if bon['date_echeance'] else 'N/A'}
+                    """)
+                
+                # Actions
+                action_detail_col1, action_detail_col2, action_detail_col3, action_detail_col4 = st.columns(4)
+                
+                with action_detail_col1:
+                    if st.button("👁️ Voir", key=f"view_{bon['id']}"):
+                        form_data = gestionnaire.load_bon_travail(bon['id'])
+                        if form_data:
+                            st.session_state.bt_current_form_data = form_data
+                            st.session_state.bt_mode = 'view'
+                            st.session_state.bt_selected_id = bon['id']
+                            st.rerun()
+                
+                with action_detail_col2:
+                    if st.button("✏️ Modifier", key=f"edit_{bon['id']}"):
+                        form_data = gestionnaire.load_bon_travail(bon['id'])
+                        if form_data:
+                            st.session_state.bt_current_form_data = form_data
+                            st.session_state.bt_mode = 'edit'
+                            st.session_state.bt_selected_id = bon['id']
+                            st.rerun()
+                
+                with action_detail_col3:
+                    if st.button("⏱️ TimeTracker", key=f"tt_{bon['id']}"):
+                        st.session_state.timetracker_redirect_to_bt = True
+                        st.session_state.formulaire_project_preselect = bon['id']
+                        st.session_state.page_redirect = "timetracker_pro_page"
+                        st.rerun()
+                
+                with action_detail_col4:
+                    if st.button("🗑️ Supprimer", key=f"del_{bon['id']}", type="secondary"):
+                        st.error("🗑️ Fonction de suppression en développement")
+
+def show_bt_statistics():
+    """Affichage des statistiques des BT"""
+    gestionnaire = st.session_state.gestionnaire_bt
+    
+    st.markdown("### 📊 Statistiques des Bons de Travail")
+    
+    stats = gestionnaire.get_bt_statistics()
+    
+    if not stats or stats.get('total_bt', 0) == 0:
+        st.info("📊 Aucune donnée statistique disponible")
         return
     
-    col1, col2 = st.columns([3, 1])
+    # Métriques principales
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
     
-    with col1:
-        selected_project_id = st.selectbox(
-            "Sélectionner un projet:",
-            options=[pid for pid, _ in projet_options],
-            format_func=lambda pid: next((name for id, name in projet_options if id == pid), ""),
-            key="routing_project_select_unified"
-        )
+    with metric_col1:
+        st.metric("📋 Total BT", stats.get('total_bt', 0))
     
-    with col2:
-        if st.button("➕ Ajouter une opération", use_container_width=True):
-            st.session_state.show_add_operation = True
+    with metric_col2:
+        st.metric("🟢 En cours", stats.get('en_cours', 0))
     
-    # Récupérer le projet sélectionné
-    projet = next((p for p in gestionnaire.projets if p.get('id') == selected_project_id), None)
-    if not projet:
-        st.error(f"Projet #{selected_project_id} non trouvé.")
-        return
+    with metric_col3:
+        st.metric("✅ Terminés", stats.get('termines', 0))
     
-    # Information du projet
-    st.markdown(f"""
-    <div class="routing-operations">
-        <h4>📋 {projet.get('nom_projet')}</h4>
-        <p><strong>Client:</strong> {projet.get('client_nom_cache', 'N/A')} | 
-           <strong>Statut:</strong> {projet.get('statut', 'N/A')} | 
-           <strong>Date:</strong> {projet.get('date_soumis', 'N/A')}</p>
+    with metric_col4:
+        st.metric("🔴 Urgents", stats.get('urgents', 0) + stats.get('critiques', 0))
+    
+    # Graphiques
+    if stats.get('total_bt', 0) > 0:
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            # Graphique par statut
+            statut_data = {
+                'Statut': ['Brouillons', 'Validés', 'En cours', 'Terminés'],
+                'Nombre': [
+                    stats.get('brouillons', 0),
+                    stats.get('valides', 0), 
+                    stats.get('en_cours', 0),
+                    stats.get('termines', 0)
+                ]
+            }
+            
+            fig_statut = px.pie(
+                values=statut_data['Nombre'],
+                names=statut_data['Statut'],
+                title="📈 Répartition par Statut",
+                color_discrete_sequence=['#fef3c7', '#dbeafe', '#e0e7ff', '#d1fae5']
+            )
+            fig_statut.update_layout(height=400)
+            st.plotly_chart(fig_statut, use_container_width=True)
+        
+        with chart_col2:
+            # Graphique par priorité
+            priority_data = {
+                'Priorité': ['Normal', 'Urgent', 'Critique'],
+                'Nombre': [
+                    stats.get('total_bt', 0) - stats.get('urgents', 0) - stats.get('critiques', 0),
+                    stats.get('urgents', 0),
+                    stats.get('critiques', 0)
+                ]
+            }
+            
+            fig_priority = px.bar(
+                x=priority_data['Priorité'],
+                y=priority_data['Nombre'],
+                title="📊 Répartition par Priorité",
+                color=priority_data['Priorité'],
+                color_discrete_map={
+                    'Normal': '#10b981',
+                    'Urgent': '#f59e0b', 
+                    'Critique': '#ef4444'
+                }
+            )
+            fig_priority.update_layout(height=400, showlegend=False)
+            st.plotly_chart(fig_priority, use_container_width=True)
+    
+    # Statistiques TimeTracker
+    if stats.get('bt_avec_pointages', 0) > 0:
+        st.markdown("---")
+        st.markdown("### ⏱️ Intégration TimeTracker")
+        
+        tt_col1, tt_col2, tt_col3, tt_col4 = st.columns(4)
+        
+        with tt_col1:
+            st.metric("🔧 BT avec pointages", stats.get('bt_avec_pointages', 0))
+        
+        with tt_col2:
+            st.metric("📊 Sessions total", stats.get('total_sessions', 0))
+        
+        with tt_col3:
+            st.metric("⏱️ Heures total", f"{stats.get('total_heures', 0):.1f}h")
+        
+        with tt_col4:
+            st.metric("💰 Coût total", f"{stats.get('total_cout', 0):,.0f}$")
+
+def show_production_management_page():
+    """
+    Page principale du module de gestion des bons de travail
+    Reproduit l'interface du fichier HTML
+    """
+    
+    # Appliquer les styles DG
+    apply_dg_styles()
+    
+    # Initialiser le gestionnaire si nécessaire
+    if 'gestionnaire_bt' not in st.session_state:
+        if 'erp_db' in st.session_state:
+            st.session_state.gestionnaire_bt = GestionnaireBonsTravail(st.session_state.erp_db)
+        else:
+            st.error("❌ Base de données ERP non disponible")
+            return
+    
+    # Afficher l'en-tête DG
+    show_dg_header()
+    
+    # Navigation principale
+    show_bt_navigation()
+    
+    # Gestion des messages de succès
+    if st.session_state.get('bt_show_success'):
+        st.success("✅ Bon de Travail sauvegardé avec succès!")
+        st.session_state.bt_show_success = False
+    
+    # Affichage selon le mode
+    mode = st.session_state.get('bt_mode', 'create')
+    
+    if mode in ['create', 'edit', 'view']:
+        # Mode formulaire
+        if mode == 'view':
+            st.info("👁️ Mode visualisation - Formulaire en lecture seule")
+        
+        with st.container():
+            show_bt_form_section()
+            show_tasks_section()
+            show_materials_section() 
+            show_instructions_section()
+            
+            if mode != 'view':
+                show_bt_actions()
+    
+    elif mode == 'manage':
+        # Mode gestion
+        show_bt_management()
+    
+    elif mode == 'stats':
+        # Mode statistiques
+        show_bt_statistics()
+    
+    # Footer DG
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align:center;color:var(--text-color-light);padding:20px 0;'>
+        <p><strong>🏭 Desmarais & Gagné Inc.</strong> - Système de Gestion des Bons de Travail</p>
+        <p>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 Interface intégrée ERP Production</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Récupérer les opérations du projet
-    operations = projet.get('operations', [])
-    
-    # Onglets secondaires pour itinéraire
-    routing_tabs = st.tabs(["📋 Liste des opérations", "📊 Diagramme de Gantt", "🔄 Réseau", "📈 Analyse"])
-    
-    with routing_tabs[0]:  # Liste des opérations
-        if not operations:
-            st.info("Aucune opération définie pour ce projet.")
-        else:
-            total_time = sum(op.get('temps_estime', 0) for op in operations)
-            finished_ops = sum(1 for op in operations if op.get('statut') == 'TERMINÉ')
-            progress = (finished_ops / len(operations) * 100) if operations else 0
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("🔧 Opérations", len(operations))
-            with col2:
-                st.metric("⏱️ Durée Totale", f"{total_time:.1f}h")
-            with col3:
-                st.metric("📊 Progression", f"{progress:.1f}%")
-
-            # Tableau des opérations
-            data_iti = []
-            for op in operations:
-                poste_travail = op.get('poste_travail', 'Non assigné')
-                data_iti.append({
-                    '🆔': op.get('id', '?'),
-                    '📊 Séq.': op.get('sequence', ''),
-                    '🏭 Poste': poste_travail,
-                    '📋 Desc.': op.get('description', ''),
-                    '⏱️ Tps (h)': f"{(op.get('temps_estime', 0) or 0):.1f}",
-                    '👨‍🔧 Ress.': op.get('ressource', ''),
-                    '🚦 Statut': op.get('statut', 'À FAIRE')
-                })
-
-            st.dataframe(pd.DataFrame(data_iti), use_container_width=True)
-    
-    with routing_tabs[1]:  # Diagramme de Gantt
-        if not operations:
-            st.info("Aucune opération à afficher dans le diagramme de Gantt.")
-        else:
-            fig = create_gantt_chart(operations)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Impossible de générer le diagramme de Gantt.")
-    
-    with routing_tabs[2]:  # Réseau de dépendances
-        if not operations:
-            st.info("Aucune opération à afficher dans le réseau.")
-        elif not NETWORKX_AVAILABLE:
-            st.warning("La visualisation du réseau de dépendances nécessite le module 'networkx'.")
-        else:
-            fig = visualize_network(operations)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Impossible de générer le réseau.")
-    
-    with routing_tabs[3]:  # Analyse
-        if not operations:
-            st.info("Aucune opération à analyser.")
-        else:
-            # Calcul de statistiques
-            total_time = sum(op.get('temps_estime', 0) or 0 for op in operations)
-            finished_ops = sum(1 for op in operations if op.get('statut') == 'TERMINÉ')
-            progress = finished_ops / len(operations) * 100 if operations else 0
-            
-            # Statistiques générales
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Nombre d'opérations", len(operations))
-            with col2:
-                st.metric("Durée totale estimée", format_duration(total_time))
-            with col3:
-                st.metric("Progression", f"{progress:.1f}%")
-            
-            # Chemin critique
-            st.markdown("#### ⏱️ Chemin critique")
-            
-            if not NETWORKX_AVAILABLE:
-                st.info("Le calcul précis du chemin critique nécessite le module 'networkx'.")
-                
-            critical_path = calculate_critical_path(operations)
-            
-            if critical_path:
-                critical_time = sum(op.get('temps_estime', 0) or 0 for op in critical_path)
-                st.metric("Durée du chemin critique", format_duration(critical_time))
-                
-                # Afficher les opérations du chemin critique
-                cp_data = []
-                for op in critical_path:
-                    cp_data.append({
-                        "Séquence": op.get('sequence', ''),
-                        "Opération": op.get('description', ''),
-                        "Durée": format_duration(op.get('temps_estime', 0) or 0),
-                        "Statut": op.get('statut', 'À FAIRE')
-                    })
-                
-                st.markdown("**Opérations du chemin critique:**")
-                cp_df = pd.DataFrame(cp_data)
-                st.dataframe(cp_df, use_container_width=True)
-            else:
-                st.warning("Impossible de déterminer le chemin critique.")
-
-# Point d'entrée du module
+# Point d'entrée principal
 if __name__ == "__main__":
     show_production_management_page()
