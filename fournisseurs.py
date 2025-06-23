@@ -1,5 +1,6 @@
 # fournisseurs.py - Module Fournisseurs pour ERP Production DG Inc.
 # Gestion complète des fournisseurs, évaluations, performances et intégrations
+# + NOUVEAUX FORMULAIRES : Demande de Prix et Bon d'Achat intégrés
 
 import streamlit as st
 import pandas as pd
@@ -13,6 +14,7 @@ class GestionnaireFournisseurs:
     """
     Gestionnaire complet pour les fournisseurs de l'ERP Production DG Inc.
     Intégré avec la base de données SQLite unifiée
+    + NOUVEAUX : Formulaires Demande de Prix et Bon d'Achat
     """
     
     def __init__(self, db):
@@ -263,8 +265,191 @@ class GestionnaireFournisseurs:
             st.error(f"Erreur statistiques fournisseurs: {e}")
             return {}
 
+    # =========================================================================
+    # NOUVEAUX : MÉTHODES POUR FORMULAIRES DEMANDE DE PRIX ET BON D'ACHAT
+    # =========================================================================
+    
+    def get_inventory_items_for_selection(self, search_term: str = None) -> List[Dict]:
+        """Récupère les articles d'inventaire pour sélection dans formulaires"""
+        try:
+            query = '''
+                SELECT id, nom, type_produit, quantite_imperial, quantite_metric,
+                       statut, description, fournisseur_principal, code_interne
+                FROM inventory_items
+            '''
+            params = []
+            
+            if search_term:
+                query += " WHERE nom LIKE ? OR code_interne LIKE ? OR description LIKE ?"
+                pattern = f"%{search_term}%"
+                params = [pattern, pattern, pattern]
+            
+            query += " ORDER BY nom"
+            
+            rows = self.db.execute_query(query, tuple(params) if params else None)
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            st.error(f"Erreur récupération articles: {e}")
+            return []
+    
+    def generate_document_number(self, type_formulaire: str) -> str:
+        """Génère un numéro de document automatique"""
+        try:
+            prefixes = {
+                'DEMANDE_PRIX': 'DP',
+                'BON_ACHAT': 'BA'
+            }
+            
+            prefix = prefixes.get(type_formulaire, 'DOC')
+            annee = datetime.now().year
+            
+            # Récupérer le dernier numéro pour ce type et cette année
+            query = '''
+                SELECT numero_document FROM formulaires 
+                WHERE type_formulaire = ? AND numero_document LIKE ?
+                ORDER BY id DESC LIMIT 1
+            '''
+            pattern = f"{prefix}-{annee}-%"
+            result = self.db.execute_query(query, (type_formulaire, pattern))
+            
+            if result:
+                last_num = result[0]['numero_document']
+                sequence = int(last_num.split('-')[-1]) + 1
+            else:
+                sequence = 1
+            
+            return f"{prefix}-{annee}-{sequence:03d}"
+            
+        except Exception as e:
+            st.error(f"Erreur génération numéro: {e}")
+            return f"ERR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    def create_formulaire_with_lines(self, formulaire_data: Dict, lignes_data: List[Dict]) -> int:
+        """Crée un formulaire avec ses lignes de détail"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Créer le formulaire principal
+                query_formulaire = '''
+                    INSERT INTO formulaires 
+                    (type_formulaire, numero_document, company_id, employee_id, statut, 
+                     priorite, date_echeance, notes, metadonnees_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                '''
+                
+                cursor.execute(query_formulaire, (
+                    formulaire_data['type_formulaire'],
+                    formulaire_data['numero_document'],
+                    formulaire_data['company_id'],
+                    formulaire_data.get('employee_id'),
+                    formulaire_data.get('statut', 'BROUILLON'),
+                    formulaire_data.get('priorite', 'NORMAL'),
+                    formulaire_data.get('date_echeance'),
+                    formulaire_data.get('notes', ''),
+                    formulaire_data.get('metadonnees_json', '{}')
+                ))
+                
+                formulaire_id = cursor.lastrowid
+                
+                # Créer les lignes de détail
+                query_ligne = '''
+                    INSERT INTO formulaire_lignes
+                    (formulaire_id, sequence_ligne, description, code_article,
+                     quantite, unite, prix_unitaire, notes_ligne)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                '''
+                
+                for i, ligne in enumerate(lignes_data, 1):
+                    cursor.execute(query_ligne, (
+                        formulaire_id,
+                        i,
+                        ligne['description'],
+                        ligne.get('code_article', ''),
+                        ligne['quantite'],
+                        ligne.get('unite', 'UN'),
+                        ligne.get('prix_unitaire', 0.0),
+                        ligne.get('notes_ligne', '')
+                    ))
+                
+                # Enregistrer la création dans l'historique
+                cursor.execute('''
+                    INSERT INTO formulaire_validations
+                    (formulaire_id, employee_id, type_validation, commentaires)
+                    VALUES (?, ?, 'CREATION', ?)
+                ''', (formulaire_id, formulaire_data.get('employee_id'), f"Création {formulaire_data['type_formulaire']}"))
+                
+                conn.commit()
+                return formulaire_id
+                
+        except Exception as e:
+            st.error(f"Erreur création formulaire: {e}")
+            return None
+    
+    def get_formulaires_fournisseur(self, company_id: int, type_formulaire: str = None) -> List[Dict]:
+        """Récupère les formulaires d'un fournisseur"""
+        try:
+            query = '''
+                SELECT f.*, 
+                       COUNT(fl.id) as nombre_lignes,
+                       COALESCE(SUM(fl.montant_ligne), 0) as montant_calcule
+                FROM formulaires f
+                LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
+                WHERE f.company_id = ?
+            '''
+            params = [company_id]
+            
+            if type_formulaire:
+                query += " AND f.type_formulaire = ?"
+                params.append(type_formulaire)
+            
+            query += '''
+                GROUP BY f.id
+                ORDER BY f.date_creation DESC
+            '''
+            
+            rows = self.db.execute_query(query, tuple(params))
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            st.error(f"Erreur récupération formulaires: {e}")
+            return []
+    
+    def get_formulaire_details_with_lines(self, formulaire_id: int) -> Dict:
+        """Récupère un formulaire avec ses lignes de détail"""
+        try:
+            # Récupérer le formulaire
+            query_formulaire = '''
+                SELECT f.*, c.nom as company_nom
+                FROM formulaires f
+                LEFT JOIN companies c ON f.company_id = c.id
+                WHERE f.id = ?
+            '''
+            result = self.db.execute_query(query_formulaire, (formulaire_id,))
+            
+            if not result:
+                return {}
+            
+            formulaire = dict(result[0])
+            
+            # Récupérer les lignes
+            query_lignes = '''
+                SELECT * FROM formulaire_lignes 
+                WHERE formulaire_id = ? 
+                ORDER BY sequence_ligne
+            '''
+            lignes = self.db.execute_query(query_lignes, (formulaire_id,))
+            formulaire['lignes'] = [dict(ligne) for ligne in lignes]
+            
+            return formulaire
+            
+        except Exception as e:
+            st.error(f"Erreur récupération détails formulaire: {e}")
+            return {}
+
 def show_fournisseurs_page():
-    """Page principale du module Fournisseurs"""
+    """Page principale du module Fournisseurs avec NOUVEAUX formulaires DP/BA"""
     st.markdown("## 🏪 Gestion des Fournisseurs DG Inc.")
     
     # Initialisation du gestionnaire
@@ -280,10 +465,13 @@ def show_fournisseurs_page():
         st.session_state.selected_fournisseur_id = None
     if 'fournisseur_filter_category' not in st.session_state:
         st.session_state.fournisseur_filter_category = 'TOUS'
+    if 'form_lines_data' not in st.session_state:
+        st.session_state.form_lines_data = []
     
-    # Onglets principaux
-    tab_dashboard, tab_liste, tab_performance, tab_categories = st.tabs([
-        "📊 Dashboard Fournisseurs", "📋 Liste Fournisseurs", "📈 Performances", "🏷️ Catégories"
+    # NOUVEAUX Onglets avec formulaires intégrés
+    tab_dashboard, tab_liste, tab_performance, tab_categories, tab_demande_prix, tab_bon_achat = st.tabs([
+        "📊 Dashboard", "📋 Liste Fournisseurs", "📈 Performances", 
+        "🏷️ Catégories", "📋 Demande de Prix", "🛒 Bon d'Achat"
     ])
     
     with tab_dashboard:
@@ -298,7 +486,14 @@ def show_fournisseurs_page():
     with tab_categories:
         render_fournisseurs_categories(gestionnaire)
     
-    # Formulaires modaux
+    # NOUVEAUX ONGLETS FORMULAIRES
+    with tab_demande_prix:
+        render_demande_prix_tab(gestionnaire)
+    
+    with tab_bon_achat:
+        render_bon_achat_tab(gestionnaire)
+    
+    # Formulaires modaux existants
     action = st.session_state.get('fournisseur_action')
     selected_id = st.session_state.get('selected_fournisseur_id')
     
@@ -310,6 +505,843 @@ def show_fournisseurs_page():
     elif action == "view_fournisseur_details" and selected_id:
         fournisseur_data = gestionnaire.get_fournisseur_by_id(selected_id)
         render_fournisseur_details(gestionnaire, fournisseur_data)
+
+# =========================================================================
+# NOUVEAUX : ONGLETS POUR FORMULAIRES DEMANDE DE PRIX ET BON D'ACHAT
+# =========================================================================
+
+def render_demande_prix_tab(gestionnaire):
+    """Onglet pour gestion des Demandes de Prix"""
+    st.markdown("### 📋 Demandes de Prix (DP)")
+    
+    # Sous-onglets pour organiser
+    sub_tab_create, sub_tab_list, sub_tab_view = st.tabs([
+        "➕ Nouvelle Demande", "📋 Liste des DP", "👁️ Consulter DP"
+    ])
+    
+    with sub_tab_create:
+        render_create_demande_prix_form(gestionnaire)
+    
+    with sub_tab_list:
+        render_list_demandes_prix(gestionnaire)
+    
+    with sub_tab_view:
+        render_view_demande_prix(gestionnaire)
+
+def render_bon_achat_tab(gestionnaire):
+    """Onglet pour gestion des Bons d'Achat"""
+    st.markdown("### 🛒 Bons d'Achat (BA)")
+    
+    # Sous-onglets pour organiser
+    sub_tab_create, sub_tab_list, sub_tab_view = st.tabs([
+        "➕ Nouveau Bon d'Achat", "📋 Liste des BA", "👁️ Consulter BA"
+    ])
+    
+    with sub_tab_create:
+        render_create_bon_achat_form(gestionnaire)
+    
+    with sub_tab_list:
+        render_list_bons_achat(gestionnaire)
+    
+    with sub_tab_view:
+        render_view_bon_achat(gestionnaire)
+
+def render_create_demande_prix_form(gestionnaire):
+    """Formulaire de création de Demande de Prix"""
+    st.markdown("#### ➕ Nouvelle Demande de Prix")
+    
+    with st.form("demande_prix_form", clear_on_submit=False):
+        # En-tête du formulaire
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Sélection du fournisseur
+            fournisseurs = gestionnaire.get_all_fournisseurs()
+            fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
+            
+            if not fournisseurs_actifs:
+                st.error("Aucun fournisseur actif disponible.")
+                return
+            
+            selected_fournisseur = st.selectbox(
+                "Fournisseur *:",
+                options=fournisseurs_actifs,
+                format_func=lambda f: f.get('nom', 'N/A'),
+                help="Sélectionnez le fournisseur pour la demande de prix"
+            )
+            
+            priorite = st.selectbox(
+                "Priorité:",
+                options=['NORMAL', 'URGENT', 'CRITIQUE'],
+                index=0
+            )
+        
+        with col2:
+            numero_dp = gestionnaire.generate_document_number('DEMANDE_PRIX')
+            st.text_input("Numéro DP:", value=numero_dp, disabled=True)
+            
+            date_echeance = st.date_input(
+                "Date limite réponse:",
+                value=datetime.now().date() + timedelta(days=7),
+                help="Date limite pour la réponse du fournisseur"
+            )
+        
+        # Notes
+        notes = st.text_area(
+            "Notes / Instructions:",
+            placeholder="Instructions spéciales, conditions particulières...",
+            help="Notes qui apparaîtront sur la demande de prix"
+        )
+        
+        st.markdown("---")
+        st.markdown("#### 📦 Articles à chiffrer")
+        
+        # Gestion des lignes d'articles
+        if 'dp_lines' not in st.session_state:
+            st.session_state.dp_lines = []
+        
+        # Ajouter une ligne
+        with st.expander("➕ Ajouter un article", expanded=len(st.session_state.dp_lines) == 0):
+            add_col1, add_col2, add_col3 = st.columns(3)
+            
+            with add_col1:
+                # Recherche d'article dans l'inventaire
+                search_term = st.text_input("🔍 Rechercher article:", key="dp_search_article")
+                articles = gestionnaire.get_inventory_items_for_selection(search_term)
+                
+                if articles:
+                    selected_article = st.selectbox(
+                        "Article inventaire:",
+                        options=[None] + articles,
+                        format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
+                        key="dp_selected_article"
+                    )
+                else:
+                    selected_article = None
+                    st.info("Aucun article trouvé ou saisie manuelle")
+                
+                description_article = st.text_input(
+                    "Description:",
+                    value=selected_article.get('nom', '') if selected_article else '',
+                    key="dp_description"
+                )
+            
+            with add_col2:
+                code_article = st.text_input(
+                    "Code article:",
+                    value=selected_article.get('code_interne', '') if selected_article else '',
+                    key="dp_code"
+                )
+                
+                quantite = st.number_input(
+                    "Quantité:",
+                    min_value=0.01,
+                    value=1.0,
+                    step=0.01,
+                    key="dp_quantite"
+                )
+            
+            with add_col3:
+                unite = st.selectbox(
+                    "Unité:",
+                    options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
+                    key="dp_unite"
+                )
+                
+                notes_ligne = st.text_input(
+                    "Notes ligne:",
+                    key="dp_notes_ligne"
+                )
+            
+            if st.form_submit_button("➕ Ajouter à la demande", use_container_width=True):
+                if description_article and quantite > 0:
+                    nouvelle_ligne = {
+                        'description': description_article,
+                        'code_article': code_article,
+                        'quantite': quantite,
+                        'unite': unite,
+                        'notes_ligne': notes_ligne
+                    }
+                    st.session_state.dp_lines.append(nouvelle_ligne)
+                    st.success("Article ajouté !")
+                    st.rerun()
+                else:
+                    st.error("Description et quantité sont obligatoires.")
+        
+        # Affichage des lignes ajoutées
+        if st.session_state.dp_lines:
+            st.markdown("**Articles dans la demande:**")
+            
+            for i, ligne in enumerate(st.session_state.dp_lines):
+                col_desc, col_qty, col_action = st.columns([3, 1, 1])
+                
+                with col_desc:
+                    st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
+                    if ligne['notes_ligne']:
+                        st.caption(f"📝 {ligne['notes_ligne']}")
+                
+                with col_qty:
+                    st.markdown(f"{ligne['quantite']} {ligne['unite']}")
+                
+                with col_action:
+                    if st.button("🗑️", key=f"dp_remove_{i}", help="Supprimer cette ligne"):
+                        st.session_state.dp_lines.pop(i)
+                        st.rerun()
+        
+        else:
+            st.info("Aucun article ajouté. Ajoutez au moins un article pour créer la demande.")
+        
+        # Boutons de soumission
+        st.markdown("---")
+        submit_col1, submit_col2, submit_col3 = st.columns(3)
+        
+        with submit_col1:
+            submitted = st.form_submit_button("📋 Créer Demande de Prix", use_container_width=True)
+        
+        with submit_col2:
+            save_draft = st.form_submit_button("💾 Sauver Brouillon", use_container_width=True)
+        
+        with submit_col3:
+            clear_form = st.form_submit_button("🗑️ Vider Formulaire", use_container_width=True)
+        
+        # Traitement du formulaire
+        if (submitted or save_draft) and st.session_state.dp_lines:
+            formulaire_data = {
+                'type_formulaire': 'DEMANDE_PRIX',
+                'numero_document': numero_dp,
+                'company_id': selected_fournisseur['company_id'],
+                'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                'statut': 'VALIDÉ' if submitted else 'BROUILLON',
+                'priorite': priorite,
+                'date_echeance': date_echeance.isoformat(),
+                'notes': notes,
+                'metadonnees_json': json.dumps({
+                    'fournisseur_nom': selected_fournisseur.get('nom'),
+                    'type_document': 'demande_prix'
+                })
+            }
+            
+            formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.dp_lines)
+            
+            if formulaire_id:
+                action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
+                st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
+                st.session_state.dp_lines = []  # Vider les lignes
+                st.rerun()
+            else:
+                st.error("❌ Erreur lors de la création de la demande.")
+        
+        if clear_form:
+            st.session_state.dp_lines = []
+            st.rerun()
+
+def render_create_bon_achat_form(gestionnaire):
+    """Formulaire de création de Bon d'Achat"""
+    st.markdown("#### 🛒 Nouveau Bon d'Achat")
+    
+    with st.form("bon_achat_form", clear_on_submit=False):
+        # En-tête du formulaire
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Sélection du fournisseur
+            fournisseurs = gestionnaire.get_all_fournisseurs()
+            fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
+            
+            if not fournisseurs_actifs:
+                st.error("Aucun fournisseur actif disponible.")
+                return
+            
+            selected_fournisseur = st.selectbox(
+                "Fournisseur *:",
+                options=fournisseurs_actifs,
+                format_func=lambda f: f.get('nom', 'N/A'),
+                help="Sélectionnez le fournisseur pour le bon d'achat"
+            )
+            
+            priorite = st.selectbox(
+                "Priorité:",
+                options=['NORMAL', 'URGENT', 'CRITIQUE'],
+                index=0
+            )
+        
+        with col2:
+            numero_ba = gestionnaire.generate_document_number('BON_ACHAT')
+            st.text_input("Numéro BA:", value=numero_ba, disabled=True)
+            
+            date_echeance = st.date_input(
+                "Date livraison souhaitée:",
+                value=datetime.now().date() + timedelta(days=14),
+                help="Date de livraison souhaitée"
+            )
+        
+        # Notes
+        notes = st.text_area(
+            "Notes / Instructions:",
+            placeholder="Instructions de livraison, conditions particulières...",
+            help="Notes qui apparaîtront sur le bon d'achat"
+        )
+        
+        st.markdown("---")
+        st.markdown("#### 🛒 Articles à commander")
+        
+        # Gestion des lignes d'articles avec PRIX
+        if 'ba_lines' not in st.session_state:
+            st.session_state.ba_lines = []
+        
+        # Ajouter une ligne
+        with st.expander("➕ Ajouter un article", expanded=len(st.session_state.ba_lines) == 0):
+            add_col1, add_col2, add_col3, add_col4 = st.columns(4)
+            
+            with add_col1:
+                # Recherche d'article dans l'inventaire
+                search_term = st.text_input("🔍 Rechercher article:", key="ba_search_article")
+                articles = gestionnaire.get_inventory_items_for_selection(search_term)
+                
+                if articles:
+                    selected_article = st.selectbox(
+                        "Article inventaire:",
+                        options=[None] + articles,
+                        format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
+                        key="ba_selected_article"
+                    )
+                else:
+                    selected_article = None
+                    st.info("Aucun article trouvé")
+                
+                description_article = st.text_input(
+                    "Description *:",
+                    value=selected_article.get('nom', '') if selected_article else '',
+                    key="ba_description"
+                )
+            
+            with add_col2:
+                code_article = st.text_input(
+                    "Code article:",
+                    value=selected_article.get('code_interne', '') if selected_article else '',
+                    key="ba_code"
+                )
+                
+                quantite = st.number_input(
+                    "Quantité *:",
+                    min_value=0.01,
+                    value=1.0,
+                    step=0.01,
+                    key="ba_quantite"
+                )
+            
+            with add_col3:
+                unite = st.selectbox(
+                    "Unité:",
+                    options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
+                    key="ba_unite"
+                )
+                
+                prix_unitaire = st.number_input(
+                    "Prix unitaire $ *:",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.01,
+                    key="ba_prix"
+                )
+            
+            with add_col4:
+                montant_ligne = quantite * prix_unitaire
+                st.metric("💰 Montant ligne:", f"{montant_ligne:.2f} $")
+                
+                notes_ligne = st.text_input(
+                    "Notes ligne:",
+                    key="ba_notes_ligne"
+                )
+            
+            if st.form_submit_button("➕ Ajouter au bon d'achat", use_container_width=True):
+                if description_article and quantite > 0 and prix_unitaire >= 0:
+                    nouvelle_ligne = {
+                        'description': description_article,
+                        'code_article': code_article,
+                        'quantite': quantite,
+                        'unite': unite,
+                        'prix_unitaire': prix_unitaire,
+                        'notes_ligne': notes_ligne
+                    }
+                    st.session_state.ba_lines.append(nouvelle_ligne)
+                    st.success("Article ajouté !")
+                    st.rerun()
+                else:
+                    st.error("Description, quantité et prix sont obligatoires.")
+        
+        # Affichage des lignes ajoutées avec calcul du total
+        if st.session_state.ba_lines:
+            st.markdown("**Articles dans le bon d'achat:**")
+            
+            total_montant = 0
+            for i, ligne in enumerate(st.session_state.ba_lines):
+                montant_ligne = ligne['quantite'] * ligne['prix_unitaire']
+                total_montant += montant_ligne
+                
+                with st.container():
+                    col_desc, col_qty, col_prix, col_montant, col_action = st.columns([3, 1, 1, 1, 1])
+                    
+                    with col_desc:
+                        st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
+                        if ligne['notes_ligne']:
+                            st.caption(f"📝 {ligne['notes_ligne']}")
+                    
+                    with col_qty:
+                        st.markdown(f"{ligne['quantite']} {ligne['unite']}")
+                    
+                    with col_prix:
+                        st.markdown(f"{ligne['prix_unitaire']:.2f} $")
+                    
+                    with col_montant:
+                        st.markdown(f"**{montant_ligne:.2f} $**")
+                    
+                    with col_action:
+                        if st.button("🗑️", key=f"ba_remove_{i}", help="Supprimer cette ligne"):
+                            st.session_state.ba_lines.pop(i)
+                            st.rerun()
+            
+            # Affichage du total
+            st.markdown("---")
+            st.markdown(f"### 💰 **Total Bon d'Achat: {total_montant:.2f} $ CAD**")
+        
+        else:
+            st.info("Aucun article ajouté. Ajoutez au moins un article pour créer le bon d'achat.")
+        
+        # Boutons de soumission
+        st.markdown("---")
+        submit_col1, submit_col2, submit_col3 = st.columns(3)
+        
+        with submit_col1:
+            submitted = st.form_submit_button("🛒 Créer Bon d'Achat", use_container_width=True)
+        
+        with submit_col2:
+            save_draft = st.form_submit_button("💾 Sauver Brouillon", use_container_width=True)
+        
+        with submit_col3:
+            clear_form = st.form_submit_button("🗑️ Vider Formulaire", use_container_width=True)
+        
+        # Traitement du formulaire
+        if (submitted or save_draft) and st.session_state.ba_lines:
+            formulaire_data = {
+                'type_formulaire': 'BON_ACHAT',
+                'numero_document': numero_ba,
+                'company_id': selected_fournisseur['company_id'],
+                'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                'statut': 'VALIDÉ' if submitted else 'BROUILLON',
+                'priorite': priorite,
+                'date_echeance': date_echeance.isoformat(),
+                'notes': notes,
+                'metadonnees_json': json.dumps({
+                    'fournisseur_nom': selected_fournisseur.get('nom'),
+                    'type_document': 'bon_achat',
+                    'total_calcule': sum(l['quantite'] * l['prix_unitaire'] for l in st.session_state.ba_lines)
+                })
+            }
+            
+            formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.ba_lines)
+            
+            if formulaire_id:
+                action_text = "créé et envoyé" if submitted else "sauvé en brouillon"
+                st.success(f"✅ Bon d'Achat {numero_ba} {action_text} ! (ID: {formulaire_id})")
+                st.session_state.ba_lines = []  # Vider les lignes
+                st.rerun()
+            else:
+                st.error("❌ Erreur lors de la création du bon d'achat.")
+        
+        if clear_form:
+            st.session_state.ba_lines = []
+            st.rerun()
+
+def render_list_demandes_prix(gestionnaire):
+    """Liste des demandes de prix"""
+    st.markdown("#### 📋 Liste des Demandes de Prix")
+    
+    # Récupérer toutes les demandes de prix
+    try:
+        query = '''
+            SELECT f.*, c.nom as company_nom,
+                   COUNT(fl.id) as nombre_lignes
+            FROM formulaires f
+            LEFT JOIN companies c ON f.company_id = c.id
+            LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
+            WHERE f.type_formulaire = 'DEMANDE_PRIX'
+            GROUP BY f.id
+            ORDER BY f.date_creation DESC
+        '''
+        demandes = gestionnaire.db.execute_query(query)
+        
+        if not demandes:
+            st.info("Aucune demande de prix créée.")
+            return
+        
+        # Affichage sous forme de tableau
+        df_data = []
+        for dp in demandes:
+            statut_icon = {
+                'BROUILLON': '📝',
+                'VALIDÉ': '✅',
+                'ENVOYÉ': '📤',
+                'APPROUVÉ': '👍',
+                'TERMINÉ': '✅',
+                'ANNULÉ': '❌'
+            }.get(dp['statut'], '❓')
+            
+            priorite_icon = {
+                'NORMAL': '🟢',
+                'URGENT': '🟡',
+                'CRITIQUE': '🔴'
+            }.get(dp['priorite'], '⚪')
+            
+            df_data.append({
+                '🆔': dp['id'],
+                '📋 Numéro': dp['numero_document'],
+                '🏪 Fournisseur': dp['company_nom'],
+                '📊 Statut': f"{statut_icon} {dp['statut']}",
+                '⚡ Priorité': f"{priorite_icon} {dp['priorite']}",
+                '📦 Nb Articles': dp['nombre_lignes'],
+                '📅 Créé le': pd.to_datetime(dp['date_creation']).strftime('%d/%m/%Y'),
+                '⏰ Échéance': pd.to_datetime(dp['date_echeance']).strftime('%d/%m/%Y') if dp['date_echeance'] else 'N/A'
+            })
+        
+        st.dataframe(pd.DataFrame(df_data), use_container_width=True)
+        
+        # Sélection pour actions
+        if demandes:
+            st.markdown("---")
+            selected_dp_id = st.selectbox(
+                "Sélectionner une demande pour action:",
+                options=[dp['id'] for dp in demandes],
+                format_func=lambda id: next((dp['numero_document'] for dp in demandes if dp['id'] == id), ''),
+                key="select_dp_for_action"
+            )
+            
+            if selected_dp_id:
+                action_col1, action_col2, action_col3 = st.columns(3)
+                
+                with action_col1:
+                    if st.button("👁️ Voir Détails", use_container_width=True):
+                        st.session_state.selected_formulaire_id = selected_dp_id
+                        st.session_state.selected_formulaire_type = 'DEMANDE_PRIX'
+                
+                with action_col2:
+                    if st.button("📤 Marquer Envoyé", use_container_width=True):
+                        # Mettre à jour le statut
+                        gestionnaire.db.execute_update(
+                            "UPDATE formulaires SET statut = 'ENVOYÉ' WHERE id = ?",
+                            (selected_dp_id,)
+                        )
+                        st.success("Statut mis à jour !")
+                        st.rerun()
+                
+                with action_col3:
+                    if st.button("🛒 Convertir en BA", use_container_width=True):
+                        st.info("💡 Consultez l'onglet 'Bon d'Achat' pour créer un nouveau BA basé sur cette DP.")
+        
+    except Exception as e:
+        st.error(f"Erreur récupération demandes: {e}")
+
+def render_list_bons_achat(gestionnaire):
+    """Liste des bons d'achat"""
+    st.markdown("#### 🛒 Liste des Bons d'Achat")
+    
+    # Récupérer tous les bons d'achat
+    try:
+        query = '''
+            SELECT f.*, c.nom as company_nom,
+                   COUNT(fl.id) as nombre_lignes,
+                   COALESCE(SUM(fl.montant_ligne), 0) as montant_total_calcule
+            FROM formulaires f
+            LEFT JOIN companies c ON f.company_id = c.id
+            LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
+            WHERE f.type_formulaire = 'BON_ACHAT'
+            GROUP BY f.id
+            ORDER BY f.date_creation DESC
+        '''
+        bons_achat = gestionnaire.db.execute_query(query)
+        
+        if not bons_achat:
+            st.info("Aucun bon d'achat créé.")
+            return
+        
+        # Affichage sous forme de tableau
+        df_data = []
+        for ba in bons_achat:
+            statut_icon = {
+                'BROUILLON': '📝',
+                'VALIDÉ': '✅',
+                'ENVOYÉ': '📤',
+                'APPROUVÉ': '👍',
+                'TERMINÉ': '✅',
+                'ANNULÉ': '❌'
+            }.get(ba['statut'], '❓')
+            
+            priorite_icon = {
+                'NORMAL': '🟢',
+                'URGENT': '🟡',
+                'CRITIQUE': '🔴'
+            }.get(ba['priorite'], '⚪')
+            
+            df_data.append({
+                '🆔': ba['id'],
+                '🛒 Numéro': ba['numero_document'],
+                '🏪 Fournisseur': ba['company_nom'],
+                '📊 Statut': f"{statut_icon} {ba['statut']}",
+                '⚡ Priorité': f"{priorite_icon} {ba['priorite']}",
+                '📦 Nb Articles': ba['nombre_lignes'],
+                '💰 Montant': f"{ba['montant_total_calcule']:,.2f} $",
+                '📅 Créé le': pd.to_datetime(ba['date_creation']).strftime('%d/%m/%Y'),
+                '📦 Livraison': pd.to_datetime(ba['date_echeance']).strftime('%d/%m/%Y') if ba['date_echeance'] else 'N/A'
+            })
+        
+        st.dataframe(pd.DataFrame(df_data), use_container_width=True)
+        
+        # Statistiques rapides
+        if bons_achat:
+            st.markdown("---")
+            st.markdown("#### 📊 Statistiques Rapides")
+            
+            total_montant = sum(ba['montant_total_calcule'] for ba in bons_achat)
+            nb_fournisseurs = len(set(ba['company_nom'] for ba in bons_achat))
+            
+            stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+            
+            with stat_col1:
+                st.metric("📊 Total BA", len(bons_achat))
+            with stat_col2:
+                st.metric("💰 Montant Total", f"{total_montant:,.0f} $")
+            with stat_col3:
+                st.metric("🏪 Fournisseurs", nb_fournisseurs)
+            with stat_col4:
+                moyenne = total_montant / len(bons_achat) if bons_achat else 0
+                st.metric("📈 BA Moyen", f"{moyenne:,.0f} $")
+        
+        # Sélection pour actions
+        if bons_achat:
+            st.markdown("---")
+            selected_ba_id = st.selectbox(
+                "Sélectionner un bon d'achat pour action:",
+                options=[ba['id'] for ba in bons_achat],
+                format_func=lambda id: next((ba['numero_document'] for ba in bons_achat if ba['id'] == id), ''),
+                key="select_ba_for_action"
+            )
+            
+            if selected_ba_id:
+                action_col1, action_col2, action_col3 = st.columns(3)
+                
+                with action_col1:
+                    if st.button("👁️ Voir Détails", use_container_width=True):
+                        st.session_state.selected_formulaire_id = selected_ba_id
+                        st.session_state.selected_formulaire_type = 'BON_ACHAT'
+                
+                with action_col2:
+                    if st.button("📤 Marquer Envoyé", use_container_width=True):
+                        gestionnaire.db.execute_update(
+                            "UPDATE formulaires SET statut = 'ENVOYÉ' WHERE id = ?",
+                            (selected_ba_id,)
+                        )
+                        st.success("Statut mis à jour !")
+                        st.rerun()
+                
+                with action_col3:
+                    if st.button("✅ Marquer Livré", use_container_width=True):
+                        gestionnaire.db.execute_update(
+                            "UPDATE formulaires SET statut = 'TERMINÉ' WHERE id = ?",
+                            (selected_ba_id,)
+                        )
+                        st.success("Bon d'achat marqué comme livré !")
+                        st.rerun()
+        
+    except Exception as e:
+        st.error(f"Erreur récupération bons d'achat: {e}")
+
+def render_view_demande_prix(gestionnaire):
+    """Consultation détaillée d'une demande de prix"""
+    st.markdown("#### 👁️ Consulter Demande de Prix")
+    
+    if 'selected_formulaire_id' not in st.session_state or st.session_state.get('selected_formulaire_type') != 'DEMANDE_PRIX':
+        st.info("Sélectionnez une demande de prix dans la liste pour la consulter.")
+        return
+    
+    formulaire_id = st.session_state.selected_formulaire_id
+    dp_details = gestionnaire.get_formulaire_details_with_lines(formulaire_id)
+    
+    if not dp_details:
+        st.error("Demande de prix non trouvée.")
+        return
+    
+    # En-tête
+    st.markdown(f"### 📋 {dp_details['numero_document']}")
+    
+    info_col1, info_col2 = st.columns(2)
+    
+    with info_col1:
+        st.markdown(f"""
+        **🏪 Fournisseur:** {dp_details['company_nom']}
+        
+        **📊 Statut:** {dp_details['statut']}
+        
+        **⚡ Priorité:** {dp_details['priorite']}
+        """)
+    
+    with info_col2:
+        st.markdown(f"""
+        **📅 Créé le:** {pd.to_datetime(dp_details['date_creation']).strftime('%d/%m/%Y')}
+        
+        **⏰ Échéance:** {pd.to_datetime(dp_details['date_echeance']).strftime('%d/%m/%Y') if dp_details['date_echeance'] else 'N/A'}
+        
+        **📦 Nb Articles:** {len(dp_details.get('lignes', []))}
+        """)
+    
+    # Notes
+    if dp_details.get('notes'):
+        st.markdown("---")
+        st.markdown("**📝 Notes:**")
+        st.markdown(f"_{dp_details['notes']}_")
+    
+    # Liste des articles
+    st.markdown("---")
+    st.markdown("#### 📦 Articles Demandés")
+    
+    lignes = dp_details.get('lignes', [])
+    if lignes:
+        df_lignes = []
+        for ligne in lignes:
+            df_lignes.append({
+                '📦 Description': ligne['description'],
+                '🔗 Code': ligne.get('code_article', ''),
+                '📊 Quantité': f"{ligne['quantite']} {ligne.get('unite', 'UN')}",
+                '📝 Notes': ligne.get('notes_ligne', '')
+            })
+        
+        st.dataframe(pd.DataFrame(df_lignes), use_container_width=True)
+    else:
+        st.info("Aucun article dans cette demande.")
+    
+    # Actions
+    st.markdown("---")
+    action_col1, action_col2, action_col3 = st.columns(3)
+    
+    with action_col1:
+        if st.button("🔙 Retour à la liste", use_container_width=True):
+            del st.session_state.selected_formulaire_id
+            del st.session_state.selected_formulaire_type
+            st.rerun()
+    
+    with action_col2:
+        if st.button("📄 Générer PDF", use_container_width=True):
+            st.info("🚧 Fonctionnalité à développer - Génération PDF")
+    
+    with action_col3:
+        if st.button("🛒 Créer BA basé sur DP", use_container_width=True):
+            # Préparer les données pour un nouveau BA
+            st.session_state.ba_lines = [
+                {
+                    'description': ligne['description'],
+                    'code_article': ligne.get('code_article', ''),
+                    'quantite': ligne['quantite'],
+                    'unite': ligne.get('unite', 'UN'),
+                    'prix_unitaire': 0.0,  # À remplir
+                    'notes_ligne': ligne.get('notes_ligne', '')
+                }
+                for ligne in lignes
+            ]
+            st.success("📋 Articles copiés vers nouveau BA ! Consultez l'onglet 'Bon d'Achat'.")
+
+def render_view_bon_achat(gestionnaire):
+    """Consultation détaillée d'un bon d'achat"""
+    st.markdown("#### 👁️ Consulter Bon d'Achat")
+    
+    if 'selected_formulaire_id' not in st.session_state or st.session_state.get('selected_formulaire_type') != 'BON_ACHAT':
+        st.info("Sélectionnez un bon d'achat dans la liste pour le consulter.")
+        return
+    
+    formulaire_id = st.session_state.selected_formulaire_id
+    ba_details = gestionnaire.get_formulaire_details_with_lines(formulaire_id)
+    
+    if not ba_details:
+        st.error("Bon d'achat non trouvé.")
+        return
+    
+    # En-tête
+    st.markdown(f"### 🛒 {ba_details['numero_document']}")
+    
+    info_col1, info_col2 = st.columns(2)
+    
+    with info_col1:
+        st.markdown(f"""
+        **🏪 Fournisseur:** {ba_details['company_nom']}
+        
+        **📊 Statut:** {ba_details['statut']}
+        
+        **⚡ Priorité:** {ba_details['priorite']}
+        """)
+    
+    with info_col2:
+        st.markdown(f"""
+        **📅 Créé le:** {pd.to_datetime(ba_details['date_creation']).strftime('%d/%m/%Y')}
+        
+        **📦 Livraison:** {pd.to_datetime(ba_details['date_echeance']).strftime('%d/%m/%Y') if ba_details['date_echeance'] else 'N/A'}
+        
+        **💰 Montant Total:** {ba_details.get('montant_total', 0):,.2f} $ CAD
+        """)
+    
+    # Notes
+    if ba_details.get('notes'):
+        st.markdown("---")
+        st.markdown("**📝 Notes:**")
+        st.markdown(f"_{ba_details['notes']}_")
+    
+    # Liste des articles avec prix
+    st.markdown("---")
+    st.markdown("#### 🛒 Articles Commandés")
+    
+    lignes = ba_details.get('lignes', [])
+    if lignes:
+        df_lignes = []
+        total_montant = 0
+        
+        for ligne in lignes:
+            montant_ligne = ligne['quantite'] * ligne.get('prix_unitaire', 0)
+            total_montant += montant_ligne
+            
+            df_lignes.append({
+                '📦 Description': ligne['description'],
+                '🔗 Code': ligne.get('code_article', ''),
+                '📊 Quantité': f"{ligne['quantite']} {ligne.get('unite', 'UN')}",
+                '💵 Prix Unit.': f"{ligne.get('prix_unitaire', 0):.2f} $",
+                '💰 Montant': f"{montant_ligne:.2f} $",
+                '📝 Notes': ligne.get('notes_ligne', '')
+            })
+        
+        st.dataframe(pd.DataFrame(df_lignes), use_container_width=True)
+        
+        # Total
+        st.markdown(f"### 💰 **Total Commande: {total_montant:,.2f} $ CAD**")
+    else:
+        st.info("Aucun article dans ce bon d'achat.")
+    
+    # Actions
+    st.markdown("---")
+    action_col1, action_col2, action_col3 = st.columns(3)
+    
+    with action_col1:
+        if st.button("🔙 Retour à la liste", use_container_width=True):
+            del st.session_state.selected_formulaire_id
+            del st.session_state.selected_formulaire_type
+            st.rerun()
+    
+    with action_col2:
+        if st.button("📄 Générer PDF", use_container_width=True):
+            st.info("🚧 Fonctionnalité à développer - Génération PDF")
+    
+    with action_col3:
+        if st.button("📦 Suivi Livraison", use_container_width=True):
+            st.info("🚧 Fonctionnalité à développer - Suivi livraison")
+
+# =========================================================================
+# FONCTIONS EXISTANTES (inchangées)
+# =========================================================================
 
 def render_fournisseurs_dashboard(gestionnaire):
     """Dashboard principal des fournisseurs"""
@@ -396,7 +1428,7 @@ def render_fournisseurs_dashboard(gestionnaire):
                     )
                     st.plotly_chart(fig_top, use_container_width=True)
     
-    # Actions rapides
+    # Actions rapides avec NOUVEAUX boutons
     st.markdown("---")
     st.markdown("#### ⚡ Actions Rapides")
     
@@ -408,13 +1440,12 @@ def render_fournisseurs_dashboard(gestionnaire):
             st.rerun()
     
     with action_col2:
-        if st.button("📊 Voir Performances", use_container_width=True):
-            # Redirection vers l'onglet performances
-            st.info("💡 Consultez l'onglet 'Performances' pour les analyses détaillées.")
+        if st.button("📋 Nouvelle Demande Prix", use_container_width=True):
+            st.info("💡 Consultez l'onglet 'Demande de Prix' pour créer une nouvelle DP.")
     
     with action_col3:
-        if st.button("🏷️ Gérer Catégories", use_container_width=True):
-            st.info("💡 Consultez l'onglet 'Catégories' pour la gestion par catégories.")
+        if st.button("🛒 Nouveau Bon d'Achat", use_container_width=True):
+            st.info("💡 Consultez l'onglet 'Bon d'Achat' pour créer un nouveau BA.")
     
     with action_col4:
         if st.button("🔄 Actualiser Stats", use_container_width=True):
@@ -497,7 +1528,7 @@ def render_fournisseurs_liste(gestionnaire):
     
     st.dataframe(pd.DataFrame(df_data), use_container_width=True)
     
-    # Actions sur un fournisseur
+    # Actions sur un fournisseur avec NOUVEAUX boutons
     if fournisseurs:
         st.markdown("---")
         st.markdown("#### 🔧 Actions sur un Fournisseur")
@@ -510,7 +1541,7 @@ def render_fournisseurs_liste(gestionnaire):
         )
         
         if selected_fournisseur_id:
-            action_col1, action_col2, action_col3, action_col4 = st.columns(4)
+            action_col1, action_col2, action_col3, action_col4, action_col5 = st.columns(5)
             
             with action_col1:
                 if st.button("👁️ Voir Détails", use_container_width=True, key=f"view_fournisseur_{selected_fournisseur_id}"):
@@ -525,11 +1556,18 @@ def render_fournisseurs_liste(gestionnaire):
                     st.rerun()
             
             with action_col3:
-                if st.button("📊 Performance", use_container_width=True, key=f"perf_fournisseur_{selected_fournisseur_id}"):
-                    st.session_state.selected_fournisseur_id = selected_fournisseur_id
-                    st.info("💡 Consultez l'onglet 'Performances' pour voir les détails de ce fournisseur.")
+                if st.button("📋 Demande Prix", use_container_width=True, key=f"dp_fournisseur_{selected_fournisseur_id}"):
+                    # Pré-sélectionner le fournisseur dans l'onglet DP
+                    st.session_state.preselected_fournisseur_id = selected_fournisseur_id
+                    st.info("💡 Consultez l'onglet 'Demande de Prix' - Fournisseur pré-sélectionné !")
             
             with action_col4:
+                if st.button("🛒 Bon d'Achat", use_container_width=True, key=f"ba_fournisseur_{selected_fournisseur_id}"):
+                    # Pré-sélectionner le fournisseur dans l'onglet BA
+                    st.session_state.preselected_fournisseur_id = selected_fournisseur_id
+                    st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
+            
+            with action_col5:
                 if st.button("🗑️ Désactiver", use_container_width=True, key=f"delete_fournisseur_{selected_fournisseur_id}"):
                     if st.warning("Êtes-vous sûr de vouloir désactiver ce fournisseur ?"):
                         if gestionnaire.delete_fournisseur(selected_fournisseur_id):
@@ -1013,11 +2051,11 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
     else:
         st.info("Aucune donnée de performance disponible.")
     
-    # Actions rapides
+    # Actions rapides MISES À JOUR
     st.markdown("---")
     st.markdown("#### ⚡ Actions Rapides")
     
-    action_col1, action_col2, action_col3 = st.columns(3)
+    action_col1, action_col2, action_col3, action_col4 = st.columns(4)
     
     with action_col1:
         if st.button("✏️ Modifier", use_container_width=True, key="edit_from_details"):
@@ -1029,12 +2067,13 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
             st.info("💡 Consultez l'onglet 'Performances' pour l'analyse complète.")
     
     with action_col3:
+        if st.button("📋 Créer Demande Prix", use_container_width=True, key="create_dp_from_details"):
+            st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
+            st.info("💡 Consultez l'onglet 'Demande de Prix' - Fournisseur pré-sélectionné !")
+    
+    with action_col4:
         if st.button("🛒 Créer Bon d'Achat", use_container_width=True, key="create_ba_from_details"):
-            # Redirection vers le module formulaires avec pré-sélection
-            st.session_state.form_action = "create_bon_achat"
-            st.session_state.formulaire_company_preselect = fournisseur_data.get('company_id')
-            st.session_state.page_redirect = "formulaires_page"
-            st.info("🔄 Redirection vers le module Formulaires...")
-            st.rerun()
+            st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
+            st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
     
     st.markdown("</div>", unsafe_allow_html=True)
