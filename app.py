@@ -945,8 +945,8 @@ def show_employee_interface():
     """, unsafe_allow_html=True)
 
     # Onglets pour organiser l'interface employé
-    tab_timetracker, tab_bons_travail, tab_production = st.tabs([
-        "⏱️🔧 TimeTracker Pro", "🔧 Bons de Travail", "📊 Production"
+    tab_timetracker, tab_production = st.tabs([
+        "⏱️ TimeTracker", "📊 Production"
     ])
 
     with tab_timetracker:
