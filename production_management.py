@@ -1,7 +1,7 @@
 # production_management.py - Gestion des Bons de Travail - Desmarais & Gagné Inc.
+# MISE À JOUR MAJEURE : Intégration complète avec erp_database.py
+# NOUVEAUTÉ : Utilisation des employés, clients, projets et postes de travail de la base ERP
 # Interface inspirée du fichier Bons_travail R00.html
-# Intégration complète avec erp_database.py
-# NOUVEAU MODULE FOCALISÉ SUR LES BONS DE TRAVAIL
 
 import streamlit as st
 import pandas as pd
@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 class GestionnaireBonsTravail:
     """
     Gestionnaire principal pour les Bons de Travail
-    Reproduit les fonctionnalités du fichier HTML en version Streamlit
+    AMÉLIORÉ : Intégration complète avec ERP Database
+    Reproduit les fonctionnalités du fichier HTML en version Streamlit avec données ERP
     """
     
     def __init__(self, db):
@@ -47,13 +48,79 @@ class GestionnaireBonsTravail:
         if 'bt_show_success' not in st.session_state:
             st.session_state.bt_show_success = False
 
+    # NOUVEAU : Méthodes d'intégration ERP complètes
+    def get_employees_from_db(self) -> List[Dict]:
+        """Récupère les employés actifs depuis la base ERP"""
+        try:
+            query = '''
+                SELECT id, prenom, nom, poste, departement, statut
+                FROM employees 
+                WHERE statut = 'ACTIF'
+                ORDER BY prenom, nom
+            '''
+            employees = self.db.execute_query(query)
+            return [dict(emp) for emp in employees]
+        except Exception as e:
+            logger.error(f"Erreur récupération employés: {e}")
+            return []
+    
+    def get_projects_from_db(self) -> List[Dict]:
+        """Récupère les projets depuis la base ERP"""
+        try:
+            query = '''
+                SELECT p.id, p.nom_projet, p.client_nom_cache, p.statut, p.priorite,
+                       p.client_company_id, c.nom as client_company_nom
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+                ORDER BY p.nom_projet
+            '''
+            projects = self.db.execute_query(query)
+            return [dict(proj) for proj in projects]
+        except Exception as e:
+            logger.error(f"Erreur récupération projets: {e}")
+            return []
+    
+    def get_companies_from_db(self) -> List[Dict]:
+        """Récupère les entreprises/clients depuis la base CRM"""
+        try:
+            query = '''
+                SELECT id, nom, secteur, type_company, adresse
+                FROM companies 
+                WHERE type_company IN ('CLIENT', 'PROSPECT', 'FOURNISSEUR')
+                ORDER BY nom
+            '''
+            companies = self.db.execute_query(query)
+            return [dict(comp) for comp in companies]
+        except Exception as e:
+            logger.error(f"Erreur récupération entreprises: {e}")
+            return []
+    
+    def get_work_centers_from_db(self) -> List[Dict]:
+        """Récupère les postes de travail depuis la base ERP"""
+        try:
+            query = '''
+                SELECT id, nom, departement, categorie, type_machine, statut
+                FROM work_centers 
+                WHERE statut = 'ACTIF'
+                ORDER BY departement, nom
+            '''
+            work_centers = self.db.execute_query(query)
+            return [dict(wc) for wc in work_centers]
+        except Exception as e:
+            logger.error(f"Erreur récupération postes: {e}")
+            return []
+
     def get_empty_bt_form(self) -> Dict:
-        """Retourne un formulaire BT vide"""
+        """Retourne un formulaire BT vide avec support ERP"""
         today = datetime.now().strftime('%Y-%m-%d')
         return {
             'numero_document': self.generate_bt_number(),
+            'project_id': None,  # NOUVEAU: ID du projet ERP
             'project_name': '',
+            'client_id': None,   # NOUVEAU: ID du client ERP
             'client_name': '',
+            'project_manager_id': None,  # NOUVEAU: ID de l'employé ERP
             'project_manager': '',
             'priority': 'NORMAL',
             'start_date': today,
@@ -67,13 +134,15 @@ class GestionnaireBonsTravail:
         }
     
     def get_empty_task(self) -> Dict:
-        """Retourne une tâche vide"""
+        """Retourne une tâche vide avec support ERP"""
         return {
             'operation': '',
+            'work_center_id': None,  # NOUVEAU: ID du poste de travail ERP
             'description': '',
             'quantity': 1,
             'planned_hours': 0.0,
             'actual_hours': 0.0,
+            'assigned_to_id': None,  # NOUVEAU: ID de l'employé assigné ERP
             'assigned_to': '',
             'status': 'pending',
             'start_date': '',
@@ -114,12 +183,15 @@ class GestionnaireBonsTravail:
             return f"BT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     def save_bon_travail(self, form_data: Dict) -> Optional[int]:
-        """Sauvegarde un bon de travail dans la base"""
+        """Sauvegarde un bon de travail dans la base - AMÉLIORÉ avec intégration ERP complète"""
         try:
-            # Créer le formulaire principal
+            # Créer le formulaire principal avec liens ERP
             formulaire_data = {
                 'type_formulaire': 'BON_TRAVAIL',
                 'numero_document': form_data['numero_document'],
+                'project_id': form_data.get('project_id'),  # NOUVEAU: Lien vers projet ERP
+                'company_id': form_data.get('client_id'),   # NOUVEAU: Lien vers client ERP
+                'employee_id': form_data.get('project_manager_id'),  # NOUVEAU: Lien vers employé ERP
                 'statut': 'BROUILLON',
                 'priorite': form_data['priority'],
                 'date_echeance': form_data['end_date'],
@@ -135,14 +207,18 @@ class GestionnaireBonsTravail:
                 })
             }
             
-            # Insérer le formulaire
+            # Insérer le formulaire avec liens ERP
             bt_id = self.db.execute_insert('''
                 INSERT INTO formulaires 
-                (type_formulaire, numero_document, statut, priorite, date_echeance, notes, metadonnees_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (type_formulaire, numero_document, project_id, company_id, employee_id,
+                 statut, priorite, date_echeance, notes, metadonnees_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 formulaire_data['type_formulaire'],
                 formulaire_data['numero_document'], 
+                formulaire_data.get('project_id'),
+                formulaire_data.get('company_id'),
+                formulaire_data.get('employee_id'),
                 formulaire_data['statut'],
                 formulaire_data['priorite'],
                 formulaire_data['date_echeance'],
@@ -153,9 +229,45 @@ class GestionnaireBonsTravail:
             if not bt_id:
                 return None
             
-            # Sauvegarder les tâches comme lignes de formulaire
+            # NOUVEAU: Créer les opérations dans la table operations si un projet est lié
+            if form_data.get('project_id'):
+                for i, task in enumerate(form_data.get('tasks', []), 1):
+                    if task['description']:
+                        # Créer une opération liée au BT
+                        operation_id = self.db.execute_insert('''
+                            INSERT INTO operations 
+                            (project_id, work_center_id, formulaire_bt_id, sequence_number, 
+                             description, temps_estime, ressource, statut, poste_travail)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            form_data['project_id'],
+                            task.get('work_center_id'),
+                            bt_id,
+                            i,
+                            f"{task['operation']} - {task['description']}", 
+                            task['planned_hours'],
+                            task['assigned_to'],
+                            'À FAIRE',
+                            task['operation']
+                        ))
+                        
+                        # NOUVEAU: Assigner l'employé au BT si spécifié
+                        if task.get('assigned_to_id'):
+                            self.db.execute_insert('''
+                                INSERT INTO bt_assignations (bt_id, employe_id, notes_assignation)
+                                VALUES (?, ?, ?)
+                            ''', (bt_id, task['assigned_to_id'], f"Assigné à la tâche: {task['description']}"))
+                        
+                        # NOUVEAU: Réserver le poste de travail si spécifié
+                        if task.get('work_center_id') and task.get('start_date'):
+                            self.db.execute_insert('''
+                                INSERT INTO bt_reservations_postes (bt_id, work_center_id, date_prevue, notes_reservation)
+                                VALUES (?, ?, ?, ?)
+                            ''', (bt_id, task['work_center_id'], task['start_date'], f"Réservé pour: {task['operation']}"))
+            
+            # Sauvegarder les tâches comme lignes de formulaire (système existant)
             for i, task in enumerate(form_data.get('tasks', []), 1):
-                if task['description']:  # Seulement si la tâche a une description
+                if task['description']:
                     self.db.execute_insert('''
                         INSERT INTO formulaire_lignes 
                         (formulaire_id, sequence_ligne, description, quantite, prix_unitaire, notes_ligne)
@@ -164,9 +276,11 @@ class GestionnaireBonsTravail:
                         bt_id, i, 
                         f"{task['operation']} - {task['description']}", 
                         task['quantity'], 
-                        task['planned_hours'],  # Utiliser planned_hours comme "prix"
+                        task['planned_hours'],
                         json.dumps({
                             'operation': task['operation'],
+                            'work_center_id': task.get('work_center_id'),
+                            'assigned_to_id': task.get('assigned_to_id'),
                             'actual_hours': task['actual_hours'],
                             'assigned_to': task['assigned_to'],
                             'status': task['status'],
@@ -176,8 +290,8 @@ class GestionnaireBonsTravail:
                     ))
             
             # Sauvegarder les matériaux comme lignes spéciales
-            for i, material in enumerate(form_data.get('materials', []), 1000):  # Commencer à 1000 pour différencier
-                if material['name']:  # Seulement si le matériau a un nom
+            for i, material in enumerate(form_data.get('materials', []), 1000):
+                if material['name']:
                     self.db.execute_insert('''
                         INSERT INTO formulaire_lignes 
                         (formulaire_id, sequence_ligne, description, quantite, unite, notes_ligne)
@@ -197,9 +311,9 @@ class GestionnaireBonsTravail:
             # Enregistrer l'action dans l'historique
             self.db.execute_insert('''
                 INSERT INTO formulaire_validations
-                (formulaire_id, type_validation, commentaires)
-                VALUES (?, 'CREATION', ?)
-            ''', (bt_id, f"Bon de Travail créé par {form_data.get('created_by', 'Utilisateur')}"))
+                (formulaire_id, employee_id, type_validation, commentaires)
+                VALUES (?, ?, 'CREATION', ?)
+            ''', (bt_id, form_data.get('project_manager_id'), f"Bon de Travail créé par {form_data.get('created_by', 'Utilisateur')}"))
             
             logger.info(f"Bon de Travail {formulaire_data['numero_document']} sauvegardé avec ID {bt_id}")
             return bt_id
@@ -209,12 +323,19 @@ class GestionnaireBonsTravail:
             return None
     
     def load_bon_travail(self, bt_id: int) -> Optional[Dict]:
-        """Charge un bon de travail depuis la base"""
+        """Charge un bon de travail depuis la base - AMÉLIORÉ avec intégration ERP"""
         try:
-            # Récupérer le formulaire principal
+            # Récupérer le formulaire principal avec informations ERP
             bt_result = self.db.execute_query('''
-                SELECT * FROM formulaires 
-                WHERE id = ? AND type_formulaire = 'BON_TRAVAIL'
+                SELECT f.*, 
+                       p.nom_projet as project_name_db,
+                       c.nom as client_name_db,
+                       e.prenom || ' ' || e.nom as project_manager_db
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON f.company_id = c.id
+                LEFT JOIN employees e ON f.employee_id = e.id
+                WHERE f.id = ? AND f.type_formulaire = 'BON_TRAVAIL'
             ''', (bt_id,))
             
             if not bt_result:
@@ -248,10 +369,9 @@ class GestionnaireBonsTravail:
                     pass
                 
                 if ligne_data['sequence_ligne'] >= 1000:  # Matériaux
-                    # Extraire le nom du matériau de la description
                     desc = ligne_data['description']
                     if desc.startswith('MATERIAU: '):
-                        desc = desc[10:]  # Enlever "MATERIAU: "
+                        desc = desc[10:]
                     
                     name_desc = desc.split(' - ', 1)
                     material = {
@@ -265,16 +385,17 @@ class GestionnaireBonsTravail:
                     materials.append(material)
                     
                 else:  # Tâches
-                    # Extraire l'opération de la description
                     desc = ligne_data['description']
                     op_desc = desc.split(' - ', 1)
                     
                     task = {
                         'operation': op_desc[0] if op_desc else '',
+                        'work_center_id': notes_data.get('work_center_id'),  # NOUVEAU
                         'description': op_desc[1] if len(op_desc) > 1 else desc,
                         'quantity': ligne_data.get('quantite', 1),
                         'planned_hours': ligne_data.get('prix_unitaire', 0.0),
                         'actual_hours': notes_data.get('actual_hours', 0.0),
+                        'assigned_to_id': notes_data.get('assigned_to_id'),  # NOUVEAU
                         'assigned_to': notes_data.get('assigned_to', ''),
                         'status': notes_data.get('status', 'pending'),
                         'start_date': notes_data.get('start_date', ''),
@@ -282,13 +403,16 @@ class GestionnaireBonsTravail:
                     }
                     tasks.append(task)
             
-            # Construire le formulaire complet
+            # Construire le formulaire complet avec données ERP
             form_data = {
                 'id': bt_data['id'],
                 'numero_document': bt_data['numero_document'],
-                'project_name': metadonnees.get('project_name', ''),
-                'client_name': metadonnees.get('client_name', ''),
-                'project_manager': metadonnees.get('project_manager', ''),
+                'project_id': bt_data.get('project_id'),  # NOUVEAU
+                'project_name': bt_data.get('project_name_db') or metadonnees.get('project_name', ''),
+                'client_id': bt_data.get('company_id'),    # NOUVEAU
+                'client_name': bt_data.get('client_name_db') or metadonnees.get('client_name', ''),
+                'project_manager_id': bt_data.get('employee_id'),  # NOUVEAU
+                'project_manager': bt_data.get('project_manager_db') or metadonnees.get('project_manager', ''),
                 'priority': bt_data.get('priorite', 'NORMAL'),
                 'start_date': metadonnees.get('start_date', ''),
                 'end_date': bt_data.get('date_echeance', ''),
@@ -310,13 +434,19 @@ class GestionnaireBonsTravail:
             return None
     
     def get_all_bons_travail(self) -> List[Dict]:
-        """Récupère tous les bons de travail"""
+        """Récupère tous les bons de travail avec informations ERP"""
         try:
             results = self.db.execute_query('''
                 SELECT f.*, 
+                       p.nom_projet as project_name_db,
+                       c.nom as client_name_db,
+                       e.prenom || ' ' || e.nom as project_manager_db,
                        COUNT(fl.id) as nb_lignes,
                        COALESCE(SUM(CASE WHEN fl.sequence_ligne < 1000 THEN fl.prix_unitaire ELSE 0 END), 0) as total_heures_prevues
                 FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON f.company_id = c.id
+                LEFT JOIN employees e ON f.employee_id = e.id
                 LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
                 WHERE f.type_formulaire = 'BON_TRAVAIL'
                 GROUP BY f.id
@@ -327,7 +457,7 @@ class GestionnaireBonsTravail:
             for row in results:
                 row_data = dict(row)
                 
-                # Parser les métadonnées
+                # Parser les métadonnées pour fallback
                 metadonnees = {}
                 try:
                     metadonnees = json.loads(row_data.get('metadonnees_json', '{}'))
@@ -337,9 +467,11 @@ class GestionnaireBonsTravail:
                 bon = {
                     'id': row_data['id'],
                     'numero_document': row_data['numero_document'],
-                    'project_name': metadonnees.get('project_name', 'N/A'),
-                    'client_name': metadonnees.get('client_name', 'N/A'),
-                    'project_manager': metadonnees.get('project_manager', 'Non assigné'),
+                    'project_id': row_data.get('project_id'),
+                    'project_name': row_data.get('project_name_db') or metadonnees.get('project_name', 'N/A'),
+                    'client_id': row_data.get('company_id'),
+                    'client_name': row_data.get('client_name_db') or metadonnees.get('client_name', 'N/A'),
+                    'project_manager': row_data.get('project_manager_db') or metadonnees.get('project_manager', 'Non assigné'),
                     'priorite': row_data.get('priorite', 'NORMAL'),
                     'statut': row_data.get('statut', 'BROUILLON'),
                     'date_creation': row_data.get('created_at', ''),
@@ -553,6 +685,16 @@ def apply_dg_styles():
         box-shadow: var(--box-shadow-md);
     }
     
+    /* Info boxes ERP */
+    .erp-info-box {
+        background: linear-gradient(to right, #e6f7f1, #f0fdf4);
+        border: 1px solid var(--primary-color);
+        border-radius: var(--border-radius-md);
+        padding: 12px;
+        margin: 8px 0;
+        font-size: 14px;
+    }
+    
     /* Masquer les éléments Streamlit */
     .stDeployButton {display:none;}
     footer {visibility: hidden;}
@@ -610,7 +752,7 @@ def show_bt_navigation():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_bt_form_section():
-    """Section principale du formulaire BT"""
+    """Section principale du formulaire BT - AMÉLIORÉE avec intégration ERP complète"""
     gestionnaire = st.session_state.gestionnaire_bt
     form_data = st.session_state.bt_current_form_data
     
@@ -631,33 +773,148 @@ def show_bt_form_section():
         col1, col2 = st.columns(2)
         
         with col1:
-            form_data['project_name'] = st.text_input(
-                "Nom du projet *:", 
-                value=form_data.get('project_name', ''),
-                placeholder="Nom du projet"
-            )
+            # AMÉLIORATION: Sélection de projet depuis la base ERP
+            projects = gestionnaire.get_projects_from_db()
+            if projects:
+                project_options = [{'id': None, 'display': '-- Nouveau projet --'}] + [
+                    {'id': p['id'], 'display': f"{p['nom_projet']} ({p['client_nom_cache'] or p['client_company_nom'] or 'N/A'})"}
+                    for p in projects
+                ]
+                
+                # Trouver l'index actuel
+                current_project_id = form_data.get('project_id')
+                project_index = 0
+                for i, option in enumerate(project_options):
+                    if option['id'] == current_project_id:
+                        project_index = i
+                        break
+                
+                selected_project = st.selectbox(
+                    "Projet ERP:",
+                    options=range(len(project_options)),
+                    index=project_index,
+                    format_func=lambda i: project_options[i]['display']
+                )
+                
+                selected_project_data = project_options[selected_project]
+                
+                if selected_project_data['id']:
+                    # Projet existant sélectionné
+                    form_data['project_id'] = selected_project_data['id']
+                    selected_proj = next(p for p in projects if p['id'] == selected_project_data['id'])
+                    form_data['project_name'] = selected_proj['nom_projet']
+                    form_data['client_name'] = selected_proj['client_nom_cache'] or selected_proj['client_company_nom'] or ''
+                    form_data['client_id'] = selected_proj.get('client_company_id')
+                    
+                    # Afficher les infos du projet sélectionné
+                    st.markdown(f"""
+                    <div class="erp-info-box">
+                        📋 <strong>Projet:</strong> {selected_proj['nom_projet']} | 
+                        🏢 <strong>Client:</strong> {form_data['client_name']} | 
+                        🚦 <strong>Statut:</strong> {selected_proj['statut']}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    # Nouveau projet
+                    form_data['project_id'] = None
+                    form_data['project_name'] = st.text_input(
+                        "Nom du projet *:", 
+                        value=form_data.get('project_name', ''),
+                        placeholder="Nom du nouveau projet"
+                    )
+                    
+                    # AMÉLIORATION: Sélection de client depuis la base CRM
+                    companies = gestionnaire.get_companies_from_db()
+                    if companies:
+                        client_options = [{'id': None, 'display': '-- Sélectionner un client --'}] + [
+                            {'id': c['id'], 'display': f"{c['nom']} ({c['type_company']})"}
+                            for c in companies
+                        ]
+                        
+                        current_client_id = form_data.get('client_id')
+                        client_index = 0
+                        for i, option in enumerate(client_options):
+                            if option['id'] == current_client_id:
+                                client_index = i
+                                break
+                        
+                        selected_client = st.selectbox(
+                            "Client ERP:",
+                            options=range(len(client_options)),
+                            index=client_index,
+                            format_func=lambda i: client_options[i]['display']
+                        )
+                        
+                        selected_client_data = client_options[selected_client]
+                        
+                        if selected_client_data['id']:
+                            form_data['client_id'] = selected_client_data['id']
+                            selected_comp = next(c for c in companies if c['id'] == selected_client_data['id'])
+                            form_data['client_name'] = selected_comp['nom']
+                        else:
+                            form_data['client_id'] = None
+                            form_data['client_name'] = st.text_input(
+                                "Nom du client *:", 
+                                value=form_data.get('client_name', ''),
+                                placeholder="Nom du nouveau client"
+                            )
+                    else:
+                        form_data['client_name'] = st.text_input(
+                            "Client *:", 
+                            value=form_data.get('client_name', ''),
+                            placeholder="Nom du client"
+                        )
+            else:
+                # Pas de projets ERP, utiliser les champs libres
+                form_data['project_name'] = st.text_input(
+                    "Nom du projet *:", 
+                    value=form_data.get('project_name', ''),
+                    placeholder="Nom du projet"
+                )
+                
+                form_data['client_name'] = st.text_input(
+                    "Client *:", 
+                    value=form_data.get('client_name', ''),
+                    placeholder="Nom du client"
+                )
             
-            form_data['client_name'] = st.text_input(
-                "Client *:", 
-                value=form_data.get('client_name', ''),
-                placeholder="Nom du client"
-            )
-            
-            # Récupérer la liste des employés
-            try:
-                employees = st.session_state.gestionnaire_employes.employes if hasattr(st.session_state, 'gestionnaire_employes') else []
-                employee_options = [''] + [f"{emp.get('prenom', '')} {emp.get('nom', '')}" for emp in employees if emp.get('statut') == 'ACTIF']
-            except:
-                employee_options = ['', 'Jean Martin', 'Marie Dubois', 'Pierre Gagnon', 'Louise Tremblay']
-            
-            current_manager = form_data.get('project_manager', '')
-            manager_index = employee_options.index(current_manager) if current_manager in employee_options else 0
-            
-            form_data['project_manager'] = st.selectbox(
-                "Chargé de projet:",
-                options=employee_options,
-                index=manager_index
-            )
+            # AMÉLIORATION: Sélection du chargé de projet depuis la base employés
+            employees = gestionnaire.get_employees_from_db()
+            if employees:
+                employee_options = [{'id': None, 'display': '-- Sélectionner un employé --'}] + [
+                    {'id': emp['id'], 'display': f"{emp['prenom']} {emp['nom']} ({emp['poste']})"}
+                    for emp in employees
+                ]
+                
+                current_manager_id = form_data.get('project_manager_id')
+                manager_index = 0
+                for i, option in enumerate(employee_options):
+                    if option['id'] == current_manager_id:
+                        manager_index = i
+                        break
+                
+                selected_manager = st.selectbox(
+                    "Chargé de projet:",
+                    options=range(len(employee_options)),
+                    index=manager_index,
+                    format_func=lambda i: employee_options[i]['display']
+                )
+                
+                selected_manager_data = employee_options[selected_manager]
+                
+                if selected_manager_data['id']:
+                    form_data['project_manager_id'] = selected_manager_data['id']
+                    selected_emp = next(e for e in employees if e['id'] == selected_manager_data['id'])
+                    form_data['project_manager'] = f"{selected_emp['prenom']} {selected_emp['nom']}"
+                else:
+                    form_data['project_manager_id'] = None
+                    form_data['project_manager'] = ''
+            else:
+                form_data['project_manager'] = st.text_input(
+                    "Chargé de projet:",
+                    value=form_data.get('project_manager', ''),
+                    placeholder="Nom du chargé de projet"
+                )
         
         with col2:
             priority_options = ['NORMAL', 'URGENT', 'CRITIQUE']
@@ -688,23 +945,31 @@ def show_bt_form_section():
             ).strftime('%Y-%m-%d')
 
 def show_tasks_section():
-    """Section des tâches et opérations"""
+    """Section des tâches et opérations - AMÉLIORÉE avec intégration ERP complète"""
     form_data = st.session_state.bt_current_form_data
+    gestionnaire = st.session_state.gestionnaire_bt
     
     st.markdown("### 📋 Tâches et Opérations")
     
-    # Operations disponibles (comme dans le HTML)
-    operation_options = [
-        '', 'Programmation CNC', 'Découpe plasma', 'Poinçonnage', 
-        'Soudage TIG', 'Assemblage', 'Meulage', 'Polissage', 'Emballage'
-    ]
+    # AMÉLIORATION: Récupérer les postes de travail depuis la base ERP
+    work_centers = gestionnaire.get_work_centers_from_db()
+    work_center_options = [{'id': None, 'display': '-- Sélectionner un poste --'}]
     
-    # Employés disponibles
-    try:
-        employees = st.session_state.gestionnaire_employes.employes if hasattr(st.session_state, 'gestionnaire_employes') else []
-        employee_options = [''] + [f"{emp.get('prenom', '')} {emp.get('nom', '')}" for emp in employees if emp.get('statut') == 'ACTIF']
-    except:
-        employee_options = ['', 'Technicien 1', 'Technicien 2', 'Soudeur 1', 'Soudeur 2', 'Programmeur CNC']
+    if work_centers:
+        work_center_options.extend([
+            {'id': wc['id'], 'display': f"{wc['nom']} ({wc['departement']})"}
+            for wc in work_centers
+        ])
+    
+    # AMÉLIORATION: Récupérer les employés depuis la base ERP
+    employees = gestionnaire.get_employees_from_db()
+    employee_options = [{'id': None, 'display': '-- Sélectionner un employé --'}]
+    
+    if employees:
+        employee_options.extend([
+            {'id': emp['id'], 'display': f"{emp['prenom']} {emp['nom']} ({emp['poste']})"}
+            for emp in employees
+        ])
     
     status_options = ['pending', 'in-progress', 'completed', 'on-hold']
     status_labels = {
@@ -715,7 +980,7 @@ def show_tasks_section():
     }
     
     if 'tasks' not in form_data or not form_data['tasks']:
-        form_data['tasks'] = [st.session_state.gestionnaire_bt.get_empty_task()]
+        form_data['tasks'] = [gestionnaire.get_empty_task()]
     
     # Affichage des tâches
     tasks_to_remove = []
@@ -725,14 +990,44 @@ def show_tasks_section():
             task_col1, task_col2, task_col3 = st.columns([2, 1, 1])
             
             with task_col1:
-                # Opération
-                op_index = operation_options.index(task.get('operation', '')) if task.get('operation', '') in operation_options else 0
-                task['operation'] = st.selectbox(
-                    "Opération:", 
-                    options=operation_options,
-                    index=op_index,
-                    key=f"task_op_{i}"
+                # AMÉLIORATION: Poste de travail depuis la base ERP
+                current_wc_id = task.get('work_center_id')
+                wc_index = 0
+                for idx, option in enumerate(work_center_options):
+                    if option['id'] == current_wc_id:
+                        wc_index = idx
+                        break
+                
+                selected_wc = st.selectbox(
+                    "Poste de travail:", 
+                    options=range(len(work_center_options)),
+                    index=wc_index,
+                    format_func=lambda idx: work_center_options[idx]['display'],
+                    key=f"task_wc_{i}"
                 )
+                
+                selected_wc_data = work_center_options[selected_wc]
+                task['work_center_id'] = selected_wc_data['id']
+                
+                if selected_wc_data['id']:
+                    selected_wc_obj = next(wc for wc in work_centers if wc['id'] == selected_wc_data['id'])
+                    task['operation'] = selected_wc_obj['nom']
+                    
+                    # Afficher les infos du poste sélectionné
+                    st.markdown(f"""
+                    <div class="erp-info-box">
+                        🏭 <strong>Poste:</strong> {selected_wc_obj['nom']} | 
+                        🏢 <strong>Département:</strong> {selected_wc_obj['departement']} | 
+                        🔧 <strong>Type:</strong> {selected_wc_obj.get('type_machine', 'N/A')}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    task['operation'] = st.text_input(
+                        "Opération:", 
+                        value=task.get('operation', ''),
+                        placeholder="Nom de l'opération",
+                        key=f"task_op_{i}"
+                    )
                 
                 # Description
                 task['description'] = st.text_input(
@@ -770,14 +1065,39 @@ def show_tasks_section():
                 )
             
             with task_col3:
-                # Assigné à
-                assigned_index = employee_options.index(task.get('assigned_to', '')) if task.get('assigned_to', '') in employee_options else 0
-                task['assigned_to'] = st.selectbox(
+                # AMÉLIORATION: Assigné à depuis la base employés
+                current_emp_id = task.get('assigned_to_id')
+                emp_index = 0
+                for idx, option in enumerate(employee_options):
+                    if option['id'] == current_emp_id:
+                        emp_index = idx
+                        break
+                
+                selected_emp = st.selectbox(
                     "Assigné à:", 
-                    options=employee_options,
-                    index=assigned_index,
+                    options=range(len(employee_options)),
+                    index=emp_index,
+                    format_func=lambda idx: employee_options[idx]['display'],
                     key=f"task_assigned_{i}"
                 )
+                
+                selected_emp_data = employee_options[selected_emp]
+                task['assigned_to_id'] = selected_emp_data['id']
+                
+                if selected_emp_data['id']:
+                    selected_emp_obj = next(e for e in employees if e['id'] == selected_emp_data['id'])
+                    task['assigned_to'] = f"{selected_emp_obj['prenom']} {selected_emp_obj['nom']}"
+                    
+                    # Afficher les infos de l'employé sélectionné
+                    st.markdown(f"""
+                    <div class="erp-info-box">
+                        👤 <strong>{selected_emp_obj['prenom']} {selected_emp_obj['nom']}</strong> | 
+                        💼 <strong>Poste:</strong> {selected_emp_obj['poste']} | 
+                        🏢 <strong>Département:</strong> {selected_emp_obj['departement']}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    task['assigned_to'] = ''
                 
                 # Statut
                 status_index = status_options.index(task.get('status', 'pending')) if task.get('status', 'pending') in status_options else 0
@@ -836,7 +1156,7 @@ def show_tasks_section():
     col_add, col_total = st.columns([1, 2])
     with col_add:
         if st.button("➕ Ajouter une tâche", type="secondary"):
-            form_data['tasks'].append(st.session_state.gestionnaire_bt.get_empty_task())
+            form_data['tasks'].append(gestionnaire.get_empty_task())
             st.rerun()
     
     with col_total:
@@ -1103,6 +1423,12 @@ def show_bt_management():
                     **Créé le:** {bon['date_creation'][:10] if bon['date_creation'] else 'N/A'}  
                     **Échéance:** {bon['date_echeance'] if bon['date_echeance'] else 'N/A'}
                     """)
+                    
+                    # Afficher les liens ERP si disponibles
+                    if bon.get('project_id'):
+                        st.markdown(f"🔗 **Projet ERP:** ID #{bon['project_id']}")
+                    if bon.get('client_id'):
+                        st.markdown(f"🔗 **Client ERP:** ID #{bon['client_id']}")
                 
                 # Actions
                 action_detail_col1, action_detail_col2, action_detail_col3, action_detail_col4 = st.columns(4)
@@ -1235,7 +1561,8 @@ def show_bt_statistics():
 def show_production_management_page():
     """
     Page principale du module de gestion des bons de travail
-    Reproduit l'interface du fichier HTML
+    VERSION INTÉGRÉE ERP COMPLÈTE
+    Reproduit l'interface du fichier HTML avec intégration ERP
     """
     
     # Appliquer les styles DG
@@ -1289,8 +1616,9 @@ def show_production_management_page():
     st.markdown("---")
     st.markdown("""
     <div style='text-align:center;color:var(--text-color-light);padding:20px 0;'>
-        <p><strong>🏭 Desmarais & Gagné Inc.</strong> - Système de Gestion des Bons de Travail</p>
+        <p><strong>🏭 Desmarais & Gagné Inc.</strong> - Système de Gestion des Bons de Travail ERP</p>
         <p>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 Interface intégrée ERP Production</p>
+        <p><em>Version intégrée avec base de données ERP complète</em></p>
     </div>
     """, unsafe_allow_html=True)
 
