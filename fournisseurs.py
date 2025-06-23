@@ -20,125 +20,25 @@ class GestionnaireFournisseurs:
     def __init__(self, db):
         self.db = db
     
-    def get_active_fournisseurs_simple(self) -> List[Dict]:
-        """Récupère les fournisseurs actifs de manière simple (pour formulaires)"""
-        try:
-            query = '''
-                SELECT f.id, f.company_id, f.code_fournisseur, f.est_actif,
-                       COALESCE(c.nom, CONCAT('Fournisseur_', f.id)) as nom
-                FROM fournisseurs f
-                LEFT JOIN companies c ON f.company_id = c.id
-                WHERE f.est_actif = TRUE
-                ORDER BY c.nom
-            '''
-            
-            result = self.db.execute_query(query)
-            return [dict(row) for row in result] if result else []
-            
-        except Exception as e:
-            st.error(f"Erreur récupération fournisseurs actifs: {e}")
-            return []
-
     def get_all_fournisseurs(self) -> List[Dict]:
         """Récupère tous les fournisseurs avec leurs statistiques"""
         try:
-            # Requête corrigée avec LEFT JOIN pour éviter les problèmes de jointure
-            query = '''
-                SELECT f.id, f.company_id, f.code_fournisseur, f.categorie_produits, 
-                       f.delai_livraison_moyen, f.conditions_paiement, f.evaluation_qualite,
-                       f.contact_commercial, f.contact_technique, f.certifications, 
-                       f.notes_evaluation, f.est_actif, f.date_creation,
-                       COALESCE(c.nom, 'Entreprise inconnue') as nom,
-                       COALESCE(c.secteur, 'N/A') as secteur,
-                       COALESCE(c.adresse, 'N/A') as adresse,
-                       COALESCE(c.site_web, 'N/A') as site_web,
-                       COALESCE(c.notes, 'N/A') as company_notes,
-                       0 as montant_total_commandes,
-                       0 as nombre_commandes
-                FROM fournisseurs f
-                LEFT JOIN companies c ON f.company_id = c.id
-                ORDER BY c.nom
-            '''
-            
-            result = self.db.execute_query(query)
-            return [dict(row) for row in result] if result else []
-            
+            return self.db.get_fournisseurs_with_stats()
         except Exception as e:
             st.error(f"Erreur récupération fournisseurs: {e}")
             return []
     
-    def fix_fournisseur_status(self, fournisseur_id: int) -> bool:
-        """Corrige le statut d'un fournisseur s'il est inactif"""
-        try:
-            # Vérifier le statut actuel
-            query = "SELECT est_actif FROM fournisseurs WHERE id = ?"
-            result = self.db.execute_query(query, (fournisseur_id,))
-            
-            if not result:
-                return False
-            
-            current_status = result[0]['est_actif']
-            
-            if not current_status:
-                # Activer le fournisseur
-                update_query = "UPDATE fournisseurs SET est_actif = TRUE WHERE id = ?"
-                affected = self.db.execute_update(update_query, (fournisseur_id,))
-                return affected > 0
-            
-            return True  # Déjà actif
-            
-        except Exception as e:
-            st.error(f"Erreur correction statut: {e}")
-            return False
-
-    def diagnose_fournisseur_issue(self, fournisseur_id: int)::
-        """Diagnostique les problèmes avec un fournisseur spécifique"""
-        try:
-            fournisseur_id = int(fournisseur_id)
-            
-            # 1. Vérifier si le fournisseur existe
-            query1 = "SELECT id, company_id, code_fournisseur FROM fournisseurs WHERE id = ?"
-            result1 = self.db.execute_query(query1, (fournisseur_id,))
-            
-            if not result1:
-                return f"❌ Aucun fournisseur avec l'ID {fournisseur_id}"
-            
-            fournisseur = dict(result1[0])
-            
-            # 2. Vérifier si l'entreprise associée existe
-            query2 = "SELECT id, nom FROM companies WHERE id = ?"
-            result2 = self.db.execute_query(query2, (fournisseur['company_id'],))
-            
-            if not result2:
-                return f"❌ Entreprise manquante (ID: {fournisseur['company_id']}) pour le fournisseur {fournisseur['code_fournisseur']}"
-            
-            company = dict(result2[0])
-            return f"✅ Fournisseur OK: {fournisseur['code_fournisseur']} → Entreprise: {company['nom']}"
-            
-        except Exception as e:
-            return f"❌ Erreur diagnostic: {e}"
-
     def get_fournisseur_by_id(self, fournisseur_id: int) -> Dict:
         """Récupère un fournisseur par ID avec détails complets"""
         try:
-            # Conversion explicite en int si nécessaire
-            fournisseur_id = int(fournisseur_id) if isinstance(fournisseur_id, str) else fournisseur_id
-            
-            # Utiliser LEFT JOIN pour éviter les problèmes si l'entreprise n'existe pas
             query = '''
-                SELECT f.*, 
-                       COALESCE(c.nom, 'Entreprise inconnue') as nom,
-                       COALESCE(c.secteur, 'N/A') as secteur,
-                       COALESCE(c.adresse, 'N/A') as adresse,
-                       COALESCE(c.site_web, 'N/A') as site_web,
-                       COALESCE(c.notes, 'N/A') as company_notes
+                SELECT f.*, c.nom, c.secteur, c.adresse, c.site_web, c.notes as company_notes
                 FROM fournisseurs f
-                LEFT JOIN companies c ON f.company_id = c.id
+                JOIN companies c ON f.company_id = c.id
                 WHERE f.id = ?
             '''
             result = self.db.execute_query(query, (fournisseur_id,))
             return dict(result[0]) if result else {}
-            
         except Exception as e:
             st.error(f"Erreur récupération fournisseur: {e}")
             return {}
@@ -650,13 +550,9 @@ def render_create_demande_prix_form(gestionnaire):
     """Formulaire de création de Demande de Prix"""
     st.markdown("#### ➕ Nouvelle Demande de Prix")
     
-    # Vérification préalable des fournisseurs avec la nouvelle méthode
-    fournisseurs_actifs = gestionnaire.get_active_fournisseurs_simple()
-    
-    # Debug temporaire
-    st.write(f"🔍 Debug: {len(fournisseurs_actifs)} fournisseurs actifs trouvés")
-    if fournisseurs_actifs:
-        st.write("Fournisseurs:", [f.get('nom', 'N/A') for f in fournisseurs_actifs])
+    # Vérification préalable des fournisseurs
+    fournisseurs = gestionnaire.get_all_fournisseurs()
+    fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
     
     if not fournisseurs_actifs:
         st.warning("⚠️ Aucun fournisseur actif disponible.")
@@ -862,13 +758,9 @@ def render_create_bon_achat_form(gestionnaire):
     """Formulaire de création de Bon d'Achat"""
     st.markdown("#### 🛒 Nouveau Bon d'Achat")
     
-    # Vérification préalable des fournisseurs avec la nouvelle méthode
-    fournisseurs_actifs = gestionnaire.get_active_fournisseurs_simple()
-    
-    # Debug temporaire
-    st.write(f"🔍 Debug: {len(fournisseurs_actifs)} fournisseurs actifs trouvés")
-    if fournisseurs_actifs:
-        st.write("Fournisseurs:", [f.get('nom', 'N/A') for f in fournisseurs_actifs])
+    # Vérification préalable des fournisseurs
+    fournisseurs = gestionnaire.get_all_fournisseurs()
+    fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
     
     if not fournisseurs_actifs:
         st.warning("⚠️ Aucun fournisseur actif disponible.")
@@ -1578,7 +1470,7 @@ def render_fournisseurs_dashboard(gestionnaire):
     st.markdown("---")
     st.markdown("#### ⚡ Actions Rapides")
     
-    action_col1, action_col2, action_col3, action_col4, action_col5 = st.columns(5)
+    action_col1, action_col2, action_col3, action_col4 = st.columns(4)
     
     with action_col1:
         if st.button("➕ Nouveau Fournisseur", use_container_width=True, key="dashboard_new_fournisseur"):
@@ -1594,22 +1486,6 @@ def render_fournisseurs_dashboard(gestionnaire):
             st.info("💡 Consultez l'onglet 'Bon d'Achat' pour créer un nouveau BA.")
     
     with action_col4:
-        if st.button("🔍 Test Fournisseurs", use_container_width=True, key="dashboard_test_fournisseurs"):
-            # Test de diagnostic
-            all_fournisseurs = gestionnaire.get_all_fournisseurs()
-            active_fournisseurs = gestionnaire.get_active_fournisseurs_simple()
-            
-            st.info(f"📊 Total fournisseurs: {len(all_fournisseurs)}")
-            st.info(f"✅ Fournisseurs actifs (simple): {len(active_fournisseurs)}")
-            
-            if active_fournisseurs:
-                st.success("✅ Des fournisseurs actifs sont disponibles pour les formulaires")
-                for f in active_fournisseurs:
-                    st.write(f"- {f.get('nom', 'N/A')} (ID: {f.get('id')})")
-            else:
-                st.error("❌ Aucun fournisseur actif trouvé")
-    
-    with action_col5:
         if st.button("🔄 Actualiser Stats", use_container_width=True, key="dashboard_refresh"):
             st.rerun()
 
@@ -1703,7 +1579,7 @@ def render_fournisseurs_liste(gestionnaire):
         )
         
         if selected_fournisseur_id:
-            action_col1, action_col2, action_col3, action_col4, action_col5, action_col6, action_col7 = st.columns(7)
+            action_col1, action_col2, action_col3, action_col4, action_col5 = st.columns(5)
             
             with action_col1:
                 if st.button("👁️ Voir Détails", use_container_width=True, key=f"liste_view_fournisseur_{selected_fournisseur_id}"):
@@ -1730,25 +1606,6 @@ def render_fournisseurs_liste(gestionnaire):
                     st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
             
             with action_col5:
-                if st.button("🔍 Diagnostic", use_container_width=True, key=f"liste_diagnostic_fournisseur_{selected_fournisseur_id}"):
-                    diagnostic = gestionnaire.diagnose_fournisseur_issue(selected_fournisseur_id)
-                    if "✅" in diagnostic:
-                        st.success(diagnostic)
-                    elif "⚠️" in diagnostic and "INACTIF" in diagnostic:
-                        st.warning(diagnostic)
-                        st.info("💡 Utilisez le bouton 'Activer' pour corriger cela.")
-                    else:
-                        st.error(diagnostic)
-            
-            with action_col6:
-                if st.button("✅ Activer", use_container_width=True, key=f"liste_activate_fournisseur_{selected_fournisseur_id}"):
-                    if gestionnaire.fix_fournisseur_status(selected_fournisseur_id):
-                        st.success("✅ Fournisseur activé avec succès !")
-                        st.rerun()
-                    else:
-                        st.error("❌ Erreur lors de l'activation")
-            
-            with action_col7:
                 if st.button("🗑️ Désactiver", use_container_width=True, key=f"liste_delete_fournisseur_{selected_fournisseur_id}"):
                     if st.warning("Êtes-vous sûr de vouloir désactiver ce fournisseur ?"):
                         if gestionnaire.delete_fournisseur(selected_fournisseur_id):
@@ -2137,13 +1994,7 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
 def render_fournisseur_details(gestionnaire, fournisseur_data):
     """Affichage détaillé d'un fournisseur"""
     if not fournisseur_data:
-        st.error("❌ Fournisseur non trouvé.")
-        st.info("💡 Vérifiez que le fournisseur existe et que l'entreprise associée est valide.")
-        
-        # Bouton pour retourner à la liste
-        if st.button("🔙 Retour à la liste", key="error_return_to_list"):
-            st.session_state.fournisseur_action = None
-            st.rerun()
+        st.error("Fournisseur non trouvé.")
         return
     
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
