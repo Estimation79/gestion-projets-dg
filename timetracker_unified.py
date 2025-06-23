@@ -387,11 +387,11 @@ class TimeTrackerUnified:
             return {}
 
 # =========================================================================
-# INTERFACE STREAMLIT PRINCIPALE
+# INTERFACE STREAMLIT PRINCIPALE - EMPLOYÉS SEULEMENT
 # =========================================================================
 
 def show_timetracker_unified_interface():
-    """Interface principale du TimeTracker unifié simplifié"""
+    """Interface principale du TimeTracker unifié simplifié - VERSION EMPLOYÉS"""
     
     if 'timetracker_unified' not in st.session_state:
         st.error("❌ TimeTracker non initialisé")
@@ -401,7 +401,7 @@ def show_timetracker_unified_interface():
     
     st.markdown("### ⏱️ TimeTracker Simple - Pointage Employés")
     
-    # Onglets principaux
+    # Onglets principaux - SUPPRIMÉ ADMINISTRATION
     tab_punch, tab_history, tab_stats = st.tabs([
         "🕐 Pointage", "📊 Historique", "📈 Statistiques"
     ])
@@ -414,9 +414,6 @@ def show_timetracker_unified_interface():
     
     with tab_stats:
         show_statistics_interface(tt)
-    
-    with tab_admin:
-        show_admin_interface(tt)
 
 def show_punch_interface(tt):
     """Interface de pointage simple"""
@@ -711,111 +708,6 @@ def show_statistics_interface(tt):
                 if emp_stats.get('total_sessions', 0) > 0:
                     st.metric("Moyenne/Session", f"{emp_stats.get('avg_session_hours', 0):.1f}h")
                     st.metric("Taux Horaire Moyen", f"{emp_stats.get('avg_hourly_rate', 0):.0f}$/h")
-
-def show_admin_interface(tt):
-    """Interface d'administration"""
-    
-    st.markdown("#### ⚙️ Administration TimeTracker")
-    
-    # Actions rapides
-    st.markdown("##### 🚀 Actions Rapides")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🔄 Actualiser Données", use_container_width=True):
-            st.success("✅ Données actualisées")
-            st.rerun()
-    
-    with col2:
-        if st.button("📊 Recalculer Stats", use_container_width=True):
-            # Simulation recalcul
-            st.success("✅ Statistiques recalculées")
-    
-    with col3:
-        if st.button("🧹 Nettoyer Sessions", use_container_width=True):
-            # Nettoyage sessions anciennes non fermées (>24h)
-            cutoff = datetime.now() - timedelta(hours=24)
-            try:
-                cleaned = tt.db.execute_update(
-                    "DELETE FROM time_entries WHERE punch_out IS NULL AND punch_in < ?",
-                    (cutoff.isoformat(),)
-                )
-                st.success(f"✅ {cleaned} session(s) nettoyée(s)")
-            except Exception as e:
-                st.error(f"❌ Erreur nettoyage: {e}")
-    
-    # Vue des données
-    st.markdown("##### 🔍 Vue des Données")
-    
-    # Employés actifs
-    active_employees = tt.get_active_employees()
-    if active_employees:
-        st.markdown("**👥 Employés Pointés:**")
-        for emp in active_employees:
-            col1, col2, col3 = st.columns([3, 3, 2])
-            col1.write(f"**{emp['name']}** ({emp['poste']})")
-            col2.write(f"📋 {emp['nom_projet'] or 'N/A'}")
-            col3.write(f"⏱️ {emp['hours_worked']:.1f}h")
-    else:
-        st.info("Aucun employé pointé actuellement")
-    
-    st.markdown("---")
-    
-    # Statistiques système
-    st.markdown("##### 📈 Statistiques Système")
-    
-    system_stats = tt.get_timetracker_statistics_unified()
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Employés Total", system_stats.get('total_employees', 0))
-    col2.metric("Pointages Actifs", system_stats.get('active_entries', 0))
-    col3.metric("Entrées Total", system_stats.get('total_entries', 0))
-    
-    # Export données
-    st.markdown("##### 📥 Export de Données")
-    
-    export_days = st.slider("Nombre de jours à exporter:", 1, 90, 30)
-    
-    if st.button("📋 Exporter Historique Complet", use_container_width=True):
-        history = tt.get_punch_history(days=export_days)
-        
-        if history:
-            df_export = pd.DataFrame(history)
-            csv_data = df_export.to_csv(index=False)
-            
-            st.download_button(
-                label="💾 Télécharger Export CSV",
-                data=csv_data,
-                file_name=f"timetracker_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-        else:
-            st.warning("Aucune donnée à exporter")
-    
-    # Maintenance base de données
-    st.markdown("##### 🔧 Maintenance Base")
-    
-    if st.button("🔍 Vérifier Intégrité", use_container_width=True):
-        try:
-            # Vérifications basiques
-            orphan_entries = tt.db.execute_query(
-                "SELECT COUNT(*) as count FROM time_entries WHERE employee_id NOT IN (SELECT id FROM employees)"
-            )
-            orphan_count = orphan_entries[0]['count'] if orphan_entries else 0
-            
-            invalid_projects = tt.db.execute_query(
-                "SELECT COUNT(*) as count FROM time_entries WHERE project_id NOT IN (SELECT id FROM projects)"
-            )
-            invalid_proj_count = invalid_projects[0]['count'] if invalid_projects else 0
-            
-            if orphan_count == 0 and invalid_proj_count == 0:
-                st.success("✅ Intégrité OK - Aucun problème détecté")
-            else:
-                st.warning(f"⚠️ Problèmes détectés: {orphan_count} entrées orphelines, {invalid_proj_count} projets invalides")
-        
-        except Exception as e:
-            st.error(f"❌ Erreur vérification: {e}")
 
 # =========================================================================
 # FONCTION PRINCIPALE D'AFFICHAGE (Compatibilité app.py)
