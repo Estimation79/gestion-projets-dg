@@ -1,8 +1,7 @@
-# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
-# VERSION REFACTORISÉE : Module Production Unifié intégré
+# app.py - ERP Production DG Inc. avec Production Management v2.0 Intégré
+# VERSION REFACTORISÉE : Module Production MRP Complet
 # Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
-# ARCHITECTURE UNIFIÉE : TimeTracker Pro + Postes de Travail fusionnés
-# CHECKPOINT 6 : TIMETRACKER PRO UNIFIÉ AVEC BTS INTÉGRÉS
+# CHECKPOINT 7 : INTÉGRATION PRODUCTION MANAGEMENT v2.0
 
 import streamlit as st
 import pandas as pd
@@ -20,7 +19,7 @@ from math import gcd
 from fractions import Fraction
 
 # ========================
-# CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
+# CHARGEMENT DU CSS EXTERNE (INCHANGÉ)
 # ========================
 
 def load_external_css():
@@ -79,7 +78,7 @@ def apply_fallback_styles():
     """, unsafe_allow_html=True)
 
 # ========================
-# CONFIGURATION AUTHENTIFICATION
+# CONFIGURATION AUTHENTIFICATION (INCHANGÉ)
 # ========================
 
 def get_admin_credentials():
@@ -109,13 +108,13 @@ def get_user_display_name(username):
     return names.get(username, username.title())
 
 def get_user_permissions(username):
-    """Définit les permissions selon le rôle"""
+    """Définit les permissions selon le rôle - MISE À JOUR avec production"""
     permissions = {
         "admin": ["ALL"],
         "dg_admin": ["ALL"],
-        "direction": ["projects", "crm", "employees", "reports", "formulaires", "fournisseurs"],
-        "superviseur": ["projects", "timetracker", "work_centers", "employees", "formulaires"],
-        "production": ["timetracker", "work_centers", "formulaires", "inventory"]
+        "direction": ["projects", "crm", "employees", "reports", "formulaires", "fournisseurs", "production"],
+        "superviseur": ["projects", "timetracker", "work_centers", "employees", "formulaires", "production"],
+        "production": ["timetracker", "work_centers", "formulaires", "inventory", "production"]
     }
     return permissions.get(username, [])
 
@@ -158,7 +157,7 @@ def show_admin_header():
     """, unsafe_allow_html=True)
 
 # ========================
-# IMPORTS MODULES ERP (MODIFIÉS POUR TIMETRACKER PRO)
+# IMPORTS MODULES ERP - MISE À JOUR PRODUCTION MANAGEMENT v2.0
 # ========================
 
 # PERSISTENT STORAGE : Import du gestionnaire de stockage persistant
@@ -168,7 +167,7 @@ try:
 except ImportError:
     PERSISTENT_STORAGE_AVAILABLE = False
 
-# NOUVELLE ARCHITECTURE : Import SQLite Database
+# ARCHITECTURE UNIFIÉE : Import SQLite Database
 try:
     from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
     ERP_DATABASE_AVAILABLE = True
@@ -176,15 +175,33 @@ except ImportError:
     ERP_DATABASE_AVAILABLE = False
 
 # ========================
-# NOUVEAU : Import du module unifié
+# NOUVEAU : PRODUCTION MANAGEMENT V2.0 - MRP COMPLET
 # ========================
 try:
-    from production_management import show_production_management_page
-    PRODUCTION_MANAGEMENT_AVAILABLE = True
-except ImportError:
-    PRODUCTION_MANAGEMENT_AVAILABLE = False
+    from production_management_refactored import (
+        show_production_management_page,
+        ProductManager,
+        BOMManager, 
+        RoutingManager,
+        WorkOrderManager,
+        get_system_health_check
+    )
+    PRODUCTION_MANAGEMENT_V2_AVAILABLE = True
+    print("✅ Production Management v2.0 (MRP Complet) chargé avec succès")
+except ImportError as e:
+    print(f"⚠️ Production Management v2.0 non disponible: {e}")
+    PRODUCTION_MANAGEMENT_V2_AVAILABLE = False
+    
+    # Fallback vers ancien module si disponible
+    try:
+        from production_management import show_production_management_page
+        PRODUCTION_MANAGEMENT_AVAILABLE = True
+        print("📦 Fallback: Ancien module Production Management chargé")
+    except ImportError:
+        PRODUCTION_MANAGEMENT_AVAILABLE = False
+        print("❌ Aucun module Production Management disponible")
 
-# Importations pour le CRM (avec toutes les fonctions décommentées)
+# Importations pour le CRM (inchangé)
 try:
     from crm import (
         GestionnaireCRM,
@@ -202,7 +219,7 @@ try:
 except ImportError:
     CRM_AVAILABLE = False
 
-# Importations pour les Employés
+# Importations pour les Employés (inchangé)
 try:
     from employees import (
         GestionnaireEmployes,
@@ -219,7 +236,7 @@ except ImportError:
 # Les fonctions postes sont maintenant dans timetracker_unified.py
 POSTES_AVAILABLE = False  # Désactivé - maintenant unifié dans TimeTracker Pro
 
-# NOUVEAU : Importation du module Formulaires
+# Importation du module Formulaires (inchangé)
 try:
     from formulaires import (
         GestionnaireFormulaires,
@@ -229,7 +246,7 @@ try:
 except ImportError:
     FORMULAIRES_AVAILABLE = False
 
-# NOUVEAU : Importation du module Fournisseurs
+# Importation du module Fournisseurs (inchangé)
 try:
     from fournisseurs import (
         GestionnaireFournisseurs,
@@ -256,11 +273,8 @@ st.set_page_config(
 )
 
 # ========================
-# FONCTIONS UTILITAIRES ERP (RÉDUITES - MODULE UNIFIÉ)
+# FONCTIONS UTILITAIRES ERP (INCHANGÉES)
 # ========================
-
-# Les constantes et fonctions utilitaires ont été déplacées vers production_management.py
-# Seules les fonctions encore utilisées dans app.py sont conservées ici
 
 def format_currency(value):
     if value is None:
@@ -308,7 +322,7 @@ def get_project_statistics(gestionnaire):
     return stats
 
 # ========================
-# GESTIONNAIRE PROJETS SQLite (ORIGINAL)
+# GESTIONNAIRE PROJETS SQLite (INCHANGÉ)
 # ========================
 
 class GestionnaireProjetSQL:
@@ -519,7 +533,7 @@ class GestionnaireProjetSQL:
             return False
 
 # ========================
-# INITIALISATION ERP SYSTÈME (ORIGINAL)
+# INITIALISATION ERP SYSTÈME - MISE À JOUR PRODUCTION V2.0
 # ========================
 
 def _init_base_data_if_empty():
@@ -674,7 +688,7 @@ def _init_base_data_if_empty():
         print(f"Erreur initialisation données de base: {e}")
 
 def init_erp_system():
-    """Initialise le système ERP complet"""
+    """Initialise le système ERP complet avec Production Management v2.0"""
 
     # NOUVEAU : Initialisation du gestionnaire de stockage persistant AVANT tout
     if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
@@ -720,6 +734,52 @@ def init_erp_system():
     if ERP_DATABASE_AVAILABLE and 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
 
+    # ========================
+    # NOUVEAU : PRODUCTION MANAGEMENT V2.0 - GESTIONNAIRES MRP
+    # ========================
+    if PRODUCTION_MANAGEMENT_V2_AVAILABLE and ERP_DATABASE_AVAILABLE:
+        try:
+            # Health check du système Production avant initialisation
+            with st.spinner("🔍 Vérification Production Management v2.0..."):
+                health = get_system_health_check()
+            
+            if health['status'] == 'CRITICAL':
+                st.error("❌ Production Management v2.0 en état critique")
+                for error in health['errors']:
+                    st.error(f"• {error}")
+                # Ne pas arrêter complètement - continuer avec modules disponibles
+                st.session_state.production_v2_ready = False
+            else:
+                # Initialisation des gestionnaires Production v2.0
+                if 'product_manager' not in st.session_state:
+                    st.session_state.product_manager = ProductManager(st.session_state.erp_db)
+                    print("✅ ProductManager initialisé")
+                
+                if 'bom_manager' not in st.session_state:
+                    st.session_state.bom_manager = BOMManager(st.session_state.erp_db)
+                    print("✅ BOMManager initialisé")
+                
+                if 'routing_manager' not in st.session_state:
+                    st.session_state.routing_manager = RoutingManager(st.session_state.erp_db)
+                    print("✅ RoutingManager initialisé")
+                
+                if 'work_order_manager' not in st.session_state:
+                    st.session_state.work_order_manager = WorkOrderManager(
+                        st.session_state.erp_db,
+                        st.session_state.bom_manager,
+                        st.session_state.routing_manager
+                    )
+                    print("✅ WorkOrderManager initialisé")
+                
+                # Flag pour indiquer que Production v2.0 est prêt
+                st.session_state.production_v2_ready = True
+                print("🏭 Production Management v2.0 (MRP Complet) initialisé avec succès")
+            
+        except Exception as e:
+            st.error(f"❌ Erreur initialisation Production Management v2.0: {e}")
+            st.session_state.production_v2_ready = False
+            print(f"❌ Échec initialisation Production v2.0: {e}")
+
     # NOUVEAU : Gestionnaire formulaires
     if FORMULAIRES_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
@@ -750,17 +810,49 @@ def init_erp_system():
             st.session_state.timetracker_unified = None
 
 def get_system_stats():
-    """Récupère les statistiques système"""
+    """Récupère les statistiques système avec nouvelles métriques Production v2.0"""
     try:
         if ERP_DATABASE_AVAILABLE and 'erp_db' in st.session_state:
             db = st.session_state.erp_db
-            return {
+            stats = {
                 'projets': db.get_table_count('projects'),
                 'employes': db.get_table_count('employees'),
                 'entreprises': db.get_table_count('companies'),
                 'postes': db.get_table_count('work_centers'),
                 'formulaires': db.get_table_count('formulaires') if hasattr(db, 'get_table_count') else 0
             }
+            
+            # NOUVEAU : Métriques Production v2.0
+            if st.session_state.get('production_v2_ready'):
+                try:
+                    # Compter les produits gérés par Production v2.0
+                    if 'product_manager' in st.session_state:
+                        products = st.session_state.product_manager.get_all_products()
+                        stats['produits_v2'] = len(products)
+                    
+                    # Compter les BOM actives
+                    if 'bom_manager' in st.session_state:
+                        # Approximation : projets avec matériaux = BOM actives
+                        bom_count = db.execute_query("SELECT COUNT(DISTINCT project_id) as count FROM materials")
+                        stats['bom_actives'] = bom_count[0]['count'] if bom_count else 0
+                    
+                    # Compter les gammes actives
+                    if 'routing_manager' in st.session_state:
+                        routing_count = db.execute_query("SELECT COUNT(DISTINCT project_id) as count FROM operations")
+                        stats['gammes_actives'] = routing_count[0]['count'] if routing_count else 0
+                    
+                    # Compter les bons de travail
+                    work_orders_count = db.execute_query("SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire='BON_TRAVAIL'")
+                    stats['work_orders'] = work_orders_count[0]['count'] if work_orders_count else 0
+                    
+                except Exception as e:
+                    print(f"Erreur métriques Production v2.0: {e}")
+                    stats['produits_v2'] = 0
+                    stats['bom_actives'] = 0
+                    stats['gammes_actives'] = 0
+                    stats['work_orders'] = 0
+                    
+            return stats
     except Exception:
         pass
 
@@ -770,15 +862,19 @@ def get_system_stats():
         'employes': 45,
         'entreprises': 80,
         'postes': 61,
-        'formulaires': 120
+        'formulaires': 120,
+        'produits_v2': 0,
+        'bom_actives': 0,
+        'gammes_actives': 0,
+        'work_orders': 0
     }
 
 # ========================
-# INTERFACE PORTAIL (AVEC CLASSES CSS)
+# INTERFACE PORTAIL (MISE À JOUR avec Production v2.0)
 # ========================
 
 def show_portal_home():
-    """Affiche la page d'accueil du portail avec classes CSS"""
+    """Affiche la page d'accueil du portail avec classes CSS - MISE À JOUR Production v2.0"""
     # Header principal
     current_time = datetime.now().strftime("%H:%M")
     current_date = datetime.now().strftime("%d/%m/%Y")
@@ -822,6 +918,7 @@ def show_portal_home():
             st.rerun()
 
     with col2:
+        # MISE À JOUR : Carte admin avec Production MRP v2.0
         st.markdown("""
         <div class="access-card admin">
             <div class="access-icon">👨‍💼</div>
@@ -832,6 +929,7 @@ def show_portal_home():
             <ul class="access-features">
                 <li>📋 Gestion projets</li>
                 <li>🤝 CRM complet</li>
+                <li>🏭 Production MRP v2.0</li>
                 <li>📑 Formulaires DG</li>
                 <li>🏪 Fournisseurs</li>
                 <li>📊 Reporting avancé</li>
@@ -843,36 +941,39 @@ def show_portal_home():
             st.session_state.app_mode = "admin_auth"
             st.rerun()
 
-    # Statistiques système
+    # Statistiques système avec métriques Production v2.0
     stats = get_system_stats()
 
     st.markdown("---")
     st.markdown("### 📊 État du Système DG Inc.")
 
-    st.markdown(f"""
-    <div class="status-grid">
-        <div class="status-card">
-            <div class="status-number">{stats['projets']}</div>
-            <div class="status-label">Projets Actifs</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats['employes']}</div>
-            <div class="status-label">Employés ERP</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats['entreprises']}</div>
-            <div class="status-label">Entreprises</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats['postes']}</div>
-            <div class="status-label">Postes Travail</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats.get('formulaires', 120)}</div>
-            <div class="status-label">Formulaires</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # NOUVEAU : Mise à jour avec métriques Production v2.0
+    stat_cards = [
+        ("Projets Actifs", stats['projets']),
+        ("Employés ERP", stats['employes']),
+        ("Entreprises", stats['entreprises']),
+        ("Postes Travail", stats['postes']),
+        ("Formulaires", stats.get('formulaires', 120))
+    ]
+    
+    # Ajouter métriques Production v2.0 si disponible
+    if st.session_state.get('production_v2_ready'):
+        stat_cards.extend([
+            ("Produits v2.0", stats.get('produits_v2', 0)),
+            ("BOM Actives", stats.get('bom_actives', 0)),
+            ("Gammes Actives", stats.get('gammes_actives', 0))
+        ])
+
+    # Affichage des cartes de statistiques
+    cols = st.columns(len(stat_cards))
+    for i, (label, value) in enumerate(stat_cards):
+        with cols[i % len(cols)]:
+            st.markdown(f"""
+            <div class="status-card">
+                <div class="status-number">{value}</div>
+                <div class="status-label">{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     # Modules disponibles
     st.markdown("---")
@@ -880,12 +981,12 @@ def show_portal_home():
 
     modules_status = [
         ("📊 Base de Données ERP", ERP_DATABASE_AVAILABLE),
+        ("🏭 Production MRP v2.0", PRODUCTION_MANAGEMENT_V2_AVAILABLE and st.session_state.get('production_v2_ready', False)),
         ("🤝 CRM", CRM_AVAILABLE),
         ("👥 Employés", EMPLOYEES_AVAILABLE),
         ("⏱️ TimeTracker Pro", TIMETRACKER_AVAILABLE),
         ("📑 Formulaires", FORMULAIRES_AVAILABLE),
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
-        ("🏭 Production Unifié", PRODUCTION_MANAGEMENT_AVAILABLE),
         ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE)
     ]
 
@@ -895,7 +996,11 @@ def show_portal_home():
         target_col = [modules_col1, modules_col2, modules_col3][i % 3]
         with target_col:
             if is_available:
-                st.success(f"✅ {module_name}")
+                # Highlight spécial pour Production v2.0
+                if "Production MRP v2.0" in module_name:
+                    st.success(f"🚀 {module_name}")
+                else:
+                    st.success(f"✅ {module_name}")
             else:
                 st.error(f"❌ {module_name}")
 
@@ -905,21 +1010,21 @@ def show_portal_home():
         <h4>🏭 ERP Production DG Inc.</h4>
         <p>
             <strong>Desmarais & Gagné Inc.</strong> • Fabrication métallique et industrielle<br>
-            🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🔧 TimeTracker Pro & Postes<br>
+            🗄️ Architecture unifiée • 🏭 Production MRP v2.0 • ⏱️🔧 TimeTracker Pro & Postes<br>
             💾 Stockage persistant • 🔄 Navigation fluide • 🔒 Sécurisé
         </p>
         <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
             <small>
                 👥 <strong>Employés:</strong> Interface unifiée TimeTracker Pro & Postes<br>
-                👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
-                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié
+                👨‍💼 <strong>Admins:</strong> ERP complet avec Production MRP v2.0<br>
+                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module MRP v2.0
             </small>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 # ========================
-# GESTION REDIRECTION TIMETRACKER PRO (NOUVEAU)
+# GESTION REDIRECTION TIMETRACKER PRO (INCHANGÉ)
 # ========================
 
 def handle_timetracker_redirect():
@@ -936,7 +1041,7 @@ def handle_timetracker_redirect():
     return False
 
 def show_employee_interface():
-    """Interface simplifiée pour les employés"""
+    """Interface simplifiée pour les employés - MISE À JOUR Production v2.0"""
     st.markdown("""
     <div class="employee-header">
         <h2>👥 Interface Employé - DG Inc.</h2>
@@ -984,6 +1089,19 @@ def show_employee_interface():
             efficacite = random.uniform(82, 87)
             st.metric("⚡ Efficacité", f"{efficacite:.1f}%")
 
+        # NOUVEAU : Métriques Production v2.0 pour employés
+        if st.session_state.get('production_v2_ready'):
+            st.markdown("#### 🏭 Production MRP v2.0")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📦 Produits", stats.get('produits_v2', 0))
+            with col2:
+                st.metric("📋 BOM Actives", stats.get('bom_actives', 0))
+            with col3:
+                st.metric("⚙️ Gammes", stats.get('gammes_actives', 0))
+            with col4:
+                st.metric("🧾 Bons Travail", stats.get('work_orders', 0))
+
         # État des postes (simulation avec architecture unifiée)
         st.markdown("#### 🔧 État des Postes de Travail (Architecture Unifiée)")
 
@@ -1004,7 +1122,10 @@ def show_employee_interface():
             with col3:
                 st.write(f"👤 {poste['operateur']}")
 
-        st.info("💡 Interface unifiée TimeTracker Pro & Postes - Gestion centralisée")
+        if st.session_state.get('production_v2_ready'):
+            st.info("🏭 Production MRP v2.0 - Interface unifiée avec BOM et Gammes")
+        else:
+            st.info("💡 Interface unifiée TimeTracker Pro & Postes - Gestion centralisée")
 
     # Bouton retour
     st.markdown("---")
@@ -1136,11 +1257,11 @@ def show_admin_auth():
         """)
 
 # ========================
-# ERP PRINCIPAL AVEC PORTAIL (INTÉGRATION COMPLÈTE)
+# ERP PRINCIPAL AVEC PRODUCTION MANAGEMENT V2.0
 # ========================
 
 def show_erp_main():
-    """ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION"""
+    """ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION + PRODUCTION V2.0"""
     # Initialiser l'ERP
     init_erp_system()
 
@@ -1151,7 +1272,7 @@ def show_erp_main():
     permissions = st.session_state.get('admin_permissions', [])
     has_all_permissions = "ALL" in permissions
 
-    # NAVIGATION PRINCIPALE - ORDRE CHRONOLOGIQUE DE FABRICATION
+    # NAVIGATION PRINCIPALE - ORDRE CHRONOLOGIQUE + PRODUCTION V2.0
     available_pages = {}
 
     # 1. VUE D'ENSEMBLE
@@ -1165,10 +1286,13 @@ def show_erp_main():
     if has_all_permissions or "fournisseurs" in permissions:
         available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
 
-    # 4. CRÉER DEVIS AVEC VRAIS PRIX
-    # SUPPRIMÉ : Formulaires retiré du menu principal
-    # if has_all_permissions or "formulaires" in permissions:
-    #     available_pages["📑 Formulaires"] = "formulaires_page"
+    # 4. CRÉER DEVIS AVEC VRAIS PRIX - Production v2.0 intégrée
+    if has_all_permissions or "production" in permissions:
+        # NOUVEAU : Production Management v2.0 avec MRP complet
+        if PRODUCTION_MANAGEMENT_V2_AVAILABLE and st.session_state.get('production_v2_ready'):
+            available_pages["🏭 Production MRP v2.0"] = "production_v2_page"
+        elif PRODUCTION_MANAGEMENT_AVAILABLE:
+            available_pages["🏭 Production"] = "production_management"
 
     # 5. DEVIS ACCEPTÉ → PROJET CONFIRMÉ
     if has_all_permissions or "projects" in permissions:
@@ -1178,15 +1302,11 @@ def show_erp_main():
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         available_pages["⏱️ TimeTracker"] = "timetracker_pro_page"
 
-    # 7. PLANIFICATION FABRICATION
-    if has_all_permissions or "projects" in permissions or "inventory" in permissions:
-        available_pages["🏭 Production"] = "production_management"
-
-    # 8. GESTION ÉQUIPES
+    # 7. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
         available_pages["👥 Employés"] = "employees_page"
 
-    # 9. VUES DE SUIVI (regroupées en fin)
+    # 8. VUES DE SUIVI (regroupées en fin)
     if has_all_permissions or "projects" in permissions:
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
@@ -1194,7 +1314,7 @@ def show_erp_main():
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
-    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>Contact → Prix → Devis → Projet → Suivi → Production</small>", unsafe_allow_html=True)
+    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>Contact → Prix → 🏭 Production MRP v2.0 → Projet → Suivi</small>", unsafe_allow_html=True)
     
     # Bouton déconnexion
     if st.sidebar.button("🚪 Se Déconnecter", use_container_width=True):
@@ -1216,10 +1336,10 @@ def show_erp_main():
         "dashboard": "📊 Vue d'ensemble",
         "crm_page": "🤝 Contact client",
         "fournisseurs_page": "🏪 Prix matériaux",
-        "formulaires_page": "📑 Création devis",
+        "production_v2_page": "🏭 Production MRP v2.0",
+        "production_management": "🏭 Production Legacy",
         "liste": "📋 Gestion projet",
         "timetracker_pro_page": "⏱️🔧 Suivi temps",
-        "production_management": "🏭 Fabrication",
         "employees_page": "👥 Équipes",
         "gantt": "📈 Planning",
         "calendrier": "📅 Calendrier",
@@ -1230,23 +1350,34 @@ def show_erp_main():
     if etape_actuelle:
         st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:8px;border-radius:5px;text-align:center;margin-bottom:1rem;'><small><strong>Étape:</strong> {etape_actuelle}</small></div>", unsafe_allow_html=True)
 
-    # GESTION SIDEBAR SELON CONTEXTE - MISE À JOUR pour module unifié
-    if page_to_show_val == "production_management":
+    # GESTION SIDEBAR SELON CONTEXTE - PRODUCTION V2.0
+    if page_to_show_val == "production_v2_page":
         st.sidebar.markdown("---")
-        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Production Unifié</h4>", unsafe_allow_html=True)
-        st.session_state.inv_action_mode = st.sidebar.radio(
-            "Mode Inventaire:",
-            ["Voir Liste", "Ajouter Article", "Modifier Article"],
-            key="inv_action_mode_selector",
-            index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.get('inv_action_mode', "Voir Liste"))
-        )
+        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>🏭 Production MRP v2.0</h4>", unsafe_allow_html=True)
+        
+        # Health check en temps réel
+        if st.session_state.get('production_v2_ready'):
+            st.sidebar.success("✅ Système Production Opérationnel")
+            
+            # Quick stats Production v2.0
+            stats = get_system_stats()
+            if stats.get('produits_v2', 0) > 0:
+                st.sidebar.metric("📦 Produits", stats['produits_v2'])
+            if stats.get('bom_actives', 0) > 0:
+                st.sidebar.metric("📋 BOM", stats['bom_actives'])
+            if stats.get('gammes_actives', 0) > 0:
+                st.sidebar.metric("⚙️ Gammes", stats['gammes_actives'])
+            if stats.get('work_orders', 0) > 0:
+                st.sidebar.metric("🧾 Bons Travail", stats['work_orders'])
+        else:
+            st.sidebar.warning("⚠️ Production v2.0 non initialisé")
 
     st.sidebar.markdown("---")
 
     # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
     show_storage_status_sidebar()
 
-    # Statistiques dans la sidebar - MISE À JOUR avec module unifié
+    # Statistiques dans la sidebar - MISE À JOUR avec Production v2.0
     try:
         total_projects_sql = st.session_state.erp_db.get_table_count('projects')
         total_companies = st.session_state.erp_db.get_table_count('companies')
@@ -1265,17 +1396,20 @@ def show_erp_main():
             st.sidebar.metric("Base: Taille", f"{schema_info['file_size_mb']} MB")
             st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
 
-        # NOUVEAU : Statistiques inventaire depuis module unifié
-        try:
-            if 'inventory_manager_sql' not in st.session_state:
-                from production_management import GestionnaireInventaireSQL
-                st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
+        # NOUVEAU : Statistiques Production v2.0 dans sidebar
+        if st.session_state.get('production_v2_ready'):
+            stats = get_system_stats()
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🏭 Production MRP v2.0</h3>", unsafe_allow_html=True)
             
-            inventory_count = len(st.session_state.inventory_manager_sql.get_all_inventory())
-            if inventory_count > 0:
-                st.sidebar.metric("📦 Articles Stock", inventory_count)
-        except Exception:
-            pass
+            if stats.get('produits_v2', 0) > 0:
+                st.sidebar.metric("📦 Produits Gérés", stats['produits_v2'])
+            if stats.get('bom_actives', 0) > 0:
+                st.sidebar.metric("📋 BOM Actives", stats['bom_actives'])
+            if stats.get('gammes_actives', 0) > 0:
+                st.sidebar.metric("⚙️ Gammes Actives", stats['gammes_actives'])
+            if stats.get('work_orders', 0) > 0:
+                st.sidebar.metric("🧾 Bons Travail", stats['work_orders'])
 
     except Exception:
         pass
@@ -1389,7 +1523,11 @@ def show_erp_main():
             pass  # Silencieux si erreur
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés<br/>🏭 Module Production Unifié"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés"
+
+    # NOUVEAU : Ajouter info Production v2.0 dans footer sidebar
+    if st.session_state.get('production_v2_ready'):
+        footer_text += "<br/>🚀 Production MRP v2.0 Actif"
 
     # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
     if st.session_state.get('storage_manager'):
@@ -1401,7 +1539,7 @@ def show_erp_main():
 
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # PAGES (MODIFIÉES avec module unifié)
+    # PAGES - MISE À JOUR avec Production v2.0
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -1442,19 +1580,46 @@ def show_erp_main():
             show_formulaires_page()
         else:
             st.error("❌ Module Formulaires non disponible")
+    elif page_to_show_val == "production_v2_page":
+        # NOUVEAU : Page Production Management v2.0
+        if PRODUCTION_MANAGEMENT_V2_AVAILABLE and st.session_state.get('production_v2_ready'):
+            try:
+                st.markdown("## 🏭 Production Management v2.0 - MRP Complet")
+                
+                # Affichage notification de version
+                st.info("""
+                🚀 **Production Management v2.0 Actif !**
+                
+                ✅ Système MRP complet avec 4 modules intégrés :
+                • 📦 **Gestion Produits** - Hiérarchie produits finis → composants
+                • 📋 **Nomenclatures (BOM)** - Interface similaire ERP industriels  
+                • ⚙️ **Gammes Fabrication** - Opérations séquencées avec postes
+                • 🧾 **Bons de Travail** - Workflow automatisé BOM → Gamme → BT
+                
+                📍 Interface inspirée des captures d'écran fournies
+                """)
+                
+                # Affichage du module Production v2.0
+                show_production_management_page()
+                
+            except Exception as e:
+                st.error(f"❌ Erreur affichage Production v2.0: {e}")
+                st.info("💡 Rechargez la page ou vérifiez l'installation du module")
+        else:
+            st.error("❌ Production Management v2.0 non disponible")
+            st.info("💡 Vérifiez l'installation du module production_management_refactored.py")
+    elif page_to_show_val == "production_management":
+        # Fallback vers ancien module Production si v2.0 indisponible
+        if PRODUCTION_MANAGEMENT_AVAILABLE:
+            show_production_management_page()
+        else:
+            st.error("❌ Module Production non disponible")
     elif page_to_show_val == "timetracker_pro_page":
         if TIMETRACKER_AVAILABLE:
             show_timetracker_unified_interface()
         else:
             st.error("❌ TimeTracker Pro non disponible")
             st.info("Le module timetracker_unified.py est requis pour cette fonctionnalité.")
-    elif page_to_show_val == "production_management":
-        # NOUVEAU : Routage vers module unifié
-        if PRODUCTION_MANAGEMENT_AVAILABLE:
-            show_production_management_page()
-        else:
-            st.error("❌ Module Production non disponible")
-            st.info("Le module production_management.py est requis pour cette fonctionnalité.")
     elif page_to_show_val == "gantt":
         show_gantt()
     elif page_to_show_val == "calendrier":
@@ -1473,7 +1638,7 @@ def show_erp_main():
         render_delete_confirmation(st.session_state.gestionnaire)
 
 # ========================
-# AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR (ORIGINAL)
+# AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR (INCHANGÉ)
 # ========================
 
 def show_storage_status_sidebar():
@@ -1521,11 +1686,11 @@ def show_storage_status_sidebar():
         st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
 
 # ========================
-# FONCTIONS DE VUE ET DE RENDU ERP (RÉDUITES SELON PLAN)
+# FONCTIONS DE VUE ET DE RENDU ERP - MISE À JOUR DASHBOARD PRODUCTION V2.0
 # ========================
 
 def show_dashboard():
-    """Dashboard principal utilisant les classes CSS"""
+    """Dashboard principal utilisant les classes CSS - MISE À JOUR Production v2.0"""
     st.markdown("""
     <div class="main-title">
         <h1>📊 Tableau de Bord ERP Production</h1>
@@ -1550,15 +1715,26 @@ def show_dashboard():
     gestionnaire_fournisseurs = st.session_state.gestionnaire_fournisseurs
 
     # NOUVEAU : Gestionnaire formulaires pour métriques
-    # NOUVEAU : Gestionnaire formulaires pour métriques
     if FORMULAIRES_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
 
     gestionnaire_formulaires = st.session_state.get('gestionnaire_formulaires')
 
+    # NOUVEAU : Notification Production v2.0
+    if st.session_state.get('production_v2_ready'):
+        st.success("""
+        🚀 **Production Management v2.0 (MRP Complet) Actif !**
+        
+        ✅ Système MRP intégré : Produits → BOM → Gammes → Bons de Travail
+        ✅ Interface moderne inspirée des ERP industriels (Odoo-like)
+        ✅ Intégration complète avec base de données SQLite
+        
+        📍 **Accès :** Navigation → 🏭 Production MRP v2.0
+        """)
+
     # Affichage notification migration
     if st.session_state.get('migration_completed'):
-        st.success("🎉 Migration complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée avec module production unifié.")
+        st.success("🎉 Migration complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée avec Production MRP v2.0.")
 
     # CHECKPOINT 6: Notification TimeTracker Pro
     if st.session_state.get('timetracker_unified'):
@@ -1575,9 +1751,6 @@ def show_dashboard():
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
     
-    # ARCHITECTURE UNIFIÉE : Stats postes depuis TimeTracker
-    # postes_stats déjà initialisé plus haut
-
     # NOUVEAU : Statistiques formulaires
     form_stats = gestionnaire_formulaires.get_statistiques_formulaires() if gestionnaire_formulaires else {}
 
@@ -1588,7 +1761,7 @@ def show_dashboard():
         st.markdown("""
         <div class='welcome-card'>
             <h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3>
-            <p>Architecture unifiée avec TimeTracker Pro intégré. Créez votre premier projet ou explorez les données migrées.</p>
+            <p>Architecture unifiée avec Production MRP v2.0 et TimeTracker Pro intégrés.</p>
         </div>
         """, unsafe_allow_html=True)
         return
@@ -1606,45 +1779,57 @@ def show_dashboard():
         with c4:
             st.metric("💰 CA Total", format_currency(stats['ca_total']))
 
-    # NOUVEAU : Métriques Production Unifiée
-    if PRODUCTION_MANAGEMENT_AVAILABLE:
-        st.markdown("### 🏭 Aperçu Production Unifiée")
-        prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
+    # NOUVEAU : Métriques Production MRP v2.0
+    if st.session_state.get('production_v2_ready'):
+        st.markdown("### 🏭 Aperçu Production MRP v2.0")
+        prod_c1, prod_c2, prod_c3, prod_c4, prod_c5 = st.columns(5)
 
         with prod_c1:
-            # Stats inventaire depuis module unifié
+            # Stats produits depuis Production v2.0
             try:
-                if 'inventory_manager_sql' not in st.session_state:
-                    from production_management import GestionnaireInventaireSQL
-                    st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
-                
-                inventory_count = len(st.session_state.inventory_manager_sql.get_all_inventory())
-                st.metric("📦 Articles Stock", inventory_count)
+                if 'product_manager' in st.session_state:
+                    products = st.session_state.product_manager.get_all_products()
+                    st.metric("📦 Produits", len(products))
+                else:
+                    st.metric("📦 Produits", 0)
             except Exception:
-                st.metric("📦 Articles Stock", 0)
+                st.metric("📦 Produits", 0)
 
         with prod_c2:
-            # Stats BOM depuis projets
-            total_materials = 0
+            # Stats BOM depuis BOMManager
             try:
-                for project in gestionnaire.projets:
-                    total_materials += len(project.get('materiaux', []))
-                st.metric("📋 Matériaux BOM", total_materials)
+                if 'bom_manager' in st.session_state:
+                    bom_count = st.session_state.erp_db.execute_query("SELECT COUNT(DISTINCT project_id) as count FROM materials")
+                    st.metric("📋 BOM Actives", bom_count[0]['count'] if bom_count else 0)
+                else:
+                    st.metric("📋 BOM Actives", 0)
             except Exception:
-                st.metric("📋 Matériaux BOM", 0)
+                st.metric("📋 BOM Actives", 0)
 
         with prod_c3:
-            # Stats opérations itinéraire
-            total_operations = 0
+            # Stats gammes depuis RoutingManager
             try:
-                for project in gestionnaire.projets:
-                    total_operations += len(project.get('operations', []))
-                st.metric("🛠️ Opérations", total_operations)
+                if 'routing_manager' in st.session_state:
+                    routing_count = st.session_state.erp_db.execute_query("SELECT COUNT(DISTINCT project_id) as count FROM operations")
+                    st.metric("⚙️ Gammes", routing_count[0]['count'] if routing_count else 0)
+                else:
+                    st.metric("⚙️ Gammes", 0)
             except Exception:
-                st.metric("🛠️ Opérations", 0)
+                st.metric("⚙️ Gammes", 0)
 
         with prod_c4:
-            st.metric("✅ Module Unifié", "ACTIF" if PRODUCTION_MANAGEMENT_AVAILABLE else "INACTIF")
+            # Stats Work Orders depuis WorkOrderManager
+            try:
+                if 'work_order_manager' in st.session_state:
+                    wo_count = st.session_state.erp_db.execute_query("SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire='BON_TRAVAIL'")
+                    st.metric("🧾 Bons Travail", wo_count[0]['count'] if wo_count else 0)
+                else:
+                    st.metric("🧾 Bons Travail", 0)
+            except Exception:
+                st.metric("🧾 Bons Travail", 0)
+
+        with prod_c5:
+            st.metric("✅ MRP v2.0", "ACTIF" if st.session_state.get('production_v2_ready') else "INACTIF")
 
     # NOUVEAU : Métriques Formulaires
     if gestionnaire_formulaires and any(form_stats.values()):
@@ -1775,7 +1960,7 @@ def show_dashboard():
                 st.plotly_chart(fig, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Projets récents depuis SQLite
+        # Projets récents depuis SQLite avec boutons Production v2.0
         st.markdown("---")
         st.markdown("### 🕒 Projets Récents")
         projets_recents = sorted(gestionnaire.projets, key=lambda x: x.get('id', 0), reverse=True)[:5]
@@ -1783,7 +1968,7 @@ def show_dashboard():
             st.info("Aucun projet récent.")
         for p in projets_recents:
             st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-            rc1, rc2, rc3, rc4 = st.columns([3, 2, 2, 1])
+            rc1, rc2, rc3, rc4 = st.columns([3, 2, 2, 2])
             with rc1:
                 st.markdown(f"**#{p.get('id')} - {p.get('nom_projet', 'Sans nom')}**")
                 st.caption(f"📝 {p.get('description', 'N/A')[:100]}...")
@@ -1806,21 +1991,32 @@ def show_dashboard():
                 st.markdown(f"{statut_map.get(statut, '⚪')} {statut}")
                 st.caption(f"{priorite_map.get(priorite, '⚪')} {priorite}")
             with rc4:
-                if st.button("👁️", key=f"view_rec_{p.get('id')}", help="Voir détails"):
-                    st.session_state.selected_project = p
-                    st.session_state.show_project_modal = True
-                # NOUVEAU : Bouton création BT depuis projet récent
-                if st.button("🔧", key=f"bt_rec_{p.get('id')}", help="Créer Bon de Travail"):
-                    st.session_state.form_action = "create_bon_travail"
-                    st.session_state.formulaire_project_preselect = p.get('id')
-                    st.session_state.page_redirect = "formulaires_page"
-                    st.rerun()
-                # NOUVEAU : Bouton création BA depuis projet récent
-                if st.button("🛒", key=f"ba_rec_{p.get('id')}", help="Créer Bon d'Achat"):
-                    st.session_state.form_action = "create_bon_achat"
-                    st.session_state.formulaire_project_preselect = p.get('id')
-                    st.session_state.page_redirect = "formulaires_page"
-                    st.rerun()
+                # Boutons d'action avec Production v2.0
+                action_col1, action_col2 = st.columns(2)
+                with action_col1:
+                    if st.button("👁️", key=f"view_rec_{p.get('id')}", help="Voir détails"):
+                        st.session_state.selected_project = p
+                        st.session_state.show_project_modal = True
+                    
+                    # NOUVEAU : Bouton Production MRP v2.0
+                    if st.session_state.get('production_v2_ready'):
+                        if st.button("🏭", key=f"prod_v2_rec_{p.get('id')}", help="Production MRP v2.0"):
+                            st.session_state.page_redirect = "production_v2_page"
+                            st.session_state.production_v2_project_preselect = p.get('id')
+                            st.rerun()
+                
+                with action_col2:
+                    if st.button("🔧", key=f"bt_rec_{p.get('id')}", help="Créer Bon de Travail"):
+                        st.session_state.form_action = "create_bon_travail"
+                        st.session_state.formulaire_project_preselect = p.get('id')
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
+                    
+                    if st.button("🛒", key=f"ba_rec_{p.get('id')}", help="Créer Bon d'Achat"):
+                        st.session_state.form_action = "create_bon_achat"
+                        st.session_state.formulaire_project_preselect = p.get('id')
+                        st.session_state.page_redirect = "formulaires_page"
+                        st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
@@ -2114,7 +2310,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -2646,28 +2842,35 @@ def show_kanban():
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Boutons d'action pour la carte - MODIFIÉ avec BT et BA
-                col1, col2, col3, col4 = st.columns(4)
+                # Boutons d'action pour la carte - MODIFIÉ avec BT et BA et Production v2.0
+                col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
                     if st.button("👁️", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
                         st.session_state.selected_project = pk
                         st.session_state.show_project_modal = True
                         st.rerun()
                 with col2:
-                    # NOUVEAU : Bouton création BT dans Kanban - REDIRECTION vers 
+                    # NOUVEAU : Bouton Production MRP v2.0 dans Kanban
+                    if st.session_state.get('production_v2_ready'):
+                        if st.button("🏭", key=f"prod_v2_kanban_{pk['id']}", help="Production MRP v2.0", use_container_width=True):
+                            st.session_state.page_redirect = "production_v2_page"
+                            st.session_state.production_v2_project_preselect = pk['id']
+                            st.rerun()
+                with col3:
+                    # Bouton création BT dans Kanban - REDIRECTION vers TimeTracker Pro
                     if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
                         st.session_state.timetracker_redirect_to_bt = True
                         st.session_state.formulaire_project_preselect = pk['id']
                         st.session_state.page_redirect = "timetracker_pro_page"
                         st.rerun()
-                with col3:
-                    # NOUVEAU : Bouton création BA dans Kanban
+                with col4:
+                    # Bouton création BA dans Kanban
                     if st.button("🛒", key=f"ba_kanban_{pk['id']}", help="Créer Bon d'Achat", use_container_width=True):
                         st.session_state.form_action = "create_bon_achat"
                         st.session_state.formulaire_project_preselect = pk['id']
                         st.session_state.page_redirect = "formulaires_page"
                         st.rerun()
-                with col4:
+                with col5:
                     if st.button("➡️", key=f"move_kanban_{pk['id']}", help="Déplacer ce projet", use_container_width=True):
                         st.session_state.dragged_project_id = pk['id']
                         st.session_state.dragged_from_status = sk
@@ -2811,12 +3014,15 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    # CHECKPOINT 6 : FOOTER MISE À JOUR
-    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🔧 TimeTracker Pro Unifié • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
+    # NOUVEAU : Footer mis à jour avec Production v2.0
+    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🔧 TimeTracker Pro Unifié • CRM • 📑 Formulaires • 🏪 Fournisseurs"
+    
+    if st.session_state.get('production_v2_ready'):
+        footer_text += " • 🚀 Production MRP v2.0 Actif"
+    
     if 'timetracker_unified' in st.session_state and st.session_state.timetracker_unified:
         footer_text += " • ✅ TimeTracker Pro Actif avec BT Intégrés"
 
-    # NOUVEAU : Ajouter info stockage persistant dans footer principal
     if 'storage_manager' in st.session_state and st.session_state.storage_manager:
         storage_info = st.session_state.storage_manager.get_storage_info()
         if storage_info['environment_type'] == 'RENDER_PERSISTENT':
@@ -2824,14 +3030,14 @@ def show_footer():
         elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
             footer_text += " • ⚠️ Mode Temporaire"
 
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • TimeTracker Pro Refactorisé • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • Production MRP v2.0 • TimeTracker Pro Refactorisé • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
 
 # ========================
-# FONCTION PRINCIPALE AVEC PORTAIL
+# FONCTION PRINCIPALE AVEC PORTAIL - PRODUCTION V2.0
 # ========================
 
 def main():
-    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ"""
+    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET avec Production MRP v2.0"""
 
     # NOUVEAU : Charger le CSS externe en priorité
     css_loaded = load_external_css()
@@ -2848,7 +3054,7 @@ def main():
     if 'user_role' not in st.session_state:
         st.session_state.user_role = None
 
-    # Initialisation des variables de session (MISES À JOUR)
+    # NOUVEAU : Variables session pour Production v2.0
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
         'show_create_project': False, 'show_edit_project': False,
@@ -2880,9 +3086,16 @@ def main():
         'current_page': None,
         'admin_permissions': [],
         'pointages_temp': [],
-        # CHECKPOINT 6 : NOUVELLES VARIABLES TIMETRACKER PRO
         'timetracker_focus_tab': None,
-        'timetracker_redirect_to_bt': False
+        'timetracker_redirect_to_bt': False,
+        # NOUVEAU : Variables Production v2.0
+        'production_v2_ready': False,
+        'production_v2_project_preselect': None,
+        'production_v2_current_product': None,
+        'production_v2_current_bom': None,
+        'production_v2_current_routing': None,
+        'dragged_project_id': None,
+        'dragged_from_status': None
     }
     for k, v_def in session_defs.items():
         if k not in st.session_state:
@@ -2901,6 +3114,8 @@ def main():
             st.session_state.current_page = "timetracker_pro"
         elif target_page == "formulaires_page":
             st.session_state.current_page = "formulaires"
+        elif target_page == "production_v2_page":
+            st.session_state.current_page = "production_v2"
 
         st.rerun()
 
@@ -2969,6 +3184,6 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
-print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
-print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
+print("🎯 CHECKPOINT 7 - INTÉGRATION PRODUCTION MANAGEMENT V2.0 TERMINÉE")
+print("✅ Toutes les modifications appliquées pour Production MRP v2.0")
+print("🚀 Prêt pour le déploiement et les tests")
