@@ -5,6 +5,7 @@
 # MODIFICATION : Auto-sélection client depuis projet
 # VERSION CORRIGÉE : Problèmes de rechargement des opérations résolus
 # VERSION CORRIGÉE : Types numériques harmonisés pour st.number_input
+# VERSION FINALE : Support complet de la modification des Bons de Travail
 
 import streamlit as st
 import pandas as pd
@@ -25,6 +26,7 @@ class GestionnaireBonsTravail:
     Gestionnaire principal pour les Bons de Travail
     Reproduit les fonctionnalités du fichier HTML en version Streamlit
     VERSION CORRIGÉE pour résoudre les problèmes de rechargement
+    VERSION FINALE avec support complet de modification
     """
     
     def __init__(self, db):
@@ -238,6 +240,120 @@ class GestionnaireBonsTravail:
         except Exception as e:
             logger.error(f"Erreur sauvegarde BT: {e}")
             return None
+    
+    def update_bon_travail(self, bt_id: int, form_data: Dict) -> bool:
+        """
+        Met à jour un bon de travail existant dans la base
+        NOUVELLE FONCTION : Gestion des modifications BT
+        """
+        try:
+            # Mettre à jour le formulaire principal
+            update_result = self.db.execute_query('''
+                UPDATE formulaires 
+                SET numero_document = ?,
+                    project_id = ?,
+                    company_id = ?,
+                    priorite = ?,
+                    date_echeance = ?,
+                    notes = ?,
+                    metadonnees_json = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND type_formulaire = 'BON_TRAVAIL'
+            ''', (
+                form_data['numero_document'],
+                form_data.get('project_id'),
+                form_data.get('client_company_id'),
+                form_data['priority'],
+                form_data['end_date'],
+                form_data.get('work_instructions', ''),
+                json.dumps({
+                    'project_id': form_data.get('project_id', ''),
+                    'project_name': form_data['project_name'],
+                    'client_name': form_data['client_name'],
+                    'client_company_id': form_data.get('client_company_id'),
+                    'project_manager': form_data['project_manager'],
+                    'start_date': form_data['start_date'],
+                    'safety_notes': form_data.get('safety_notes', ''),
+                    'quality_requirements': form_data.get('quality_requirements', ''),
+                    'created_by': form_data.get('created_by', 'Utilisateur')
+                }),
+                bt_id
+            ))
+            
+            # Supprimer toutes les anciennes lignes
+            self.db.execute_query('''
+                DELETE FROM formulaire_lignes WHERE formulaire_id = ?
+            ''', (bt_id,))
+            
+            # Réinsérer les tâches mises à jour
+            for i, task in enumerate(form_data.get('tasks', []), 1):
+                # Seulement si l'opération OU la description est remplie
+                if task.get('operation') or task.get('description'):
+                    operation = task.get('operation', '').strip()
+                    description = task.get('description', '').strip()
+                    
+                    # Format de description amélioré
+                    if operation and description:
+                        full_description = f"{operation} - {description}"
+                    elif operation:
+                        full_description = f"{operation}"
+                    elif description:
+                        full_description = f"TÂCHE - {description}"
+                    else:
+                        continue
+                    
+                    self.db.execute_insert('''
+                        INSERT INTO formulaire_lignes 
+                        (formulaire_id, sequence_ligne, description, quantite, prix_unitaire, notes_ligne)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        bt_id, i, 
+                        full_description,
+                        task['quantity'], 
+                        task['planned_hours'],
+                        json.dumps({
+                            'operation': operation,
+                            'description': description,
+                            'actual_hours': task['actual_hours'],
+                            'assigned_to': task['assigned_to'],
+                            'status': task['status'],
+                            'start_date': task.get('start_date', ''),
+                            'end_date': task.get('end_date', '')
+                        })
+                    ))
+            
+            # Réinsérer les matériaux mis à jour
+            for i, material in enumerate(form_data.get('materials', []), 1000):
+                if material['name']:
+                    self.db.execute_insert('''
+                        INSERT INTO formulaire_lignes 
+                        (formulaire_id, sequence_ligne, description, quantite, unite, notes_ligne)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        bt_id, i, 
+                        f"MATERIAU: {material['name']} - {material['description']}", 
+                        material['quantity'], 
+                        material['unit'],
+                        json.dumps({
+                            'type': 'material',
+                            'available': material['available'],
+                            'notes': material.get('notes', '')
+                        })
+                    ))
+            
+            # Enregistrer l'action dans l'historique
+            self.db.execute_insert('''
+                INSERT INTO formulaire_validations
+                (formulaire_id, type_validation, commentaires)
+                VALUES (?, 'MODIFICATION', ?)
+            ''', (bt_id, f"Bon de Travail modifié par {form_data.get('created_by', 'Utilisateur')}"))
+            
+            logger.info(f"Bon de Travail {form_data['numero_document']} (ID: {bt_id}) mis à jour avec succès")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour BT {bt_id}: {e}")
+            return False
     
     def load_bon_travail(self, bt_id: int) -> Optional[Dict]:
         """
@@ -1372,7 +1488,7 @@ def show_instructions_section():
 def show_bt_actions():
     """
     Boutons d'action pour le BT
-    VERSION CORRIGÉE : Rechargement après sauvegarde au lieu de réinitialisation
+    VERSION FINALE : Support complet de la modification des BT
     """
     st.markdown("---")
     
@@ -1406,7 +1522,13 @@ def show_bt_actions():
         gestionnaire = st.session_state.gestionnaire_bt
         
         with action_col1:
-            if st.button("💾 Sauvegarder Bon de Travail", type="primary", use_container_width=True, key="bt_save_btn"):
+            # Texte du bouton selon le mode
+            if st.session_state.bt_mode == 'edit':
+                button_text = "💾 Sauvegarder Modifications"
+            else:
+                button_text = "💾 Sauvegarder Bon de Travail"
+            
+            if st.button(button_text, type="primary", use_container_width=True, key="bt_save_btn"):
                 # Validation
                 if not form_data.get('project_name'):
                     st.error("❌ Le nom du projet est obligatoire")
@@ -1416,31 +1538,50 @@ def show_bt_actions():
                     st.error("❌ Le nom du client est obligatoire")
                     return
                 
-                # Sauvegarder
+                # Sauvegarder selon le mode
                 if st.session_state.bt_mode == 'edit' and form_data.get('id'):
-                    # TODO: Implémenter la modification
-                    st.success("✅ Modification en cours de développement")
+                    # MODIFICATION
+                    success = gestionnaire.update_bon_travail(form_data['id'], form_data)
+                    if success:
+                        st.success(f"✅ Bon de Travail {form_data['numero_document']} modifié avec succès!")
+                        
+                        # Recharger le BT modifié
+                        try:
+                            reloaded_data = gestionnaire.load_bon_travail(form_data['id'])
+                            if reloaded_data:
+                                st.session_state.bt_current_form_data = reloaded_data
+                                st.session_state.bt_mode = 'view'
+                                st.info("✅ BT rechargé en mode visualisation")
+                            else:
+                                st.warning("⚠️ BT modifié mais rechargement échoué")
+                        except Exception as e:
+                            st.warning(f"⚠️ BT modifié mais erreur rechargement: {e}")
+                        
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de la modification")
                 else:
+                    # CRÉATION
                     bt_id = gestionnaire.save_bon_travail(form_data)
                     if bt_id:
-                        st.success(f"✅ Bon de Travail {form_data['numero_document']} sauvegardé avec succès!")
+                        st.success(f"✅ Bon de Travail {form_data['numero_document']} créé avec succès!")
                         
-                        # CORRECTION: Recharger le BT au lieu de réinitialiser
+                        # Recharger le BT au lieu de réinitialiser
                         try:
                             reloaded_data = gestionnaire.load_bon_travail(bt_id)
                             if reloaded_data:
                                 st.session_state.bt_current_form_data = reloaded_data
-                                st.session_state.bt_mode = 'view'  # Passer en mode visualisation
+                                st.session_state.bt_mode = 'view'
                                 st.session_state.bt_selected_id = bt_id
-                                st.info("✅ BT rechargé en mode visualisation pour vérification")
+                                st.info("✅ BT rechargé en mode visualisation")
                             else:
-                                st.warning("⚠️ BT sauvegardé mais rechargement échoué")
+                                st.warning("⚠️ BT créé mais rechargement échoué")
                         except Exception as e:
-                            st.warning(f"⚠️ BT sauvegardé mais erreur rechargement: {e}")
+                            st.warning(f"⚠️ BT créé mais erreur rechargement: {e}")
                         
                         st.rerun()
                     else:
-                        st.error("❌ Erreur lors de la sauvegarde")
+                        st.error("❌ Erreur lors de la création")
         
         with action_col2:
             if st.button("🖨️ Imprimer", use_container_width=True, key="bt_print_btn"):
@@ -2356,7 +2497,7 @@ def show_production_management_page():
     """
     Page principale du module de gestion des bons de travail et postes de travail
     Reproduit l'interface du fichier HTML en version Streamlit avec extension postes
-    VERSION CORRIGÉE : Problèmes de rechargement des opérations résolus + Types numériques harmonisés
+    VERSION FINALE : Support complet de la modification des BT + Types numériques harmonisés
     """
     
     # Appliquer les styles DG
