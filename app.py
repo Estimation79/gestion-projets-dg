@@ -1812,13 +1812,13 @@ def show_erp_main():
     if has_all_permissions or "projects" in permissions:
         available_pages["📋 Projets"] = "liste"
 
-    # 6. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
+    # 6. PLANIFICATION FABRICATION
+    if has_all_permissions or "projects" in permissions or "inventory" in permissions:
+        available_pages["🏭 Production"] = "production_management"    
+
+    # 7. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         available_pages["⏱️ TimeTracker"] = "timetracker_pro_page"
-
-    # 7. PLANIFICATION FABRICATION
-    if has_all_permissions or "projects" in permissions or "inventory" in permissions:
-        available_pages["🏭 Production"] = "production_management"
 
     # 8. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
