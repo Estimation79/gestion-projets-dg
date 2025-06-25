@@ -298,20 +298,12 @@ try:
 except ImportError:
     PRODUCTION_MANAGEMENT_AVAILABLE = False
 
+# --- REMPLACEZ PAR CECI DANS app.py ---
+
 # Importations pour le CRM (avec toutes les fonctions décommentées)
 try:
-    from crm import (
-        GestionnaireCRM,
-        render_crm_contacts_tab,
-        render_crm_entreprises_tab,
-        render_crm_interactions_tab,
-        render_crm_contact_form,
-        render_crm_entreprise_form,
-        render_crm_contact_details,
-        render_crm_entreprise_details,
-        render_crm_interaction_form,
-        render_crm_interaction_details
-    )
+    # On importe uniquement le constructeur et l'interface principale du CRM.
+    from crm import GestionnaireCRM, render_crm_main_interface
     CRM_AVAILABLE = True
 except ImportError:
     CRM_AVAILABLE = False
@@ -3011,61 +3003,16 @@ def render_delete_confirmation(gestionnaire):
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_crm_page():
-    st.markdown("### 🤝 Gestion de la Relation Client (CRM)")
+    """
+    Affiche l'interface CRM complète en utilisant le module CRM dédié.
+    Cette fonction appelle directement l'interface principale du module CRM,
+    qui gère ses propres onglets (y compris les Devis) et actions.
+    """
     gestionnaire_crm = st.session_state.gestionnaire_crm
     gestionnaire_projets = st.session_state.gestionnaire
 
-    if 'crm_action' not in st.session_state:
-        st.session_state.crm_action = None
-    if 'crm_selected_id' not in st.session_state:
-        st.session_state.crm_selected_id = None
-    if 'crm_confirm_delete_contact_id' not in st.session_state:
-        st.session_state.crm_confirm_delete_contact_id = None
-    if 'crm_confirm_delete_entreprise_id' not in st.session_state:
-        st.session_state.crm_confirm_delete_entreprise_id = None
-    if 'crm_confirm_delete_interaction_id' not in st.session_state:
-        st.session_state.crm_confirm_delete_interaction_id = None
-
-    tab_contacts, tab_entreprises, tab_interactions = st.tabs([
-        "👤 Contacts", "🏢 Entreprises", "💬 Interactions"
-    ])
-
-    with tab_contacts:
-        render_crm_contacts_tab(gestionnaire_crm, gestionnaire_projets)
-
-    with tab_entreprises:
-        render_crm_entreprises_tab(gestionnaire_crm, gestionnaire_projets)
-
-    with tab_interactions:
-        render_crm_interactions_tab(gestionnaire_crm)
-
-    action = st.session_state.get('crm_action')
-    selected_id = st.session_state.get('crm_selected_id')
-
-    if action == "create_contact":
-        render_crm_contact_form(gestionnaire_crm, contact_data=None)
-    elif action == "edit_contact" and selected_id:
-        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
-        render_crm_contact_form(gestionnaire_crm, contact_data=contact_data)
-    elif action == "view_contact_details" and selected_id:
-        contact_data = gestionnaire_crm.get_contact_by_id(selected_id)
-        render_crm_contact_details(gestionnaire_crm, gestionnaire_projets, contact_data)
-    elif action == "create_entreprise":
-        render_crm_entreprise_form(gestionnaire_crm, entreprise_data=None)
-    elif action == "edit_entreprise" and selected_id:
-        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
-        render_crm_entreprise_form(gestionnaire_crm, entreprise_data=entreprise_data)
-    elif action == "view_entreprise_details" and selected_id:
-        entreprise_data = gestionnaire_crm.get_entreprise_by_id(selected_id)
-        render_crm_entreprise_details(gestionnaire_crm, gestionnaire_projets, entreprise_data)
-    elif action == "create_interaction":
-        render_crm_interaction_form(gestionnaire_crm, interaction_data=None)
-    elif action == "edit_interaction" and selected_id:
-        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
-        render_crm_interaction_form(gestionnaire_crm, interaction_data=interaction_data)
-    elif action == "view_interaction_details" and selected_id:
-        interaction_data = gestionnaire_crm.get_interaction_by_id(selected_id)
-        render_crm_interaction_details(gestionnaire_crm, gestionnaire_projets, interaction_data)
+    # Appel de la nouvelle interface unifiée qui inclut les devis
+    render_crm_main_interface(gestionnaire_crm, gestionnaire_projets)
 
 def show_employees_page():
     st.markdown("### 👥 Gestion des Employés")

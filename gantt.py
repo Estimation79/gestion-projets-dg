@@ -1,5 +1,5 @@
-# gantt.py - Vue Gantt adaptée pour ERP Production DG Inc. SQLite
-# Compatible avec l'architecture unifiée SQLite
+# gantt.py - Vue Gantt Bons de Travail avec Postes de Travail
+# Compatible avec l'architecture SQLite unifiée - ERP Production DG Inc.
 
 import streamlit as st
 import pandas as pd
@@ -7,25 +7,24 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 
-# --- Configuration des Couleurs Adaptées SQLite ---
-TASK_COLORS = {
-    'ESTIMATION': '#FFB74D',
-    'CONCEPTION': '#64B5F6', 
-    'DÉVELOPPEMENT': '#81C784',
-    'TESTS': '#FFA726',
-    'DÉPLOIEMENT': '#9C27B0',
-    'MAINTENANCE': '#795548',
-    'FORMATION': '#26A69A',
+# --- Configuration des Couleurs pour Bons de Travail ---
+BT_COLORS = {
+    'BROUILLON': '#FFB74D',
+    'VALIDÉ': '#64B5F6', 
+    'ENVOYÉ': '#81C784',
+    'APPROUVÉ': '#FFA726',
+    'EN_COURS': '#26A69A',
+    'TERMINÉ': '#9C27B0',
+    'ANNULÉ': '#795548',
     'DEFAULT': '#90A4AE'
 }
 
-SOUS_TACHE_COLORS = {
-    'PLANIFICATION': '#FFAB91',
-    'RECHERCHE': '#80CBC4',
-    'ANALYSE': '#A5D6A7',
-    'DÉVELOPPEMENT': '#B39DDB',
-    'VALIDATION': '#FFCC02',
-    'DOCUMENTATION': '#BCAAA4',
+POSTE_COLORS = {
+    'À FAIRE': '#FFAB91',
+    'EN_COURS': '#80CBC4',
+    'TERMINÉ': '#A5D6A7',
+    'SUSPENDU': '#B39DDB',
+    'ANNULÉ': '#FFCC02',
     'DEFAULT': '#CFD8DC'
 }
 
@@ -50,92 +49,128 @@ def is_mobile_device():
     
     return st.session_state.is_mobile
 
-def get_task_color_sqlite(task_type):
-    """Récupère la couleur pour un type de tâche (compatible SQLite)"""
-    return TASK_COLORS.get(task_type, TASK_COLORS['DEFAULT'])
+def get_bt_color(bt_statut):
+    """Récupère la couleur pour un statut de Bon de Travail"""
+    return BT_COLORS.get(bt_statut, BT_COLORS['DEFAULT'])
 
-def get_sous_tache_color_sqlite(sous_tache_name):
-    """Récupère la couleur pour une sous-tâche (compatible SQLite)"""
-    return SOUS_TACHE_COLORS.get(sous_tache_name, SOUS_TACHE_COLORS['DEFAULT'])
+def get_poste_color(operation_statut):
+    """Récupère la couleur pour un statut d'opération/poste"""
+    return POSTE_COLORS.get(operation_statut, POSTE_COLORS['DEFAULT'])
 
-def get_client_display_name(projet, crm_manager):
-    """Récupère le nom d'affichage du client depuis le système CRM SQLite"""
-    # Prioriser le cache
-    client_display = projet.get('client_nom_cache', 'N/A')
-    
-    # Si pas de cache et qu'il y a un ID d'entreprise
-    if client_display == 'N/A' and projet.get('client_company_id'):
-        entreprise = crm_manager.get_entreprise_by_id(projet.get('client_company_id'))
-        if entreprise:
-            client_display = entreprise.get('nom', 'N/A')
-    
-    # Fallback sur client legacy
-    if client_display == 'N/A':
-        client_display = projet.get('client_legacy', 'N/A')
-    
-    return client_display
-
-def get_item_dates_sqlite(item_dict):
-    """Retourne (date_debut, date_fin) pour un projet ou une sous-tâche depuis SQLite."""
-    start_date_obj, end_date_obj = None, None
-    start_key = 'date_debut' if 'date_debut' in item_dict else 'date_soumis'
-    end_key = 'date_fin' if 'date_fin' in item_dict else 'date_prevu'
-
+def get_company_display_name(bt_data, erp_db):
+    """Récupère le nom d'affichage de l'entreprise depuis la base SQLite"""
     try:
-        start_date_str = item_dict.get(start_key)
+        company_id = bt_data.get('company_id')
+        if company_id:
+            company_result = erp_db.execute_query(
+                "SELECT nom FROM companies WHERE id = ?", 
+                (company_id,)
+            )
+            if company_result:
+                return company_result[0]['nom']
+    except Exception:
+        pass
+    return bt_data.get('company_nom', 'N/A')
+
+def get_project_display_name(bt_data, erp_db):
+    """Récupère le nom d'affichage du projet depuis la base SQLite"""
+    try:
+        project_id = bt_data.get('project_id')
+        if project_id:
+            project_result = erp_db.execute_query(
+                "SELECT nom_projet FROM projects WHERE id = ?", 
+                (project_id,)
+            )
+            if project_result:
+                return project_result[0]['nom_projet']
+    except Exception:
+        pass
+    return bt_data.get('nom_projet', 'N/A')
+
+def get_bt_dates(bt_dict):
+    """Retourne (date_debut, date_fin) pour un Bon de Travail depuis SQLite."""
+    start_date_obj, end_date_obj = None, None
+    
+    try:
+        # Priorité aux dates de création et échéance
+        start_date_str = bt_dict.get('date_creation')
         if start_date_str: 
-            start_date_obj = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            # Gérer les formats datetime et date
+            if 'T' in start_date_str:
+                start_date_obj = datetime.strptime(start_date_str.split('T')[0], "%Y-%m-%d").date()
+            else:
+                start_date_obj = datetime.strptime(start_date_str, "%Y-%m-%d").date()
     except (ValueError, TypeError): 
         start_date_obj = None
         
     try:
-        end_date_str = item_dict.get(end_key)
+        end_date_str = bt_dict.get('date_echeance')
         if end_date_str: 
             end_date_obj = datetime.strptime(end_date_str, "%Y-%m-%d").date()
     except (ValueError, TypeError): 
         end_date_obj = None
 
-    # Auto-calculer la fin si seulement le début est défini
-    is_project_like = 'operations' in item_dict or start_key == 'date_soumis'
-    has_operations = isinstance(item_dict.get('operations'), list) and bool(item_dict['operations'])
-
-    if is_project_like and not has_operations and start_date_obj and end_date_obj is None:
-        duration_days = 1
-        try:
-            bd_ft_str = str(item_dict.get('bd_ft_estime', '')).strip()
-            if bd_ft_str:
-                cleaned_bd_ft = ''.join(filter(lambda x: x.isdigit() or x == '.', bd_ft_str))
-                if cleaned_bd_ft: 
-                    duration_days = max(1, int(float(cleaned_bd_ft)))
-        except (ValueError, TypeError): 
-            pass
+    # Si pas de date d'échéance, estimer basé sur les opérations
+    if start_date_obj and end_date_obj is None:
+        operations = bt_dict.get('operations', [])
+        if operations:
+            # Calculer durée totale basée sur temps estimé des opérations
+            total_hours = sum(op.get('temps_estime', 0) or 0 for op in operations)
+            duration_days = max(1, int(total_hours / 8))  # 8h par jour
+        else:
+            duration_days = 5  # Default 5 jours
         end_date_obj = start_date_obj + timedelta(days=duration_days - 1)
+
+    # Si toujours pas de dates, utiliser aujourd'hui
+    if start_date_obj is None:
+        start_date_obj = date.today()
+    if end_date_obj is None:
+        end_date_obj = start_date_obj + timedelta(days=5)
 
     if start_date_obj and end_date_obj and end_date_obj < start_date_obj:
         end_date_obj = start_date_obj
         
     return start_date_obj, end_date_obj
 
-def calculate_overall_date_range_sqlite(projets_list_data):
-    """Calcule la plage de dates minimale et maximale pour les projets SQLite."""
+def get_operation_dates(operation_dict, bt_start_date, bt_end_date, operation_index, total_operations):
+    """Calcule les dates d'une opération basée sur sa séquence dans le BT."""
+    if not bt_start_date or not bt_end_date or total_operations == 0:
+        return bt_start_date, bt_start_date
+    
+    # Calculer la durée totale du BT
+    total_bt_days = (bt_end_date - bt_start_date).days + 1
+    
+    # Répartir les opérations sur la durée du BT
+    if total_operations == 1:
+        return bt_start_date, bt_end_date
+    
+    # Calculer la durée par opération
+    days_per_operation = max(1, total_bt_days // total_operations)
+    
+    # Calculer les dates de cette opération
+    op_start = bt_start_date + timedelta(days=operation_index * days_per_operation)
+    op_end = op_start + timedelta(days=days_per_operation - 1)
+    
+    # Ajuster la dernière opération pour qu'elle se termine à la fin du BT
+    if operation_index == total_operations - 1:
+        op_end = bt_end_date
+    
+    return op_start, op_end
+
+def calculate_overall_date_range_bt(bts_list_data):
+    """Calcule la plage de dates minimale et maximale pour les Bons de Travail."""
     min_overall_date, max_overall_date = None, None
-    if not projets_list_data:
+    if not bts_list_data:
         today = date.today()
         return today - timedelta(days=30), today + timedelta(days=60)
 
-    for projet_item_data in projets_list_data:
-        dates_to_check = [get_item_dates_sqlite(projet_item_data)]
+    for bt_item_data in bts_list_data:
+        bt_start, bt_end = get_bt_dates(bt_item_data)
         
-        # Vérifier les opérations (remplace sous_taches)
-        for operation_data in projet_item_data.get('operations', []):
-            # Les opérations n'ont pas de dates directes, utiliser les dates du projet
-            dates_to_check.append(get_item_dates_sqlite(projet_item_data))
-        
-        for start_d, end_d in dates_to_check:
-            if start_d:
-                min_overall_date = min(min_overall_date, start_d) if min_overall_date else start_d
-            if end_d:
-                max_overall_date = max(max_overall_date, end_d) if max_overall_date else end_d
+        if bt_start:
+            min_overall_date = min(min_overall_date, bt_start) if min_overall_date else bt_start
+        if bt_end:
+            max_overall_date = max(max_overall_date, bt_end) if max_overall_date else bt_end
     
     if min_overall_date is None or max_overall_date is None:
         today = date.today()
@@ -167,108 +202,93 @@ def get_text_color_for_background(hex_bg_color):
         pass
     return 'black'
 
-def prepare_gantt_data_sqlite(projets_list, crm_manager, show_operations=True):
-    """Prépare les données pour le diagramme Gantt avec architecture SQLite."""
+def prepare_gantt_data_bt(bts_list, erp_db, show_postes=True):
+    """Prépare les données pour le diagramme Gantt avec Bons de Travail et Postes."""
     gantt_items_for_df = []
     y_axis_order = []
     
-    min_gantt_date_obj, max_gantt_date_obj = calculate_overall_date_range_sqlite(projets_list)
+    min_gantt_date_obj, max_gantt_date_obj = calculate_overall_date_range_bt(bts_list)
     min_gantt_datetime, max_gantt_datetime = None, None
     if min_gantt_date_obj and max_gantt_date_obj:
         min_gantt_datetime = datetime.combine(min_gantt_date_obj, datetime.min.time())
         max_gantt_datetime = datetime.combine(max_gantt_date_obj, datetime.max.time())
     
-    for projet_item in sorted(projets_list, key=lambda p: p.get('id', 0)):
-        proj_id = projet_item.get('id')
-        proj_nom_base = projet_item.get('nom_projet', 'Sans Nom')
-        proj_nom_complet = f"P{proj_id}: {proj_nom_base}"
-        y_axis_order.append(proj_nom_complet)
+    for bt_item in sorted(bts_list, key=lambda bt: bt.get('id', 0)):
+        bt_id = bt_item.get('id')
+        bt_numero = bt_item.get('numero_document', f'BT-{bt_id}')
+        bt_nom_complet = f"📋 {bt_numero}"
+        y_axis_order.append(bt_nom_complet)
 
-        proj_debut_orig, proj_fin_orig = get_item_dates_sqlite(projet_item)
-        min_op_debut, max_op_fin = None, None
+        bt_debut, bt_fin = get_bt_dates(bt_item)
         
-        operations_existantes = projet_item.get('operations', [])
-        if operations_existantes:
-            # Pour les opérations, utiliser les dates du projet parent
-            valid_op_dates = [(proj_debut_orig, proj_fin_orig) for _ in operations_existantes if proj_debut_orig and proj_fin_orig]
-            if valid_op_dates:
-                min_op_debut = min(s for s, f in valid_op_dates)
-                max_op_fin = max(f for s, f in valid_op_dates)
+        company_name = get_company_display_name(bt_item, erp_db)
+        project_name = get_project_display_name(bt_item, erp_db)
         
-        barre_proj_debut = min_op_debut if min_op_debut else proj_debut_orig
-        barre_proj_fin = max_op_fin if max_op_fin else proj_fin_orig
-        
-        client_name = get_client_display_name(projet_item, crm_manager)
-        texte_barre_projet = f"{proj_nom_base} (Client: {client_name})"
-        description_hover_projet = (
-            f"Statut: {projet_item.get('statut', 'N/A')}\n"
-            f"Tâche principale: {projet_item.get('tache', 'N/A')}\n"
-            f"Début prévu: {proj_debut_orig.strftime('%d %b %Y') if proj_debut_orig else 'N/A'}\n"
-            f"Fin prévue: {proj_fin_orig.strftime('%d %b %Y') if proj_fin_orig else 'N/A'}"
+        texte_barre_bt = f"{bt_numero} - {company_name}"
+        description_hover_bt = (
+            f"Statut: {bt_item.get('statut', 'N/A')}\n"
+            f"Priorité: {bt_item.get('priorite', 'N/A')}\n"
+            f"Projet: {project_name}\n"
+            f"Entreprise: {company_name}\n"
+            f"Créé: {bt_debut.strftime('%d %b %Y') if bt_debut else 'N/A'}\n"
+            f"Échéance: {bt_fin.strftime('%d %b %Y') if bt_fin else 'N/A'}"
         )
 
-        if barre_proj_debut and barre_proj_fin:
+        if bt_debut and bt_fin:
             gantt_items_for_df.append(dict(
-                Task=proj_nom_complet,
-                Start=datetime.combine(barre_proj_debut, datetime.min.time()),
-                Finish=datetime.combine(barre_proj_fin + timedelta(days=1), datetime.min.time()),
-                Type='Projet',
-                Color=get_task_color_sqlite(projet_item.get('tache', 'DEFAULT')),
-                TextOnBar=texte_barre_projet,
-                Description=description_hover_projet,
-                ID=f"P{proj_id}",
-                OriginalData=projet_item
+                Task=bt_nom_complet,
+                Start=datetime.combine(bt_debut, datetime.min.time()),
+                Finish=datetime.combine(bt_fin + timedelta(days=1), datetime.min.time()),
+                Type='Bon de Travail',
+                Color=get_bt_color(bt_item.get('statut', 'DEFAULT')),
+                TextOnBar=texte_barre_bt,
+                Description=description_hover_bt,
+                ID=f"BT{bt_id}",
+                OriginalData=bt_item
             ))
 
-        # Afficher les opérations comme des sous-éléments
-        if show_operations:
-            for i, operation_item in enumerate(sorted(operations_existantes, key=lambda op: op.get('sequence', 0))):
+        # Afficher les opérations/postes comme des sous-éléments
+        if show_postes:
+            operations_existantes = bt_item.get('operations', [])
+            total_ops = len(operations_existantes)
+            
+            for i, operation_item in enumerate(sorted(operations_existantes, key=lambda op: op.get('sequence_number', 0))):
                 op_id = operation_item.get('id', i+1)
-                op_nom_base = operation_item.get('description', 'Opération')[:50]
-                op_nom_complet = f"    ↳ OP{op_id}: {op_nom_base}"
+                poste_nom = operation_item.get('work_center_name', 'Poste Non Assigné')
+                op_description = operation_item.get('description', 'Opération')[:40]
+                
+                op_nom_complet = f"    🔧 {poste_nom}"
                 y_axis_order.append(op_nom_complet)
 
-                # Pour les opérations, calculer des dates basées sur la séquence
-                if proj_debut_orig and proj_fin_orig:
-                    total_ops = len(operations_existantes)
-                    if total_ops > 0:
-                        duration_total = (proj_fin_orig - proj_debut_orig).days
-                        duration_per_op = max(1, duration_total // total_ops)
+                # Calculer les dates de l'opération
+                op_debut, op_fin = get_operation_dates(operation_item, bt_debut, bt_fin, i, total_ops)
                         
-                        op_debut = proj_debut_orig + timedelta(days=i * duration_per_op)
-                        op_fin = op_debut + timedelta(days=duration_per_op - 1)
-                        
-                        # Ajuster la dernière opération
-                        if i == total_ops - 1:
-                            op_fin = proj_fin_orig
-                    else:
-                        op_debut = proj_debut_orig
-                        op_fin = proj_fin_orig
-                        
-                    texte_barre_op = f"{op_nom_base} ({operation_item.get('statut', 'À FAIRE')})"
-                    description_hover_op = (
-                        f"Séquence: {operation_item.get('sequence', '?')}\n"
-                        f"Poste: {operation_item.get('poste_travail', 'Non assigné')}\n"
-                        f"Temps estimé: {operation_item.get('temps_estime', 0)}h\n"
-                        f"Statut: {operation_item.get('statut', 'À FAIRE')}"
-                    )
+                texte_barre_op = f"{poste_nom} - {op_description}"
+                description_hover_op = (
+                    f"Séquence: {operation_item.get('sequence_number', '?')}\n"
+                    f"Description: {op_description}\n"
+                    f"Poste: {poste_nom}\n"
+                    f"Département: {operation_item.get('work_center_departement', 'N/A')}\n"
+                    f"Temps estimé: {operation_item.get('temps_estime', 0)}h\n"
+                    f"Statut: {operation_item.get('statut', 'À FAIRE')}"
+                )
 
-                    gantt_items_for_df.append(dict(
-                        Task=op_nom_complet,
-                        Start=datetime.combine(op_debut, datetime.min.time()),
-                        Finish=datetime.combine(op_fin + timedelta(days=1), datetime.min.time()),
-                        Type='Opération',
-                        Color=get_sous_tache_color_sqlite(operation_item.get('statut', 'DEFAULT')),
-                        TextOnBar=texte_barre_op,
-                        Description=description_hover_op,
-                        ID=f"OP{proj_id}-{op_id}",
-                        OriginalData=operation_item
-                    ))
+                gantt_items_for_df.append(dict(
+                    Task=op_nom_complet,
+                    Start=datetime.combine(op_debut, datetime.min.time()),
+                    Finish=datetime.combine(op_fin + timedelta(days=1), datetime.min.time()),
+                    Type='Poste de Travail',
+                    Color=get_poste_color(operation_item.get('statut', 'DEFAULT')),
+                    TextOnBar=texte_barre_op,
+                    Description=description_hover_op,
+                    ID=f"OP{bt_id}-{op_id}",
+                    OriginalData=operation_item
+                ))
     
     return gantt_items_for_df, y_axis_order, (min_gantt_datetime, max_gantt_datetime)
 
-def add_status_indicators_sqlite(df):
-    """Ajoute des indicateurs de statut pour les projets SQLite."""
+def add_status_indicators_bt(df):
+    """Ajoute des indicateurs de statut pour les Bons de Travail."""
     today = datetime.now().date()
     df['Status'] = 'Normal'
     
@@ -276,14 +296,14 @@ def add_status_indicators_sqlite(df):
         finish_date = row['Finish'].date() - timedelta(days=1)
         start_date = row['Start'].date()
         
-        if finish_date < today and row['Type'] == 'Projet':
+        if finish_date < today and row['Type'] == 'Bon de Travail':
             original_data = row['OriginalData']
-            if original_data.get('statut') not in ['TERMINÉ', 'LIVRAISON', 'ANNULÉ']:
+            if original_data.get('statut') not in ['TERMINÉ', 'ANNULÉ']:
                 df.at[i, 'Status'] = 'Retard'
         
         if start_date <= today <= finish_date:
             original_data = row['OriginalData']
-            if original_data.get('statut') in ['EN COURS']:
+            if original_data.get('statut') in ['EN_COURS', 'VALIDÉ']:
                 df.at[i, 'Status'] = 'EnCours'
     
     df['BorderColor'] = df['Status'].map({
@@ -295,8 +315,8 @@ def add_status_indicators_sqlite(df):
     
     return df
 
-def create_gantt_chart_sqlite(df, y_axis_order, date_range, is_mobile=False):
-    """Crée un diagramme Gantt Plotly adapté pour SQLite."""
+def create_gantt_chart_bt(df, y_axis_order, date_range, is_mobile=False):
+    """Crée un diagramme Gantt Plotly adapté pour les Bons de Travail."""
     min_gantt_datetime, max_gantt_datetime = date_range
     
     df['Color'] = df['Color'].astype(str)
@@ -423,14 +443,14 @@ def create_gantt_chart_sqlite(df, y_axis_order, date_range, is_mobile=False):
 
     fig.update_layout(
         title=dict(
-            text=f"📊 Diagramme Gantt - ERP Production DG Inc. (SQLite)",
+            text=f"📋 Diagramme Gantt - Bons de Travail & Postes (ERP Production DG Inc.)",
             font=dict(size=20, color='#444444'),
             x=0.5,
             xanchor='center',
             y=0.95
         ),
         xaxis_title="📅 Calendrier", 
-        yaxis_title="🏭 Projets et Opérations",
+        yaxis_title="📋 Bons de Travail & 🔧 Postes",
         height=height,
         yaxis=dict(
             categoryorder='array',
@@ -462,14 +482,14 @@ def create_gantt_chart_sqlite(df, y_axis_order, date_range, is_mobile=False):
     
     return fig
 
-def extract_project_id_from_gantt_id(gantt_id):
-    """Extrait l'ID du projet à partir de l'ID d'un élément Gantt."""
+def extract_bt_id_from_gantt_id(gantt_id):
+    """Extrait l'ID du Bon de Travail à partir de l'ID d'un élément Gantt."""
     if not gantt_id:
         return None
         
-    if gantt_id.startswith("P"):
+    if gantt_id.startswith("BT"):
         try:
-            return int(gantt_id[1:])
+            return int(gantt_id[2:])
         except ValueError:
             return None
     elif gantt_id.startswith("OP"):
@@ -481,30 +501,30 @@ def extract_project_id_from_gantt_id(gantt_id):
                 return None
     return None
 
-def display_selected_project_details_sqlite(projet, crm_manager, is_mobile=False):
-    """Affiche les détails du projet sélectionné avec style SQLite."""
+def display_selected_bt_details(bt_data, erp_db, is_mobile=False):
+    """Affiche les détails du Bon de Travail sélectionné."""
     # Style CSS amélioré
     st.markdown("""
     <style>
-    .project-header-sqlite {
-        background: linear-gradient(135deg, #bbdefb 0%, #c8e6c9 100%);
+    .bt-header {
+        background: linear-gradient(135deg, #e3f2fd 0%, #f1f8e9 100%);
         padding: 18px;
         border-radius: 12px;
         margin-bottom: 20px;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
     }
-    .project-header-sqlite h2 {
+    .bt-header h2 {
         margin: 0;
         color: #333;
         font-size: 22px;
         display: flex;
         align-items: center;
     }
-    .project-header-sqlite h2::before {
-        content: "🏭 ";
+    .bt-header h2::before {
+        content: "📋 ";
         margin-right: 10px;
     }
-    .info-card-sqlite {
+    .info-card-bt {
         background-color: #f8f9fa;
         padding: 15px;
         border-radius: 10px;
@@ -512,202 +532,338 @@ def display_selected_project_details_sqlite(projet, crm_manager, is_mobile=False
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         transition: all 0.3s;
     }
-    .info-card-sqlite:hover {
+    .info-card-bt:hover {
         background-color: #f0f7ff;
         box-shadow: 0 3px 8px rgba(0,0,0,0.08);
     }
-    .operation-card {
+    .operation-card-bt {
         background: linear-gradient(to right, #ffffff, #f7f9fc);
         border-radius: 12px;
         padding: 15px;
         margin-bottom: 15px;
         box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
-        border-left: 5px solid #3B82F6;
+        border-left: 5px solid #2196F3;
         transition: transform 0.2s;
     }
-    .operation-card:hover {
+    .operation-card-bt:hover {
         transform: translateY(-3px);
         box-shadow: 0 5px 15px rgba(0, 0, 0, 0.12);
     }
+    .status-badge {
+        display: inline-block;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        margin-left: 10px;
+    }
+    .status-brouillon { background-color: #FF9800; }
+    .status-valide { background-color: #2196F3; }
+    .status-envoye { background-color: #4CAF50; }
+    .status-approuve { background-color: #8BC34A; }
+    .status-en-cours { background-color: #00BCD4; }
+    .status-termine { background-color: #9C27B0; }
+    .status-annule { background-color: #795548; }
     </style>
     """, unsafe_allow_html=True)
     
-    projet_id = projet.get('id')
-    client_name = get_client_display_name(projet, crm_manager)
+    bt_id = bt_data.get('id')
+    bt_numero = bt_data.get('numero_document', f'BT-{bt_id}')
+    company_name = get_company_display_name(bt_data, erp_db)
+    project_name = get_project_display_name(bt_data, erp_db)
+    statut = bt_data.get('statut', 'N/A')
     
-    # En-tête du projet
+    # En-tête du BT
+    status_class = f"status-{statut.lower().replace('_', '-')}"
     st.markdown(f"""
-    <div class="project-header-sqlite">
-        <h2>Projet #{projet_id}: {projet.get('nom_projet', 'Sans Nom')}</h2>
+    <div class="bt-header">
+        <h2>{bt_numero}
+            <span class="status-badge {status_class}">{statut}</span>
+        </h2>
     </div>
     """, unsafe_allow_html=True)
     
     # Informations de base
     if is_mobile:
         st.markdown(f"""
-        <div class="info-card-sqlite">
-            <div><strong>👤 Client:</strong> {client_name}</div>
-            <div><strong>🚦 Statut:</strong> {projet.get('statut', 'N/A')}</div>
-            <div><strong>⭐ Priorité:</strong> {projet.get('priorite', 'N/A')}</div>
-            <div><strong>✅ Tâche:</strong> {projet.get('tache', 'N/A')}</div>
-            <div><strong>📅 Dates:</strong> {projet.get('date_soumis', 'N/A')} → {projet.get('date_prevu', 'N/A')}</div>
-            <div><strong>💰 Prix:</strong> {projet.get('prix_estime', 'N/A')}$</div>
+        <div class="info-card-bt">
+            <div><strong>🏢 Entreprise:</strong> {company_name}</div>
+            <div><strong>🏭 Projet:</strong> {project_name}</div>
+            <div><strong>⭐ Priorité:</strong> {bt_data.get('priorite', 'N/A')}</div>
+            <div><strong>📅 Créé le:</strong> {bt_data.get('date_creation', 'N/A')}</div>
+            <div><strong>📅 Échéance:</strong> {bt_data.get('date_echeance', 'N/A')}</div>
+            <div><strong>💰 Montant:</strong> {bt_data.get('montant_total', 0)}$</div>
         </div>
         """, unsafe_allow_html=True)
         
-        if projet.get('description'):
-            with st.expander("📝 Description"):
-                st.text_area("", value=projet.get('description', ''), height=100, disabled=True, label_visibility="collapsed")
+        if bt_data.get('notes'):
+            with st.expander("📝 Notes"):
+                st.text_area("", value=bt_data.get('notes', ''), height=100, disabled=True, label_visibility="collapsed")
                 
-        tabs_mobile = st.tabs(["🔧 Opérations", "📦 Matériaux"])
+        tabs_mobile = st.tabs(["🔧 Opérations/Postes", "👥 Assignations", "📊 Statistiques"])
         
         with tabs_mobile[0]:
-            operations = projet.get('operations', [])
+            operations = bt_data.get('operations', [])
             if not operations:
-                st.info("Aucune opération définie.")
+                st.info("Aucune opération/poste défini pour ce BT.")
             else:
                 for op in operations:
                     st.markdown(f"""
-                    <div class="operation-card">
-                        <div><strong>OP{op.get('id', '?')}</strong>: {op.get('description', 'N/A')}</div>
-                        <div>🏭 Poste: {op.get('poste_travail', 'Non assigné')}</div>
+                    <div class="operation-card-bt">
+                        <div><strong>🔧 {op.get('work_center_name', 'Poste Non Assigné')}</strong></div>
+                        <div>📝 {op.get('description', 'N/A')}</div>
+                        <div>🏭 Département: {op.get('work_center_departement', 'N/A')}</div>
                         <div>⏱️ Temps: {op.get('temps_estime', 0)}h</div>
                         <div>🚦 Statut: {op.get('statut', 'À FAIRE')}</div>
+                        <div>📊 Séquence: {op.get('sequence_number', '?')}</div>
                     </div>
                     """, unsafe_allow_html=True)
         
         with tabs_mobile[1]:
-            materiaux = projet.get('materiaux', [])
-            if not materiaux:
-                st.info("Aucun matériau défini.")
+            # Afficher les assignations d'employés
+            assignations = bt_data.get('assignations', [])
+            if not assignations:
+                st.info("Aucun employé assigné à ce BT.")
             else:
-                total_cost = 0
-                for mat in materiaux:
-                    qty = mat.get('quantite', 0) or 0
-                    price = mat.get('prix_unitaire', 0) or 0
-                    total = qty * price
-                    total_cost += total
-                    
+                for assign in assignations:
                     st.markdown(f"""
-                    <div class="info-card-sqlite">
-                        <div><strong>{mat.get('code_materiau', 'N/A')}</strong>: {mat.get('designation', 'N/A')}</div>
-                        <div>📊 Quantité: {qty} {mat.get('unite', '')}</div>
-                        <div>💳 Prix unitaire: {price}$</div>
-                        <div>💰 Total: {total}$</div>
+                    <div class="info-card-bt">
+                        <div><strong>👤 {assign.get('employe_nom', 'N/A')}</strong></div>
+                        <div>💼 Poste: {assign.get('employe_poste', 'N/A')}</div>
+                        <div>📅 Assigné le: {assign.get('date_assignation', 'N/A')}</div>
+                        <div>🚦 Statut: {assign.get('statut', 'N/A')}</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
-                st.markdown(f"""
-                <div style="background:#e8f5e8;padding:15px;border-radius:10px;text-align:center;">
-                    <strong>💰 Coût total matériaux: {total_cost}$</strong>
-                </div>
-                """, unsafe_allow_html=True)
+        
+        with tabs_mobile[2]:
+            # Statistiques TimeTracker
+            tt_stats = bt_data.get('timetracker_stats', {})
+            st.markdown(f"""
+            <div class="info-card-bt">
+                <div><strong>⏱️ Sessions pointage:</strong> {tt_stats.get('nb_pointages', 0)}</div>
+                <div><strong>👥 Employés distincts:</strong> {tt_stats.get('nb_employes_distinct', 0)}</div>
+                <div><strong>🕐 Total heures:</strong> {tt_stats.get('total_heures', 0):.1f}h</div>
+                <div><strong>💰 Coût total:</strong> {tt_stats.get('total_cout', 0):.2f}$</div>
+            </div>
+            """, unsafe_allow_html=True)
     
     else:  # Desktop
-        tabs_desktop = st.tabs(["ℹ️ Informations", "🔧 Opérations", "📦 Matériaux"])
+        tabs_desktop = st.tabs(["ℹ️ Informations", "🔧 Opérations/Postes", "👥 Assignations", "📊 Statistiques"])
         
         with tabs_desktop[0]:
             col1, col2 = st.columns(2)
             
             with col1:
                 st.markdown(f"""
-                <div class="info-card-sqlite">
-                    <div><strong>👤 Client:</strong> {client_name}</div>
+                <div class="info-card-bt">
+                    <div><strong>🏢 Entreprise:</strong> {company_name}</div>
                 </div>
-                <div class="info-card-sqlite">
-                    <div><strong>🚦 Statut:</strong> {projet.get('statut', 'N/A')}</div>
+                <div class="info-card-bt">
+                    <div><strong>🏭 Projet:</strong> {project_name}</div>
                 </div>
-                <div class="info-card-sqlite">
-                    <div><strong>⭐ Priorité:</strong> {projet.get('priorite', 'N/A')}</div>
+                <div class="info-card-bt">
+                    <div><strong>⭐ Priorité:</strong> {bt_data.get('priorite', 'N/A')}</div>
                 </div>
-                <div class="info-card-sqlite">
-                    <div><strong>✅ Tâche:</strong> {projet.get('tache', 'N/A')}</div>
+                <div class="info-card-bt">
+                    <div><strong>🚦 Statut:</strong> {statut}</div>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col2:
                 st.markdown(f"""
-                <div class="info-card-sqlite">
-                    <div><strong>🚀 Date Début:</strong> {projet.get('date_soumis', 'N/A')}</div>
+                <div class="info-card-bt">
+                    <div><strong>📅 Date création:</strong> {bt_data.get('date_creation', 'N/A')}</div>
                 </div>
-                <div class="info-card-sqlite">
-                    <div><strong>🏁 Date Fin:</strong> {projet.get('date_prevu', 'N/A')}</div>
+                <div class="info-card-bt">
+                    <div><strong>📅 Date échéance:</strong> {bt_data.get('date_echeance', 'N/A')}</div>
                 </div>
-                <div class="info-card-sqlite">
-                    <div><strong>📊 BD-FT:</strong> {projet.get('bd_ft_estime', 'N/A')}h</div>
+                <div class="info-card-bt">
+                    <div><strong>💰 Montant total:</strong> {bt_data.get('montant_total', 0)}$</div>
                 </div>
-                <div class="info-card-sqlite">
-                    <div><strong>💰 Prix:</strong> {projet.get('prix_estime', 'N/A')}$</div>
+                <div class="info-card-bt">
+                    <div><strong>📝 Employé responsable:</strong> {bt_data.get('employee_nom', 'N/A')}</div>
                 </div>
                 """, unsafe_allow_html=True)
             
-            if projet.get('description'):
-                st.markdown("**📝 Description:**")
-                st.text_area("", value=projet.get('description', ''), height=100, disabled=True, label_visibility="collapsed")
+            if bt_data.get('notes'):
+                st.markdown("**📝 Notes:**")
+                st.text_area("", value=bt_data.get('notes', ''), height=100, disabled=True, label_visibility="collapsed")
         
-        with tabs_desktop[1]:  # Opérations
-            operations = projet.get('operations', [])
+        with tabs_desktop[1]:  # Opérations/Postes
+            operations = bt_data.get('operations', [])
             if not operations:
-                st.info("Aucune opération définie en SQLite.")
+                st.info("Aucune opération/poste défini pour ce BT.")
             else:
                 operations_data = []
                 for op in operations:
                     operations_data.append({
                         "ID": op.get('id', '?'),
-                        "Séquence": op.get('sequence', '?'),
+                        "Séquence": op.get('sequence_number', '?'),
                         "Description": op.get('description', 'N/A'),
-                        "Poste": op.get('poste_travail', 'Non assigné'),
+                        "Poste de Travail": op.get('work_center_name', 'Non assigné'),
+                        "Département": op.get('work_center_departement', 'N/A'),
                         "Temps (h)": op.get('temps_estime', 0),
-                        "Ressource": op.get('ressource', 'N/A'),
                         "Statut": op.get('statut', 'À FAIRE')
                     })
                 
                 operations_df = pd.DataFrame(operations_data)
                 st.dataframe(operations_df, use_container_width=True)
         
-        with tabs_desktop[2]:  # Matériaux
-            materiaux = projet.get('materiaux', [])
-            if not materiaux:
-                st.info("Aucun matériau défini en SQLite.")
+        with tabs_desktop[2]:  # Assignations
+            assignations = bt_data.get('assignations', [])
+            if not assignations:
+                st.info("Aucun employé assigné à ce BT.")
             else:
-                materiaux_data = []
-                total_cost = 0
-                for mat in materiaux:
-                    qty = mat.get('quantite', 0) or 0
-                    price = mat.get('prix_unitaire', 0) or 0
-                    total = qty * price
-                    total_cost += total
-                    
-                    materiaux_data.append({
-                        "Code": mat.get('code_materiau', 'N/A'),
-                        "Désignation": mat.get('designation', 'N/A'),
-                        "Quantité": f"{qty} {mat.get('unite', '')}",
-                        "Prix Unit.": f"{price}$",
-                        "Total": f"{total}$",
-                        "Fournisseur": mat.get('fournisseur', 'N/A')
+                assignations_data = []
+                for assign in assignations:
+                    assignations_data.append({
+                        "Employé": assign.get('employe_nom', 'N/A'),
+                        "Poste": assign.get('employe_poste', 'N/A'),
+                        "Date Assignation": assign.get('date_assignation', 'N/A'),
+                        "Statut": assign.get('statut', 'N/A'),
+                        "Notes": assign.get('notes_assignation', 'N/A')
                     })
                 
-                materiaux_df = pd.DataFrame(materiaux_data)
-                st.dataframe(materiaux_df, use_container_width=True)
+                assignations_df = pd.DataFrame(assignations_data)
+                st.dataframe(assignations_df, use_container_width=True)
+            
+            # Réservations de postes
+            reservations = bt_data.get('reservations_postes', [])
+            if reservations:
+                st.markdown("**🏭 Réservations de Postes:**")
+                reservations_data = []
+                for res in reservations:
+                    reservations_data.append({
+                        "Poste": res.get('poste_nom', 'N/A'),
+                        "Département": res.get('poste_departement', 'N/A'),
+                        "Date Prévue": res.get('date_prevue', 'N/A'),
+                        "Statut": res.get('statut', 'N/A'),
+                        "Notes": res.get('notes_reservation', 'N/A')
+                    })
                 
+                reservations_df = pd.DataFrame(reservations_data)
+                st.dataframe(reservations_df, use_container_width=True)
+        
+        with tabs_desktop[3]:  # Statistiques
+            tt_stats = bt_data.get('timetracker_stats', {})
+            
+            col_stats1, col_stats2 = st.columns(2)
+            
+            with col_stats1:
+                st.markdown("**⏱️ Statistiques TimeTracker:**")
                 st.markdown(f"""
-                <div style="background:#e8f5e8;padding:15px;border-radius:10px;text-align:center;margin-top:15px;">
-                    <strong>💰 Coût total matériaux: {total_cost}$</strong>
+                <div class="info-card-bt">
+                    <div><strong>Sessions de pointage:</strong> {tt_stats.get('nb_pointages', 0)}</div>
+                    <div><strong>Employés distincts:</strong> {tt_stats.get('nb_employes_distinct', 0)}</div>
+                    <div><strong>Total heures pointées:</strong> {tt_stats.get('total_heures', 0):.1f}h</div>
+                    <div><strong>Coût total:</strong> {tt_stats.get('total_cout', 0):.2f}$</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col_stats2:
+                st.markdown("**📊 Métriques BT:**")
+                operations_count = len(bt_data.get('operations', []))
+                assignations_count = len(bt_data.get('assignations', []))
+                st.markdown(f"""
+                <div class="info-card-bt">
+                    <div><strong>Nombre d'opérations:</strong> {operations_count}</div>
+                    <div><strong>Employés assignés:</strong> {assignations_count}</div>
+                    <div><strong>Progression estimée:</strong> ?%</div>
+                    <div><strong>Temps restant estimé:</strong> ? jours</div>
                 </div>
                 """, unsafe_allow_html=True)
     
     # Bouton fermer
-    if st.button("✖️ Fermer", use_container_width=is_mobile, key="gantt_close_details_sqlite"):
-        st.session_state.pop('selected_project_id', None)
+    if st.button("✖️ Fermer", use_container_width=is_mobile, key="gantt_close_bt_details"):
+        st.session_state.pop('selected_bt_id', None)
         st.rerun()
 
+def get_bons_travail_with_operations(erp_db):
+    """Récupère tous les Bons de Travail avec leurs opérations depuis la base SQLite."""
+    try:
+        # Récupérer tous les Bons de Travail avec détails complets
+        bts_query = '''
+            SELECT f.*, 
+                   c.nom as company_nom,
+                   p.nom_projet,
+                   e.prenom || ' ' || e.nom as employee_nom
+            FROM formulaires f
+            LEFT JOIN companies c ON f.company_id = c.id
+            LEFT JOIN projects p ON f.project_id = p.id
+            LEFT JOIN employees e ON f.employee_id = e.id
+            WHERE f.type_formulaire = 'BON_TRAVAIL'
+            ORDER BY f.id DESC
+        '''
+        
+        bts_rows = erp_db.execute_query(bts_query)
+        bts_list = []
+        
+        for bt_row in bts_rows:
+            bt_dict = dict(bt_row)
+            
+            # Récupérer les opérations avec détails des postes de travail
+            operations_query = '''
+                SELECT o.*, 
+                       wc.nom as work_center_name,
+                       wc.departement as work_center_departement,
+                       wc.capacite_theorique as work_center_capacite,
+                       wc.cout_horaire as work_center_cout_horaire
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE o.formulaire_bt_id = ?
+                ORDER BY o.sequence_number, o.id
+            '''
+            
+            operations_rows = erp_db.execute_query(operations_query, (bt_dict['id'],))
+            bt_dict['operations'] = [dict(op_row) for op_row in operations_rows]
+            
+            # Récupérer les assignations d'employés
+            assignations_query = '''
+                SELECT bta.*, 
+                       e.prenom || ' ' || e.nom as employe_nom,
+                       e.poste as employe_poste
+                FROM bt_assignations bta
+                LEFT JOIN employees e ON bta.employe_id = e.id
+                WHERE bta.bt_id = ?
+                ORDER BY bta.date_assignation DESC
+            '''
+            
+            assignations_rows = erp_db.execute_query(assignations_query, (bt_dict['id'],))
+            bt_dict['assignations'] = [dict(assign_row) for assign_row in assignations_rows]
+            
+            # Récupérer les réservations de postes
+            reservations_query = '''
+                SELECT btr.*, 
+                       wc.nom as poste_nom,
+                       wc.departement as poste_departement
+                FROM bt_reservations_postes btr
+                LEFT JOIN work_centers wc ON btr.work_center_id = wc.id
+                WHERE btr.bt_id = ?
+                ORDER BY btr.date_reservation DESC
+            '''
+            
+            reservations_rows = erp_db.execute_query(reservations_query, (bt_dict['id'],))
+            bt_dict['reservations_postes'] = [dict(res_row) for res_row in reservations_rows]
+            
+            # Récupérer les statistiques TimeTracker
+            bt_dict['timetracker_stats'] = erp_db.get_statistiques_bt_timetracker(bt_dict['id'])
+            
+            bts_list.append(bt_dict)
+        
+        return bts_list
+        
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des Bons de Travail: {e}")
+        return []
+
 def app():
-    """Application principale Gantt adaptée pour SQLite"""
+    """Application principale Gantt pour Bons de Travail avec Postes"""
     # Style global
     st.markdown("""
     <style>
-    .main-title-gantt {
-        background: linear-gradient(135deg, #a5d8ff 0%, #ffd6e0 100%);
+    .main-title-gantt-bt {
+        background: linear-gradient(135deg, #e1f5fe 0%, #f3e5f5 100%);
         padding: 20px;
         border-radius: 12px;
         color: #333;
@@ -715,12 +871,12 @@ def app():
         margin-bottom: 25px;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
     }
-    .main-title-gantt h1 {
+    .main-title-gantt-bt h1 {
         margin: 0;
         font-size: 28px;
         font-weight: 600;
     }
-    .filter-container-gantt {
+    .filter-container-gantt-bt {
         background-color: #f7f9fc;
         border-radius: 12px;
         padding: 15px;
@@ -731,23 +887,23 @@ def app():
     """, unsafe_allow_html=True)
     
     # Titre
-    st.markdown('<div class="main-title-gantt"><h1>📊 Vue Gantt - ERP Production DG Inc.</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title-gantt-bt"><h1>📋 Vue Gantt - Bons de Travail & Postes</h1></div>', unsafe_allow_html=True)
 
-    # Vérifier la disponibilité des gestionnaires SQLite
-    if 'gestionnaire' not in st.session_state:
-        st.error("❌ Gestionnaire de projets SQLite non initialisé.")
-        return
-        
-    if 'gestionnaire_crm' not in st.session_state:
-        st.error("❌ Gestionnaire CRM non initialisé.")
+    # Vérifier la disponibilité de l'ERP Database
+    if 'erp_db' not in st.session_state:
+        st.error("❌ Base de données ERP non initialisée.")
+        st.info("Veuillez d'abord initialiser la base de données depuis la page principale.")
         return
 
-    gestionnaire = st.session_state.gestionnaire
-    crm_manager = st.session_state.gestionnaire_crm
+    erp_db = st.session_state.erp_db
     is_mobile = is_mobile_device()
 
-    if not gestionnaire.projets:
-        st.info("Aucun projet à afficher dans le Gantt SQLite.")
+    # Récupérer les Bons de Travail avec opérations
+    bts_list = get_bons_travail_with_operations(erp_db)
+    
+    if not bts_list:
+        st.info("Aucun Bon de Travail à afficher dans le Gantt.")
+        st.markdown("**💡 Suggestion:** Créez des Bons de Travail avec des opérations assignées à des postes de travail.")
         return
 
     # Section Filtres
@@ -755,88 +911,108 @@ def app():
         filter_cols = st.columns([1, 1] if is_mobile else [1, 1, 1])
         
         with filter_cols[0]:
-            available_statuts = ["Tous"] + sorted(list(set([p.get('statut', 'N/A') for p in gestionnaire.projets if p.get('statut')])))
-            selected_statut = st.selectbox("Statut:", available_statuts)
+            available_statuts = ["Tous"] + sorted(list(set([bt.get('statut', 'N/A') for bt in bts_list if bt.get('statut')])))
+            selected_statut = st.selectbox("Statut BT:", available_statuts)
         
         with filter_cols[1]:
-            available_priorities = ["Toutes"] + sorted(list(set([p.get('priorite', 'N/A') for p in gestionnaire.projets if p.get('priorite')])))
+            available_priorities = ["Toutes"] + sorted(list(set([bt.get('priorite', 'N/A') for bt in bts_list if bt.get('priorite')])))
             selected_priority = st.selectbox("Priorité:", available_priorities)
         
         if not is_mobile and len(filter_cols) > 2:
             with filter_cols[2]:
-                show_operations = st.checkbox("Afficher opérations", value=True)
+                show_postes = st.checkbox("Afficher postes de travail", value=True)
         else:
-            show_operations = st.checkbox("Afficher opérations", value=True)
+            show_postes = st.checkbox("Afficher postes de travail", value=True)
         
-        search_term = st.text_input("🔍 Rechercher un projet:", "")
+        search_term = st.text_input("🔍 Rechercher un BT:", "")
     
-    # Bouton retour si un projet est sélectionné
-    if st.session_state.get('selected_project_id'):
+    # Bouton retour si un BT est sélectionné
+    if st.session_state.get('selected_bt_id'):
         if st.button("⬅️ Retour à la vue d'ensemble", 
-                     key="back_button_sqlite", 
-                     on_click=lambda: st.session_state.pop('selected_project_id', None),
+                     key="back_button_bt", 
+                     on_click=lambda: st.session_state.pop('selected_bt_id', None),
                      use_container_width=is_mobile):
             st.rerun()
     
     # Appliquer les filtres
-    filtered_projets = gestionnaire.projets
+    filtered_bts = bts_list
     
     if selected_statut != "Tous":
-        filtered_projets = [p for p in filtered_projets if p.get('statut') == selected_statut]
+        filtered_bts = [bt for bt in filtered_bts if bt.get('statut') == selected_statut]
     
     if selected_priority != "Toutes":
-        filtered_projets = [p for p in filtered_projets if p.get('priorite') == selected_priority]
+        filtered_bts = [bt for bt in filtered_bts if bt.get('priorite') == selected_priority]
     
     if search_term:
         term_lower = search_term.lower()
-        filtered_projets = [p for p in filtered_projets if 
-                           term_lower in str(p.get('nom_projet', '')).lower() or
-                           term_lower in get_client_display_name(p, crm_manager).lower() or
-                           term_lower in str(p.get('description', '')).lower()]
+        filtered_bts = [bt for bt in filtered_bts if 
+                       term_lower in str(bt.get('numero_document', '')).lower() or
+                       term_lower in get_company_display_name(bt, erp_db).lower() or
+                       term_lower in get_project_display_name(bt, erp_db).lower() or
+                       term_lower in str(bt.get('notes', '')).lower()]
     
     # Préparer les données Gantt
-    gantt_data, y_axis_order, date_range = prepare_gantt_data_sqlite(
-        filtered_projets, 
-        crm_manager, 
-        show_operations=show_operations
+    gantt_data, y_axis_order, date_range = prepare_gantt_data_bt(
+        filtered_bts, 
+        erp_db, 
+        show_postes=show_postes
     )
     
     if not gantt_data:
-        st.info("Aucune donnée de projet ne correspond aux critères de filtrage SQLite.")
+        st.info("Aucun Bon de Travail ne correspond aux critères de filtrage.")
         return
     
     # Création du DataFrame et graphique
     df = pd.DataFrame(gantt_data)
-    df = add_status_indicators_sqlite(df)
-    fig = create_gantt_chart_sqlite(df, y_axis_order, date_range, is_mobile)
+    df = add_status_indicators_bt(df)
+    fig = create_gantt_chart_bt(df, y_axis_order, date_range, is_mobile)
     
     # Affichage du graphique
     st.plotly_chart(fig, use_container_width=True)
     
     # Statistiques rapides
-    col_stats1, col_stats2, col_stats3 = st.columns(3)
+    col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
     with col_stats1:
-        st.metric("📊 Projets affichés", len(filtered_projets))
+        st.metric("📋 Bons de Travail", len(filtered_bts))
     with col_stats2:
-        en_cours = len([p for p in filtered_projets if p.get('statut') == 'EN COURS'])
+        en_cours = len([bt for bt in filtered_bts if bt.get('statut') == 'EN_COURS'])
         st.metric("🚀 En cours", en_cours)
     with col_stats3:
-        termines = len([p for p in filtered_projets if p.get('statut') == 'TERMINÉ'])
+        termines = len([bt for bt in filtered_bts if bt.get('statut') == 'TERMINÉ'])
         st.metric("✅ Terminés", termines)
+    with col_stats4:
+        total_operations = sum(len(bt.get('operations', [])) for bt in filtered_bts)
+        st.metric("🔧 Opérations/Postes", total_operations)
     
-    # Affichage des détails si un projet est sélectionné
-    if st.session_state.get('selected_project_id'):
-        projet_id = st.session_state.selected_project_id
-        projet = next((p for p in gestionnaire.projets if p.get('id') == projet_id), None)
+    # Légende des couleurs
+    with st.expander("🎨 Légende des couleurs"):
+        col_leg1, col_leg2 = st.columns(2)
         
-        if projet:
-            display_selected_project_details_sqlite(projet, crm_manager, is_mobile)
+        with col_leg1:
+            st.markdown("**📋 Statuts Bons de Travail:**")
+            for statut, color in BT_COLORS.items():
+                if statut != 'DEFAULT':
+                    st.markdown(f'<span style="color:{color};">●</span> {statut}', unsafe_allow_html=True)
+        
+        with col_leg2:
+            st.markdown("**🔧 Statuts Opérations/Postes:**")
+            for statut, color in POSTE_COLORS.items():
+                if statut != 'DEFAULT':
+                    st.markdown(f'<span style="color:{color};">●</span> {statut}', unsafe_allow_html=True)
+    
+    # Affichage des détails si un BT est sélectionné
+    if st.session_state.get('selected_bt_id'):
+        bt_id = st.session_state.selected_bt_id
+        bt_data = next((bt for bt in bts_list if bt.get('id') == bt_id), None)
+        
+        if bt_data:
+            display_selected_bt_details(bt_data, erp_db, is_mobile)
         else:
-            st.warning(f"Projet #{projet_id} non trouvé en SQLite.")
-            st.session_state.pop('selected_project_id', None)
+            st.warning(f"Bon de Travail #{bt_id} non trouvé.")
+            st.session_state.pop('selected_bt_id', None)
     
     elif is_mobile:
-        st.info("📱 Touchez une barre du diagramme pour voir les détails du projet.")
+        st.info("📱 Touchez une barre du diagramme pour voir les détails du Bon de Travail.")
 
 if __name__ == "__main__":
     app()

@@ -61,29 +61,43 @@ class GestionnaireCRM:
             st.error(f"Erreur initialisation données démo CRM: {e}")
     
     def _init_devis_support(self):
-        """Initialise le support des devis dans le système de formulaires"""
+        """Initialise le support des devis dans le système de formulaires avec mode compatibilité"""
         if not self.use_sqlite:
             return
         
+        # Par défaut, mode DEVIS natif
+        self._devis_compatibility_mode = False
+        self._devis_type_db = 'DEVIS'
+        
         try:
-            # Vérifier si le type DEVIS peut être inséré (test de compatibilité)
+            # Test si le type DEVIS peut être inséré (test de compatibilité)
             test_query = """
                 INSERT INTO formulaires (type_formulaire, numero_document, statut) 
                 VALUES ('DEVIS', 'TEST-DEVIS-COMPATIBILITY', 'BROUILLON')
             """
             
-            # Tenter l'insertion test
             try:
                 test_id = self.db.execute_insert(test_query)
                 # Si ça marche, supprimer le test
                 if test_id:
                     self.db.execute_update("DELETE FROM formulaires WHERE id = ?", (test_id,))
-                st.info("✅ Support des devis activé dans le système de formulaires")
+                st.success("✅ Support DEVIS natif activé dans le système de formulaires")
+                
             except Exception as e:
-                st.warning(f"⚠️ Support devis limité: {e}")
+                if "CHECK constraint failed" in str(e):
+                    # Activer le mode compatibilité
+                    self._devis_compatibility_mode = True
+                    self._devis_type_db = 'ESTIMATION'
+                    st.warning("⚠️ Mode compatibilité DEVIS activé - Utilisation d'ESTIMATION avec métadonnées")
+                    st.info("💡 Pour le support natif, exécutez le script de migration de la base de données")
+                else:
+                    st.error(f"⚠️ Support devis limité: {e}")
                 
         except Exception as e:
             st.error(f"Erreur initialisation support devis: {e}")
+            # En cas d'erreur, activer le mode compatibilité par sécurité
+            self._devis_compatibility_mode = True
+            self._devis_type_db = 'ESTIMATION'
     
     def _create_demo_data_sqlite(self):
         """Crée des données de démonstration en SQLite"""
@@ -785,6 +799,7 @@ class GestionnaireCRM:
     def create_devis(self, devis_data):
         """
         Crée un nouveau devis en utilisant la table formulaires existante
+        Supporte le mode compatibilité ESTIMATION si DEVIS n'est pas disponible
         
         Args:
             devis_data: {
@@ -812,25 +827,36 @@ class GestionnaireCRM:
             # Générer le numéro de devis automatiquement
             numero_devis = self.generer_numero_devis()
             
+            # Déterminer le type à utiliser selon le mode
+            if getattr(self, '_devis_compatibility_mode', False):
+                type_formulaire_db = 'ESTIMATION'
+                mode_info = " (mode compatibilité)"
+            else:
+                type_formulaire_db = 'DEVIS'
+                mode_info = ""
+            
             # Créer le devis principal
             query = '''
                 INSERT INTO formulaires 
                 (type_formulaire, numero_document, project_id, company_id, employee_id,
                  statut, priorite, date_echeance, notes, metadonnees_json)
-                VALUES ('DEVIS', ?, ?, ?, ?, 'BROUILLON', 'NORMAL', ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 'BROUILLON', 'NORMAL', ?, ?, ?)
             '''
             
             # Métadonnées spécifiques aux devis
             metadonnees = {
+                'type_reel': 'DEVIS',  # TOUJOURS identifier comme devis réel
                 'type_devis': 'STANDARD',
                 'tva_applicable': True,
                 'taux_tva': 14.975,  # QC + GST
                 'devise': 'CAD',
                 'validite_jours': 30,
-                'created_by_module': 'CRM_DEVIS'
+                'created_by_module': 'CRM_DEVIS',
+                'compatibility_mode': getattr(self, '_devis_compatibility_mode', False)
             }
             
             devis_id = self.db.execute_insert(query, (
+                type_formulaire_db,  # Utilise le type adapté
                 numero_devis,
                 devis_data.get('project_id'),
                 devis_data['client_company_id'],
@@ -851,7 +877,7 @@ class GestionnaireCRM:
                     devis_id, 
                     devis_data['employee_id'], 
                     'CREATION',
-                    f"Devis créé: {numero_devis}"
+                    f"Devis créé: {numero_devis}{mode_info}"
                 )
                 
                 return devis_id
@@ -2083,6 +2109,9 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
 # FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS
 # =========================================================================
 
+# --- Fichier: crm.py ---
+# Remplacez l'ancienne fonction par celle-ci
+
 def render_crm_devis_tab(crm_manager: GestionnaireCRM):
     """Interface Streamlit pour la gestion des devis"""
     if not crm_manager.use_sqlite:
@@ -2100,7 +2129,9 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
     with col2:
         st.metric("Taux d'acceptation", f"{stats.get('taux_acceptation', 0):.1f}%")
     with col3:
-        st.metric("Montant Total", f"{stats.get('montant_total', 0):,.0f} $")
+        # Utiliser le montant total calculé, pas celui de la base qui peut être obsolète
+        montant_total_calculé = sum(s['montant'] for s in stats.get('par_statut', {}).values())
+        st.metric("Montant Total", f"{montant_total_calculé:,.0f} $")
     with col4:
         st.metric("En Attente", stats.get('en_attente', 0))
     
@@ -2125,7 +2156,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             client_options = [("", "Tous les clients")] + [(c['id'], c['nom']) for c in clients]
             filtre_client = st.selectbox("Client",
                 options=[opt[0] for opt in client_options],
-                format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), "Tous"),
+                format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), "Tous les clients"),
                 key="filtre_client_devis"
             )
         
@@ -2160,10 +2191,10 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                     "Numéro": devis['numero_document'],
                     "Client": devis['client_nom'],
                     "Statut": devis['statut'],
-                    "Date Création": devis['date_creation'][:10],
+                    "Date Création": devis['date_creation'][:10] if devis.get('date_creation') else 'N/A',
                     "Échéance": devis['date_echeance'],
                     "Total TTC": f"{devis['totaux']['total_ttc']:,.2f} $",
-                    "Responsable": devis['responsable_nom']
+                    "Responsable": devis.get('responsable_nom', 'N/A')
                 })
             
             df = pd.DataFrame(display_data)
@@ -2174,7 +2205,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             selected_devis_id = st.selectbox(
                 "Sélectionner un devis pour actions:",
                 options=[d['id'] for d in devis_list],
-                format_func=lambda x: next((d['numero_document'] for d in devis_list if d['id'] == x), ''),
+                format_func=lambda x: f"#{x} - {next((d['numero_document'] for d in devis_list if d['id'] == x), '')}",
                 key="selected_devis_action"
             )
             
@@ -2182,25 +2213,28 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                 col_action1, col_action2, col_action3, col_action4 = st.columns(4)
                 
                 with col_action1:
-                    if st.button("👁️ Voir Détails", key="voir_devis"):
+                    if st.button("👁️ Voir Détails", key="voir_devis", use_container_width=True):
                         st.session_state.crm_action = "view_devis_details"
                         st.session_state.crm_selected_id = selected_devis_id
                         st.rerun()
                 
                 with col_action2:
-                    if st.button("✏️ Modifier", key="edit_devis"):
+                    if st.button("✏️ Modifier", key="edit_devis", use_container_width=True):
                         st.session_state.crm_action = "edit_devis"
                         st.session_state.crm_selected_id = selected_devis_id
                         st.rerun()
                 
                 with col_action3:
-                    if st.button("📧 Envoyer", key="send_devis"):
+                    if st.button("📧 Envoyer", key="send_devis", use_container_width=True):
                         if crm_manager.changer_statut_devis(selected_devis_id, 'ENVOYÉ', 1, "Envoyé par interface"):
-                            st.success("Devis marqué comme envoyé!")
+                            st.success("Devis marqué comme envoyé !")
                             st.rerun()
+                        else:
+                            st.error("Erreur lors du changement de statut.")
                 
                 with col_action4:
-                    if st.button("📄 Export PDF", key="export_devis"):
+                    if st.button("📄 Export PDF", key="export_devis", use_container_width=True):
+                        st.info("Fonctionnalité d'export PDF à venir.")
                         export_data = crm_manager.get_devis_complet(selected_devis_id)
                         st.json(export_data)  # En attendant la vraie génération PDF
         else:
@@ -2208,113 +2242,102 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
     
     with tab2:
         st.subheader("Créer un Nouveau Devis")
+
+        # --- PARTIE 1 : AJOUT INTERACTIF DES LIGNES (HORS FORMULAIRE) ---
+        st.markdown("##### Étape 1 : Ajouter les lignes du devis")
         
-        with st.form("formulaire_nouveau_devis"):
-            # Informations de base
-            col_base1, col_base2 = st.columns(2)
-            
-            with col_base1:
-                # Client
-                clients = crm_manager.entreprises
-                client_options = [(c['id'], c['nom']) for c in clients]
-                client_id = st.selectbox("Client *",
-                    options=[opt[0] for opt in client_options],
-                    format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), ''),
-                    key="nouveau_devis_client"
-                )
-                
-                # Responsable  
-                if crm_manager.use_sqlite:
-                    employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
-                    emp_options = [(e['id'], e['nom']) for e in employees]
-                    responsable_id = st.selectbox("Responsable *",
-                        options=[opt[0] for opt in emp_options],
-                        format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
-                        key="nouveau_devis_responsable"
-                    )
-                else:
-                    responsable_id = 1  # Valeur par défaut
-            
-            with col_base2:
-                # Échéance
-                echeance = st.date_input("Date d'échéance *", 
-                    value=datetime.now().date() + timedelta(days=30),
-                    key="nouveau_devis_echeance"
-                )
-                
-                # Projet (optionnel)
-                if crm_manager.use_sqlite:
-                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
-                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets]
-                    projet_id = st.selectbox("Projet lié",
-                        options=[opt[0] for opt in projet_options],
-                        format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), ''),
-                        key="nouveau_devis_projet"
-                    )
-                else:
-                    projet_id = None
-            
-            # Notes
-            notes = st.text_area("Notes", key="nouveau_devis_notes")
-            
-            # Lignes du devis
-            st.markdown("### Lignes du Devis")
-            
-            # Interface pour ajouter des lignes
-            if 'devis_lignes' not in st.session_state:
-                st.session_state.devis_lignes = []
-            
-            # Ajouter une ligne
+        # Initialisation du conteneur de lignes dans la session
+        if 'devis_lignes' not in st.session_state:
+            st.session_state.devis_lignes = []
+
+        # Formulaire pour ajouter une ligne (pour l'organisation visuelle)
+        with st.container(border=True):
             col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
-            
             with col_ligne1:
                 description = st.text_input("Description", key="ligne_description")
             with col_ligne2:
-                quantite = st.number_input("Quantité", min_value=0.0, value=1.0, key="ligne_quantite")
+                quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="ligne_quantite", format="%.2f")
             with col_ligne3:
                 unite = st.selectbox("Unité", options=["UN", "H", "JOUR", "FORFAIT"], key="ligne_unite")
             with col_ligne4:
-                prix_unitaire = st.number_input("Prix unitaire", min_value=0.0, key="ligne_prix")
+                prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="ligne_prix", format="%.2f")
             with col_ligne5:
-                if st.button("➕ Ajouter", key="ajouter_ligne"):
-                    if description and quantite > 0 and prix_unitaire > 0:
+                st.write("") # Espace pour aligner le bouton
+                if st.button("➕ Ajouter", key="ajouter_ligne_btn", use_container_width=True):
+                    if description and quantite > 0:
                         st.session_state.devis_lignes.append({
                             'description': description,
                             'quantite': quantite,
                             'unite': unite,
                             'prix_unitaire': prix_unitaire
                         })
-                        st.rerun()
-            
-            # Afficher les lignes ajoutées
-            if st.session_state.devis_lignes:
-                st.markdown("**Lignes ajoutées:**")
+                        # Pas besoin de rerun ici, Streamlit rafraîchira la partie ci-dessous
+                    else:
+                        st.warning("La description et la quantité sont requises.")
+        
+        # Affichage des lignes déjà ajoutées
+        if st.session_state.devis_lignes:
+            st.markdown("**Lignes du devis :**")
+            total_ht_preview = 0
+            with st.container(border=True):
                 for i, ligne in enumerate(st.session_state.devis_lignes):
-                    col_display, col_remove = st.columns([4, 1])
-                    with col_display:
+                    col_disp, col_del = st.columns([10, 1])
+                    with col_disp:
                         montant = ligne['quantite'] * ligne['prix_unitaire']
-                        st.write(f"{ligne['description']} - {ligne['quantite']} {ligne['unite']} × {ligne['prix_unitaire']:.2f}$ = {montant:.2f}$")
-                    with col_remove:
-                        if st.button("🗑️", key=f"remove_ligne_{i}"):
+                        total_ht_preview += montant
+                        st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
+                    with col_del:
+                        if st.button("🗑️", key=f"remove_ligne_{i}", help="Supprimer la ligne"):
                             st.session_state.devis_lignes.pop(i)
                             st.rerun()
+                st.markdown(f"**Total (HT) : {total_ht_preview:,.2f} $**")
+        st.markdown("---")
+
+
+        # --- PARTIE 2 : FORMULAIRE FINAL POUR LES INFORMATIONS GÉNÉRALES ---
+        st.markdown("##### Étape 2 : Renseigner les informations générales et créer")
+
+        with st.form("formulaire_nouveau_devis"):
+            col_base1, col_base2 = st.columns(2)
+            
+            with col_base1:
+                clients = crm_manager.entreprises
+                client_options = [(c['id'], c['nom']) for c in clients]
+                client_id = st.selectbox("Client *", options=[opt[0] for opt in client_options],
+                                         format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), ''),
+                                         key="nouveau_devis_client")
+                
+                if crm_manager.use_sqlite:
+                    employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
+                    emp_options = [(e['id'], e['nom']) for e in employees]
+                    responsable_id = st.selectbox("Responsable *", options=[opt[0] for opt in emp_options],
+                                                  format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
+                                                  key="nouveau_devis_responsable")
+                else:
+                    responsable_id = 1
+            
+            with col_base2:
+                echeance = st.date_input("Date d'échéance *", value=datetime.now().date() + timedelta(days=30),
+                                         key="nouveau_devis_echeance")
+                
+                if crm_manager.use_sqlite:
+                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
+                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets]
+                    projet_id = st.selectbox("Projet lié", options=[opt[0] for opt in projet_options],
+                                             format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
+                                             key="nouveau_devis_projet")
+                else:
+                    projet_id = None
+            
+            notes = st.text_area("Notes ou conditions", key="nouveau_devis_notes")
             
             # Boutons de soumission
-            col_submit, col_cancel = st.columns(2)
-            
-            with col_submit:
-                submitted = st.form_submit_button("💾 Créer le Devis", type="primary")
-            
-            with col_cancel:
-                if st.form_submit_button("❌ Annuler"):
-                    st.session_state.devis_lignes = []
-                    st.rerun()
+            submitted = st.form_submit_button("💾 Créer le Devis en Brouillon", type="primary", use_container_width=True)
             
             if submitted:
                 if not client_id or not responsable_id or not st.session_state.devis_lignes:
-                    st.error("Veuillez remplir tous les champs obligatoires et ajouter au moins une ligne.")
+                    st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
                 else:
-                    # Créer le devis
                     devis_data = {
                         'client_company_id': client_id,
                         'employee_id': responsable_id,
@@ -2327,8 +2350,8 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                     devis_id = crm_manager.create_devis(devis_data)
                     
                     if devis_id:
-                        st.success(f"✅ Devis créé avec succès! ID: {devis_id}")
-                        st.session_state.devis_lignes = []
+                        st.success(f"✅ Devis créé avec succès ! Numéro : {crm_manager.get_devis_complet(devis_id).get('numero_document')}")
+                        st.session_state.devis_lignes = []  # Vider les lignes pour le prochain devis
                         st.rerun()
                     else:
                         st.error("Erreur lors de la création du devis.")
@@ -2336,13 +2359,11 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
     with tab3:
         st.subheader("Statistiques des Devis")
         
-        # Graphiques et métriques détaillées
         if stats.get('total_devis', 0) > 0:
-            # Répartition par statut
             if stats.get('par_statut'):
                 statut_data = pd.DataFrame([
                     {'Statut': k, 'Nombre': v['count'], 'Montant': v['montant']}
-                    for k, v in stats['par_statut'].items()
+                    for k, v in stats['par_statut'].items() if isinstance(v, dict)
                 ])
                 
                 col_graph1, col_graph2 = st.columns(2)
