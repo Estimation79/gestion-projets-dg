@@ -1,6 +1,8 @@
 # fournisseurs.py - Module Fournisseurs pour ERP Production DG Inc.
 # Gestion complète des fournisseurs, évaluations, performances et intégrations
 # + NOUVEAUX FORMULAIRES : Demande de Prix et Bon d'Achat intégrés
+# + CORRECTION BUG : Filtrage robuste des fournisseurs actifs
+# + MODIFICATIONS : Code Fournisseur automatique + Catégorie optionnelle
 
 import streamlit as st
 import pandas as pd
@@ -15,6 +17,7 @@ class GestionnaireFournisseurs:
     Gestionnaire complet pour les fournisseurs de l'ERP Production DG Inc.
     Intégré avec la base de données SQLite unifiée
     + NOUVEAUX : Formulaires Demande de Prix et Bon d'Achat
+    + MODIFICATIONS : Code Fournisseur automatique + Catégorie optionnelle
     """
     
     def __init__(self, db):
@@ -27,6 +30,23 @@ class GestionnaireFournisseurs:
         except Exception as e:
             st.error(f"Erreur récupération fournisseurs: {e}")
             return []
+    
+    def get_fournisseurs_actifs_safe(self, fournisseurs: List[Dict]) -> List[Dict]:
+        """Méthode sécurisée pour filtrer les fournisseurs actifs - CORRECTION BUG"""
+        actifs = []
+        
+        for f in fournisseurs:
+            est_actif = f.get('est_actif')
+            
+            # Gérer tous les cas possibles de représentation booléenne
+            if (est_actif is True or 
+                est_actif == 1 or 
+                est_actif == '1' or 
+                str(est_actif).lower() == 'true' or
+                str(est_actif).lower() == 'yes'):
+                actifs.append(f)
+        
+        return actifs
     
     def get_fournisseur_by_id(self, fournisseur_id: int) -> Dict:
         """Récupère un fournisseur par ID avec détails complets"""
@@ -69,6 +89,32 @@ class GestionnaireFournisseurs:
         except Exception as e:
             st.error(f"Erreur récupération par catégorie: {e}")
             return []
+    
+    def generate_fournisseur_code(self) -> str:
+        """Génère un code fournisseur automatique - NOUVELLE MÉTHODE"""
+        try:
+            annee = datetime.now().year
+            
+            # Récupérer le dernier numéro pour cette année
+            query = '''
+                SELECT code_fournisseur FROM fournisseurs 
+                WHERE code_fournisseur LIKE ?
+                ORDER BY id DESC LIMIT 1
+            '''
+            pattern = f"FOUR-{annee}-%"
+            result = self.db.execute_query(query, (pattern,))
+            
+            if result:
+                last_code = result[0]['code_fournisseur']
+                sequence = int(last_code.split('-')[-1]) + 1
+            else:
+                sequence = 1
+            
+            return f"FOUR-{annee}-{sequence:03d}"
+            
+        except Exception as e:
+            st.error(f"Erreur génération code fournisseur: {e}")
+            return f"FOUR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     def create_fournisseur(self, company_id: int, fournisseur_data: Dict) -> int:
         """Crée un nouveau fournisseur"""
@@ -113,6 +159,16 @@ class GestionnaireFournisseurs:
             return affected > 0
         except Exception as e:
             st.error(f"Erreur suppression fournisseur: {e}")
+            return False
+    
+    def force_activate_fournisseur(self, fournisseur_id: int) -> bool:
+        """Force l'activation d'un fournisseur - NOUVELLE MÉTHODE"""
+        try:
+            query = "UPDATE fournisseurs SET est_actif = 1 WHERE id = ?"
+            affected = self.db.execute_update(query, (fournisseur_id,))
+            return affected > 0
+        except Exception as e:
+            st.error(f"Erreur activation fournisseur: {e}")
             return False
     
     def get_fournisseur_performance(self, fournisseur_id: int, days: int = 365) -> Dict:
@@ -547,16 +603,49 @@ def render_bon_achat_tab(gestionnaire):
         render_view_bon_achat(gestionnaire)
 
 def render_create_demande_prix_form(gestionnaire):
-    """Formulaire de création de Demande de Prix"""
+    """Formulaire de création de Demande de Prix - VERSION CORRIGÉE"""
     st.markdown("#### ➕ Nouvelle Demande de Prix")
     
-    # Vérification préalable des fournisseurs
+    # Vérification préalable des fournisseurs AVEC CORRECTION
     fournisseurs = gestionnaire.get_all_fournisseurs()
-    fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
+    
+    # DEBUG TEMPORAIRE (à supprimer après test)
+    with st.expander("🔍 DEBUG - Données fournisseurs", expanded=False):
+        st.write("**Fournisseurs récupérés:**")
+        for f in fournisseurs:
+            st.write(f"ID: {f.get('id')}, Nom: {f.get('nom')}, est_actif: {f.get('est_actif')} (type: {type(f.get('est_actif'))})")
+    
+    # Utilisation de la méthode sécurisée pour filtrer les fournisseurs actifs
+    fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs)
+    
+    # DEBUG TEMPORAIRE (à supprimer après test)
+    with st.expander("🔍 DEBUG - Fournisseurs actifs filtrés", expanded=False):
+        st.write(f"**Nombre de fournisseurs actifs trouvés: {len(fournisseurs_actifs)}**")
+        for f in fournisseurs_actifs:
+            st.write(f"- {f.get('nom')} (ID: {f.get('id')})")
     
     if not fournisseurs_actifs:
         st.warning("⚠️ Aucun fournisseur actif disponible.")
-        st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer une demande de prix.")
+        
+        # NOUVELLE FONCTIONNALITÉ : Activation automatique si fournisseurs inactifs trouvés
+        if fournisseurs:  # Il y a des fournisseurs mais ils sont inactifs
+            st.error("❗ Fournisseurs trouvés mais INACTIFS!")
+            
+            # Afficher les fournisseurs inactifs avec option d'activation
+            for fournisseur_inactif in fournisseurs:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"🏪 **{fournisseur_inactif.get('nom')}** - Statut: INACTIF")
+                with col2:
+                    if st.button(f"✅ Activer", key=f"activate_fournisseur_dp_{fournisseur_inactif.get('id')}"):
+                        success = gestionnaire.force_activate_fournisseur(fournisseur_inactif.get('id'))
+                        if success:
+                            st.success(f"✅ Fournisseur '{fournisseur_inactif.get('nom')}' activé !")
+                            st.rerun()
+                        else:
+                            st.error("❌ Erreur lors de l'activation")
+        else:
+            st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer une demande de prix.")
         
         if st.button("➕ Aller créer un fournisseur", use_container_width=True, key="dp_goto_create_fournisseur"):
             st.session_state.fournisseur_action = "create_fournisseur"
@@ -755,16 +844,37 @@ def render_create_demande_prix_form(gestionnaire):
             st.rerun()
 
 def render_create_bon_achat_form(gestionnaire):
-    """Formulaire de création de Bon d'Achat"""
+    """Formulaire de création de Bon d'Achat - VERSION CORRIGÉE"""
     st.markdown("#### 🛒 Nouveau Bon d'Achat")
     
-    # Vérification préalable des fournisseurs
+    # Vérification préalable des fournisseurs AVEC CORRECTION
     fournisseurs = gestionnaire.get_all_fournisseurs()
-    fournisseurs_actifs = [f for f in fournisseurs if f.get('est_actif')]
+    
+    # Utilisation de la méthode sécurisée pour filtrer les fournisseurs actifs
+    fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs)
     
     if not fournisseurs_actifs:
         st.warning("⚠️ Aucun fournisseur actif disponible.")
-        st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer un bon d'achat.")
+        
+        # NOUVELLE FONCTIONNALITÉ : Activation automatique si fournisseurs inactifs trouvés
+        if fournisseurs:  # Il y a des fournisseurs mais ils sont inactifs
+            st.error("❗ Fournisseurs trouvés mais INACTIFS!")
+            
+            # Afficher les fournisseurs inactifs avec option d'activation
+            for fournisseur_inactif in fournisseurs:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"🏪 **{fournisseur_inactif.get('nom')}** - Statut: INACTIF")
+                with col2:
+                    if st.button(f"✅ Activer", key=f"activate_fournisseur_ba_{fournisseur_inactif.get('id')}"):
+                        success = gestionnaire.force_activate_fournisseur(fournisseur_inactif.get('id'))
+                        if success:
+                            st.success(f"✅ Fournisseur '{fournisseur_inactif.get('nom')}' activé !")
+                            st.rerun()
+                        else:
+                            st.error("❌ Erreur lors de l'activation")
+        else:
+            st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer un bon d'achat.")
         
         if st.button("➕ Aller créer un fournisseur", use_container_width=True, key="ba_goto_create_fournisseur"):
             st.session_state.fournisseur_action = "create_fournisseur"
@@ -1527,9 +1637,10 @@ def render_fournisseurs_liste(gestionnaire):
         fournisseurs = [f for f in fournisseurs if f.get('categorie_produits', '').upper() == category_filter.upper()]
     
     if statut_filter == 'ACTIF':
-        fournisseurs = [f for f in fournisseurs if f.get('est_actif')]
+        fournisseurs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs)
     elif statut_filter == 'INACTIF':
-        fournisseurs = [f for f in fournisseurs if not f.get('est_actif')]
+        fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs)
+        fournisseurs = [f for f in fournisseurs if f not in fournisseurs_actifs]
     
     if recherche:
         terme = recherche.lower()
@@ -1549,7 +1660,9 @@ def render_fournisseurs_liste(gestionnaire):
     # Tableau des fournisseurs
     df_data = []
     for f in fournisseurs:
-        statut_display = "✅ ACTIF" if f.get('est_actif') else "❌ INACTIF"
+        # Utilisation de la méthode sécurisée pour déterminer le statut
+        est_actif = gestionnaire.get_fournisseurs_actifs_safe([f])
+        statut_display = "✅ ACTIF" if est_actif else "❌ INACTIF"
         evaluation_display = f"⭐ {f.get('evaluation_qualite', 0)}/10"
         
         df_data.append({
@@ -1820,19 +1933,22 @@ def render_fournisseurs_categories(gestionnaire):
             delais = [f.get('delai_livraison_moyen', 0) for f in fournisseurs_cat if f.get('delai_livraison_moyen')]
             delai_moyen = sum(delais) / len(delais) if delais else 0
             
+            # Utiliser la méthode sécurisée pour compter les actifs
+            actifs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs_cat)
+            
             categories_data.append({
                 '🏷️ Catégorie': category,
                 '🏪 Nb Fournisseurs': len(fournisseurs_cat),
                 '⭐ Éval. Moyenne': f"{eval_moyenne:.1f}/10",
                 '📦 Délai Moyen': f"{delai_moyen:.0f} jours",
-                '✅ Actifs': len([f for f in fournisseurs_cat if f.get('est_actif')])
+                '✅ Actifs': len(actifs)
             })
     
     if categories_data:
         st.dataframe(pd.DataFrame(categories_data), use_container_width=True)
 
 def render_fournisseur_form(gestionnaire, fournisseur_data=None):
-    """Formulaire de création/modification d'un fournisseur"""
+    """Formulaire de création/modification d'un fournisseur - VERSION MODIFIÉE"""
     is_edit = fournisseur_data is not None
     title = "✏️ Modifier Fournisseur" if is_edit else "➕ Nouveau Fournisseur"
     
@@ -1867,16 +1983,31 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
         col1, col2 = st.columns(2)
         
         with col1:
-            code_fournisseur = st.text_input(
-                "Code Fournisseur *:",
-                value=fournisseur_data.get('code_fournisseur', '') if is_edit else '',
-                help="Code unique pour identifier le fournisseur"
-            )
+            # CODE FOURNISSEUR AUTOMATIQUE - MODIFICATION PRINCIPALE
+            if is_edit:
+                # En mode édition, afficher le code existant (non modifiable)
+                code_fournisseur = fournisseur_data.get('code_fournisseur', '')
+                st.text_input(
+                    "Code Fournisseur:",
+                    value=code_fournisseur,
+                    disabled=True,
+                    help="Code généré automatiquement lors de la création"
+                )
+            else:
+                # En mode création, générer automatiquement
+                code_fournisseur = gestionnaire.generate_fournisseur_code()
+                st.text_input(
+                    "Code Fournisseur:",
+                    value=code_fournisseur,
+                    disabled=True,
+                    help="Code généré automatiquement"
+                )
             
+            # CATÉGORIE NON OBLIGATOIRE - MODIFICATION PRINCIPALE
             categorie_produits = st.text_input(
-                "Catégorie de Produits *:",
+                "Catégorie de Produits:",  # Retrait de l'astérisque *
                 value=fournisseur_data.get('categorie_produits', '') if is_edit else '',
-                help="Ex: Métallurgie, Électronique, Consommables..."
+                help="Ex: Métallurgie, Électronique, Consommables... (Optionnel)"
             )
             
             delai_livraison = st.number_input(
@@ -1915,9 +2046,11 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
             )
             
             if is_edit:
+                # Utiliser la méthode sécurisée pour déterminer le statut actuel
+                current_actif = bool(gestionnaire.get_fournisseurs_actifs_safe([fournisseur_data]))
                 est_actif = st.checkbox(
                     "Fournisseur Actif",
-                    value=fournisseur_data.get('est_actif', True),
+                    value=current_actif,
                     help="Décochez pour désactiver le fournisseur"
                 )
             else:
@@ -1947,16 +2080,16 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
         with btn_col2:
             cancelled = st.form_submit_button("❌ Annuler", use_container_width=True)
         
-        # Traitement du formulaire
+        # Traitement du formulaire - VALIDATION MODIFIÉE
         if submitted:
-            # Validation
-            if not code_fournisseur or not categorie_produits:
-                st.error("Le code fournisseur et la catégorie sont obligatoires.")
+            # VALIDATION MODIFIÉE : Seulement le code est requis (généré automatiquement)
+            if not code_fournisseur:
+                st.error("Erreur de génération du code fournisseur.")
             else:
-                # Préparation des données
+                # Préparation des données avec conversion sécurisée pour est_actif
                 fournisseur_form_data = {
                     'code_fournisseur': code_fournisseur,
-                    'categorie_produits': categorie_produits,
+                    'categorie_produits': categorie_produits if categorie_produits else None,  # Peut être vide
                     'delai_livraison_moyen': delai_livraison,
                     'conditions_paiement': conditions_paiement,
                     'evaluation_qualite': evaluation_qualite,
@@ -1964,7 +2097,7 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
                     'contact_technique': contact_technique,
                     'certifications': certifications,
                     'notes_evaluation': notes_evaluation,
-                    'est_actif': est_actif
+                    'est_actif': 1 if est_actif else 0  # Conversion explicite pour SQLite
                 }
                 
                 # Création ou modification
@@ -1979,7 +2112,7 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
                 else:
                     new_id = gestionnaire.create_fournisseur(selected_company_id, fournisseur_form_data)
                     if new_id:
-                        st.success(f"✅ Fournisseur créé avec succès ! (ID: {new_id})")
+                        st.success(f"✅ Fournisseur créé avec succès ! (ID: {new_id}, Code: {code_fournisseur})")
                         st.session_state.fournisseur_action = None
                         st.rerun()
                     else:
@@ -2010,6 +2143,9 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
     
     info_col1, info_col2 = st.columns(2)
     
+    # Utiliser la méthode sécurisée pour déterminer le statut
+    est_actif = bool(gestionnaire.get_fournisseurs_actifs_safe([fournisseur_data]))
+    
     with info_col1:
         st.markdown(f"""
         **🆔 ID Fournisseur:** {fournisseur_data.get('id', 'N/A')}
@@ -2020,7 +2156,7 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
         
         **🏢 Secteur:** {fournisseur_data.get('secteur', 'N/A')}
         
-        **🚦 Statut:** {'✅ ACTIF' if fournisseur_data.get('est_actif') else '❌ INACTIF'}
+        **🚦 Statut:** {'✅ ACTIF' if est_actif else '❌ INACTIF'}
         """)
     
     with info_col2:
