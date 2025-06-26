@@ -2,7 +2,7 @@
 # Dépendances Python pour l'application ERP complète
 
 # === DÉPENDANCES PRINCIPALES ===
-streamlit>=1.28.0
+streamlit>=1.46.0
 pandas>=1.5.0
 plotly>=5.15.0
 
