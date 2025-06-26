@@ -25,6 +25,28 @@ import csv
 # CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
 # ========================
 
+def safe_price_conversion(price_value, default=0.0):
+    """Convertit de manière sécurisée une valeur de prix en float"""
+    if price_value is None:
+        return default
+    
+    try:
+        price_str = str(price_value)
+        price_str = price_str.replace(' ', '').replace('€', '').replace('$', '').replace(',', '.')
+        return float(price_str) if price_str and price_str != '.' else default
+    except (ValueError, TypeError):
+        return default
+
+def clean_price_for_sum(price_value):
+    """Nettoie et convertit un prix pour sommation"""
+    try:
+        if not price_value:
+            return 0.0
+        price_str = str(price_value).replace(' ', '').replace('€', '').replace('$', '').replace(',', '.')
+        return float(price_str) if price_str else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
 def load_external_css():
     """Charge le fichier CSS externe pour un design uniforme"""
     try:
@@ -352,6 +374,13 @@ try:
 except ImportError as e:
     TIMETRACKER_AVAILABLE = False
     print(f"Erreur import TimeTracker Pro: {e}")
+
+# NOUVEAU : Importation du module Kanban unifié
+try:
+    from kanban import show_kanban_sqlite, show_kanban
+    KANBAN_AVAILABLE = True
+except ImportError:
+    KANBAN_AVAILABLE = False
 
 # Configuration de la page
 st.set_page_config(
@@ -766,49 +795,93 @@ def show_projects_detailed_view(projects, crm_manager):
         st.markdown("---")
 
 def show_projects_table_view(projects, crm_manager):
-    """Vue tableau compacte"""
+    """Vue tableau compacte avec ordre personnalisé : ID, Statut, Priorité, Tâche, No.Projet, Nom, Client, Description, Prix, Début, Durée, Fin, Adresse"""
     df_data = []
     for p in projects:
         client_display_name = get_client_display_name(p, crm_manager)
+        
+        # Calcul de la durée en jours
+        duree_jours = "N/A"
+        try:
+            if p.get('date_soumis') and p.get('date_prevu'):
+                date_debut = datetime.strptime(p.get('date_soumis'), '%Y-%m-%d')
+                date_fin = datetime.strptime(p.get('date_prevu'), '%Y-%m-%d')
+                duree = (date_fin - date_debut).days
+                duree_jours = f"{duree}j"
+        except:
+            duree_jours = "N/A"
+        
+        # Récupération de l'adresse du client depuis le CRM
+        adresse_client = "N/A"
+        if p.get('client_company_id'):
+            try:
+                entreprise = crm_manager.get_entreprise_by_id(p.get('client_company_id'))
+                if entreprise:
+                    adresse_client = entreprise.get('adresse', 'N/A')[:25] + ('...' if len(entreprise.get('adresse', '')) > 25 else '')
+            except:
+                pass
+        
         df_data.append({
-            '🆔': p.get('id', '?'),
-            '📋 Projet': p.get('nom_projet', 'N/A')[:30] + ('...' if len(p.get('nom_projet', '')) > 30 else ''),
-            '👤 Client': client_display_name[:20] + ('...' if len(client_display_name) > 20 else ''),
+            '🆔 ID': p.get('id', '?'),
             '🚦 Statut': p.get('statut', 'N/A'),
             '⭐ Priorité': p.get('priorite', 'N/A'),
+            '🏷️ Tâche': p.get('tache', 'N/A'),
+            '📋 No. Projet': f"PRJ-{p.get('id', '?')}",
+            '📝 Nom Projet': p.get('nom_projet', 'N/A')[:35] + ('...' if len(p.get('nom_projet', '')) > 35 else ''),
+            '👤 Client': client_display_name[:25] + ('...' if len(client_display_name) > 25 else ''),
+            '📄 Description': (p.get('description', 'N/A')[:40] + ('...' if len(p.get('description', '')) > 40 else '')) if p.get('description') else 'N/A',
+            '💰 Prix Estimé': format_currency(p.get('prix_estime', 0)),
             '📅 Début': p.get('date_soumis', 'N/A'),
+            '⏱️ Durée': duree_jours,
             '🏁 Fin': p.get('date_prevu', 'N/A'),
-            '💰 Prix': format_currency(p.get('prix_estime', 0))
+            '🏢 Adresse': adresse_client
         })
     
     df_projets = pd.DataFrame(df_data)
-    st.dataframe(df_projets, use_container_width=True, height=400)
     
-    # Actions rapides sous le tableau
-    st.markdown("##### Actions Rapides")
-    quick_action_col1, quick_action_col2, quick_action_col3 = st.columns(3)
-    
-    with quick_action_col1:
-        project_id_input = st.number_input("ID Projet:", min_value=1, step=1, key="quick_project_id")
-    
-    with quick_action_col2:
-        if st.button("🔧 Créer BT", use_container_width=True, key="quick_bt"):
-            if project_id_input:
-                st.session_state.timetracker_redirect_to_bt = True
-                st.session_state.formulaire_project_preselect = project_id_input
-                st.session_state.page_redirect = "timetracker_pro_page"
-                st.rerun()
-    
-    with quick_action_col3:
-        if st.button("✏️ Modifier", use_container_width=True, key="quick_edit"):
-            if project_id_input:
-                project = next((p for p in projects if p.get('id') == project_id_input), None)
-                if project:
-                    st.session_state.show_edit_project = True
-                    st.session_state.edit_project_data = project
-                    st.rerun()
-                else:
-                    st.error(f"Projet #{project_id_input} non trouvé")
+    # Affichage du tableau avec défilement horizontal pour toutes les colonnes
+    st.dataframe(
+        df_projets, 
+        use_container_width=True, 
+        height=400,
+        column_config={
+            "🆔 ID": st.column_config.NumberColumn(
+                "🆔 ID",
+                help="Identifiant unique du projet",
+                width="small",
+            ),
+            "🚦 Statut": st.column_config.TextColumn(
+                "🚦 Statut",
+                help="Statut actuel du projet",
+                width="medium",
+            ),
+            "🏷️ Tâche": st.column_config.TextColumn(
+                "🏷️ Tâche",
+                help="Type de tâche du projet",
+                width="medium",
+            ),
+            "📝 Nom Projet": st.column_config.TextColumn(
+                "📝 Nom Projet",
+                help="Nom complet du projet",
+                width="large",
+            ),
+            "💰 Prix Estimé": st.column_config.TextColumn(
+                "💰 Prix Estimé",
+                help="Prix estimé du projet",
+                width="medium",
+            ),
+            "📄 Description": st.column_config.TextColumn(
+                "📄 Description",
+                help="Description détaillée du projet",
+                width="large",
+            ),
+            "🏢 Adresse": st.column_config.TextColumn(
+                "🏢 Adresse",
+                help="Adresse du client",
+                width="large",
+            )
+        }
+    )
 
 def show_projects_card_view(projects, crm_manager):
     """Vue cartes compactes en grille"""
@@ -1516,6 +1589,7 @@ def show_portal_home():
         ("📑 Formulaires", FORMULAIRES_AVAILABLE),
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
         ("🏭 Production Unifié", PRODUCTION_MANAGEMENT_AVAILABLE),
+        ("🔄 Kanban Unifié", KANBAN_AVAILABLE),
         ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE)
     ]
 
@@ -1535,14 +1609,14 @@ def show_portal_home():
         <h4>🏭 ERP Production DG Inc.</h4>
         <p>
             <strong>Desmarais & Gagné Inc.</strong> • Fabrication métallique et industrielle<br>
-            🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🔧 TimeTracker Pro & Postes<br>
+            🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🔧 TimeTracker Pro & Postes • 🔄 Kanban Unifié<br>
             💾 Stockage persistant • 🔄 Navigation fluide • 🔒 Sécurisé
         </p>
         <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
             <small>
                 👥 <strong>Employés:</strong> Interface unifiée TimeTracker Pro & Postes<br>
                 👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
-                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié
+                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié • 🔄 Kanban Projets + Opérations
             </small>
         </div>
     </div>
@@ -1795,32 +1869,31 @@ def show_erp_main():
     if has_all_permissions or "fournisseurs" in permissions:
         available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
 
-    # 4. CRÉER DEVIS AVEC VRAIS PRIX
-    # SUPPRIMÉ : Formulaires retiré du menu principal
-    # if has_all_permissions or "formulaires" in permissions:
-    #     available_pages["📑 Formulaires"] = "formulaires_page"
-
-    # 5. DEVIS ACCEPTÉ → PROJET CONFIRMÉ
+    # 4. DEVIS ACCEPTÉ → PROJET CONFIRMÉ
     if has_all_permissions or "projects" in permissions:
         available_pages["📋 Projets"] = "liste"
 
-    # 6. PLANIFICATION FABRICATION
+    # 5. PLANIFICATION FABRICATION
     if has_all_permissions or "projects" in permissions or "inventory" in permissions:
         available_pages["🏭 Production"] = "production_management"    
 
-    # 7. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
+    # 6. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         available_pages["⏱️ TimeTracker"] = "timetracker_pro_page"
 
-    # 8. GESTION ÉQUIPES
+    # 7. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
         available_pages["👥 Employés"] = "employees_page"
 
-    # 9. VUES DE SUIVI (regroupées en fin)
+    # 8. VUES DE SUIVI (regroupées en fin) - MISE À JOUR AVEC MODULE KANBAN
     if has_all_permissions or "projects" in permissions:
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
-        available_pages["🔄 Kanban"] = "kanban"
+        # NOUVEAU : Utilisation du module Kanban unifié
+        if KANBAN_AVAILABLE:
+            available_pages["🔄 Kanban Unifié"] = "kanban"
+        else:
+            available_pages["🔄 Kanban"] = "kanban"
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
@@ -2018,8 +2091,22 @@ def show_erp_main():
         except Exception:
             pass  # Silencieux si erreur
 
+    # NOUVEAU : Indication module Kanban dans la sidebar
+    if KANBAN_AVAILABLE:
+        st.sidebar.markdown("---")
+        st.sidebar.success("🔄 Module Kanban Unifié Actif")
+        st.sidebar.markdown("<small>Vue Projets + Opérations par Postes</small>", unsafe_allow_html=True)
+    else:
+        st.sidebar.warning("⚠️ Module Kanban - Version interne")
+
     st.sidebar.markdown("---")
     footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés<br/>🏭 Module Production Unifié"
+
+    # NOUVEAU : Indication module Kanban dans footer sidebar
+    if KANBAN_AVAILABLE:
+        footer_text += "<br/>🔄 Kanban Unifié (Projets + Opérations)"
+    else:
+        footer_text += "<br/>🔄 Kanban Interne"
 
     # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
     if st.session_state.get('storage_manager'):
@@ -2031,7 +2118,7 @@ def show_erp_main():
 
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # PAGES (MODIFIÉES avec module unifié)
+    # PAGES (MODIFIÉES avec module kanban)
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -2090,7 +2177,13 @@ def show_erp_main():
     elif page_to_show_val == "calendrier":
         show_calendrier()
     elif page_to_show_val == "kanban":
-        show_kanban()
+        # NOUVEAU : Utilisation du module Kanban unifié
+        if KANBAN_AVAILABLE:
+            show_kanban_sqlite()  # Utilise la fonction du module kanban.py
+        else:
+            # Fallback sur la fonction interne si le module n'est pas disponible
+            show_kanban_legacy()
+            st.warning("⚠️ Module kanban.py non disponible - utilisation de la version interne")
 
     # Affichage des modales et formulaires
     if st.session_state.get('show_project_modal'):
@@ -2205,6 +2298,18 @@ def show_dashboard():
         📍 **Accès :** Navigation → ⏱️🔧 TimeTracker Pro
         """)
 
+    # NOUVEAU: Notification Kanban unifié
+    if KANBAN_AVAILABLE:
+        st.info("""
+        🔄 **Module Kanban Unifié Actif !**
+        
+        ✅ Vue Projets par Statuts avec drag & drop
+        ✅ Vue Opérations par Postes de Travail
+        ✅ Interface moderne avec statistiques en temps réel
+        
+        📍 **Accès :** Navigation → 🔄 Kanban Unifié
+        """)
+
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
     
@@ -2221,7 +2326,7 @@ def show_dashboard():
         st.markdown("""
         <div class='welcome-card'>
             <h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3>
-            <p>Architecture unifiée avec TimeTracker Pro intégré. Créez votre premier projet ou explorez les données migrées.</p>
+            <p>Architecture unifiée avec TimeTracker Pro et Kanban Unifié intégrés. Créez votre premier projet ou explorez les données migrées.</p>
         </div>
         """, unsafe_allow_html=True)
         return
@@ -2597,7 +2702,7 @@ def show_liste_projets():
             st.markdown(f"**🔍 {projets_affiches} projet(s) sur {total_projets} total**")
         with result_col2:
             if projets_filtres:
-                ca_filtre = sum(float(str(p.get('prix_estime', 0)).replace('$', '').replace(',', '') or 0) for p in projets_filtres)
+                ca_filtre = sum(float(str(p.get('prix_estime', 0)).replace(' ', '').replace(',', '') or 0) for p in projets_filtres)
                 st.markdown(f"**💰 CA filtré: {format_currency(ca_filtre)}**")
         with result_col3:
             if projets_filtres:
@@ -2856,7 +2961,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -3232,7 +3337,11 @@ def show_calendrier():
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-def show_kanban():
+def show_kanban_legacy():
+    """
+    ANCIENNE FONCTION KANBAN (renommée pour éviter conflit avec le module)
+    Gardée comme fallback si le module kanban.py n'est pas disponible
+    """
     st.markdown("### 🔄 Vue Kanban (Style Planner)")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
@@ -3281,7 +3390,7 @@ def show_kanban():
         if proj_dragged:
             st.markdown(f"""
             <div class="kanban-drag-indicator">
-                Déplacement de: <strong>#{proj_dragged['id']} - {proj_dragged['nom_projet']}</strong>
+                🔄 Déplacement en cours: <strong>#{proj_dragged['id']} - {proj_dragged['nom_projet']}</strong>
             </div>
             """, unsafe_allow_html=True)
             if st.sidebar.button("❌ Annuler le déplacement", use_container_width=True):
@@ -3508,10 +3617,17 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    # CHECKPOINT 6 : FOOTER MISE À JOUR
+    # CHECKPOINT 6 : FOOTER MISE À JOUR avec module Kanban
     footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🔧 TimeTracker Pro Unifié • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
+    
     if 'timetracker_unified' in st.session_state and st.session_state.timetracker_unified:
         footer_text += " • ✅ TimeTracker Pro Actif avec BT Intégrés"
+    
+    # NOUVEAU : Indication module Kanban
+    if KANBAN_AVAILABLE:
+        footer_text += " • 🔄 Kanban Unifié (Projets + Opérations)"
+    else:
+        footer_text += " • 🔄 Kanban Interne"
 
     # NOUVEAU : Ajouter info stockage persistant dans footer principal
     if 'storage_manager' in st.session_state and st.session_state.storage_manager:
@@ -3678,4 +3794,5 @@ if __name__ == "__main__":
 print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
 print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
 print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
+print("✅ Module Kanban unifié intégré avec fallback")
 print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")

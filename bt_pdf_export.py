@@ -1,7 +1,5 @@
-# bt_pdf_export.py - Export PDF des Bons de Travail - Desmarais & Gagné Inc.
-# Module d'export PDF professionnel pour les Bons de Travail
-# Design cohérent avec l'identité visuelle DG Inc.
-# VERSION PROFESSIONNELLE AMÉLIORÉE - Design moderne et élégant
+# bt_pdf_export_improved.py - Export PDF amélioré des Bons de Travail - Desmarais & Gagné Inc.
+# Version corrigée avec meilleure présentation et sans superposition de texte
 
 import streamlit as st
 from reportlab.lib import colors
@@ -23,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 class BTToPDFExporter:
     """
-    Générateur PDF pour les Bons de Travail DG Inc.
-    Design professionnel moderne avec mise en page avancée
+    Générateur PDF amélioré pour les Bons de Travail DG Inc.
+    Version corrigée sans superposition de texte
     """
     
     def __init__(self):
@@ -32,7 +30,7 @@ class BTToPDFExporter:
         self.margin = 2*cm
         self.content_width = self.page_width - 2*self.margin
         
-        # Palette de couleurs DG Inc. étendue
+        # Palette de couleurs DG Inc.
         self.dg_green = colors.Color(0, 169/255, 113/255)  # #00A971
         self.dg_green_dark = colors.Color(0, 103/255, 61/255)  # #00673D
         self.dg_green_light = colors.Color(220/255, 252/255, 231/255)  # #DCFCE7
@@ -48,250 +46,182 @@ class BTToPDFExporter:
         self.setup_styles()
     
     def setup_styles(self):
-        """Configure les styles personnalisés DG Inc. améliorés"""
+        """Configure les styles personnalisés DG Inc."""
         self.styles = getSampleStyleSheet()
         
         # Style titre principal
         self.styles.add(ParagraphStyle(
             name='DGTitle',
             parent=self.styles['Heading1'],
-            fontSize=28,
+            fontSize=24,
             textColor=self.dg_green_dark,
-            spaceAfter=25,
+            spaceAfter=20,
             spaceBefore=10,
             alignment=TA_CENTER,
-            fontName='Helvetica-Bold',
-            borderWidth=2,
-            borderColor=self.dg_green,
-            borderPadding=15,
-            backColor=self.dg_green_ultra_light,
-            borderRadius=8
-        ))
-        
-        # Style sous-titre élégant
-        self.styles.add(ParagraphStyle(
-            name='DGSubTitle',
-            parent=self.styles['Heading2'],
-            fontSize=18,
-            textColor=self.dg_green,
-            spaceAfter=20,
-            spaceBefore=15,
             fontName='Helvetica-Bold'
         ))
         
-        # Style section avec design moderne
+        # Style section
         self.styles.add(ParagraphStyle(
             name='DGSection',
             parent=self.styles['Heading3'],
-            fontSize=16,
+            fontSize=14,
             textColor=colors.white,
-            spaceAfter=15,
-            spaceBefore=25,
+            spaceAfter=10,
+            spaceBefore=15,
             fontName='Helvetica-Bold',
             borderWidth=0,
-            borderPadding=12,
+            borderPadding=8,
             backColor=self.dg_green,
             alignment=TA_LEFT,
-            leftIndent=10
+            leftIndent=5
         ))
         
         # Style sous-section
         self.styles.add(ParagraphStyle(
             name='DGSubSection',
             parent=self.styles['Heading4'],
-            fontSize=14,
+            fontSize=12,
             textColor=self.dg_green_dark,
-            spaceAfter=10,
-            spaceBefore=15,
-            fontName='Helvetica-Bold',
-            borderWidth=1,
-            borderColor=self.dg_green_light,
-            borderPadding=8,
-            backColor=self.dg_green_ultra_light,
-            leftIndent=5
+            spaceAfter=8,
+            spaceBefore=10,
+            fontName='Helvetica-Bold'
         ))
         
-        # Style normal amélioré
+        # Style normal
         self.styles.add(ParagraphStyle(
             name='DGNormal',
             parent=self.styles['Normal'],
-            fontSize=11,
+            fontSize=10,
             textColor=self.dg_gray,
-            spaceAfter=8,
+            spaceAfter=6,
             fontName='Helvetica',
-            alignment=TA_JUSTIFY
+            alignment=TA_LEFT
         ))
         
-        # Style important avec emphase
+        # Style important
         self.styles.add(ParagraphStyle(
             name='DGImportant',
             parent=self.styles['Normal'],
-            fontSize=12,
+            fontSize=11,
             textColor=self.dg_green_dark,
             fontName='Helvetica-Bold',
             spaceAfter=8,
-            leftIndent=10,
+            leftIndent=5,
             borderWidth=1,
             borderColor=self.dg_green,
-            borderPadding=8,
+            borderPadding=6,
             backColor=self.dg_green_ultra_light
-        ))
-        
-        # Style pour les totaux
-        self.styles.add(ParagraphStyle(
-            name='DGTotal',
-            parent=self.styles['Normal'],
-            fontSize=12,
-            textColor=self.dg_green_dark,
-            fontName='Helvetica-Bold',
-            spaceAfter=10,
-            spaceBefore=10,
-            alignment=TA_RIGHT,
-            borderWidth=2,
-            borderColor=self.dg_green,
-            borderPadding=10,
-            backColor=self.dg_green_light
         ))
 
     def create_header_footer(self, canvas, doc):
-        """Crée l'en-tête et le pied de page DG Inc. améliorés"""
+        """Crée l'en-tête et le pied de page simplifiés"""
         canvas.saveState()
         
-        # === EN-TÊTE MODERNE ===
-        # Fond dégradé pour l'en-tête
-        header_height = 70
+        # === EN-TÊTE SIMPLIFIÉ ===
+        header_height = 60
+        
+        # Fond de l'en-tête
         canvas.setFillColor(self.dg_green_dark)
         canvas.rect(0, self.page_height - header_height, self.page_width, header_height, fill=1)
         
-        # Accent décoratif
-        canvas.setFillColor(self.dg_green)
-        canvas.rect(0, self.page_height - header_height, self.page_width, 5, fill=1)
-        
-        # Logo DG moderne avec ombre
+        # Logo DG simplifié
         logo_x = self.margin
-        logo_y = self.page_height - header_height + 15
+        logo_y = self.page_height - header_height + 10
         
-        # Ombre du logo
-        canvas.setFillColor(colors.Color(0, 0, 0, 0.3))
-        canvas.roundRect(logo_x + 2, logo_y - 2, 70, 40, 8, fill=1)
-        
-        # Logo principal
         canvas.setFillColor(colors.white)
-        canvas.roundRect(logo_x, logo_y, 70, 40, 8, fill=1)
+        canvas.roundRect(logo_x, logo_y, 60, 35, 5, fill=1)
         canvas.setFillColor(self.dg_green_dark)
+        canvas.setFont('Helvetica-Bold', 16)
+        canvas.drawCentredString(logo_x + 30, logo_y + 15, "DG")
+        
+        # Nom de l'entreprise
+        canvas.setFillColor(colors.white)
         canvas.setFont('Helvetica-Bold', 18)
-        canvas.drawCentredString(logo_x + 35, logo_y + 18, "DG")
+        canvas.drawString(logo_x + 80, logo_y + 25, "Desmarais & Gagne inc.")
         
-        # Nom de l'entreprise avec style
-        canvas.setFillColor(colors.white)
-        canvas.setFont('Helvetica-Bold', 22)
-        canvas.drawString(logo_x + 90, logo_y + 28, "Desmarais & Gagné inc.")
-        
-        # Sous-titre élégant
-        canvas.setFont('Helvetica', 12)
-        canvas.drawString(logo_x + 90, logo_y + 8, "Solutions industrielles d'excellence")
-        
-        # Coordonnées dans un encadré moderne
-        contact_x = self.page_width - self.margin - 200
-        contact_y = logo_y
-        
-        # Fond des coordonnées
-        canvas.setFillColor(colors.Color(1, 1, 1, 0.15))
-        canvas.roundRect(contact_x - 10, contact_y - 5, 210, 45, 5, fill=1)
-        
-        canvas.setFillColor(colors.white)
         canvas.setFont('Helvetica', 10)
-        canvas.drawRightString(self.page_width - self.margin, contact_y + 30, "565 rue Maisonneuve, Granby, QC J2G 3H5")
-        canvas.drawRightString(self.page_width - self.margin, contact_y + 18, "Tél.: (450) 372-9630")
-        canvas.drawRightString(self.page_width - self.margin, contact_y + 6, "Téléc.: (450) 372-8122")
+        canvas.drawString(logo_x + 80, logo_y + 10, "Solutions industrielles d'excellence")
         
-        # === PIED DE PAGE ÉLÉGANT ===
-        footer_height = 40
-        footer_y = self.margin - 15
+        # Coordonnées alignées à droite
+        canvas.setFont('Helvetica', 9)
+        right_margin = self.page_width - self.margin
+        canvas.drawRightString(right_margin, logo_y + 30, "565 rue Maisonneuve, Granby, QC J2G 3H5")
+        canvas.drawRightString(right_margin, logo_y + 20, "Tel.: (450) 372-9630")
+        canvas.drawRightString(right_margin, logo_y + 10, "Telec.: (450) 372-8122")
+        
+        # === PIED DE PAGE SIMPLIFIÉ ===
+        footer_y = self.margin - 10
         
         # Ligne décorative
         canvas.setStrokeColor(self.dg_green)
-        canvas.setLineWidth(2)
-        canvas.line(self.margin, footer_y + 25, self.page_width - self.margin, footer_y + 25)
-        
-        # Fond du pied de page
-        canvas.setFillColor(self.dg_gray_ultra_light)
-        canvas.rect(self.margin, footer_y - 10, self.content_width, 30, fill=1)
+        canvas.setLineWidth(1)
+        canvas.line(self.margin, footer_y + 15, self.page_width - self.margin, footer_y + 15)
         
         # Informations du pied de page
         canvas.setFillColor(self.dg_gray)
-        canvas.setFont('Helvetica', 9)
+        canvas.setFont('Helvetica', 8)
         
         # Date de génération
-        date_text = f"Document généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}"
-        canvas.drawString(self.margin + 10, footer_y + 5, date_text)
+        date_text = f"Document genere le {datetime.now().strftime('%d/%m/%Y a %H:%M')}"
+        canvas.drawString(self.margin, footer_y, date_text)
         
         # Titre centré
-        canvas.setFont('Helvetica-Bold', 10)
-        canvas.drawCentredString(self.page_width/2, footer_y + 5, "BON DE TRAVAIL - Système ERP DG Inc.")
+        canvas.setFont('Helvetica-Bold', 9)
+        canvas.drawCentredString(self.page_width/2, footer_y, "BON DE TRAVAIL - Systeme ERP DG Inc.")
         
-        # Numéro de page avec style
+        # Numéro de page
         page_text = f"Page {doc.page}"
-        canvas.setFont('Helvetica', 9)
-        canvas.drawRightString(self.page_width - self.margin - 10, footer_y + 5, page_text)
+        canvas.setFont('Helvetica', 8)
+        canvas.drawRightString(self.page_width - self.margin, footer_y, page_text)
         
         canvas.restoreState()
 
     def export_bt_to_pdf(self, form_data):
         """
-        Génère le PDF du Bon de Travail avec design professionnel
-        
-        Args:
-            form_data (dict): Données du formulaire BT
-            
-        Returns:
-            bytes: Contenu du PDF généré
+        Génère le PDF du Bon de Travail avec présentation améliorée
         """
         try:
             # Créer un buffer en mémoire
             buffer = io.BytesIO()
             
-            # Créer le document PDF avec marges optimisées
+            # Créer le document PDF
             doc = SimpleDocTemplate(
                 buffer,
                 pagesize=A4,
                 rightMargin=self.margin,
                 leftMargin=self.margin,
-                topMargin=self.margin + 80,  # Espace pour l'en-tête amélioré
-                bottomMargin=self.margin + 50  # Espace pour le pied de page amélioré
+                topMargin=self.margin + 70,  # Espace pour l'en-tête
+                bottomMargin=self.margin + 30  # Espace pour le pied de page
             )
             
             # Construire le contenu
             story = []
             
-            # Titre principal avec design moderne
-            story.append(Paragraph("🔧 BON DE TRAVAIL", self.styles['DGTitle']))
-            story.append(Spacer(1, 20))
-            
-            # Badge de statut
-            self._add_status_badge(story, form_data)
+            # Titre principal
+            story.append(Paragraph("BON DE TRAVAIL", self.styles['DGTitle']))
             story.append(Spacer(1, 15))
             
-            # Informations générales avec design amélioré
+            # Informations générales
             self._add_general_info(story, form_data)
-            story.append(Spacer(1, 20))
+            story.append(Spacer(1, 15))
             
-            # Tâches et opérations avec tableaux stylés
+            # Tâches et opérations
             self._add_tasks_section(story, form_data)
-            story.append(Spacer(1, 20))
+            story.append(Spacer(1, 15))
             
-            # Matériaux avec design moderne
+            # Matériaux
             self._add_materials_section(story, form_data)
-            story.append(Spacer(1, 20))
+            story.append(Spacer(1, 15))
             
-            # Instructions avec sections bien délimitées
+            # Instructions
             self._add_instructions_section(story, form_data)
-            story.append(Spacer(1, 20))
+            story.append(Spacer(1, 15))
             
-            # Signatures avec design professionnel
+            # Signatures
             self._add_signatures_section(story)
             
-            # Construire le PDF avec en-tête/pied de page améliorés
+            # Construire le PDF
             doc.build(story, onFirstPage=self.create_header_footer, 
                      onLaterPages=self.create_header_footer)
             
@@ -299,107 +229,95 @@ class BTToPDFExporter:
             pdf_content = buffer.getvalue()
             buffer.close()
             
-            logger.info(f"PDF professionnel généré avec succès pour BT {form_data.get('numero_document', 'N/A')}")
+            logger.info(f"PDF ameliore genere avec succes pour BT {form_data.get('numero_document', 'N/A')}")
             return pdf_content
             
         except Exception as e:
-            logger.error(f"Erreur génération PDF professionnel: {e}")
+            logger.error(f"Erreur generation PDF ameliore: {e}")
             raise e
 
-    def _add_status_badge(self, story, form_data):
-        """Ajoute un badge de statut et priorité moderne"""
+    def _add_general_info(self, story, form_data):
+        """Ajoute les informations générales avec badge de statut"""
+        # Badge de statut en haut
+        story.append(Paragraph("INFORMATIONS GENERALES", self.styles['DGSection']))
+        story.append(Spacer(1, 8))
+        
+        # Tableau de statut simplifié
+        numero = form_data.get('numero_document', 'N/A')
         priority = form_data.get('priority', 'NORMAL')
         statut = form_data.get('statut', 'BROUILLON')
         
-        # Couleurs selon la priorité
-        priority_colors = {
-            'CRITIQUE': self.dg_red,
-            'URGENT': self.dg_orange,
-            'NORMAL': self.dg_green
-        }
+        priority_display = self._format_priority_simple(priority)
         
-        priority_color = priority_colors.get(priority, self.dg_green)
-        
-        badge_data = [
-            ['Numéro:', form_data.get('numero_document', 'N/A'), 'Priorité:', self._format_priority(priority), 'Statut:', statut]
+        status_data = [
+            ['Numero:', numero, 'Priorite:', priority_display, 'Statut:', statut]
         ]
         
-        badge_table = Table(badge_data, colWidths=[2*cm, 4*cm, 2*cm, 3*cm, 2*cm, 3*cm])
-        badge_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), self.dg_green_ultra_light),
+        status_table = Table(status_data, colWidths=[2*cm, 3.5*cm, 2*cm, 2.5*cm, 2*cm, 3*cm])
+        status_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), self.dg_green_light),
             ('TEXTCOLOR', (0, 0), (-1, -1), self.dg_gray),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 2, self.dg_green),
-            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [self.dg_green_light]),
-            ('TOPPADDING', (0, 0), (-1, -1), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('GRID', (0, 0), (-1, -1), 1, self.dg_green),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
         ]))
         
-        story.append(badge_table)
-
-    def _add_general_info(self, story, form_data):
-        """Ajoute les informations générales avec design moderne"""
-        story.append(Paragraph("📋 INFORMATIONS GÉNÉRALES", self.styles['DGSection']))
+        story.append(status_table)
         story.append(Spacer(1, 10))
         
-        # Tableau principal des informations
+        # Tableau principal des informations avec largeurs ajustées
         data = [
-            ['🏗️ Projet:', form_data.get('project_name', 'N/A')],
-            ['🏢 Client:', form_data.get('client_name', 'N/A')],
-            ['👤 Chargé de projet:', form_data.get('project_manager', 'Non assigné')],
-            ['📅 Date début:', form_data.get('start_date', 'N/A')],
-            ['📅 Date fin prévue:', form_data.get('end_date', 'N/A')],
+            ['Projet:', form_data.get('project_name', 'N/A')],
+            ['Client:', form_data.get('client_name', 'N/A')],
+            ['Charge de projet:', form_data.get('project_manager', 'Non assigne')],
+            ['Date debut:', form_data.get('start_date', 'N/A')],
+            ['Date fin prevue:', form_data.get('end_date', 'N/A')],
         ]
         
-        table = Table(data, colWidths=[4.5*cm, 11*cm])
+        table = Table(data, colWidths=[4*cm, 12*cm])
         table.setStyle(TableStyle([
-            # En-têtes avec style moderne
             ('BACKGROUND', (0, 0), (0, -1), self.dg_green),
             ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
             ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
             ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('ALIGN', (0, 0), (0, -1), 'LEFT'),
             ('ALIGN', (1, 0), (1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 1, self.dg_green_light),
             ('ROWBACKGROUNDS', (1, 0), (1, -1), [colors.white, self.dg_gray_ultra_light]),
-            ('TOPPADDING', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
-            ('LEFTPADDING', (0, 0), (-1, -1), 15),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 15),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
         ]))
         
         story.append(table)
 
     def _add_tasks_section(self, story, form_data):
-        """Ajoute la section des tâches avec design professionnel"""
-        story.append(Paragraph("⚙️ TÂCHES ET OPÉRATIONS", self.styles['DGSection']))
-        story.append(Spacer(1, 10))
+        """Ajoute la section des tâches avec largeurs optimisées"""
+        story.append(Paragraph("TACHES ET OPERATIONS", self.styles['DGSection']))
+        story.append(Spacer(1, 8))
         
         tasks = form_data.get('tasks', [])
         
         if not tasks or not any(t.get('operation') or t.get('description') for t in tasks):
-            no_task_text = "Aucune tâche définie pour ce bon de travail."
+            no_task_text = "Aucune tache definie pour ce bon de travail."
             story.append(Paragraph(no_task_text, self.styles['DGNormal']))
             return
         
-        # En-têtes du tableau avec icônes
-        headers = ['🔧 Opération', '📝 Description', 'Qté', '⏱️ H.Prév', '✅ H.Réel', '👤 Assigné', '🏢 Fournisseur', '📊 Statut']
+        # En-têtes sans emojis
+        headers = ['Operation', 'Description', 'Qte', 'H.Prev', 'H.Reel', 'Assigne', 'Fournisseur', 'Statut']
         data = [headers]
         
         total_planned = 0
         total_actual = 0
-        internal_planned = 0
-        external_planned = 0
         
-        # Couleurs alternées pour les lignes
-        row_colors = [colors.white, self.dg_gray_ultra_light]
-        
-        for i, task in enumerate(tasks, 1):
+        for task in tasks:
             if task.get('operation') or task.get('description'):
                 operation = task.get('operation', '')
                 description = task.get('description', '')
@@ -408,22 +326,16 @@ class BTToPDFExporter:
                 actual_hours = task.get('actual_hours', 0.0)
                 assigned_to = task.get('assigned_to', '')
                 fournisseur = task.get('fournisseur', '-- Interne --')
-                status = self._format_status(task.get('status', 'pending'))
+                status = self._format_status_simple(task.get('status', 'pending'))
                 
-                # Calculer les totaux
                 total_planned += planned_hours
                 total_actual += actual_hours
                 
-                if fournisseur == '-- Interne --':
-                    internal_planned += planned_hours
-                else:
-                    external_planned += planned_hours
-                
-                # Tronquer les textes longs avec élégance
-                operation_display = operation[:18] + '...' if len(operation) > 18 else operation
-                description_display = description[:25] + '...' if len(description) > 25 else description
-                assigned_display = assigned_to[:15] + '...' if len(assigned_to) > 15 else assigned_to
-                fournisseur_display = fournisseur[:18] + '...' if len(fournisseur) > 18 else fournisseur
+                # Tronquer les textes pour éviter les débordements
+                operation_display = operation[:15] + '...' if len(operation) > 15 else operation
+                description_display = description[:20] + '...' if len(description) > 20 else description
+                assigned_display = assigned_to[:12] + '...' if len(assigned_to) > 12 else assigned_to
+                fournisseur_display = fournisseur[:15] + '...' if len(fournisseur) > 15 else fournisseur
                 
                 data.append([
                     operation_display,
@@ -436,7 +348,7 @@ class BTToPDFExporter:
                     status
                 ])
         
-        # Ligne de totaux avec style spécial
+        # Ligne de totaux
         data.append([
             'TOTAUX', '', '', 
             f"{total_planned:.1f}h", 
@@ -444,57 +356,54 @@ class BTToPDFExporter:
             '', '', ''
         ])
         
-        # Créer le tableau avec style professionnel
-        table = Table(data, colWidths=[2.2*cm, 2.8*cm, 1*cm, 1.3*cm, 1.3*cm, 2*cm, 2.2*cm, 1.5*cm])
+        # Largeurs de colonnes optimisées pour A4
+        col_widths = [2.8*cm, 3.2*cm, 1*cm, 1.2*cm, 1.2*cm, 2*cm, 2.5*cm, 1.8*cm]
+        table = Table(data, colWidths=col_widths)
         table.setStyle(TableStyle([
-            # En-têtes avec dégradé
+            # En-têtes
             ('BACKGROUND', (0, 0), (-1, 0), self.dg_green_dark),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 9),
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             
-            # Données avec alternance de couleurs
+            # Données
             ('FONTNAME', (0, 1), (-1, -2), 'Helvetica'),
             ('FONTSIZE', (0, 1), (-1, -2), 8),
             ('ALIGN', (2, 1), (4, -1), 'CENTER'),  # Colonnes numériques
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             
-            # Ligne totaux avec mise en évidence
+            # Ligne totaux
             ('BACKGROUND', (0, -1), (-1, -1), self.dg_green),
             ('TEXTCOLOR', (0, -1), (-1, -1), colors.white),
             ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
             ('FONTSIZE', (0, -1), (-1, -1), 9),
             
-            # Grille moderne
+            # Grille
             ('GRID', (0, 0), (-1, -1), 0.5, self.dg_green_light),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -2), row_colors),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, self.dg_gray_ultra_light]),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
         ]))
         
         story.append(table)
-        
-        # Répartition interne/externe avec style
-        if external_planned > 0:
-            story.append(Spacer(1, 15))
-            repartition_text = f"📊 <b>Répartition des heures:</b> Interne: {internal_planned:.1f}h • Externe: {external_planned:.1f}h • Total: {total_planned:.1f}h"
-            story.append(Paragraph(repartition_text, self.styles['DGImportant']))
 
     def _add_materials_section(self, story, form_data):
-        """Ajoute la section des matériaux avec design moderne"""
-        story.append(Paragraph("📦 MATÉRIAUX ET OUTILS REQUIS", self.styles['DGSection']))
-        story.append(Spacer(1, 10))
+        """Ajoute la section des matériaux"""
+        story.append(Paragraph("MATERIAUX ET OUTILS REQUIS", self.styles['DGSection']))
+        story.append(Spacer(1, 8))
         
         materials = form_data.get('materials', [])
         
         if not materials or not any(m.get('name') for m in materials):
-            no_material_text = "Aucun matériau ou outil spécifié pour ce bon de travail."
+            no_material_text = "Aucun materiau ou outil specifie pour ce bon de travail."
             story.append(Paragraph(no_material_text, self.styles['DGNormal']))
             return
         
-        # En-têtes avec icônes
-        headers = ['📦 Matériau/Outil', '📝 Description', 'Qté', '📏 Unité', '🏢 Fournisseur', '✅ Disponibilité', '📋 Notes']
+        # En-têtes simplifiés
+        headers = ['Materiau/Outil', 'Description', 'Qte', 'Unite', 'Fournisseur', 'Disponibilite', 'Notes']
         data = [headers]
         
         for material in materials:
@@ -504,14 +413,14 @@ class BTToPDFExporter:
                 quantity = material.get('quantity', 1.0)
                 unit = material.get('unit', 'pcs')
                 fournisseur = material.get('fournisseur', '-- Interne --')
-                available = self._format_availability(material.get('available', 'yes'))
+                available = self._format_availability_simple(material.get('available', 'yes'))
                 notes = material.get('notes', '')
                 
-                # Tronquer les textes avec élégance
-                name_display = name[:22] + '...' if len(name) > 22 else name
-                description_display = description[:28] + '...' if len(description) > 28 else description
-                fournisseur_display = fournisseur[:18] + '...' if len(fournisseur) > 18 else fournisseur
-                notes_display = notes[:25] + '...' if len(notes) > 25 else notes
+                # Tronquer pour éviter les débordements
+                name_display = name[:18] + '...' if len(name) > 18 else name
+                description_display = description[:20] + '...' if len(description) > 20 else description
+                fournisseur_display = fournisseur[:15] + '...' if len(fournisseur) > 15 else fournisseur
+                notes_display = notes[:20] + '...' if len(notes) > 20 else notes
                 
                 data.append([
                     name_display,
@@ -523,8 +432,9 @@ class BTToPDFExporter:
                     notes_display
                 ])
         
-        # Créer le tableau avec style moderne
-        table = Table(data, colWidths=[3.2*cm, 3.5*cm, 1.2*cm, 1*cm, 2.8*cm, 2.2*cm, 2.5*cm])
+        # Largeurs optimisées
+        col_widths = [3*cm, 3.5*cm, 1*cm, 1*cm, 2.5*cm, 2*cm, 2.5*cm]
+        table = Table(data, colWidths=col_widths)
         table.setStyle(TableStyle([
             # En-têtes
             ('BACKGROUND', (0, 0), (-1, 0), self.dg_blue),
@@ -536,137 +446,127 @@ class BTToPDFExporter:
             # Données
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 1), (-1, -1), 8),
-            ('ALIGN', (2, 1), (3, -1), 'CENTER'),  # Quantité et unité
+            ('ALIGN', (2, 1), (3, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             
-            # Style moderne
+            # Style
             ('GRID', (0, 0), (-1, -1), 0.5, self.dg_gray_light),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.dg_gray_ultra_light]),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
         ]))
         
         story.append(table)
 
     def _add_instructions_section(self, story, form_data):
-        """Ajoute la section des instructions avec design structuré"""
-        story.append(Paragraph("📋 INSTRUCTIONS ET NOTES", self.styles['DGSection']))
-        story.append(Spacer(1, 10))
+        """Ajoute la section des instructions"""
+        story.append(Paragraph("INSTRUCTIONS ET NOTES", self.styles['DGSection']))
+        story.append(Spacer(1, 8))
         
         # Instructions de travail
         work_instructions = form_data.get('work_instructions', '')
         if work_instructions:
-            story.append(Paragraph("🔧 Instructions de travail", self.styles['DGSubSection']))
+            story.append(Paragraph("Instructions de travail:", self.styles['DGSubSection']))
             story.append(Paragraph(work_instructions, self.styles['DGNormal']))
-            story.append(Spacer(1, 12))
+            story.append(Spacer(1, 8))
         
-        # Notes de sécurité avec mise en évidence
+        # Notes de sécurité
         safety_notes = form_data.get('safety_notes', '')
         if safety_notes:
-            story.append(Paragraph("🛡️ Notes de sécurité", self.styles['DGSubSection']))
+            story.append(Paragraph("Notes de securite:", self.styles['DGSubSection']))
             story.append(Paragraph(safety_notes, self.styles['DGImportant']))
-            story.append(Spacer(1, 12))
+            story.append(Spacer(1, 8))
         
         # Exigences qualité
         quality_requirements = form_data.get('quality_requirements', '')
         if quality_requirements:
-            story.append(Paragraph("🎯 Exigences qualité", self.styles['DGSubSection']))
+            story.append(Paragraph("Exigences qualite:", self.styles['DGSubSection']))
             story.append(Paragraph(quality_requirements, self.styles['DGNormal']))
 
     def _add_signatures_section(self, story):
-        """Ajoute la section des signatures avec design professionnel"""
-        story.append(Spacer(1, 30))
-        story.append(Paragraph("✍️ SIGNATURES ET APPROBATIONS", self.styles['DGSection']))
-        story.append(Spacer(1, 15))
+        """Ajoute la section des signatures"""
+        story.append(Spacer(1, 20))
+        story.append(Paragraph("SIGNATURES ET APPROBATIONS", self.styles['DGSection']))
+        story.append(Spacer(1, 10))
         
-        # Tableau des signatures moderne
+        # Tableau simplifié pour les signatures
         sig_data = [
-            ['👤 Préparé par:', '', '📅 Date:', '', '👤 Approuvé par:', '', '📅 Date:', ''],
+            ['Prepare par:', '', 'Date:', '', 'Approuve par:', '', 'Date:', ''],
             ['', '', '', '', '', '', '', ''],
-            ['✍️ Signature:', '', '', '', '✍️ Signature:', '', '', ''],
+            ['Signature:', '', '', '', 'Signature:', '', '', ''],
             ['', '', '', '', '', '', '', ''],
         ]
         
-        sig_table = Table(sig_data, colWidths=[2.5*cm, 3.5*cm, 1.5*cm, 2*cm, 2.5*cm, 3.5*cm, 1.5*cm, 2*cm])
+        sig_table = Table(sig_data, colWidths=[2.5*cm, 3*cm, 1.5*cm, 2*cm, 2.5*cm, 3*cm, 1.5*cm, 2*cm])
         sig_table.setStyle(TableStyle([
-            # Style moderne pour les signatures
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('BACKGROUND', (0, 0), (-1, 0), self.dg_green_light),
             ('BACKGROUND', (0, 2), (-1, 2), self.dg_green_light),
             ('TEXTCOLOR', (0, 0), (-1, -1), self.dg_gray),
-            ('GRID', (0, 0), (-1, -1), 1, self.dg_green_light),
-            
-            # Lignes pour les signatures
-            ('LINEBELOW', (1, 2), (1, 2), 1, self.dg_gray),  # Signature 1
-            ('LINEBELOW', (3, 2), (3, 2), 1, self.dg_gray),  # Date 1
-            ('LINEBELOW', (5, 2), (5, 2), 1, self.dg_gray),  # Signature 2
-            ('LINEBELOW', (7, 2), (7, 2), 1, self.dg_gray),  # Date 2
-            
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, self.dg_green_light),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
         ]))
         
         story.append(sig_table)
         
         # Note légale
-        story.append(Spacer(1, 20))
-        legal_note = "Ce document constitue un engagement contractuel. Toute modification doit être approuvée par écrit."
+        story.append(Spacer(1, 15))
+        legal_note = "Ce document constitue un engagement contractuel. Toute modification doit etre approuvee par ecrit."
         story.append(Paragraph(legal_note, self.styles['DGNormal']))
 
-    def _format_priority(self, priority):
-        """Formate la priorité avec des icônes modernes"""
+    def _format_priority_simple(self, priority):
+        """Formate la priorité sans emojis"""
         priority_map = {
-            'NORMAL': '🟢 Normal',
-            'URGENT': '🟡 Urgent',
-            'CRITIQUE': '🔴 Critique'
+            'NORMAL': 'Normal',
+            'URGENT': 'Urgent',
+            'CRITIQUE': 'Critique'
         }
         return priority_map.get(priority, priority)
 
-    def _format_status(self, status):
-        """Formate le statut des tâches avec des icônes"""
+    def _format_status_simple(self, status):
+        """Formate le statut sans emojis"""
         status_map = {
-            'pending': '⏳ En attente',
-            'in-progress': '🔄 En cours',
-            'completed': '✅ Terminé',
-            'on-hold': '⏸️ En pause'
+            'pending': 'En attente',
+            'in-progress': 'En cours',
+            'completed': 'Termine',
+            'on-hold': 'En pause'
         }
         return status_map.get(status, status)
 
-    def _format_availability(self, availability):
-        """Formate la disponibilité des matériaux avec des icônes"""
+    def _format_availability_simple(self, availability):
+        """Formate la disponibilité sans emojis"""
         avail_map = {
-            'yes': '✅ Disponible',
-            'no': '❌ Non dispo',
-            'partial': '⚠️ Partiel',
-            'ordered': '📦 Commandé'
+            'yes': 'Disponible',
+            'no': 'Non dispo',
+            'partial': 'Partiel',
+            'ordered': 'Commande'
         }
         return avail_map.get(availability, availability)
 
 
 def export_bt_pdf_streamlit(form_data):
-    """
-    Interface Streamlit pour l'export PDF professionnel
-    
-    Args:
-        form_data (dict): Données du Bon de Travail
-    """
+    """Interface Streamlit pour l'export PDF amélioré"""
     try:
         # Créer l'exporteur
         exporter = BTToPDFExporter()
         
         # Générer le PDF
-        with st.spinner("🎨 Génération du PDF professionnel en cours..."):
+        with st.spinner("Generation du PDF en cours..."):
             pdf_content = exporter.export_bt_to_pdf(form_data)
         
         # Nom du fichier
         numero_document = form_data.get('numero_document', 'BT')
-        filename = f"BT_Pro_{numero_document}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        filename = f"BT_{numero_document}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         
-        # Bouton de téléchargement avec style
+        # Bouton de téléchargement
         st.download_button(
-            label="📄 Télécharger le PDF Professionnel",
+            label="Telecharger le PDF",
             data=pdf_content,
             file_name=filename,
             mime="application/pdf",
@@ -674,185 +574,76 @@ def export_bt_pdf_streamlit(form_data):
             use_container_width=True
         )
         
-        st.success(f"✨ PDF professionnel généré avec succès ! **{filename}**")
+        st.success(f"PDF genere avec succes ! **{filename}**")
         
-        # Statistiques détaillées
+        # Statistiques
         tasks_count = len([t for t in form_data.get('tasks', []) if t.get('operation') or t.get('description')])
         materials_count = len([m for m in form_data.get('materials', []) if m.get('name')])
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("📊 Tâches", tasks_count)
+            st.metric("Taches", tasks_count)
         with col2:
-            st.metric("📦 Matériaux", materials_count)
+            st.metric("Materiaux", materials_count)
         with col3:
-            st.metric("📄 Taille", f"{len(pdf_content):,} bytes")
+            st.metric("Taille", f"{len(pdf_content):,} bytes")
         
         return True
         
     except Exception as e:
-        st.error(f"❌ Erreur lors de la génération du PDF professionnel: {e}")
-        logger.error(f"Erreur export PDF professionnel: {e}")
+        st.error(f"Erreur lors de la generation du PDF: {e}")
+        logger.error(f"Erreur export PDF: {e}")
         return False
 
 
-# Test unitaire avec design professionnel
+# Test avec données simplifiées
 if __name__ == "__main__":
-    # Données d'exemple complètes pour test
     sample_data = {
-        'numero_document': 'BT-PRO-2025-001',
-        'project_name': 'Modernisation Ligne de Production #3',
-        'client_name': 'Industries Avancées Québec Inc.',
-        'project_manager': 'Jean-Pierre Martin',
-        'priority': 'URGENT',
-        'start_date': '2025-01-15',
-        'end_date': '2025-02-28',
+        'numero_document': 'BT-2025-003',
+        'project_name': 'Projet Test',
+        'client_name': 'Client Test',
+        'project_manager': 'Manager Test',
+        'priority': 'NORMAL',
+        'start_date': '2025-06-26',
+        'end_date': '2025-07-10',
         'statut': 'VALIDÉ',
-        'work_instructions': '''Procéder à la modernisation complète de la ligne de production #3 selon les spécifications techniques détaillées dans le cahier des charges v2.1.
-
-Étapes principales du projet :
-1. Audit complet de l'installation existante
-2. Démontage sécurisé des équipements obsolètes
-3. Préparation et mise à niveau des infrastructures
-4. Installation des nouveaux systèmes robotisés
-5. Tests de fonctionnement et optimisation
-6. Formation du personnel et mise en service
-
-Respect strict des normes ISO 9001:2015 et des procédures DG Inc.''',
-        'safety_notes': '''⚠️ CONSIGNES DE SÉCURITÉ STRICTES ⚠️
-
-• Port obligatoire des EPI complets en permanence
-• Zone de travail sécurisée avec périmètre de sécurité
-• Procédure LOTO (Lock-Out Tag-Out) pour tous les équipements
-• Présence obligatoire d'un responsable sécurité
-• Vérification quotidienne des équipements de levage
-• Formation sécurité obligatoire pour tout intervenant
-
-En cas d'urgence, contacter immédiatement le responsable sécurité au poste 911.''',
-        'quality_requirements': '''Standards qualité selon ISO 9001:2015 et normes DG Inc.
-
-Points de contrôle obligatoires :
-• Vérification dimensionnelle à chaque étape
-• Tests de fonctionnement selon protocoles
-• Validation par responsable qualité
-• Documentation complète des interventions
-• Traçabilité des matériaux et composants
-• Contrôle final par organisme externe
-
-Critères d'acceptation : 99.5% de conformité minimale.''',
+        'work_instructions': 'Instructions de travail test.',
+        'safety_notes': 'Notes de sécurité importantes.',
+        'quality_requirements': 'Exigences qualité standards.',
         'tasks': [
             {
-                'operation': 'Découpe plasma CNC',
-                'description': 'Découpe précision des plaques selon plans CAO',
-                'quantity': 24,
-                'planned_hours': 12.0,
-                'actual_hours': 11.5,
-                'assigned_to': 'Pierre Gagnon',
-                'fournisseur': '-- Interne --',
-                'status': 'completed'
-            },
-            {
-                'operation': 'Soudage robotisé TIG',
-                'description': 'Assemblage structures principales robot ABB',
-                'quantity': 12,
-                'planned_hours': 20.0,
-                'actual_hours': 18.5,
-                'assigned_to': 'Marie Dubois',
-                'fournisseur': '-- Interne --',
-                'status': 'completed'
-            },
-            {
-                'operation': 'Traitement thermique',
-                'description': 'Normalisation contraintes et durcissement',
-                'quantity': 12,
-                'planned_hours': 8.0,
-                'actual_hours': 0.0,
-                'assigned_to': 'Jean Lafleur (Resp. Tech)',
-                'fournisseur': 'Traitement Thermique Granby Inc.',
-                'status': 'in-progress'
-            },
-            {
-                'operation': 'Usinage CNC 5 axes',
-                'description': 'Finition précision ±0.05mm des fixations',
-                'quantity': 48,
-                'planned_hours': 16.0,
-                'actual_hours': 14.0,
-                'assigned_to': 'Louise Tremblay',
-                'fournisseur': '-- Interne --',
-                'status': 'completed'
-            },
-            {
-                'operation': 'Inspection dimensionnelle',
-                'description': 'Contrôle qualité CMM et validation finale',
+                'operation': 'Operation 1',
+                'description': 'Description 1',
                 'quantity': 1,
-                'planned_hours': 4.0,
-                'actual_hours': 0.0,
-                'assigned_to': 'Inspecteur Certifié',
-                'fournisseur': 'Bureau Veritas Québec',
-                'status': 'pending'
+                'planned_hours': 5.0,
+                'actual_hours': 4.5,
+                'assigned_to': 'Technicien 1',
+                'fournisseur': '-- Interne --',
+                'status': 'completed'
             }
         ],
         'materials': [
             {
-                'name': 'Plaque acier inoxydable 316L',
-                'description': 'Plaque 15mm x 3000mm x 1500mm certifiée',
-                'quantity': 8.0,
+                'name': 'Materiau 1',
+                'description': 'Description materiau',
+                'quantity': 10.0,
                 'unit': 'pcs',
-                'fournisseur': 'Métallurgie Québec Inc.',
+                'fournisseur': 'Fournisseur Test',
                 'available': 'yes',
-                'notes': 'Certificat matière EN 10204 fourni'
-            },
-            {
-                'name': 'Électrodes TIG ER316L Ø2.4',
-                'description': 'Baguettes soudage haute pureté',
-                'quantity': 5.0,
-                'unit': 'kg',
-                'fournisseur': '-- Interne --',
-                'available': 'yes',
-                'notes': 'Stock atelier - Lot #2025-A'
-            },
-            {
-                'name': 'Boulonnerie inox A4-80',
-                'description': 'Vis CHC M12x50 + écrous autobloquants',
-                'quantity': 96.0,
-                'unit': 'pcs',
-                'fournisseur': 'Boulonnerie Industrielle QC',
-                'available': 'ordered',
-                'notes': 'Livraison confirmée 48h'
-            },
-            {
-                'name': 'Gaz argon 99.998%',
-                'description': 'Bouteilles 50L pour soudage TIG',
-                'quantity': 3.0,
-                'unit': 'pcs',
-                'fournisseur': '-- Interne --',
-                'available': 'partial',
-                'notes': '2 bouteilles dispo, 1 en commande'
-            },
-            {
-                'name': 'Fluide de coupe synthétique',
-                'description': 'Lubrifiant usinage haute performance',
-                'quantity': 20.0,
-                'unit': 'l',
-                'fournisseur': 'Chimie Industrielle DG',
-                'available': 'yes',
-                'notes': 'Bidon 20L neuf'
+                'notes': 'Notes test'
             }
         ]
     }
     
-    # Générer le PDF professionnel de test
     try:
         exporter = BTToPDFExporter()
         pdf_content = exporter.export_bt_to_pdf(sample_data)
         
-        # Sauvegarder en fichier de test
-        with open('test_bt_professionnel_dg_inc.pdf', 'wb') as f:
+        with open('test_bt_ameliore.pdf', 'wb') as f:
             f.write(pdf_content)
         
-        print("✨ PDF professionnel de test généré: test_bt_professionnel_dg_inc.pdf")
-        print(f"📊 Taille du fichier: {len(pdf_content):,} bytes")
-        print("🎨 Design moderne avec couleurs DG Inc., icônes et mise en page professionnelle")
+        print("PDF ameliore genere: test_bt_ameliore.pdf")
+        print(f"Taille: {len(pdf_content):,} bytes")
         
     except Exception as e:
-        print(f"❌ Erreur génération PDF test professionnel: {e}")
+        print(f"Erreur: {e}")
