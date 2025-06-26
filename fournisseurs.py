@@ -603,7 +603,7 @@ def render_bon_achat_tab(gestionnaire):
         render_view_bon_achat(gestionnaire)
 
 def render_create_demande_prix_form(gestionnaire):
-    """Formulaire de création de Demande de Prix - VERSION CORRIGÉE"""
+    """Formulaire de création de Demande de Prix - VERSION CORRIGÉE AVEC FIX STATUTS NONE"""
     st.markdown("#### ➕ Nouvelle Demande de Prix")
     
     # Vérification préalable des fournisseurs AVEC CORRECTION
@@ -631,11 +631,51 @@ def render_create_demande_prix_form(gestionnaire):
         if fournisseurs:  # Il y a des fournisseurs mais ils sont inactifs
             st.error("❗ Fournisseurs trouvés mais INACTIFS!")
             
-            # Afficher les fournisseurs inactifs avec option d'activation
+            # CORRECTION CRITIQUE POUR LES STATUTS None
+            # Vérifier si le problème vient des statuts None
+            has_none_status = any(f.get('est_actif') is None for f in fournisseurs)
+            
+            if has_none_status:
+                st.markdown("---")
+                st.error("🔍 **Cause identifiée:** Certains fournisseurs ont un statut `None` dans la base de données")
+                
+                if st.button("🔧 CORRIGER TOUS LES STATUTS MAINTENANT", 
+                             use_container_width=True, 
+                             type="primary",
+                             key="fix_all_none_status_dp"):
+                    try:
+                        # Correction immédiate : Mettre tous les None à 1 (actif)
+                        fix_query = "UPDATE fournisseurs SET est_actif = 1 WHERE est_actif IS NULL"
+                        affected = gestionnaire.db.execute_update(fix_query)
+                        
+                        if affected > 0:
+                            st.success(f"✅ {affected} fournisseur(s) corrigé(s) - Status None → Actif")
+                            st.balloons()
+                            st.info("🔄 Rechargez la page pour voir les changements")
+                            
+                            # Afficher le résultat
+                            verify_query = "SELECT id, est_actif FROM fournisseurs"
+                            results = gestionnaire.db.execute_query(verify_query)
+                            
+                            st.markdown("**Nouveaux statuts:**")
+                            for row in results:
+                                status = "✅ ACTIF" if row['est_actif'] == 1 else "❌ INACTIF" if row['est_actif'] == 0 else "⚠️ AUTRE"
+                                st.write(f"ID {row['id']}: {status}")
+                        else:
+                            st.warning("Aucune ligne n'a été modifiée")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Erreur lors de la correction: {e}")
+                
+                st.markdown("---")
+            
+            # Afficher les fournisseurs inactifs avec option d'activation individuelle
+            st.markdown("**Fournisseurs inactifs détectés:**")
             for fournisseur_inactif in fournisseurs:
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.write(f"🏪 **{fournisseur_inactif.get('nom')}** - Statut: INACTIF")
+                    status_display = f"est_actif: {fournisseur_inactif.get('est_actif')}"
+                    st.write(f"🏪 **{fournisseur_inactif.get('nom')}** - {status_display}")
                 with col2:
                     if st.button(f"✅ Activer", key=f"activate_fournisseur_dp_{fournisseur_inactif.get('id')}"):
                         success = gestionnaire.force_activate_fournisseur(fournisseur_inactif.get('id'))
