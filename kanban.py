@@ -46,6 +46,7 @@ BT_COLORS = {
     'ANNULÉ': '#795548',
     'DEFAULT': '#90A4AE'
 }
+
 # Couleurs pour statuts d'opérations
 COULEURS_STATUTS_OPERATIONS = {
     'À FAIRE': '#f59e0b',
@@ -100,6 +101,7 @@ def get_bt_color(bt_statut):
     statut_valide = str(bt_statut).upper().replace(' ', '_') if bt_statut else 'DEFAULT'
     return BT_COLORS.get(statut_valide, BT_COLORS['DEFAULT'])
 
+
 def format_currency(value) -> str:
     """Formate une valeur monétaire avec gestion d'erreurs robuste."""
     if value is None:
@@ -114,6 +116,7 @@ def format_currency(value) -> str:
     except (ValueError, TypeError):
         return "$0.00"
 
+
 def format_temps_estime(temps: float) -> str:
     """Formate le temps estimé en heures."""
     if temps is None or temps == 0:
@@ -122,6 +125,7 @@ def format_temps_estime(temps: float) -> str:
         return f"{float(temps):.1f}h"
     except (ValueError, TypeError):
         return "0.0h"
+
 
 def get_client_display_name(projet: Dict[str, Any], crm_manager) -> str:
     """Récupère le nom d'affichage du client avec fallback intelligent."""
@@ -137,6 +141,7 @@ def get_client_display_name(projet: Dict[str, Any], crm_manager) -> str:
     if projet.get('client_legacy'):
         return projet['client_legacy']
     return "Client non spécifié"
+
 
 def get_operation_priority_from_context(operation: Dict, erp_db) -> str:
     """Récupère la priorité d'une opération depuis son contexte (projet ou BT)."""
@@ -159,6 +164,7 @@ def get_operation_priority_from_context(operation: Dict, erp_db) -> str:
     except Exception:
         return 'NORMAL'
 
+
 # === FONCTIONS POUR VUE PROJETS ===
 
 def filtrer_projets_kanban(projets: List[Dict], recherche: str, crm_manager) -> List[Dict]:
@@ -180,6 +186,7 @@ def filtrer_projets_kanban(projets: List[Dict], recherche: str, crm_manager) -> 
             projets_filtres.append(projet)
     return projets_filtres
 
+
 def organiser_projets_par_statut(projets: List[Dict]) -> Dict[str, List[Dict]]:
     """Organise les projets par statut."""
     projets_par_statut = {statut: [] for statut in STATUTS_KANBAN}
@@ -190,6 +197,7 @@ def organiser_projets_par_statut(projets: List[Dict]) -> Dict[str, List[Dict]]:
         else:
             projets_par_statut['À FAIRE'].append(projet)
     return projets_par_statut
+
 
 def calculer_statistiques_kanban(projets: List[Dict]) -> Dict[str, Any]:
     """Calcule les statistiques pour l'affichage en bas du Kanban."""
@@ -206,17 +214,27 @@ def calculer_statistiques_kanban(projets: List[Dict]) -> Dict[str, Any]:
             ca_total += prix
             if prix > prix_max:
                 prix_max, projet_plus_cher = prix, projet.get('nom_projet', 'N/A')
-        except: pass
+        except: 
+            pass
         
         try:
             date_debut = datetime.strptime(projet.get('date_soumis', ''), '%Y-%m-%d')
             date_fin = datetime.strptime(projet.get('date_prevu', ''), '%Y-%m-%d')
             duree = (date_fin - date_debut).days
-            if duree > 0: durees.append(duree)
-        except: pass
+            if duree > 0: 
+                durees.append(duree)
+        except: 
+            pass
         
     duree_moyenne = sum(durees) / len(durees) if durees else 0
-    return {'total': total, 'actifs': actifs, 'ca_total': ca_total, 'projet_plus_cher': projet_plus_cher, 'duree_moyenne': duree_moyenne}
+    return {
+        'total': total, 
+        'actifs': actifs, 
+        'ca_total': ca_total, 
+        'projet_plus_cher': projet_plus_cher, 
+        'duree_moyenne': duree_moyenne
+    }
+
 
 def afficher_carte_projet(projet: Dict[str, Any], crm_manager, statut: str) -> None:
     """Affiche une carte projet dans le Kanban."""
@@ -248,10 +266,12 @@ def afficher_carte_projet(projet: Dict[str, Any], crm_manager, statut: str) -> N
             st.session_state.dragged_from_status = statut
             st.rerun()
 
+
 def gerer_deplacement_projet(gestionnaire_sqlite, nouveau_statut: str) -> bool:
     """Gère le déplacement d'un projet vers un nouveau statut."""
     projet_id = st.session_state.get('dragged_project_id')
-    if not projet_id: return False
+    if not projet_id: 
+        return False
     try:
         success = gestionnaire_sqlite.modifier_projet(projet_id, {'statut': nouveau_statut})
         if success:
@@ -264,11 +284,13 @@ def gerer_deplacement_projet(gestionnaire_sqlite, nouveau_statut: str) -> bool:
         st.error(f"❌ Erreur SQLite : {e}")
         return False
 
+
 # === FONCTIONS POUR VUE OPÉRATIONS PAR POSTES ===
 
 def filtrer_operations_kanban(operations: List[Dict], recherche: str, filtre_statut: str, filtre_projet: str) -> List[Dict]:
     """Filtre les opérations selon les critères."""
-    if not operations: return []
+    if not operations: 
+        return []
     ops_filtrees = operations
     if recherche:
         terme = recherche.lower().strip()
@@ -278,6 +300,7 @@ def filtrer_operations_kanban(operations: List[Dict], recherche: str, filtre_sta
     if filtre_projet and filtre_projet != 'TOUS':
         ops_filtrees = [op for op in ops_filtrees if str(op.get('project_id')) == filtre_projet]
     return ops_filtrees
+
 
 def organiser_operations_par_poste(operations: List[Dict], work_centers: List[Dict]) -> Dict[str, List[Dict]]:
     """Organise les opérations par poste de travail."""
@@ -291,17 +314,22 @@ def organiser_operations_par_poste(operations: List[Dict], work_centers: List[Di
             ops_par_poste['🚫 Non assigné'].append(op)
     return ops_par_poste
 
+
 def calculer_statistiques_poste(operations: List[Dict]) -> Dict[str, Any]:
     """Calcule les statistiques pour un poste de travail."""
-    if not operations: return {'total_operations': 0, 'temps_total_estime': 0.0, 'operations_par_statut': {}, 'charge_critique': False}
+    if not operations: 
+        return {'total_operations': 0, 'temps_total_estime': 0.0, 'operations_par_statut': {}, 'charge_critique': False}
     stats = {'total_operations': len(operations), 'temps_total_estime': 0.0, 'operations_par_statut': {}, 'charge_critique': False}
     for op in operations:
-        try: stats['temps_total_estime'] += float(op.get('temps_estime', 0) or 0)
-        except (ValueError, TypeError): pass
+        try: 
+            stats['temps_total_estime'] += float(op.get('temps_estime', 0) or 0)
+        except (ValueError, TypeError): 
+            pass
         statut = op.get('statut', 'À FAIRE')
         stats['operations_par_statut'][statut] = stats['operations_par_statut'].get(statut, 0) + 1
     stats['charge_critique'] = (stats['temps_total_estime'] > 40.0 or stats['total_operations'] > 10)
     return stats
+
 
 def afficher_carte_operation(operation: Dict[str, Any], poste_nom: str, erp_db) -> None:
     """Affiche une carte opération dans le Kanban."""
@@ -318,7 +346,10 @@ def afficher_carte_operation(operation: Dict[str, Any], poste_nom: str, erp_db) 
     
     st.markdown(f"""
     <div class='kanban-operation-card' style='border-left: 4px solid {couleur_statut}; border-top: 2px solid {couleur_priorite};'>
-        <div class='operation-card-header'><span class='operation-id'>#{op_id}-{seq:02d}</span><span class='operation-status' style='background-color: {couleur_statut};'>{statut}</span></div>
+        <div class='operation-card-header'>
+            <span class='operation-id'>#{op_id}-{seq:02d}</span>
+            <span class='operation-status' style='background-color: {couleur_statut};'>{statut}</span>
+        </div>
         <div class='operation-card-title'>{desc[:60]}{'...' if len(desc) > 60 else ''}</div>
         <div class='operation-card-info'>
             <div class='info-line'>{icone_dept} <strong>Poste:</strong> {poste_nom}</div>
@@ -345,10 +376,12 @@ def afficher_carte_operation(operation: Dict[str, Any], poste_nom: str, erp_db) 
             st.session_state.dragged_operation_id, st.session_state.dragged_from_poste = op_id, poste_nom
             st.rerun()
 
+
 def gerer_reassignation_operation(erp_db, nouveau_poste_nom: str) -> bool:
     """Gère la réassignation d'une opération vers un nouveau poste."""
     op_id = st.session_state.get('dragged_operation_id')
-    if not op_id: return False
+    if not op_id: 
+        return False
     try:
         wc_result = erp_db.execute_query("SELECT id FROM work_centers WHERE nom = ?", (nouveau_poste_nom,))
         if not wc_result:
@@ -365,6 +398,7 @@ def gerer_reassignation_operation(erp_db, nouveau_poste_nom: str) -> bool:
     except Exception as e:
         st.error(f"❌ Erreur réassignation : {e}")
         return False
+
 
 # === FONCTIONS POUR LA NOUVELLE VUE : BTs PAR POSTES ===
 
@@ -388,6 +422,7 @@ def get_bt_to_workcenter_associations(erp_db):
         st.error(f"Erreur lors de la récupération des associations BT-Postes : {e}")
         return []
 
+
 def organiser_bts_par_poste(associations: List[Dict], work_centers: List[Dict]) -> Dict[str, List[Dict]]:
     """Organise les Bons de Travail par poste de travail, en dédupliquant."""
     bts_par_poste_dedup = {wc['nom']: {} for wc in work_centers}
@@ -397,11 +432,16 @@ def organiser_bts_par_poste(associations: List[Dict], work_centers: List[Dict]) 
         if poste_nom in bts_par_poste_dedup:
             if bt_id not in bts_par_poste_dedup[poste_nom]:
                 bts_par_poste_dedup[poste_nom][bt_id] = {
-                    'id': bt_id, 'numero_document': row['bt_numero'], 'statut': row['bt_statut'],
-                    'priorite': row['bt_priorite'], 'nom_projet': row['nom_projet'],
-                    'client_nom': row['client_nom'], 'date_echeance': row['date_echeance']
+                    'id': bt_id, 
+                    'numero_document': row['bt_numero'], 
+                    'statut': row['bt_statut'],
+                    'priorite': row['bt_priorite'], 
+                    'nom_projet': row['nom_projet'],
+                    'client_nom': row['client_nom'], 
+                    'date_echeance': row['date_echeance']
                 }
     return {poste: list(bts.values()) for poste, bts in bts_par_poste_dedup.items()}
+
 
 def afficher_carte_bt_pour_poste(bt: Dict[str, Any], poste_nom: str) -> None:
     """Affiche une carte Bon de Travail dans le Kanban des postes."""
@@ -437,27 +477,41 @@ def afficher_carte_bt_pour_poste(bt: Dict[str, Any], poste_nom: str) -> None:
         st.info(f"Redirection vers les détails du BT #{bt_id}...")
         st.rerun()
 
+
 # === FONCTIONS D'AFFICHAGE COMMUNES ===
 
 def afficher_indicateur_drag():
     """Affiche l'indicateur de drag & drop actif pour les projets."""
     if st.session_state.get('dragged_project_id'):
         gestionnaire = st.session_state.gestionnaire
-        projet_dragged = next((p for p in gestionnaire.projets if p.get('id') == st.session_state.dragged_project_id), None)
-        if projet_dragged:
-            st.markdown(f"""<div class="kanban-drag-indicator">🔄 Déplacement: <strong>#{projet_dragged.get('id')} - {projet_dragged.get('nom_projet', 'N/A')}</strong></div>""", unsafe_allow_html=True)
-            if st.sidebar.button("❌ Annuler déplacement", use_container_width=True):
-                st.session_state.dragged_project_id, st.session_state.dragged_from_status = None, None
-                st.rerun()
+        try:
+            projet_dragged = next((p for p in gestionnaire.projets if p.get('id') == st.session_state.dragged_project_id), None)
+            if projet_dragged:
+                st.markdown(f"""
+                <div class="kanban-drag-indicator">
+                    🔄 Déplacement: <strong>#{projet_dragged.get('id')} - {projet_dragged.get('nom_projet', 'N/A')}</strong>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.sidebar.button("❌ Annuler déplacement", use_container_width=True):
+                    st.session_state.dragged_project_id, st.session_state.dragged_from_status = None, None
+                    st.rerun()
+        except:
+            pass
+
 
 def afficher_indicateur_drag_operations():
     """Affiche l'indicateur de drag & drop actif pour les opérations."""
     if st.session_state.get('dragged_operation_id'):
         op_id, from_poste = st.session_state.get('dragged_operation_id'), st.session_state.get('dragged_from_poste', 'N/A')
-        st.markdown(f"""<div class="kanban-drag-indicator">🔄 Réassignation: <strong>Opération #{op_id}</strong> depuis <strong>{from_poste}</strong></div>""", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="kanban-drag-indicator">
+            🔄 Réassignation: <strong>Opération #{op_id}</strong> depuis <strong>{from_poste}</strong>
+        </div>
+        """, unsafe_allow_html=True)
         if st.sidebar.button("❌ Annuler réassignation", use_container_width=True):
             st.session_state.dragged_operation_id, st.session_state.dragged_from_poste = None, None
             st.rerun()
+
 
 def afficher_css_kanban() -> None:
     """Affiche le CSS personnalisé pour le Kanban unifié."""
@@ -477,6 +531,7 @@ def afficher_css_kanban() -> None:
         --border-color: #E5E7EB;
         --border-color-light: #F3F4F6;
     }
+    
     .kanban-container, .kanban-operations-container {
         display: flex;
         flex-direction: row;
@@ -491,6 +546,7 @@ def afficher_css_kanban() -> None:
         box-shadow: 0 4px 20px rgba(0,0,0,0.08);
         border: 1px solid var(--border-color-light);
     }
+    
     .kanban-column, .kanban-operations-column {
         flex: 0 0 340px;
         width: 340px;
@@ -503,10 +559,12 @@ def afficher_css_kanban() -> None:
         border: 1px solid var(--border-color-light);
         transition: transform 0.2s ease;
     }
+    
     .kanban-column:hover, .kanban-operations-column:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 20px rgba(0,0,0,0.12);
     }
+    
     .kanban-header, .kanban-operations-header {
         font-weight: 700;
         text-align: center;
@@ -518,39 +576,248 @@ def afficher_css_kanban() -> None:
         top: 0;
         z-index: 10;
     }
-    .kanban-header { font-size: 1.1em; border-bottom: 3px solid var(--primary-color-darker); }
-    .kanban-operations-header { font-size: 0.95em; background: linear-gradient(135deg, #1f2937, #374151); border-bottom: 3px solid #1f2937; }
-    .kanban-operations-header.charge-critique { background: linear-gradient(135deg, #dc2626, #ef4444) !important; border-bottom-color: #dc2626 !important; }
-    .kanban-cards-zone, .kanban-operations-cards-zone { flex-grow: 1; overflow-y: auto; padding: 15px; max-height: 600px; }
-    .kanban-cards-zone::-webkit-scrollbar, .kanban-operations-cards-zone::-webkit-scrollbar { width: 6px; }
-    .kanban-cards-zone::-webkit-scrollbar-track, .kanban-operations-cards-zone::-webkit-scrollbar-track { background: var(--secondary-background-color); border-radius: 3px; }
-    .kanban-cards-zone::-webkit-scrollbar-thumb, .kanban-operations-cards-zone::-webkit-scrollbar-thumb { background: var(--primary-color-light); border-radius: 3px; }
-    .kanban-card, .kanban-operation-card { background: var(--secondary-background-color); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.3s ease; color: var(--text-color); position: relative; overflow: hidden; }
-    .kanban-operation-card { padding: 12px; margin-bottom: 12px; }
-    .kanban-card:hover, .kanban-operation-card:hover { transform: translateY(-4px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
-    .kanban-card-title { font-weight: 600; font-size: 0.95em; margin-bottom: 8px; color: var(--primary-color-darker); line-height: 1.3; }
-    .operation-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .operation-id { font-weight: 600; font-size: 0.8em; color: var(--primary-color-darker); font-family: monospace; }
-    .operation-status { font-size: 0.7em; color: white; padding: 2px 6px; border-radius: 10px; font-weight: 600; text-transform: uppercase; }
-    .operation-card-title { font-weight: 600; font-size: 0.9em; margin-bottom: 10px; color: var(--text-color); line-height: 1.3; }
-    .kanban-card-info { font-size: 0.85em; color: var(--text-color-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
-    .operation-card-info { font-size: 0.8em; color: var(--text-color-muted); }
-    .info-line { margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
-    .info-line strong { color: var(--text-color); }
-    .kanban-drag-indicator { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, var(--primary-color), var(--primary-color-darker)); color: white; padding: 15px 25px; border-radius: 25px; box-shadow: 0 8px 30px rgba(0,0,0,0.3); z-index: 1000; animation: pulse 2s infinite; font-weight: 600; font-size: 0.9em; }
-    @keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.05); } 100% { transform: translateX(-50%) scale(1); } }
-    .sqlite-indicator { background: linear-gradient(135deg, #10b981, #3b82f6); color: white; padding: 10px 16px; border-radius: 25px; font-size: 0.85em; font-weight: 600; margin-bottom: 20px; text-align: center; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); animation: fadeIn 0.5s ease-out; }
-    .kanban-stats, .operations-summary { background: var(--secondary-background-color); border-radius: 12px; padding: 20px; margin-top: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid var(--border-color-light); }
-    .empty-column, .empty-poste-column { text-align: center; color: var(--text-color-muted); margin-top: 60px; font-style: italic; opacity: 0.7; }
-    .drop-zone { background: linear-gradient(135deg, var(--primary-color-lighter), var(--primary-color-light)); border: 2px dashed var(--primary-color); border-radius: 8px; padding: 12px; margin-bottom: 15px; text-align: center; color: var(--primary-color-darker); font-weight: 500; transition: all 0.3s ease; }
-    .drop-zone:hover { background: var(--primary-color-light); transform: scale(1.02); }
-    .drop-zone-operations { background: linear-gradient(135deg, #3b82f6, #60a5fa); border: 2px dashed #1d4ed8; border-radius: 8px; padding: 10px; margin-bottom: 12px; text-align: center; color: white; font-weight: 500; transition: all 0.3s ease; font-size: 0.85em; }
-    .drop-zone-operations:hover { background: linear-gradient(135deg, #1d4ed8, #3b82f6); transform: scale(1.02); }
-    .poste-stats { background: var(--secondary-background-color); padding: 8px; border-radius: 6px; margin-bottom: 10px; font-size: 0.75em; color: var(--text-color-muted); }
-    .poste-stats-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-    .mode-selector { background: var(--secondary-background-color); border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid var(--border-color-light); }
+    
+    .kanban-header { 
+        font-size: 1.1em; 
+        border-bottom: 3px solid var(--primary-color-darker); 
+    }
+    
+    .kanban-operations-header { 
+        font-size: 0.95em; 
+        background: linear-gradient(135deg, #1f2937, #374151); 
+        border-bottom: 3px solid #1f2937; 
+    }
+    
+    .kanban-operations-header.charge-critique { 
+        background: linear-gradient(135deg, #dc2626, #ef4444) !important; 
+        border-bottom-color: #dc2626 !important; 
+    }
+    
+    .kanban-cards-zone, .kanban-operations-cards-zone { 
+        flex-grow: 1; 
+        overflow-y: auto; 
+        padding: 15px; 
+        max-height: 600px; 
+    }
+    
+    .kanban-cards-zone::-webkit-scrollbar, .kanban-operations-cards-zone::-webkit-scrollbar { 
+        width: 6px; 
+    }
+    
+    .kanban-cards-zone::-webkit-scrollbar-track, .kanban-operations-cards-zone::-webkit-scrollbar-track { 
+        background: var(--secondary-background-color); 
+        border-radius: 3px; 
+    }
+    
+    .kanban-cards-zone::-webkit-scrollbar-thumb, .kanban-operations-cards-zone::-webkit-scrollbar-thumb { 
+        background: var(--primary-color-light); 
+        border-radius: 3px; 
+    }
+    
+    .kanban-card, .kanban-operation-card { 
+        background: var(--secondary-background-color); 
+        border-radius: 12px; 
+        padding: 16px; 
+        margin-bottom: 16px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+        transition: all 0.3s ease; 
+        color: var(--text-color); 
+        position: relative; 
+        overflow: hidden; 
+    }
+    
+    .kanban-operation-card { 
+        padding: 12px; 
+        margin-bottom: 12px; 
+    }
+    
+    .kanban-card:hover, .kanban-operation-card:hover { 
+        transform: translateY(-4px); 
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15); 
+    }
+    
+    .kanban-card-title { 
+        font-weight: 600; 
+        font-size: 0.95em; 
+        margin-bottom: 8px; 
+        color: var(--primary-color-darker); 
+        line-height: 1.3; 
+    }
+    
+    .operation-card-header { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        margin-bottom: 8px; 
+    }
+    
+    .operation-id { 
+        font-weight: 600; 
+        font-size: 0.8em; 
+        color: var(--primary-color-darker); 
+        font-family: monospace; 
+    }
+    
+    .operation-status { 
+        font-size: 0.7em; 
+        color: white; 
+        padding: 2px 6px; 
+        border-radius: 10px; 
+        font-weight: 600; 
+        text-transform: uppercase; 
+    }
+    
+    .operation-card-title { 
+        font-weight: 600; 
+        font-size: 0.9em; 
+        margin-bottom: 10px; 
+        color: var(--text-color); 
+        line-height: 1.3; 
+    }
+    
+    .kanban-card-info { 
+        font-size: 0.85em; 
+        color: var(--text-color-muted); 
+        margin-bottom: 4px; 
+        display: flex; 
+        align-items: center; 
+        gap: 6px; 
+    }
+    
+    .operation-card-info { 
+        font-size: 0.8em; 
+        color: var(--text-color-muted); 
+    }
+    
+    .info-line { 
+        margin-bottom: 3px; 
+        display: flex; 
+        align-items: center; 
+        gap: 4px; 
+    }
+    
+    .info-line strong { 
+        color: var(--text-color); 
+    }
+    
+    .kanban-drag-indicator { 
+        position: fixed; 
+        bottom: 30px; 
+        left: 50%; 
+        transform: translateX(-50%); 
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-color-darker)); 
+        color: white; 
+        padding: 15px 25px; 
+        border-radius: 25px; 
+        box-shadow: 0 8px 30px rgba(0,0,0,0.3); 
+        z-index: 1000; 
+        animation: pulse 2s infinite; 
+        font-weight: 600; 
+        font-size: 0.9em; 
+    }
+    
+    @keyframes pulse { 
+        0% { transform: translateX(-50%) scale(1); } 
+        50% { transform: translateX(-50%) scale(1.05); } 
+        100% { transform: translateX(-50%) scale(1); } 
+    }
+    
+    .sqlite-indicator { 
+        background: linear-gradient(135deg, #10b981, #3b82f6); 
+        color: white; 
+        padding: 10px 16px; 
+        border-radius: 25px; 
+        font-size: 0.85em; 
+        font-weight: 600; 
+        margin-bottom: 20px; 
+        text-align: center; 
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); 
+        animation: fadeIn 0.5s ease-out; 
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .kanban-stats, .operations-summary { 
+        background: var(--secondary-background-color); 
+        border-radius: 12px; 
+        padding: 20px; 
+        margin-top: 25px; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08); 
+        border: 1px solid var(--border-color-light); 
+    }
+    
+    .empty-column, .empty-poste-column { 
+        text-align: center; 
+        color: var(--text-color-muted); 
+        margin-top: 60px; 
+        font-style: italic; 
+        opacity: 0.7; 
+    }
+    
+    .drop-zone { 
+        background: linear-gradient(135deg, var(--primary-color-lighter), var(--primary-color-light)); 
+        border: 2px dashed var(--primary-color); 
+        border-radius: 8px; 
+        padding: 12px; 
+        margin-bottom: 15px; 
+        text-align: center; 
+        color: var(--primary-color-darker); 
+        font-weight: 500; 
+        transition: all 0.3s ease; 
+    }
+    
+    .drop-zone:hover { 
+        background: var(--primary-color-light); 
+        transform: scale(1.02); 
+    }
+    
+    .drop-zone-operations { 
+        background: linear-gradient(135deg, #3b82f6, #60a5fa); 
+        border: 2px dashed #1d4ed8; 
+        border-radius: 8px; 
+        padding: 10px; 
+        margin-bottom: 12px; 
+        text-align: center; 
+        color: white; 
+        font-weight: 500; 
+        transition: all 0.3s ease; 
+        font-size: 0.85em; 
+    }
+    
+    .drop-zone-operations:hover { 
+        background: linear-gradient(135deg, #1d4ed8, #3b82f6); 
+        transform: scale(1.02); 
+    }
+    
+    .poste-stats { 
+        background: var(--secondary-background-color); 
+        padding: 8px; 
+        border-radius: 6px; 
+        margin-bottom: 10px; 
+        font-size: 0.75em; 
+        color: var(--text-color-muted); 
+    }
+    
+    .poste-stats-row { 
+        display: flex; 
+        justify-content: space-between; 
+        margin-bottom: 2px; 
+    }
+    
+    .mode-selector { 
+        background: var(--secondary-background-color); 
+        border-radius: 12px; 
+        padding: 15px; 
+        margin-bottom: 20px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+        border: 1px solid var(--border-color-light); 
+    }
     </style>
     """, unsafe_allow_html=True)
+
 
 # === VUES PRINCIPALES DU KANBAN ===
 
@@ -559,7 +826,14 @@ def show_kanban_projets():
     if 'gestionnaire' not in st.session_state or 'gestionnaire_crm' not in st.session_state:
         st.error("⚠️ Gestionnaires non initialisés.")
         return
+    
     gestionnaire, crm_manager = st.session_state.gestionnaire, st.session_state.gestionnaire_crm
+    
+    # Initialisation des variables de session pour drag & drop
+    if 'dragged_project_id' not in st.session_state:
+        st.session_state.dragged_project_id = None
+    if 'dragged_from_status' not in st.session_state:
+        st.session_state.dragged_from_status = None
     
     try:
         projets = gestionnaire.projets
@@ -577,12 +851,23 @@ def show_kanban_projets():
     projets_par_statut = organiser_projets_par_statut(projets_filtres)
     
     afficher_indicateur_drag()
+    
     st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
     colonnes = st.columns(len(STATUTS_KANBAN))
+    
     for idx, statut in enumerate(STATUTS_KANBAN):
         with colonnes[idx]:
             nombre_projets = len(projets_par_statut[statut])
-            st.markdown(f"""<div class="kanban-column" style="border-top: 4px solid {COULEURS_STATUTS.get(statut)};"><div class="kanban-header" style="background: linear-gradient(135deg, {COULEURS_STATUTS.get(statut)}, {COULEURS_STATUTS.get(statut)}dd);">{statut} ({nombre_projets})</div>""", unsafe_allow_html=True)
+            couleur_statut = COULEURS_STATUTS.get(statut, '#6b7280')
+            
+            st.markdown(f"""
+            <div class="kanban-column" style="border-top: 4px solid {couleur_statut};">
+                <div class="kanban-header" style="background: linear-gradient(135deg, {couleur_statut}, {couleur_statut}dd);">
+                    {statut} ({nombre_projets})
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Zone de dépôt pour drag & drop
             if st.session_state.get('dragged_project_id') and statut != st.session_state.get('dragged_from_status'):
                 st.markdown('<div class="drop-zone">', unsafe_allow_html=True)
                 if st.button(f"⤵️ Déposer ici", key=f"drop_{statut}", use_container_width=True):
@@ -590,16 +875,23 @@ def show_kanban_projets():
                         st.session_state.dragged_project_id, st.session_state.dragged_from_status = None, None
                         st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
+            
             st.markdown('<div class="kanban-cards-zone">', unsafe_allow_html=True)
+            
             if not projets_par_statut[statut]:
                 st.markdown('<div class="empty-column">📝 Aucun projet</div>', unsafe_allow_html=True)
             else:
-                projets_tries = sorted(projets_par_statut[statut], key=lambda p: (PRIORITES.index(p.get('priorite', 'BAS')) if p.get('priorite') in PRIORITES else 99, p.get('date_prevu', '9999-12-31')))
+                projets_tries = sorted(projets_par_statut[statut], 
+                                     key=lambda p: (PRIORITES.index(p.get('priorite', 'BAS')) if p.get('priorite') in PRIORITES else 99, 
+                                                   p.get('date_prevu', '9999-12-31')))
                 for projet in projets_tries:
                     afficher_carte_projet(projet, crm_manager, statut)
+            
             st.markdown('</div></div>', unsafe_allow_html=True)
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # Statistiques détaillées
     if projets_filtres:
         stats = calculer_statistiques_kanban(projets_filtres)
         st.markdown('<div class="kanban-stats"><h3>📊 Statistiques</h3>', unsafe_allow_html=True)
@@ -610,6 +902,7 @@ def show_kanban_projets():
         c4.metric("📅 Durée Moy.", f"{stats['duree_moyenne']:.0f}j")
         st.markdown('</div>', unsafe_allow_html=True)
 
+
 def show_kanban_bts_par_poste():
     """NOUVELLE VUE : Affiche les Bons de Travail regroupés par Poste de Travail."""
     if 'erp_db' not in st.session_state:
@@ -617,9 +910,11 @@ def show_kanban_bts_par_poste():
         return
 
     erp_db = st.session_state.erp_db
+    
     try:
         work_centers = erp_db.execute_query("SELECT * FROM work_centers WHERE statut = 'ACTIF' ORDER BY departement, nom")
         work_centers = [dict(wc) for wc in work_centers]
+        
         if not work_centers:
             st.warning("🏭 Aucun poste de travail actif trouvé.")
             return
@@ -634,43 +929,71 @@ def show_kanban_bts_par_poste():
             bts_poste = bts_par_poste.get(poste_nom, [])
             stats_poste = {'total_bts': len(bts_poste)}
 
-            st.markdown(f'<div class="kanban-operations-column"><div class="kanban-operations-header">🔧 {poste_nom} ({stats_poste["total_bts"]})</div>', unsafe_allow_html=True)
+            st.markdown(f'''
+            <div class="kanban-operations-column">
+                <div class="kanban-operations-header">
+                    🔧 {poste_nom} ({stats_poste["total_bts"]})
+                </div>
+            ''', unsafe_allow_html=True)
+            
             st.markdown('<div class="kanban-operations-cards-zone">', unsafe_allow_html=True)
             
             if not bts_poste:
                 st.markdown('<div class="empty-poste-column">📋 Aucun BT</div>', unsafe_allow_html=True)
             else:
-                bts_tries = sorted(bts_poste, key=lambda bt: (PRIORITES.index(bt.get('priorite', 'BAS')) if bt.get('priorite') in PRIORITES else 99, bt.get('date_echeance', '9999-12-31')))
+                bts_tries = sorted(bts_poste, 
+                                 key=lambda bt: (PRIORITES.index(bt.get('priorite', 'BAS')) if bt.get('priorite') in PRIORITES else 99, 
+                                               bt.get('date_echeance', '9999-12-31')))
                 for bt in bts_tries:
                     afficher_carte_bt_pour_poste(bt, poste_nom)
 
             st.markdown('</div></div>', unsafe_allow_html=True)
+        
         st.markdown('</div>', unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"❌ Erreur lors de l'affichage du Kanban des BTs : {e}")
+
 
 def show_kanban_operations():
     """Affiche la vue Kanban des opérations par postes de travail."""
     if 'erp_db' not in st.session_state:
         st.error("⚠️ Base de données ERP non initialisée.")
         return
+    
     erp_db = st.session_state.erp_db
+    
+    # Initialisation des variables de session pour drag & drop
+    if 'dragged_operation_id' not in st.session_state:
+        st.session_state.dragged_operation_id = None
+    if 'dragged_from_poste' not in st.session_state:
+        st.session_state.dragged_from_poste = None
     
     try:
         work_centers = [dict(wc) for wc in erp_db.execute_query("SELECT * FROM work_centers WHERE statut = 'ACTIF' ORDER BY departement, nom")]
         operations = [dict(op) for op in erp_db.execute_query('''
-            SELECT o.*, wc.nom as work_center_name, wc.departement as work_center_departement, p.nom_projet, f.numero_document as bt_numero
+            SELECT o.*, wc.nom as work_center_name, wc.departement as work_center_departement, 
+                   p.nom_projet, f.numero_document as bt_numero
             FROM operations o
             LEFT JOIN work_centers wc ON o.work_center_id = wc.id
             LEFT JOIN projects p ON o.project_id = p.id
             LEFT JOIN formulaires f ON o.formulaire_bt_id = f.id AND f.type_formulaire = 'BON_TRAVAIL'
             ORDER BY o.sequence_number, o.id
         ''')]
+        
+        if not work_centers:
+            st.warning("🏭 Aucun poste de travail actif trouvé.")
+            return
+        
+        if not operations:
+            st.info("⚙️ Aucune opération trouvée.")
+            return
+            
     except Exception as e:
         st.error(f"❌ Erreur de récupération des données : {e}")
         return
     
+    # Interface de filtrage
     with st.expander("🔍 Filtres", expanded=False):
         c1, c2, c3 = st.columns(3)
         recherche = c1.text_input("Rechercher...", key="kanban_ops_search")
@@ -681,50 +1004,84 @@ def show_kanban_operations():
     operations_par_poste = organiser_operations_par_poste(operations_filtrees, work_centers)
     
     afficher_indicateur_drag_operations()
+    
     st.markdown('<div class="kanban-operations-container">', unsafe_allow_html=True)
     postes_a_afficher = sorted(list(operations_par_poste.keys()), key=lambda p: (len(operations_par_poste[p]) == 0, p))
+    
     for poste_nom in postes_a_afficher:
         operations_poste = operations_par_poste.get(poste_nom, [])
         stats_poste = calculer_statistiques_poste(operations_poste)
         classe_header = "charge-critique" if stats_poste['charge_critique'] else ""
-        st.markdown(f'<div class="kanban-operations-column"><div class="kanban-operations-header {classe_header}">⚙️ {poste_nom} ({stats_poste["total_operations"]})</div>', unsafe_allow_html=True)
-        if st.session_state.get('dragged_operation_id') and poste_nom != st.session_state.get('dragged_from_poste') and poste_nom != '🚫 Non assigné':
+        
+        st.markdown(f'''
+        <div class="kanban-operations-column">
+            <div class="kanban-operations-header {classe_header}">
+                ⚙️ {poste_nom} ({stats_poste["total_operations"]})
+            </div>
+        ''', unsafe_allow_html=True)
+        
+        # Zone de dépôt pour drag & drop
+        if (st.session_state.get('dragged_operation_id') and 
+            poste_nom != st.session_state.get('dragged_from_poste') and 
+            poste_nom != '🚫 Non assigné'):
             st.markdown('<div class="drop-zone-operations">', unsafe_allow_html=True)
             if st.button(f"⤵️ Réassigner ici", key=f"drop_ops_{poste_nom}", use_container_width=True):
                 if gerer_reassignation_operation(erp_db, poste_nom):
                     st.session_state.dragged_operation_id, st.session_state.dragged_from_poste = None, None
                     st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
+        
         st.markdown('<div class="kanban-operations-cards-zone">', unsafe_allow_html=True)
+        
         if not operations_poste:
             st.markdown('<div class="empty-poste-column">🔧 Aucune opération</div>', unsafe_allow_html=True)
         else:
-            ops_tries = sorted(operations_poste, key=lambda op: (0 if get_operation_priority_from_context(op, erp_db) in ['CRITIQUE', 'URGENT'] else 1, 0 if op.get('statut') == 'EN COURS' else 1, op.get('sequence_number', 999)))
+            ops_tries = sorted(operations_poste, 
+                             key=lambda op: (0 if get_operation_priority_from_context(op, erp_db) in ['CRITIQUE', 'URGENT'] else 1, 
+                                           0 if op.get('statut') == 'EN COURS' else 1, 
+                                           op.get('sequence_number', 999)))
             for op in ops_tries:
                 afficher_carte_operation(op, poste_nom, erp_db)
+        
         st.markdown('</div></div>', unsafe_allow_html=True)
+    
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 def afficher_modal_operation():
     """Affiche la modale de détails d'une opération."""
     if st.session_state.get('show_operation_modal') and st.session_state.get('selected_operation'):
         operation = st.session_state.selected_operation
+        
         with st.expander("🔍 Détails de l'Opération", expanded=True):
             c1, c2 = st.columns(2)
+            
             with c1:
-                st.markdown(f"**ID:** {operation.get('id')}<br>**Séquence:** {operation.get('sequence_number')}<br>**Description:** {operation.get('description')}", unsafe_allow_html=True)
+                st.markdown(f"""
+                **ID:** {operation.get('id')}<br>
+                **Séquence:** {operation.get('sequence_number')}<br>
+                **Description:** {operation.get('description')}
+                """, unsafe_allow_html=True)
+            
             with c2:
-                st.markdown(f"**Statut:** {operation.get('statut')}<br>**Temps estimé:** {format_temps_estime(operation.get('temps_estime'))}<br>**Poste:** {operation.get('work_center_name') or operation.get('poste_travail')}", unsafe_allow_html=True)
+                st.markdown(f"""
+                **Statut:** {operation.get('statut')}<br>
+                **Temps estimé:** {format_temps_estime(operation.get('temps_estime'))}<br>
+                **Poste:** {operation.get('work_center_name') or operation.get('poste_travail')}
+                """, unsafe_allow_html=True)
+            
             if st.button("❌ Fermer", key="close_op_modal"):
                 st.session_state.show_operation_modal = False
                 st.session_state.selected_operation = None
                 st.rerun()
+
 
 # === FONCTION PRINCIPALE UNIFIÉE ===
 
 def show_kanban_sqlite():
     """Fonction principale - Vue Kanban Unifiée."""
     afficher_css_kanban()
+    
     st.markdown("## 🔄 Vue Kanban Unifiée - ERP Production DG Inc.")
     st.markdown('<div class="sqlite-indicator">🗄️ Données en temps réel depuis SQLite</div>', unsafe_allow_html=True)
     
@@ -736,7 +1093,8 @@ def show_kanban_sqlite():
             "🏭 BTs par Postes de Travail",
             "⚙️ Opérations par Postes"
         ],
-        key="kanban_mode_selector", horizontal=True
+        key="kanban_mode_selector", 
+        horizontal=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -750,11 +1108,13 @@ def show_kanban_sqlite():
         st.markdown("### ⚙️ Vue Opérations - Organisées par Postes")
         show_kanban_operations()
 
+
 # === POINTS D'ENTRÉE POUR APP.PY ===
 
 def show_kanban():
     """Point d'entrée principal pour l'affichage du Kanban."""
     show_kanban_sqlite()
+
 
 def app():
     """Fonction app() pour compatibilité avec les anciens appels."""
@@ -762,13 +1122,16 @@ def app():
     if st.session_state.get('show_operation_modal'):
         afficher_modal_operation()
 
+
 # === TEST AUTONOME ===
 if __name__ == "__main__":
     st.title("🔄 Module Kanban Unifié - Test Autonome")
     st.info("Version unifiée pour projets et opérations avec l'architecture SQLite")
+    
     if 'gestionnaire' not in st.session_state or 'erp_db' not in st.session_state:
         st.error("⚠️ Ce module doit être lancé depuis app.py.")
         st.stop()
+    
     show_kanban_sqlite()
 
 # --- END OF FILE kanban.py - VERSION UNIFIÉE PROJETS + BTs + OPÉRATIONS (COMPLET) ---
