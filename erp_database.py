@@ -133,7 +133,7 @@ class ERPDatabase:
         """Vérifie et met à jour le schéma de base de données"""
         logger.info("🔧 DEBUG: check_and_upgrade_schema() appelé")
         
-        LATEST_SCHEMA_VERSION = 4  # 🎯 Version avec toutes vos améliorations
+        LATEST_SCHEMA_VERSION = 5  # 🎯 CHANGÉ de 4 à 5 pour forcer les migrations
         
         current_version = self.get_schema_version()
         logger.info(f"🔧 DEBUG: Version actuelle = {current_version}")
@@ -147,10 +147,10 @@ class ERPDatabase:
     def upgrade_schema(self, from_version, to_version):
         """Applique les migrations de schéma"""
         try:
-            print(f"🔄 Migration schéma: v{from_version} → v{to_version}")
+            logger.info(f"🔄 Migration schéma: v{from_version} → v{to_version}")
             
             if from_version < 1:
-                print("📝 Migration v1: Corrections colonnes projects...")
+                logger.info("📝 Migration v1: Corrections colonnes projects...")
                 try:
                     # Les colonnes date_debut_reel, date_fin_reel sont déjà dans init_database()
                     # Mais on s'assure qu'elles existent pour les anciennes bases
@@ -160,7 +160,7 @@ class ERPDatabase:
                     pass  # Colonnes existent déjà
                     
             if from_version < 2:
-                print("📝 Migration v2: Tables BT spécialisées...")
+                logger.info("📝 Migration v2: Tables BT spécialisées...")
                 try:
                     # bt_assignations → assignations employés aux BT
                     self.execute_update('''
@@ -187,12 +187,12 @@ class ERPDatabase:
                             FOREIGN KEY (work_center_id) REFERENCES work_centers(id)
                         )
                     ''')
-                    print("✅ Tables BT spécialisées créées")
+                    logger.info("✅ Tables BT spécialisées créées")
                 except Exception as e:
-                    print(f"Erreur migration v2: {e}")
+                    logger.error(f"Erreur migration v2: {e}")
                     
             if from_version < 3:
-                print("📝 Migration v3: Colonnes formulaire_bt_id...")
+                logger.info("📝 Migration v3: Colonnes formulaire_bt_id...")
                 try:
                     # Colonne BT dans time_entries (ÉTAPE 2)
                     self.execute_update("ALTER TABLE time_entries ADD COLUMN formulaire_bt_id INTEGER")
@@ -200,12 +200,12 @@ class ERPDatabase:
                     # Colonne BT dans operations (NOUVEAU)
                     self.execute_update("ALTER TABLE operations ADD COLUMN formulaire_bt_id INTEGER")
                     
-                    print("✅ Colonnes formulaire_bt_id ajoutées")
+                    logger.info("✅ Colonnes formulaire_bt_id ajoutées")
                 except Exception as e:
-                    print(f"Erreur migration v3: {e}")
+                    logger.error(f"Erreur migration v3: {e}")
                     
             if from_version < 4:
-                print("📝 Migration v4: Améliorations finales et optimisations...")
+                logger.info("📝 Migration v4: Améliorations finales et optimisations...")
                 try:
                     # Index pour performance
                     self.execute_update("CREATE INDEX IF NOT EXISTS idx_time_entries_bt_id ON time_entries(formulaire_bt_id)")
@@ -217,16 +217,123 @@ class ERPDatabase:
                     self.execute_update("UPDATE projects SET statut = 'À FAIRE' WHERE statut IS NULL OR statut = ''")
                     self.execute_update("UPDATE projects SET priorite = 'MOYEN' WHERE priorite IS NULL OR priorite = ''")
                     
-                    print("✅ Optimisations et nettoyage appliqués")
+                    logger.info("✅ Optimisations et nettoyage appliqués")
                 except Exception as e:
-                    print(f"Erreur migration v4: {e}")
+                    logger.error(f"Erreur migration v4: {e}")
+                    
+            if from_version < 5:
+                logger.info("📝 Migration v5: FORCE - Application complète de toutes les améliorations DG Inc...")
+                try:
+                    # ÉTAPE 1: Vérifier et créer colonnes manquantes
+                    logger.info("🔧 Vérification colonnes projects...")
+                    try:
+                        self.execute_update("ALTER TABLE projects ADD COLUMN date_debut_reel DATE")
+                    except Exception:
+                        pass  # Colonne existe déjà
+                    
+                    try:
+                        self.execute_update("ALTER TABLE projects ADD COLUMN date_fin_reel DATE")
+                    except Exception:
+                        pass  # Colonne existe déjà
+                    
+                    # ÉTAPE 2: Vérifier et créer tables BT spécialisées
+                    logger.info("🔧 Vérification tables BT spécialisées...")
+                    self.execute_update('''
+                        CREATE TABLE IF NOT EXISTS bt_assignations (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            bt_id INTEGER NOT NULL,
+                            employee_id INTEGER NOT NULL,
+                            assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            role_assignment TEXT DEFAULT 'Exécutant'
+                        )
+                    ''')
+                    
+                    self.execute_update('''
+                        CREATE TABLE IF NOT EXISTS bt_reservations_postes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            bt_id INTEGER NOT NULL,
+                            work_center_id INTEGER NOT NULL,
+                            reserved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            duration_hours REAL DEFAULT 0
+                        )
+                    ''')
+                    
+                    # ÉTAPE 3: Vérifier et créer colonnes formulaire_bt_id
+                    logger.info("🔧 Vérification colonnes formulaire_bt_id...")
+                    try:
+                        self.execute_update("ALTER TABLE time_entries ADD COLUMN formulaire_bt_id INTEGER")
+                    except Exception:
+                        pass  # Colonne existe déjà
+                        
+                    try:
+                        self.execute_update("ALTER TABLE operations ADD COLUMN formulaire_bt_id INTEGER")
+                    except Exception:
+                        pass  # Colonne existe déjà
+                    
+                    # ÉTAPE 4: Créer tous les index de performance
+                    logger.info("🔧 Création index de performance...")
+                    performance_indexes = [
+                        "CREATE INDEX IF NOT EXISTS idx_time_entries_bt_id ON time_entries(formulaire_bt_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_operations_bt_id ON operations(formulaire_bt_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_bt_assignations_bt_id ON bt_assignations(bt_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_bt_reservations_bt_id ON bt_reservations_postes(bt_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_projects_client_id ON projects(client_company_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_time_entries_employee ON time_entries(employee_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_operations_project ON operations(project_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_formulaires_type ON formulaires(type_formulaire)"
+                    ]
+                    
+                    for index_sql in performance_indexes:
+                        try:
+                            self.execute_update(index_sql)
+                        except Exception:
+                            pass  # Index existe peut-être déjà
+                    
+                    # ÉTAPE 5: Nettoyage et cohérence des données
+                    logger.info("🔧 Nettoyage et cohérence des données...")
+                    cleanup_queries = [
+                        "UPDATE projects SET statut = 'À FAIRE' WHERE statut IS NULL OR statut = ''",
+                        "UPDATE projects SET priorite = 'MOYEN' WHERE priorite IS NULL OR priorite = ''",
+                        "UPDATE employees SET statut = 'ACTIF' WHERE statut IS NULL OR statut = ''",
+                        "UPDATE work_centers SET statut = 'ACTIF' WHERE statut IS NULL OR statut = ''",
+                        "UPDATE formulaires SET statut = 'BROUILLON' WHERE statut IS NULL OR statut = ''"
+                    ]
+                    
+                    for cleanup_sql in cleanup_queries:
+                        try:
+                            self.execute_update(cleanup_sql)
+                        except Exception:
+                            pass  # Table peut ne pas exister
+                    
+                    # ÉTAPE 6: Vérification finale
+                    logger.info("🔧 Vérification finale de la base...")
+                    
+                    # Compter les tables principales
+                    tables_count = {}
+                    main_tables = ['projects', 'companies', 'employees', 'work_centers', 'formulaires', 'time_entries', 'operations']
+                    
+                    for table in main_tables:
+                        try:
+                            result = self.execute_query(f"SELECT COUNT(*) as count FROM {table}")
+                            tables_count[table] = result[0]['count'] if result else 0
+                        except Exception:
+                            tables_count[table] = 0
+                    
+                    logger.info(f"✅ Migration v5 terminée - Compteurs: {tables_count}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Erreur migration v5: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
             
             # Marquer comme migré
             self.set_schema_version(to_version)
-            print(f"✅ Migration terminée: schéma v{to_version}")
+            logger.info(f"✅ Migration terminée: schéma v{to_version}")
             
         except Exception as e:
-            print(f"❌ Erreur migration schéma: {e}")
+            logger.error(f"❌ Erreur migration schéma: {e}")
+            import traceback
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
     
     def init_database(self):
         """Initialise toutes les tables de la base de données ERP avec corrections automatiques intégrées"""
