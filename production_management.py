@@ -6,6 +6,7 @@
 # VERSION CORRIGÉE : Problèmes de rechargement des opérations résolus
 # VERSION CORRIGÉE : Types numériques harmonisés pour st.number_input
 # VERSION FINALE : Support complet de la modification des Bons de Travail
+# NOUVELLE VERSION : Ajout dropdown Fournisseur/Sous-traitant simple
 
 import streamlit as st
 import pandas as pd
@@ -27,6 +28,7 @@ class GestionnaireBonsTravail:
     Reproduit les fonctionnalités du fichier HTML en version Streamlit
     VERSION CORRIGÉE pour résoudre les problèmes de rechargement
     VERSION FINALE avec support complet de modification
+    NOUVELLE VERSION avec support fournisseurs/sous-traitants
     """
     
     def __init__(self, db):
@@ -75,7 +77,7 @@ class GestionnaireBonsTravail:
         }
     
     def get_empty_task(self) -> Dict:
-        """Retourne une tâche vide"""
+        """Retourne une tâche vide - MODIFIÉ pour inclure fournisseur"""
         return {
             'operation': '',
             'description': '',
@@ -83,21 +85,55 @@ class GestionnaireBonsTravail:
             'planned_hours': 0.0,  # float pour heures
             'actual_hours': 0.0,   # float pour heures
             'assigned_to': '',
+            'fournisseur': '-- Interne --',  # NOUVEAU : Fournisseur/Sous-traitant
             'status': 'pending',
             'start_date': '',
             'end_date': ''
         }
     
     def get_empty_material(self) -> Dict:
-        """Retourne un matériau vide"""
+        """Retourne un matériau vide - MODIFIÉ pour inclure fournisseur"""
         return {
             'name': '',
             'description': '',
             'quantity': 1.0,  # float pour cohérence avec st.number_input et step=0.1
             'unit': 'pcs',
+            'fournisseur': '-- Interne --',  # NOUVEAU : Fournisseur/Sous-traitant
             'available': 'yes',
             'notes': ''
         }
+    
+    def get_fournisseurs_actifs(self) -> List[str]:
+        """Récupère la liste des fournisseurs actifs depuis la base de données"""
+        try:
+            query = '''
+                SELECT c.nom as company_name, f.code_fournisseur
+                FROM companies c
+                JOIN fournisseurs f ON c.id = f.company_id
+                WHERE f.est_actif = TRUE
+                ORDER BY c.nom
+            '''
+            results = self.db.execute_query(query)
+            
+            fournisseurs = []
+            for row in results:
+                name = row['company_name']
+                if row['code_fournisseur']:
+                    name += f" ({row['code_fournisseur']})"
+                fournisseurs.append(name)
+            
+            return fournisseurs
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération fournisseurs: {e}")
+            # Fallback avec quelques fournisseurs par défaut
+            return [
+                'Metallurgie Québec Inc.',
+                'Soudage Spécialisé Ltée',
+                'Traitement Thermique DG',
+                'Usinage Précision Plus',
+                'Peinture Industrielle QC'
+            ]
     
     def generate_bt_number(self) -> str:
         """Génère un numéro de BT automatique"""
@@ -125,6 +161,7 @@ class GestionnaireBonsTravail:
         """
         Sauvegarde un bon de travail dans la base
         VERSION CORRIGÉE : Conditions de sauvegarde améliorées
+        MODIFIÉ : Support des fournisseurs dans les tâches et matériaux
         """
         try:
             # Créer le formulaire principal
@@ -170,7 +207,7 @@ class GestionnaireBonsTravail:
             if not bt_id:
                 return None
             
-            # CORRECTION: Sauvegarder les tâches avec condition améliorée
+            # CORRECTION: Sauvegarder les tâches avec condition améliorée + fournisseur
             for i, task in enumerate(form_data.get('tasks', []), 1):
                 # CORRECTION: Au moins l'opération OU la description doit être remplie
                 if task.get('operation') or task.get('description'):
@@ -202,13 +239,14 @@ class GestionnaireBonsTravail:
                             'description': description,  # CORRECTION: Stocker explicitement
                             'actual_hours': task['actual_hours'],
                             'assigned_to': task['assigned_to'],
+                            'fournisseur': task.get('fournisseur', '-- Interne --'),  # NOUVEAU
                             'status': task['status'],
                             'start_date': task.get('start_date', ''),
                             'end_date': task.get('end_date', '')
                         })
                     ))
             
-            # Sauvegarder les matériaux comme lignes spéciales
+            # Sauvegarder les matériaux comme lignes spéciales + fournisseur
             for i, material in enumerate(form_data.get('materials', []), 1000):  # Commencer à 1000 pour différencier
                 if material['name']:  # Seulement si le matériau a un nom
                     self.db.execute_insert('''
@@ -222,6 +260,7 @@ class GestionnaireBonsTravail:
                         material['unit'],
                         json.dumps({
                             'type': 'material',
+                            'fournisseur': material.get('fournisseur', '-- Interne --'),  # NOUVEAU
                             'available': material['available'],
                             'notes': material.get('notes', '')
                         })
@@ -245,6 +284,7 @@ class GestionnaireBonsTravail:
         """
         Met à jour un bon de travail existant dans la base
         NOUVELLE FONCTION : Gestion des modifications BT
+        MODIFIÉ : Support des fournisseurs
         """
         try:
             # Mettre à jour le formulaire principal
@@ -285,7 +325,7 @@ class GestionnaireBonsTravail:
                 DELETE FROM formulaire_lignes WHERE formulaire_id = ?
             ''', (bt_id,))
             
-            # Réinsérer les tâches mises à jour
+            # Réinsérer les tâches mises à jour avec fournisseur
             for i, task in enumerate(form_data.get('tasks', []), 1):
                 # Seulement si l'opération OU la description est remplie
                 if task.get('operation') or task.get('description'):
@@ -316,13 +356,14 @@ class GestionnaireBonsTravail:
                             'description': description,
                             'actual_hours': task['actual_hours'],
                             'assigned_to': task['assigned_to'],
+                            'fournisseur': task.get('fournisseur', '-- Interne --'),  # NOUVEAU
                             'status': task['status'],
                             'start_date': task.get('start_date', ''),
                             'end_date': task.get('end_date', '')
                         })
                     ))
             
-            # Réinsérer les matériaux mis à jour
+            # Réinsérer les matériaux mis à jour avec fournisseur
             for i, material in enumerate(form_data.get('materials', []), 1000):
                 if material['name']:
                     self.db.execute_insert('''
@@ -336,6 +377,7 @@ class GestionnaireBonsTravail:
                         material['unit'],
                         json.dumps({
                             'type': 'material',
+                            'fournisseur': material.get('fournisseur', '-- Interne --'),  # NOUVEAU
                             'available': material['available'],
                             'notes': material.get('notes', '')
                         })
@@ -359,6 +401,7 @@ class GestionnaireBonsTravail:
         """
         Charge un bon de travail depuis la base
         VERSION CORRIGÉE : Parsing amélioré pour operation/description
+        MODIFIÉ : Support des fournisseurs
         """
         try:
             # Récupérer le formulaire principal
@@ -409,6 +452,7 @@ class GestionnaireBonsTravail:
                         'description': name_desc[1] if len(name_desc) > 1 else '',
                         'quantity': ligne_data.get('quantite', 1.0),
                         'unit': ligne_data.get('unite', 'pcs'),
+                        'fournisseur': notes_data.get('fournisseur', '-- Interne --'),  # NOUVEAU
                         'available': notes_data.get('available', 'yes'),
                         'notes': notes_data.get('notes', '')
                     }
@@ -443,6 +487,7 @@ class GestionnaireBonsTravail:
                         'planned_hours': ligne_data.get('prix_unitaire', 0.0),
                         'actual_hours': notes_data.get('actual_hours', 0.0),
                         'assigned_to': notes_data.get('assigned_to', ''),
+                        'fournisseur': notes_data.get('fournisseur', '-- Interne --'),  # NOUVEAU
                         'status': notes_data.get('status', 'pending'),
                         'start_date': notes_data.get('start_date', ''),
                         'end_date': notes_data.get('end_date', '')
@@ -766,6 +811,13 @@ def apply_dg_styles():
     /* Validation tasks */
     .task-valid { border-left: 4px solid #10b981; }
     .task-invalid { border-left: 4px solid #ef4444; }
+    
+    /* Style pour dropdown fournisseur */
+    .supplier-dropdown {
+        background-color: #f0f9ff;
+        border: 1px solid #0ea5e9;
+        border-radius: 4px;
+    }
     
     /* Masquer les éléments Streamlit */
     .stDeployButton {display:none;}
@@ -1116,8 +1168,10 @@ def show_tasks_section():
     """
     Section des tâches et opérations
     VERSION CORRIGÉE : Validation visuelle améliorée + Types numériques corrigés
+    NOUVELLE VERSION : Ajout dropdown Fournisseur/Sous-traitant
     """
     form_data = st.session_state.bt_current_form_data
+    gestionnaire = st.session_state.gestionnaire_bt
     
     st.markdown("### 📋 Tâches et Opérations")
     
@@ -1133,6 +1187,10 @@ def show_tasks_section():
             '', 'Programmation CNC', 'Découpe plasma', 'Poinçonnage', 
             'Soudage TIG', 'Assemblage', 'Meulage', 'Polissage', 'Emballage'
         ]
+    
+    # NOUVEAU : Récupérer les fournisseurs actifs
+    fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs()
+    fournisseurs_options = ['-- Interne --'] + fournisseurs_actifs
     
     # Employés disponibles
     try:
@@ -1166,6 +1224,10 @@ def show_tasks_section():
         elif task.get('description'):
             task_title += f" - {task['description'][:30]}..."
         
+        # NOUVEAU : Afficher le fournisseur dans le titre si pas interne
+        if task.get('fournisseur') and task['fournisseur'] != '-- Interne --':
+            task_title += f" 🏢 {task['fournisseur'][:20]}"
+        
         # Classe CSS selon validation
         validation_class = "task-valid" if task_valid else "task-invalid"
         
@@ -1188,6 +1250,20 @@ def show_tasks_section():
                         options=operation_options,
                         index=op_index,
                         key=f"task_op_{i}"
+                    )
+                
+                # NOUVEAU : Fournisseur/Sous-traitant
+                fournisseur_index = fournisseurs_options.index(task.get('fournisseur', '-- Interne --')) if task.get('fournisseur', '-- Interne --') in fournisseurs_options else 0
+                
+                if st.session_state.bt_mode == 'view':
+                    st.text_input("Fournisseur/Sous-traitant:", value=task.get('fournisseur', '-- Interne --'), disabled=True, key=f"task_fournisseur_view_{i}")
+                else:
+                    task['fournisseur'] = st.selectbox(
+                        "Fournisseur/Sous-traitant:", 
+                        options=fournisseurs_options,
+                        index=fournisseur_index,
+                        key=f"task_fournisseur_{i}",
+                        help="Sélectionnez '-- Interne --' pour une opération réalisée en interne, ou choisissez un fournisseur pour la sous-traitance"
                     )
                 
                 # Description
@@ -1239,18 +1315,31 @@ def show_tasks_section():
                     )
             
             with task_col3:
-                # Assigné à
-                assigned_index = employee_options.index(task.get('assigned_to', '')) if task.get('assigned_to', '') in employee_options else 0
-                
-                if st.session_state.bt_mode == 'view':
-                    st.text_input("Assigné à:", value=task.get('assigned_to', ''), disabled=True, key=f"task_assigned_view_{i}")
+                # Assigné à - Modifier selon le type (interne/externe)
+                if task.get('fournisseur') == '-- Interne --':
+                    # Opération interne - montrer les employés
+                    assigned_index = employee_options.index(task.get('assigned_to', '')) if task.get('assigned_to', '') in employee_options else 0
+                    
+                    if st.session_state.bt_mode == 'view':
+                        st.text_input("Assigné à:", value=task.get('assigned_to', ''), disabled=True, key=f"task_assigned_view_{i}")
+                    else:
+                        task['assigned_to'] = st.selectbox(
+                            "Assigné à:", 
+                            options=employee_options,
+                            index=assigned_index,
+                            key=f"task_assigned_{i}"
+                        )
                 else:
-                    task['assigned_to'] = st.selectbox(
-                        "Assigné à:", 
-                        options=employee_options,
-                        index=assigned_index,
-                        key=f"task_assigned_{i}"
-                    )
+                    # Sous-traitance - champ libre pour contact externe
+                    if st.session_state.bt_mode == 'view':
+                        st.text_input("Contact externe:", value=task.get('assigned_to', ''), disabled=True, key=f"task_contact_view_{i}")
+                    else:
+                        task['assigned_to'] = st.text_input(
+                            "Contact externe:", 
+                            value=task.get('assigned_to', ''),
+                            placeholder="Nom du contact chez le fournisseur",
+                            key=f"task_contact_{i}"
+                        )
                 
                 # Statut
                 status_index = status_options.index(task.get('status', 'pending')) if task.get('status', 'pending') in status_options else 0
@@ -1322,31 +1411,47 @@ def show_tasks_section():
                 st.rerun()
         
         with col_total:
-            # Totaux
+            # Totaux avec répartition interne/externe
             total_planned = sum(task.get('planned_hours', 0) for task in form_data['tasks'])
             total_actual = sum(task.get('actual_hours', 0) for task in form_data['tasks'])
             
+            # NOUVEAU : Calcul répartition interne/externe
+            internal_planned = sum(task.get('planned_hours', 0) for task in form_data['tasks'] if task.get('fournisseur') == '-- Interne --')
+            external_planned = total_planned - internal_planned
+            
             st.markdown(f"""
             **Totaux:** 
-            - Heures prévues: **{total_planned:.2f}h**
+            - Heures prévues: **{total_planned:.2f}h** (Interne: {internal_planned:.2f}h, Externe: {external_planned:.2f}h)
             - Heures réelles: **{total_actual:.2f}h**
             """)
     else:
-        # Mode visualisation - afficher seulement les totaux
+        # Mode visualisation - afficher seulement les totaux avec répartition
         total_planned = sum(task.get('planned_hours', 0) for task in form_data['tasks'])
         total_actual = sum(task.get('actual_hours', 0) for task in form_data['tasks'])
         
+        # Calcul répartition interne/externe
+        internal_planned = sum(task.get('planned_hours', 0) for task in form_data['tasks'] if task.get('fournisseur') == '-- Interne --')
+        external_planned = total_planned - internal_planned
+        
         st.markdown(f"""
         **Totaux:** 
-        - Heures prévues: **{total_planned:.2f}h**
+        - Heures prévues: **{total_planned:.2f}h** (Interne: {internal_planned:.2f}h, Externe: {external_planned:.2f}h)
         - Heures réelles: **{total_actual:.2f}h**
         """)
 
 def show_materials_section():
-    """Section des matériaux et outils - VERSION CORRIGÉE types numériques"""
+    """
+    Section des matériaux et outils - VERSION CORRIGÉE types numériques
+    NOUVELLE VERSION : Ajout dropdown Fournisseur pour matériaux
+    """
     form_data = st.session_state.bt_current_form_data
+    gestionnaire = st.session_state.gestionnaire_bt
     
     st.markdown("### 📝 Matériaux et Outils Requis")
+    
+    # NOUVEAU : Récupérer les fournisseurs actifs
+    fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs()
+    fournisseurs_options = ['-- Interne --'] + fournisseurs_actifs
     
     unit_options = ['pcs', 'kg', 'm', 'm2', 'l', 'h']
     unit_labels = {
@@ -1369,7 +1474,14 @@ def show_materials_section():
     materials_to_remove = []
     
     for i, material in enumerate(form_data['materials']):
-        with st.expander(f"Matériau/Outil {i+1}" + (f" - {material['name']}" if material['name'] else ""), expanded=True):
+        # NOUVEAU : Titre avec fournisseur
+        material_title = f"Matériau/Outil {i+1}"
+        if material['name']:
+            material_title += f" - {material['name']}"
+        if material.get('fournisseur') and material['fournisseur'] != '-- Interne --':
+            material_title += f" 🏢 {material['fournisseur'][:20]}"
+        
+        with st.expander(material_title, expanded=True):
             mat_col1, mat_col2, mat_col3 = st.columns([2, 1, 1])
             
             with mat_col1:
@@ -1389,6 +1501,20 @@ def show_materials_section():
                         value=material.get('description', ''),
                         placeholder="Description détaillée",
                         key=f"mat_desc_{i}"
+                    )
+                
+                # NOUVEAU : Fournisseur pour matériau
+                fournisseur_mat_index = fournisseurs_options.index(material.get('fournisseur', '-- Interne --')) if material.get('fournisseur', '-- Interne --') in fournisseurs_options else 0
+                
+                if st.session_state.bt_mode == 'view':
+                    st.text_input("Fournisseur:", value=material.get('fournisseur', '-- Interne --'), disabled=True, key=f"mat_fournisseur_view_{i}")
+                else:
+                    material['fournisseur'] = st.selectbox(
+                        "Fournisseur:", 
+                        options=fournisseurs_options,
+                        index=fournisseur_mat_index,
+                        key=f"mat_fournisseur_{i}",
+                        help="Sélectionnez '-- Interne --' pour un matériau en stock, ou choisissez un fournisseur pour un achat externe"
                     )
             
             with mat_col2:
