@@ -20,6 +20,7 @@ import hashlib
 from math import gcd
 from fractions import Fraction
 import csv
+import backup_scheduler  # Ceci démarre automatiquement le scheduler
 
 # ========================
 # CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
