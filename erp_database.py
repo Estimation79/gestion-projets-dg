@@ -124,45 +124,93 @@ class ERPDatabase:
 
     def check_and_upgrade_schema(self):
         """Vérifie et met à jour le schéma de base de données"""
-        LATEST_SCHEMA_VERSION = 3  # 🎯 Modifiez ce numéro quand vous ajoutez des migrations
+        LATEST_SCHEMA_VERSION = 4  # 🎯 Changez de 3 à 4
         
         current_version = self.get_schema_version()
         
         if current_version < LATEST_SCHEMA_VERSION:
-            print(f"🔄 Migration schéma: v{current_version} → v{LATEST_SCHEMA_VERSION}")
+            print(f"🔄 Migration nécessaire: v{current_version} → v{LATEST_SCHEMA_VERSION}")
             self.upgrade_schema(current_version, LATEST_SCHEMA_VERSION)
+        else:
+            print(f"✅ Schéma à jour: v{current_version}")
 
     def upgrade_schema(self, from_version, to_version):
         """Applique les migrations de schéma"""
         try:
-            # 🆕 AJOUTEZ VOS MIGRATIONS ICI
+            print(f"🔄 Migration schéma: v{from_version} → v{to_version}")
             
             if from_version < 1:
-                print("📝 Migration v1: Ajout nouvelles colonnes...")
-                # Exemple: Ajouter une colonne
+                print("📝 Migration v1: Corrections colonnes projects...")
                 try:
-                    self.execute_update("ALTER TABLE projects ADD COLUMN new_field TEXT DEFAULT ''")
+                    # Les colonnes date_debut_reel, date_fin_reel sont déjà dans init_database()
+                    # Mais on s'assure qu'elles existent pour les anciennes bases
+                    self.execute_update("ALTER TABLE projects ADD COLUMN date_debut_reel DATE")
+                    self.execute_update("ALTER TABLE projects ADD COLUMN date_fin_reel DATE")
                 except Exception:
-                    pass  # Colonne existe déjà
-                
+                    pass  # Colonnes existent déjà
+                    
             if from_version < 2:
-                print("📝 Migration v2: Nouvelles tables...")
-                # Exemple: Créer nouvelle table
-                self.execute_update('''
-                    CREATE TABLE IF NOT EXISTS new_feature (
-                        id INTEGER PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
-                
+                print("📝 Migration v2: Tables BT spécialisées...")
+                try:
+                    # bt_assignations → assignations employés aux BT
+                    self.execute_update('''
+                        CREATE TABLE IF NOT EXISTS bt_assignations (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            bt_id INTEGER NOT NULL,
+                            employee_id INTEGER NOT NULL,
+                            assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            role_assignment TEXT DEFAULT 'Exécutant',
+                            FOREIGN KEY (bt_id) REFERENCES formulaires(id),
+                            FOREIGN KEY (employee_id) REFERENCES employees(id)
+                        )
+                    ''')
+                    
+                    # bt_reservations_postes → réservations postes de travail
+                    self.execute_update('''
+                        CREATE TABLE IF NOT EXISTS bt_reservations_postes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            bt_id INTEGER NOT NULL,
+                            work_center_id INTEGER NOT NULL,
+                            reserved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            duration_hours REAL DEFAULT 0,
+                            FOREIGN KEY (bt_id) REFERENCES formulaires(id),
+                            FOREIGN KEY (work_center_id) REFERENCES work_centers(id)
+                        )
+                    ''')
+                    print("✅ Tables BT spécialisées créées")
+                except Exception as e:
+                    print(f"Erreur migration v2: {e}")
+                    
             if from_version < 3:
-                print("📝 Migration v3: Vos dernières modifications...")
-                # 🎯 PLACEZ ICI VOS DERNIÈRES MODIFICATIONS
-                # Exemple:
-                # self.execute_update("ALTER TABLE formulaires ADD COLUMN nouveau_champ TEXT")
-                # self.execute_update("INSERT INTO work_centers (...) VALUES (...)")
-                
+                print("📝 Migration v3: Colonnes formulaire_bt_id...")
+                try:
+                    # Colonne BT dans time_entries (ÉTAPE 2)
+                    self.execute_update("ALTER TABLE time_entries ADD COLUMN formulaire_bt_id INTEGER")
+                    
+                    # Colonne BT dans operations (NOUVEAU)
+                    self.execute_update("ALTER TABLE operations ADD COLUMN formulaire_bt_id INTEGER")
+                    
+                    print("✅ Colonnes formulaire_bt_id ajoutées")
+                except Exception as e:
+                    print(f"Erreur migration v3: {e}")
+                    
+            if from_version < 4:
+                print("📝 Migration v4: Améliorations finales et optimisations...")
+                try:
+                    # Index pour performance
+                    self.execute_update("CREATE INDEX IF NOT EXISTS idx_time_entries_bt_id ON time_entries(formulaire_bt_id)")
+                    self.execute_update("CREATE INDEX IF NOT EXISTS idx_operations_bt_id ON operations(formulaire_bt_id)")
+                    self.execute_update("CREATE INDEX IF NOT EXISTS idx_bt_assignations_bt_id ON bt_assignations(bt_id)")
+                    self.execute_update("CREATE INDEX IF NOT EXISTS idx_bt_reservations_bt_id ON bt_reservations_postes(bt_id)")
+                    
+                    # Mise à jour des données si nécessaire
+                    self.execute_update("UPDATE projects SET statut = 'À FAIRE' WHERE statut IS NULL OR statut = ''")
+                    self.execute_update("UPDATE projects SET priorite = 'MOYEN' WHERE priorite IS NULL OR priorite = ''")
+                    
+                    print("✅ Optimisations et nettoyage appliqués")
+                except Exception as e:
+                    print(f"Erreur migration v4: {e}")
+            
             # Marquer comme migré
             self.set_schema_version(to_version)
             print(f"✅ Migration terminée: schéma v{to_version}")
