@@ -7,6 +7,7 @@
 # VERSION CORRIGÉE : Types numériques harmonisés pour st.number_input
 # VERSION FINALE : Support complet de la modification des Bons de Travail
 # NOUVELLE VERSION : Ajout dropdown Fournisseur/Sous-traitant simple
+# VERSION PDF : Intégration complète export PDF professionnel
 
 import streamlit as st
 import pandas as pd
@@ -17,6 +18,14 @@ import json
 import uuid
 from typing import Dict, List, Optional, Any
 import logging
+
+# Import pour export PDF des Bons de Travail
+try:
+    from bt_pdf_export import export_bt_pdf_streamlit
+    PDF_EXPORT_AVAILABLE = True
+except ImportError:
+    PDF_EXPORT_AVAILABLE = False
+    logging.warning("Module bt_pdf_export non disponible. Export PDF désactivé.")
 
 # Configuration logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +38,7 @@ class GestionnaireBonsTravail:
     VERSION CORRIGÉE pour résoudre les problèmes de rechargement
     VERSION FINALE avec support complet de modification
     NOUVELLE VERSION avec support fournisseurs/sous-traitants
+    VERSION PDF avec export professionnel
     """
     
     def __init__(self, db):
@@ -894,7 +904,7 @@ def show_main_navigation():
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ================== FONCTIONS BONS DE TRAVAIL (existantes) ==================
+# ================== FONCTIONS BONS DE TRAVAIL ==================
 
 def show_bt_navigation():
     """Navigation secondaire pour les BT"""
@@ -1614,7 +1624,7 @@ def show_instructions_section():
 def show_bt_actions():
     """
     Boutons d'action pour le BT
-    VERSION FINALE : Support complet de la modification des BT
+    VERSION FINALE : Support complet de la modification des BT + Export PDF intégré
     """
     st.markdown("---")
     
@@ -1632,8 +1642,12 @@ def show_bt_actions():
                 st.info("📋 Fonction d'impression en développement")
         
         with action_col3:
+            # NOUVEAU : Export PDF fonctionnel
             if st.button("📄 Exporter PDF", use_container_width=True, key="bt_pdf_view_btn"):
-                st.info("📄 Fonction PDF en développement")
+                if PDF_EXPORT_AVAILABLE:
+                    export_bt_pdf_streamlit(st.session_state.bt_current_form_data)
+                else:
+                    st.error("❌ Module d'export PDF non disponible. Installez: pip install reportlab")
         
         with action_col4:
             if st.button("📋 Retour Gestion", use_container_width=True, key="bt_back_manage_btn"):
@@ -1714,8 +1728,16 @@ def show_bt_actions():
                 st.info("📋 Fonction d'impression en développement")
         
         with action_col3:
+            # NOUVEAU : Export PDF fonctionnel
             if st.button("📄 Exporter PDF", use_container_width=True, key="bt_pdf_btn"):
-                st.info("📄 Fonction PDF en développement")
+                if PDF_EXPORT_AVAILABLE:
+                    # Vérifier que le BT a les infos minimales pour l'export
+                    if not form_data.get('project_name') or not form_data.get('client_name'):
+                        st.warning("⚠️ Veuillez remplir au moins le projet et le client avant l'export PDF")
+                    else:
+                        export_bt_pdf_streamlit(form_data)
+                else:
+                    st.error("❌ Module d'export PDF non disponible. Installez: pip install reportlab")
         
         with action_col4:
             if st.button("🗑️ Nouveau Bon", use_container_width=True, key="bt_new_btn"):
@@ -1934,7 +1956,7 @@ def show_bt_statistics():
         with tt_col4:
             st.metric("💰 Coût total", f"{stats.get('total_cout', 0):,.0f}$")
 
-# ================== FONCTIONS POSTES DE TRAVAIL (nouvelles) ==================
+# ================== FONCTIONS POSTES DE TRAVAIL ==================
 
 def show_work_centers_navigation():
     """Navigation secondaire pour les postes"""
@@ -2624,6 +2646,7 @@ def show_production_management_page():
     Page principale du module de gestion des bons de travail et postes de travail
     Reproduit l'interface du fichier HTML en version Streamlit avec extension postes
     VERSION FINALE : Support complet de la modification des BT + Types numériques harmonisés
+    VERSION PDF : Export PDF professionnel intégré
     """
     
     # Appliquer les styles DG
@@ -2733,6 +2756,7 @@ def show_production_management_page():
         <p><strong>🏭 Desmarais & Gagné Inc.</strong> - Système de Gestion Production</p>
         <p>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 Interface intégrée ERP Production</p>
         <p><em>Mode actuel: {'📋 Bons de Travail' if main_mode == 'bt' else '🏭 Postes de Travail'}</em></p>
+        {f'<p><strong>📄 Export PDF:</strong> {"✅ Disponible" if PDF_EXPORT_AVAILABLE else "❌ Non disponible"}</p>' if main_mode == 'bt' else ''}
     </div>
     """, unsafe_allow_html=True)
 
