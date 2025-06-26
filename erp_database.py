@@ -85,8 +85,15 @@ class ERPDatabase:
         self.init_database()
         logger.info(f"ERPDatabase consolidé + Interface Unifiée + Production + Operations↔BT + Communication TT initialisé : {db_path}")
         
-        # 🆕 AJOUTEZ CES LIGNES JUSTE APRÈS init_database()
-        self.check_and_upgrade_schema()
+        # 🆕 REMPLACEZ LA LIGNE 89 PAR CECI :
+        logger.info("🔧 DEBUG: Avant appel check_and_upgrade_schema()")
+        try:
+            self.check_and_upgrade_schema()
+            logger.info("🔧 DEBUG: Après appel check_and_upgrade_schema() - SUCCÈS")
+        except Exception as e:
+            logger.error(f"🔧 DEBUG: ERREUR dans check_and_upgrade_schema(): {e}")
+            import traceback
+            logger.error(f"🔧 DEBUG: Traceback: {traceback.format_exc()}")
 
     # 🆕 NOUVELLE MÉTHODE À AJOUTER ICI
     def get_schema_version(self):
@@ -124,18 +131,18 @@ class ERPDatabase:
 
     def check_and_upgrade_schema(self):
         """Vérifie et met à jour le schéma de base de données"""
-        print("🔧 DEBUG: check_and_upgrade_schema() appelé")  # 🆕 AJOUTEZ ICI
+        logger.info("🔧 DEBUG: check_and_upgrade_schema() appelé")
         
-        LATEST_SCHEMA_VERSION = 4  # 🎯 Changez de 3 à 4
+        LATEST_SCHEMA_VERSION = 4  # 🎯 Version avec toutes vos améliorations
         
         current_version = self.get_schema_version()
-        print(f"🔧 DEBUG: Version actuelle = {current_version}")  # 🆕 AJOUTEZ ICI
+        logger.info(f"🔧 DEBUG: Version actuelle = {current_version}")
         
         if current_version < LATEST_SCHEMA_VERSION:
-            print(f"🔄 Migration nécessaire: v{current_version} → v{LATEST_SCHEMA_VERSION}")
+            logger.info(f"🔄 Migration nécessaire: v{current_version} → v{LATEST_SCHEMA_VERSION}")
             self.upgrade_schema(current_version, LATEST_SCHEMA_VERSION)
         else:
-            print(f"✅ Schéma à jour: v{current_version}")
+            logger.info(f"✅ Schéma à jour: v{current_version}")
 
     def upgrade_schema(self, from_version, to_version):
         """Applique les migrations de schéma"""
