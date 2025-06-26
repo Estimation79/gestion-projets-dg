@@ -124,9 +124,12 @@ class ERPDatabase:
 
     def check_and_upgrade_schema(self):
         """Vérifie et met à jour le schéma de base de données"""
+        print("🔧 DEBUG: check_and_upgrade_schema() appelé")  # 🆕 AJOUTEZ ICI
+        
         LATEST_SCHEMA_VERSION = 4  # 🎯 Changez de 3 à 4
         
         current_version = self.get_schema_version()
+        print(f"🔧 DEBUG: Version actuelle = {current_version}")  # 🆕 AJOUTEZ ICI
         
         if current_version < LATEST_SCHEMA_VERSION:
             print(f"🔄 Migration nécessaire: v{current_version} → v{LATEST_SCHEMA_VERSION}")
