@@ -84,6 +84,91 @@ class ERPDatabase:
         self.backup_dir = "backup_json"
         self.init_database()
         logger.info(f"ERPDatabase consolidé + Interface Unifiée + Production + Operations↔BT + Communication TT initialisé : {db_path}")
+        
+        # 🆕 AJOUTEZ CES LIGNES JUSTE APRÈS init_database()
+        self.check_and_upgrade_schema()
+
+    # 🆕 NOUVELLE MÉTHODE À AJOUTER ICI
+    def get_schema_version(self):
+        """Récupère la version actuelle du schéma de base de données"""
+        try:
+            result = self.execute_query("SELECT version FROM schema_version ORDER BY id DESC LIMIT 1")
+            if result:
+                return result[0]['version']
+            else:
+                return 0  # Version initiale
+        except Exception:
+            # Table schema_version n'existe pas encore
+            return 0
+
+    def set_schema_version(self, version):
+        """Définit la version du schéma"""
+        try:
+            # Créer la table si elle n'existe pas
+            self.execute_update('''
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version INTEGER NOT NULL,
+                    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    description TEXT
+                )
+            ''')
+            
+            # Insérer la nouvelle version
+            self.execute_update(
+                "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+                (version, f"Schema upgraded to version {version}")
+            )
+        except Exception as e:
+            print(f"Erreur set_schema_version: {e}")
+
+    def check_and_upgrade_schema(self):
+        """Vérifie et met à jour le schéma de base de données"""
+        LATEST_SCHEMA_VERSION = 3  # 🎯 Modifiez ce numéro quand vous ajoutez des migrations
+        
+        current_version = self.get_schema_version()
+        
+        if current_version < LATEST_SCHEMA_VERSION:
+            print(f"🔄 Migration schéma: v{current_version} → v{LATEST_SCHEMA_VERSION}")
+            self.upgrade_schema(current_version, LATEST_SCHEMA_VERSION)
+
+    def upgrade_schema(self, from_version, to_version):
+        """Applique les migrations de schéma"""
+        try:
+            # 🆕 AJOUTEZ VOS MIGRATIONS ICI
+            
+            if from_version < 1:
+                print("📝 Migration v1: Ajout nouvelles colonnes...")
+                # Exemple: Ajouter une colonne
+                try:
+                    self.execute_update("ALTER TABLE projects ADD COLUMN new_field TEXT DEFAULT ''")
+                except Exception:
+                    pass  # Colonne existe déjà
+                
+            if from_version < 2:
+                print("📝 Migration v2: Nouvelles tables...")
+                # Exemple: Créer nouvelle table
+                self.execute_update('''
+                    CREATE TABLE IF NOT EXISTS new_feature (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+            if from_version < 3:
+                print("📝 Migration v3: Vos dernières modifications...")
+                # 🎯 PLACEZ ICI VOS DERNIÈRES MODIFICATIONS
+                # Exemple:
+                # self.execute_update("ALTER TABLE formulaires ADD COLUMN nouveau_champ TEXT")
+                # self.execute_update("INSERT INTO work_centers (...) VALUES (...)")
+                
+            # Marquer comme migré
+            self.set_schema_version(to_version)
+            print(f"✅ Migration terminée: schéma v{to_version}")
+            
+        except Exception as e:
+            print(f"❌ Erreur migration schéma: {e}")
     
     def init_database(self):
         """Initialise toutes les tables de la base de données ERP avec corrections automatiques intégrées"""
