@@ -774,34 +774,46 @@ class GestionnaireCRM:
     # =========================================================================
     
     def generer_numero_devis(self):
-        """Génère un numéro de devis automatique (DEVIS-YYYY-XXX)"""
+        """
+        Génère un numéro de devis/estimation automatique.
+        S'adapte au mode de compatibilité (DEVIS-YYYY-XXX ou EST-YYYY-XXX).
+        """
         if not self.use_sqlite:
             return f"DEVIS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
+
         try:
             annee = datetime.now().year
             
-            # Récupérer le dernier numéro pour cette année
+            # Déterminer le préfixe en fonction du mode de compatibilité
+            prefix = "EST" if getattr(self, '_devis_compatibility_mode', False) else "DEVIS"
+            
+            # La requête doit chercher le dernier numéro pour le préfixe et l'année en cours
             query = '''
                 SELECT numero_document FROM formulaires 
-                WHERE (type_formulaire = 'DEVIS' OR (type_formulaire = 'ESTIMATION' AND metadonnees_json LIKE '%"type_reel": "DEVIS"%'))
-                AND numero_document LIKE ?
+                WHERE numero_document LIKE ?
                 ORDER BY id DESC LIMIT 1
             '''
-            pattern = f"DEVIS-{annee}-%"
+            
+            pattern = f"{prefix}-{annee}-%"
             result = self.db.execute_query(query, (pattern,))
             
+            sequence = 1
             if result:
                 last_num = result[0]['numero_document']
-                sequence = int(last_num.split('-')[-1]) + 1
-            else:
-                sequence = 1
+                try:
+                    # Extrait le dernier numéro de séquence et l'incrémente
+                    sequence = int(last_num.split('-')[-1]) + 1
+                except (ValueError, IndexError):
+                    # En cas de format inattendu, on repart de 1 par sécurité
+                    sequence = 1
             
-            return f"DEVIS-{annee}-{sequence:03d}"
+            return f"{prefix}-{annee}-{sequence:03d}"
             
         except Exception as e:
             st.error(f"Erreur génération numéro devis: {e}")
-            return f"DEVIS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            # Le fallback doit aussi respecter le mode de compatibilité
+            prefix_fallback = "EST" if getattr(self, '_devis_compatibility_mode', False) else "DEVIS"
+            return f"{prefix_fallback}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     def create_devis(self, devis_data: Dict[str, Any]) -> Optional[int]:
         """
