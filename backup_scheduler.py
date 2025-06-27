@@ -1,4 +1,4 @@
-# backup_scheduler_github.py - Backup vers GitHub Releases
+# backup_scheduler.py - Backup vers GitHub Releases
 import os
 import sqlite3
 import schedule
@@ -457,13 +457,45 @@ def start_backup_scheduler():
     except Exception as e:
         logger.error(f"❌ Erreur scheduler GitHub: {e}")
 
-# Auto-start
-if __name__ != "__main__":
+# Configuration de démarrage automatique
+def setup_github_backup_info():
+    """Affiche les informations de configuration au démarrage"""
+    logger.info("🚀 GITHUB RELEASES BACKUP SYSTEM")
+    logger.info("=" * 50)
+    
+    # Variables requises
+    required_vars = {
+        'GITHUB_BACKUP_ENABLED': os.environ.get('GITHUB_BACKUP_ENABLED', 'NON DÉFINI'),
+        'GITHUB_TOKEN': '✅ Configuré' if os.environ.get('GITHUB_TOKEN') else '❌ MANQUANT',
+        'GITHUB_REPO': os.environ.get('GITHUB_REPO', 'NON DÉFINI'),
+        'KEEP_GITHUB_RELEASES': os.environ.get('KEEP_GITHUB_RELEASES', '10'),
+    }
+    
+    logger.info("📋 Configuration actuelle:")
+    for var, value in required_vars.items():
+        logger.info(f"   {var}: {value}")
+    
+    if not os.environ.get('GITHUB_TOKEN'):
+        logger.error("🚨 CONFIGURATION REQUISE:")
+        logger.error("   1. Créer Personal Access Token sur GitHub")
+        logger.error("   2. Ajouter GITHUB_TOKEN sur Render")
+        logger.error("   3. Ajouter GITHUB_REPO sur Render")
+        logger.error("   4. Redémarrer le service")
+
+# Auto-start du scheduler
+if __name__ != "__main__":  # Quand importé par app.py
+    # Afficher les infos de configuration
+    setup_github_backup_info()
+    
+    # Démarrer le thread de backup
     backup_thread = threading.Thread(target=start_backup_scheduler, daemon=True)
     backup_thread.start()
+    
+    logger.info("🎯 GitHub Backup System démarré !")
 
 if __name__ == "__main__":
     # Test direct
     logger.info("🧪 Mode test GitHub backup")
+    setup_github_backup_info()
     backup_manager = GitHubBackupManager()
     backup_manager.run_backup_cycle()
