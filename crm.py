@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 # --- Constantes ---
 TYPES_INTERACTION = ["Email", "Appel", "Réunion", "Note", "Autre"]
 STATUTS_OPPORTUNITE = ["Prospection", "Qualification", "Proposition", "Négociation", "Gagné", "Perdu"]
-STATUTS_DEVIS = ["BROUILLON", "ENVOYÉ", "ACCEPTÉ", "REFUSÉ", "EXPIRÉ", "ANNULÉ"]
+STATUTS_DEVIS = ["BROUILLON", "VALIDÉ", "ENVOYÉ", "APPROUVÉ", "TERMINÉ", "ANNULÉ"]
 
 class GestionnaireCRM:
     """
@@ -2499,15 +2499,17 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
     col_action1, col_action2, col_action3, col_action4 = st.columns(4)
     
     with col_action1:
+        # CORRECTION : On utilise 'APPROUVÉ' au lieu de 'ACCEPTÉ'
         if st.button("✅ Accepter", key="accepter_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ACCEPTÉ', 1, "Accepté via interface"):
-                st.success("Devis accepté!")
+            if crm_manager.changer_statut_devis(devis_data['id'], 'APPROUVÉ', 1, "Approuvé via interface"):
+                st.success("Devis approuvé !")
                 st.rerun()
     
     with col_action2:
+        # CORRECTION : 'REFUSÉ' n'est pas valide. On peut utiliser 'ANNULÉ' par exemple.
         if st.button("❌ Refuser", key="refuser_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'REFUSÉ', 1, "Refusé via interface"):
-                st.success("Devis refusé.")
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ANNULÉ', 1, "Refusé/Annulé via interface"):
+                st.success("Devis annulé.")
                 st.rerun()
     
     with col_action3:
