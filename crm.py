@@ -949,7 +949,9 @@ class GestionnaireCRM:
                        p.nom_projet
                 FROM formulaires f
                 LEFT JOIN companies c ON f.company_id = c.id
-                LEFT JOIN contacts co ON c.employee_id = co.id
+                -- CORRECTION: On joint les contacts via le contact principal de l'entreprise (c)
+                -- et non via l'employé du formulaire (f).
+                LEFT JOIN contacts co ON c.contact_principal_id = co.id
                 LEFT JOIN employees e ON f.employee_id = e.id
                 LEFT JOIN projects p ON f.project_id = p.id
                 WHERE f.id = ? AND (f.type_formulaire = 'DEVIS' OR (f.type_formulaire = 'ESTIMATION' AND f.metadonnees_json LIKE '%"type_reel": "DEVIS"%'))
@@ -957,6 +959,7 @@ class GestionnaireCRM:
             
             result = self.db.execute_query(query, (devis_id,))
             if not result:
+                st.error(f"Aucun devis trouvé avec l'ID {devis_id} dans la base de données.")
                 return {}
             
             devis = dict(result[0])
