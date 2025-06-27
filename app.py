@@ -4,7 +4,6 @@
 # ARCHITECTURE UNIFIÉE : TimeTracker Pro + Postes de Travail fusionnés
 # CHECKPOINT 6 : TIMETRACKER PRO UNIFIÉ AVEC BTS INTÉGRÉS
 # GESTION PROJETS COMPLÈTE : CRUD + Actions en lot + Recherche avancée
-# CHECKPOINT 7 : EXTRACTION MODULE PROJECTS.PY pour résoudre dépendances CRM
 
 import streamlit as st
 import pandas as pd
@@ -313,14 +312,6 @@ try:
 except ImportError:
     ERP_DATABASE_AVAILABLE = False
 
-# CHECKPOINT 7 : NOUVEAU MODULE PROJECTS.PY - Import du gestionnaire de projets externe
-try:
-    from projects import GestionnaireProjetSQL
-    PROJECTS_AVAILABLE = True
-except ImportError:
-    PROJECTS_AVAILABLE = False
-    print("Module projects.py non disponible")
-
 # ========================
 # NOUVEAU : Import du module unifié
 # ========================
@@ -427,35 +418,30 @@ def format_currency(value):
         return str(value) + " $ (Err)"
 
 def get_project_statistics(gestionnaire):
-    """Utilise maintenant la méthode du module projects.py"""
-    if hasattr(gestionnaire, 'get_project_statistics'):
-        return gestionnaire.get_project_statistics()
-    else:
-        # Fallback pour compatibilité
-        if not gestionnaire.projets:
-            return {'total': 0, 'par_statut': {}, 'par_priorite': {}, 'ca_total': 0, 'projets_actifs': 0, 'taux_completion': 0}
-        stats = {'total': len(gestionnaire.projets), 'par_statut': {}, 'par_priorite': {}, 'ca_total': 0, 'projets_actifs': 0}
-        for p in gestionnaire.projets:
-            statut = p.get('statut', 'N/A')
-            stats['par_statut'][statut] = stats['par_statut'].get(statut, 0) + 1
-            priorite = p.get('priorite', 'N/A')
-            stats['par_priorite'][priorite] = stats['par_priorite'].get(priorite, 0) + 1
-            try:
-                prix = p.get('prix_estime', '0')
-                s_prix = str(prix).replace(' ', '').replace('€', '').replace('$', '')
-                if ',' in s_prix and ('.' not in s_prix or s_prix.find(',') > s_prix.find('.')):
-                    s_prix = s_prix.replace('.', '').replace(',', '.')
-                elif ',' in s_prix and '.' in s_prix and s_prix.find('.') > s_prix.find(','):
-                    s_prix = s_prix.replace(',', '')
-                prix_num = float(s_prix)
-                stats['ca_total'] += prix_num
-            except (ValueError, TypeError):
-                pass
-            if statut not in ['TERMINÉ', 'ANNULÉ', 'FERMÉ']:
-                stats['projets_actifs'] += 1
-        termines = stats['par_statut'].get('TERMINÉ', 0)
-        stats['taux_completion'] = (termines / stats['total'] * 100) if stats['total'] > 0 else 0
-        return stats
+    if not gestionnaire.projets:
+        return {'total': 0, 'par_statut': {}, 'par_priorite': {}, 'ca_total': 0, 'projets_actifs': 0, 'taux_completion': 0}
+    stats = {'total': len(gestionnaire.projets), 'par_statut': {}, 'par_priorite': {}, 'ca_total': 0, 'projets_actifs': 0}
+    for p in gestionnaire.projets:
+        statut = p.get('statut', 'N/A')
+        stats['par_statut'][statut] = stats['par_statut'].get(statut, 0) + 1
+        priorite = p.get('priorite', 'N/A')
+        stats['par_priorite'][priorite] = stats['par_priorite'].get(priorite, 0) + 1
+        try:
+            prix = p.get('prix_estime', '0')
+            s_prix = str(prix).replace(' ', '').replace('€', '').replace('$', '')
+            if ',' in s_prix and ('.' not in s_prix or s_prix.find(',') > s_prix.find('.')):
+                s_prix = s_prix.replace('.', '').replace(',', '.')
+            elif ',' in s_prix and '.' in s_prix and s_prix.find('.') > s_prix.find(','):
+                s_prix = s_prix.replace(',', '')
+            prix_num = float(s_prix)
+            stats['ca_total'] += prix_num
+        except (ValueError, TypeError):
+            pass
+        if statut not in ['TERMINÉ', 'ANNULÉ', 'FERMÉ']:
+            stats['projets_actifs'] += 1
+    termines = stats['par_statut'].get('TERMINÉ', 0)
+    stats['taux_completion'] = (termines / stats['total'] * 100) if stats['total'] > 0 else 0
+    return stats
 
 # ========================
 # NOUVELLES FONCTIONS UTILITAIRES POUR GESTION PROJETS
@@ -1026,6 +1012,217 @@ def handle_batch_actions():
                     st.rerun()
 
 # ========================
+# GESTIONNAIRE PROJETS SQLite (ORIGINAL)
+# ========================
+
+class GestionnaireProjetSQL:
+    """
+    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite au lieu de JSON
+    Remplace GestionnaireProjetIA pour une architecture unifiée - VERSION CORRIGÉE
+    """
+
+    def __init__(self, db: ERPDatabase):
+        self.db = db
+        self.next_id = 10000  # Commence à 10000 pour professionnalisme
+        self._init_next_id()
+
+    def _init_next_id(self):
+        """Initialise le prochain ID basé sur les projets existants"""
+        try:
+            result = self.db.execute_query("SELECT MAX(id) as max_id FROM projects")
+            if result and result[0]['max_id']:
+                self.next_id = max(result[0]['max_id'] + 1, 10000)
+            else:
+                self.next_id = 10000
+        except Exception as e:
+            st.error(f"Erreur initialisation next_id: {e}")
+            self.next_id = 10000
+
+    @property
+    def projets(self):
+        """Propriété pour maintenir compatibilité avec l'ancien code"""
+        return self.get_all_projects()
+
+    def get_all_projects(self):
+        """Récupère tous les projets depuis SQLite"""
+        try:
+            query = '''
+                SELECT p.*, c.nom as client_nom_company
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                ORDER BY p.id DESC
+            '''
+            rows = self.db.execute_query(query)
+
+            projets = []
+            for row in rows:
+                projet = dict(row)
+
+                # Récupérer opérations
+                operations = self.db.execute_query(
+                    "SELECT * FROM operations WHERE project_id = ? ORDER BY sequence_number",
+                    (projet['id'],)
+                )
+                projet['operations'] = [dict(op) for op in operations]
+
+                # Récupérer matériaux
+                materiaux = self.db.execute_query(
+                    "SELECT * FROM materials WHERE project_id = ?",
+                    (projet['id'],)
+                )
+                projet['materiaux'] = [dict(mat) for mat in materiaux]
+
+                # Récupérer employés assignés
+                employes_assignes = self.db.execute_query(
+                    "SELECT employee_id FROM project_assignments WHERE project_id = ?",
+                    (projet['id'],)
+                )
+                projet['employes_assignes'] = [row['employee_id'] for row in employes_assignes]
+
+                # Compatibilité avec ancien format
+                if not projet.get('client_nom_cache') and projet.get('client_nom_company'):
+                    projet['client_nom_cache'] = projet['client_nom_company']
+
+                projets.append(projet)
+
+            return projets
+
+        except Exception as e:
+            st.error(f"Erreur récupération projets: {e}")
+            return []
+
+    def ajouter_projet(self, projet_data):
+        """Ajoute un nouveau projet en SQLite - VERSION CORRIGÉE avec validation FK"""
+        try:
+            project_id = self.next_id
+
+            # VALIDATION PRÉALABLE des clés étrangères
+            if projet_data.get('client_company_id'):
+                company_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM companies WHERE id = ?",
+                    (projet_data['client_company_id'],)
+                )
+                if not company_exists or company_exists[0]['count'] == 0:
+                    raise ValueError(f"Entreprise ID {projet_data['client_company_id']} n'existe pas")
+
+            # Validation employés assignés
+            employes_assignes = projet_data.get('employes_assignes', [])
+            for emp_id in employes_assignes:
+                emp_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM employees WHERE id = ?",
+                    (emp_id,)
+                )
+                if not emp_exists or emp_exists[0]['count'] == 0:
+                    raise ValueError(f"Employé ID {emp_id} n'existe pas")
+
+            # Insérer projet principal avec gestion NULL
+            query = '''
+                INSERT INTO projects
+                (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                 statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
+                 prix_estime, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+
+            prix_estime = float(str(projet_data.get('prix_estime', 0)).replace('$', '').replace(',', '')) if projet_data.get('prix_estime') else 0
+            bd_ft_estime = float(projet_data.get('bd_ft_estime', 0)) if projet_data.get('bd_ft_estime') else 0
+
+            self.db.execute_update(query, (
+                project_id,
+                projet_data['nom_projet'],
+                projet_data.get('client_company_id'),  # Peut être NULL
+                projet_data.get('client_nom_cache'),
+                projet_data.get('client_legacy', ''),  # Legacy field
+                projet_data.get('statut', 'À FAIRE'),
+                projet_data.get('priorite', 'MOYEN'),
+                projet_data.get('tache'),
+                projet_data.get('date_soumis'),
+                projet_data.get('date_prevu'),
+                bd_ft_estime,
+                prix_estime,
+                projet_data.get('description')
+            ))
+
+            # Insérer assignations employés (validation déjà faite)
+            for emp_id in employes_assignes:
+                self.db.execute_update(
+                    "INSERT OR IGNORE INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
+                    (project_id, emp_id, 'Membre équipe')
+                )
+
+            self.next_id += 1
+            return project_id
+
+        except ValueError as ve:
+            st.error(f"Erreur validation: {ve}")
+            return None
+        except Exception as e:
+            st.error(f"Erreur technique ajout projet: {e}")
+            return None
+
+    def modifier_projet(self, projet_id, projet_data_update):
+        """Modifie un projet existant"""
+        try:
+            # Préparer les champs à mettre à jour
+            update_fields = []
+            params = []
+
+            for field, value in projet_data_update.items():
+                if field in ['nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
+                           'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
+                           'bd_ft_estime', 'prix_estime', 'description']:
+                    update_fields.append(f"{field} = ?")
+
+                    # Traitement spécial pour les prix
+                    if field == 'prix_estime':
+                        value = float(str(value).replace('$', '').replace(',', '')) if value else 0
+                    elif field == 'bd_ft_estime':
+                        value = float(value) if value else 0
+
+                    params.append(value)
+
+            if update_fields:
+                query = f"UPDATE projects SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                params.append(projet_id)
+                self.db.execute_update(query, tuple(params))
+
+            # Mettre à jour assignations employés si fourni
+            if 'employes_assignes' in projet_data_update:
+                # Supprimer anciennes assignations
+                self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id,))
+
+                # Ajouter nouvelles assignations
+                for emp_id in projet_data_update['employes_assignes']:
+                    self.db.execute_update(
+                        "INSERT INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
+                        (projet_id, emp_id, 'Membre équipe')
+                    )
+
+            return True
+
+        except Exception as e:
+            st.error(f"Erreur modification projet: {e}")
+            return False
+
+    def supprimer_projet(self, projet_id):
+        """Supprime un projet et ses données associées"""
+        try:
+            # Supprimer en cascade (relations d'abord)
+            self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id,))
+            self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id,))
+            self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id,))
+            self.db.execute_update("DELETE FROM time_entries WHERE project_id = ?", (projet_id,))
+
+            # Supprimer le projet
+            self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id,))
+
+            return True
+
+        except Exception as e:
+            st.error(f"Erreur suppression projet: {e}")
+            return False
+
+# ========================
 # INITIALISATION ERP SYSTÈME (MODIFIÉ)
 # ========================
 
@@ -1223,8 +1420,8 @@ def init_erp_system():
             except Exception as e:
                 print(f"⚠️ Erreur sauvegarde de démarrage: {e}")
 
-    # CHECKPOINT 7 : NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite depuis module externe
-    if PROJECTS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire' not in st.session_state:
+    # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite
+    if ERP_DATABASE_AVAILABLE and 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
 
     # NOUVEAU : Gestionnaire formulaires
@@ -1266,11 +1463,6 @@ def init_erp_system():
         except Exception as e:
             print(f"Erreur initialisation TimeTracker Pro: {e}")
             st.session_state.timetracker_unified = None
-
-    # CHECKPOINT 7 : Vérification de sécurité pour module projects
-    if not PROJECTS_AVAILABLE:
-        st.error("❌ Module projects.py non disponible - Gestion de projets limitée")
-        st.info("💡 Le module projects.py est nécessaire pour le bon fonctionnement du CRM et de la gestion de projets")
 
 def get_system_stats():
     """Récupère les statistiques système"""
@@ -1403,7 +1595,6 @@ def show_portal_home():
 
     modules_status = [
         ("📊 Base de Données ERP", ERP_DATABASE_AVAILABLE),
-        ("📋 Module Projets", PROJECTS_AVAILABLE),  # NOUVEAU : Statut module projects
         ("🤝 CRM", CRM_AVAILABLE),
         ("👥 Employés", EMPLOYEES_AVAILABLE),
         ("⏱️ TimeTracker Pro", TIMETRACKER_AVAILABLE),
@@ -1923,12 +2114,6 @@ def show_erp_main():
     st.sidebar.markdown("---")
     footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés<br/>🏭 Module Production Unifié"
 
-    # CHECKPOINT 7 : Indication module projects dans footer sidebar
-    if PROJECTS_AVAILABLE:
-        footer_text += "<br/>📋 Module Projets Externalisé"
-    else:
-        footer_text += "<br/>⚠️ Module Projets Manquant"
-
     # NOUVEAU : Indication module Kanban dans footer sidebar
     if KANBAN_AVAILABLE:
         footer_text += "<br/>🔄 Kanban Unifié (Projets + Opérations)"
@@ -2123,27 +2308,6 @@ def show_dashboard():
         ✅ Workflow seamless : Création BT → Assignation → Pointage → Suivi → Finalisation
         
         📍 **Accès :** Navigation → ⏱️🔧 TimeTracker Pro
-        """)
-
-    # CHECKPOINT 7: Notification module projects
-    if PROJECTS_AVAILABLE:
-        st.success("""
-        📋 **Module Projets Externalisé !**
-        
-        ✅ Gestionnaire de projets dans module dédié projects.py
-        ✅ Résolution des problèmes de dépendance avec le CRM
-        ✅ Architecture modulaire et maintenable
-        
-        📍 **Impact :** Amélioration de la fiabilité CRM ↔ Projets
-        """)
-    else:
-        st.error("""
-        ❌ **Module Projets Manquant !**
-        
-        ⚠️ Le fichier projects.py est requis pour le bon fonctionnement
-        ⚠️ Certaines fonctionnalités CRM peuvent être limitées
-        
-        📍 **Action :** Créer le module projects.py selon les instructions
         """)
 
     # NOUVEAU: Notification Kanban unifié
@@ -3465,17 +3629,11 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    # CHECKPOINT 7 : FOOTER MISE À JOUR avec module projects
+    # CHECKPOINT 6 : FOOTER MISE À JOUR avec module Kanban
     footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🔧 TimeTracker Pro Unifié • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
     
     if 'timetracker_unified' in st.session_state and st.session_state.timetracker_unified:
         footer_text += " • ✅ TimeTracker Pro Actif avec BT Intégrés"
-    
-    # CHECKPOINT 7 : Indication module projects
-    if PROJECTS_AVAILABLE:
-        footer_text += " • 📋 Module Projets Externalisé"
-    else:
-        footer_text += " • ⚠️ Module Projets Manquant"
     
     # NOUVEAU : Indication module Kanban
     if KANBAN_AVAILABLE:
@@ -3645,9 +3803,9 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 7 - MIGRATION APP.PY TERMINÉE")
-print("✅ Extraction de la classe GestionnaireProjetSQL vers projects.py")
-print("✅ Résolution des problèmes de dépendance CRM ↔ Projets")
-print("✅ Architecture modulaire améliorée")
-print("✅ Toutes les fonctionnalités préservées")
-print("🚀 Prêt pour tests et validation finale")
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
+print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
+print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
+print("✅ Module Kanban unifié intégré avec fallback")
+print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
+print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
