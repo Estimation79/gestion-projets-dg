@@ -2498,29 +2498,32 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
     st.markdown("### 🔧 Actions")
     col_action1, col_action2, col_action3, col_action4 = st.columns(4)
     
+    # CORRECTION : Utiliser l'ID de l'employé responsable du devis au lieu de '1'
+    # On utilise .get() avec une valeur par défaut (1) pour plus de sécurité,
+    # au cas où aucun employé ne serait assigné.
+    responsable_id = devis_data.get('employee_id', 1)
+
     with col_action1:
-        # CORRECTION : On utilise 'APPROUVÉ' au lieu de 'ACCEPTÉ'
         if st.button("✅ Accepter", key="accepter_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'APPROUVÉ', 1, "Approuvé via interface"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'APPROUVÉ', responsable_id, "Approuvé via interface"):
                 st.success("Devis approuvé !")
                 st.rerun()
     
     with col_action2:
-        # CORRECTION : 'REFUSÉ' n'est pas valide. On peut utiliser 'ANNULÉ' par exemple.
         if st.button("❌ Refuser", key="refuser_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ANNULÉ', 1, "Refusé/Annulé via interface"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ANNULÉ', responsable_id, "Refusé/Annulé via interface"):
                 st.success("Devis annulé.")
                 st.rerun()
     
     with col_action3:
         if st.button("📧 Envoyer", key="envoyer_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', 1, "Envoyé via interface"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', responsable_id, "Envoyé via interface"):
                 st.success("Devis marqué comme envoyé!")
                 st.rerun()
     
     with col_action4:
         if st.button("📄 Dupliquer", key="dupliquer_devis"):
-            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], 1)
+            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], responsable_id)
             if nouveau_id:
                 st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
                 st.rerun()
