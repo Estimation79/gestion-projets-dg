@@ -1205,21 +1205,34 @@ class GestionnaireProjetSQL:
             return False
 
     def supprimer_projet(self, projet_id):
-        """Supprime un projet et ses données associées"""
+        """Supprime un projet et ses données associées - VERSION CORRIGÉE"""
         try:
-            # Supprimer en cascade (relations d'abord)
-            self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id,))
-            self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id,))
-            self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id,))
-            self.db.execute_update("DELETE FROM time_entries WHERE project_id = ?", (projet_id,))
-
-            # Supprimer le projet
-            self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id,))
-
-            return True
-
+            # Vérifier que le projet existe
+            project_exists = self.db.execute_query("SELECT id FROM projects WHERE id = ?", (projet_id,))
+            if not project_exists:
+                st.error(f"Projet #{projet_id} non trouvé")
+                return False
+            # Supprimer dans l'ordre pour éviter les contraintes FK
+            cascade_order = [
+                "time_entries",      # Pointages TimeTracker
+                "formulaires",       # Bons de travail, bons d'achat
+                "project_assignments", # Assignations employés  
+                "operations",        # Opérations gamme
+                "materials",         # Matériaux BOM
+                "devis"             # Devis (si existe)
+            ]
+            
+            for table in cascade_order:
+                try:
+                    self.db.execute_update(f"DELETE FROM {table} WHERE project_id = ?", (projet_id,))
+                except Exception:
+                    pass  # Table peut ne pas exister ou être vide
+            
+            # Supprimer le projet principal
+            result = self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id,))
+            return bool(result)
         except Exception as e:
-            st.error(f"Erreur suppression projet: {e}")
+            st.error(f"❌ Erreur suppression projet #{projet_id}: {e}")
             return False
 
 # ========================
