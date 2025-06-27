@@ -35,9 +35,9 @@ class GestionnaireCRM:
         if not self.use_sqlite:
             # Mode rétrocompatibilité JSON (conservé temporairement)
             self.data_file = "crm_data.json"
-            self.contacts = []
-            self.entreprises = []
-            self.interactions = []
+            self._contacts = []
+            self._entreprises = []
+            self._interactions = []
             self.next_contact_id = 1
             self.next_entreprise_id = 1
             self.next_interaction_id = 1
@@ -512,11 +512,14 @@ class GestionnaireCRM:
                 'notes': 'notes'
             }
             
+            # Utiliser un set pour éviter les champs en double (ex: entreprise_id et company_id)
+            processed_db_fields = set()
             for field, db_field in field_mapping.items():
-                if field in data_contact:
+                if field in data_contact and db_field not in processed_db_fields:
                     update_fields.append(f"{db_field} = ?")
                     params.append(data_contact[field])
-            
+                    processed_db_fields.add(db_field)
+
             if update_fields:
                 update_fields.append("updated_at = ?")
                 params.append(now_iso)
@@ -673,11 +676,13 @@ class GestionnaireCRM:
                 'suivi_prevu': 'suivi_prevu'
             }
             
+            processed_db_fields = set()
             for field, db_field in field_mapping.items():
-                if field in data_interaction:
+                if field in data_interaction and db_field not in processed_db_fields:
                     update_fields.append(f"{db_field} = ?")
                     params.append(data_interaction[field])
-            
+                    processed_db_fields.add(db_field)
+
             if update_fields:
                 params.append(id_interaction)
                 query = f"UPDATE interactions SET {', '.join(update_fields)} WHERE id = ?"
@@ -779,7 +784,7 @@ class GestionnaireCRM:
             # Récupérer le dernier numéro pour cette année
             query = '''
                 SELECT numero_document FROM formulaires 
-                WHERE type_formulaire = 'DEVIS' 
+                WHERE (type_formulaire = 'DEVIS' OR (type_formulaire = 'ESTIMATION' AND metadonnees_json LIKE '%"type_reel": "DEVIS"%'))
                 AND numero_document LIKE ?
                 ORDER BY id DESC LIMIT 1
             '''
@@ -798,7 +803,7 @@ class GestionnaireCRM:
             st.error(f"Erreur génération numéro devis: {e}")
             return f"DEVIS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
-    def create_devis(self, devis_data):
+    def create_devis(self, devis_data: Dict[str, Any]) -> Optional[int]:
         """
         Crée un nouveau devis en utilisant la table formulaires existante
         Supporte le mode compatibilité ESTIMATION si DEVIS n'est pas disponible
@@ -830,12 +835,8 @@ class GestionnaireCRM:
             numero_devis = self.generer_numero_devis()
             
             # Déterminer le type à utiliser selon le mode
-            if getattr(self, '_devis_compatibility_mode', False):
-                type_formulaire_db = 'ESTIMATION'
-                mode_info = " (mode compatibilité)"
-            else:
-                type_formulaire_db = 'DEVIS'
-                mode_info = ""
+            type_formulaire_db = self._devis_type_db
+            mode_info = " (mode compatibilité)" if self._devis_compatibility_mode else ""
             
             # Créer le devis principal
             query = '''
@@ -854,7 +855,7 @@ class GestionnaireCRM:
                 'devise': 'CAD',
                 'validite_jours': 30,
                 'created_by_module': 'CRM_DEVIS',
-                'compatibility_mode': getattr(self, '_devis_compatibility_mode', False)
+                'compatibility_mode': self._devis_compatibility_mode
             }
             
             devis_id = self.db.execute_insert(query, (
@@ -890,7 +891,7 @@ class GestionnaireCRM:
             st.error(f"Erreur création devis: {e}")
             return None
     
-    def ajouter_ligne_devis(self, devis_id, sequence, ligne_data):
+    def ajouter_ligne_devis(self, devis_id: int, sequence: int, ligne_data: Dict[str, Any]) -> Optional[int]:
         """Ajoute une ligne à un devis"""
         if not self.use_sqlite:
             return None
@@ -920,7 +921,7 @@ class GestionnaireCRM:
             st.error(f"Erreur ajout ligne devis: {e}")
             return None
     
-    def get_devis_complet(self, devis_id):
+    def get_devis_complet(self, devis_id: int) -> Dict[str, Any]:
         """Récupère un devis avec tous ses détails"""
         if not self.use_sqlite:
             return {}
@@ -936,10 +937,10 @@ class GestionnaireCRM:
                        p.nom_projet
                 FROM formulaires f
                 LEFT JOIN companies c ON f.company_id = c.id
-                LEFT JOIN contacts co ON f.employee_id = co.id
+                LEFT JOIN contacts co ON c.employee_id = co.id
                 LEFT JOIN employees e ON f.employee_id = e.id
                 LEFT JOIN projects p ON f.project_id = p.id
-                WHERE f.id = ? AND f.type_formulaire = 'DEVIS'
+                WHERE f.id = ? AND (f.type_formulaire = 'DEVIS' OR (f.type_formulaire = 'ESTIMATION' AND f.metadonnees_json LIKE '%"type_reel": "DEVIS"%'))
             '''
             
             result = self.db.execute_query(query, (devis_id,))
@@ -983,7 +984,7 @@ class GestionnaireCRM:
             st.error(f"Erreur récupération devis complet: {e}")
             return {}
     
-    def calculer_totaux_devis(self, devis_id):
+    def calculer_totaux_devis(self, devis_id: int) -> Dict[str, float]:
         """Calcule les totaux d'un devis (HT, TVA, TTC)"""
         if not self.use_sqlite:
             return {'total_ht': 0, 'taux_tva': 0, 'montant_tva': 0, 'total_ttc': 0}
@@ -991,7 +992,7 @@ class GestionnaireCRM:
         try:
             # Récupérer les lignes pour calcul
             query = '''
-                SELECT quantite, prix_unitaire, montant_ligne
+                SELECT quantite, prix_unitaire
                 FROM formulaire_lignes 
                 WHERE formulaire_id = ?
             '''
@@ -1027,7 +1028,7 @@ class GestionnaireCRM:
             st.error(f"Erreur calcul totaux devis: {e}")
             return {'total_ht': 0, 'taux_tva': 0, 'montant_tva': 0, 'total_ttc': 0}
     
-    def changer_statut_devis(self, devis_id, nouveau_statut, employee_id, commentaires=""):
+    def changer_statut_devis(self, devis_id: int, nouveau_statut: str, employee_id: int, commentaires: str = "") -> bool:
         """Change le statut d'un devis avec traçabilité"""
         if not self.use_sqlite:
             return False
@@ -1035,11 +1036,12 @@ class GestionnaireCRM:
         try:
             # Récupérer l'ancien statut
             result = self.db.execute_query(
-                "SELECT statut FROM formulaires WHERE id = ? AND type_formulaire = 'DEVIS'",
+                "SELECT statut FROM formulaires WHERE id = ?",
                 (devis_id,)
             )
             
             if not result:
+                st.error(f"Devis #{devis_id} non trouvé.")
                 return False
             
             ancien_statut = result[0]['statut']
@@ -1073,7 +1075,7 @@ class GestionnaireCRM:
             st.error(f"Erreur changement statut devis: {e}")
             return False
     
-    def on_devis_accepte(self, devis_id):
+    def on_devis_accepte(self, devis_id: int):
         """
         Actions à effectuer quand un devis est accepté.
         TRANSFORME LE DEVIS EN PROJET.
@@ -1136,15 +1138,17 @@ class GestionnaireCRM:
         except Exception as e:
             st.error(f"Erreur lors de la transformation du devis en projet: {e}")
     
-    def on_devis_expire(self, devis_id):
+    def on_devis_expire(self, devis_id: int):
         """Actions à effectuer quand un devis expire"""
         try:
             # Marquer comme expiré et éventuellement archiver
+            # Cette logique peut être étendue pour envoyer des notifications, etc.
+            st.info(f"Le devis #{devis_id} est maintenant marqué comme expiré.")
             pass
         except Exception as e:
             st.error(f"Erreur expiration devis: {e}")
     
-    def enregistrer_validation_devis(self, devis_id, employee_id, type_validation, commentaires):
+    def enregistrer_validation_devis(self, devis_id: int, employee_id: int, type_validation: str, commentaires: str):
         """Enregistre une validation dans l'historique du devis"""
         if not self.use_sqlite:
             return
@@ -1159,15 +1163,15 @@ class GestionnaireCRM:
         except Exception as e:
             st.error(f"Erreur enregistrement validation devis: {e}")
     
-    def get_all_devis(self, filters=None):
+    def get_all_devis(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Récupère tous les devis avec filtres optionnels"""
         if not self.use_sqlite:
             return []
         
         try:
-            query = '''
+            query = f'''
                 SELECT f.id, f.numero_document, f.statut, f.priorite, f.date_creation, 
-                       f.date_echeance, f.montant_total,
+                       f.date_echeance,
                        c.nom as client_nom,
                        e.prenom || ' ' || e.nom as responsable_nom,
                        p.nom_projet
@@ -1175,7 +1179,7 @@ class GestionnaireCRM:
                 LEFT JOIN companies c ON f.company_id = c.id
                 LEFT JOIN employees e ON f.employee_id = e.id
                 LEFT JOIN projects p ON f.project_id = p.id
-                WHERE f.type_formulaire = 'DEVIS'
+                WHERE (f.type_formulaire = 'DEVIS' OR (f.type_formulaire = 'ESTIMATION' AND f.metadonnees_json LIKE '%"type_reel": "DEVIS"%'))
             '''
             
             params = []
@@ -1218,7 +1222,7 @@ class GestionnaireCRM:
             st.error(f"Erreur récupération liste devis: {e}")
             return []
     
-    def get_devis_statistics(self):
+    def get_devis_statistics(self) -> Dict[str, Any]:
         """Statistiques des devis"""
         if not self.use_sqlite:
             return {}
@@ -1233,36 +1237,33 @@ class GestionnaireCRM:
                 'en_attente': 0
             }
             
-            # Statistiques par statut
-            query = '''
-                SELECT statut, COUNT(*) as count, SUM(montant_total) as montant
-                FROM formulaires 
-                WHERE type_formulaire = 'DEVIS'
-                GROUP BY statut
-            '''
+            all_devis = self.get_all_devis() # Récupère tous les devis avec totaux calculés
             
-            rows = self.db.execute_query(query)
-            for row in rows:
-                statut = row['statut']
-                stats['par_statut'][statut] = {
-                    'count': row['count'],
-                    'montant': row['montant'] or 0.0
-                }
-                stats['total_devis'] += row['count']
-                stats['montant_total'] += row['montant'] or 0.0
+            stats['total_devis'] = len(all_devis)
+            
+            for devis in all_devis:
+                statut = devis['statut']
+                if statut not in stats['par_statut']:
+                    stats['par_statut'][statut] = {'count': 0, 'montant': 0.0}
+                
+                stats['par_statut'][statut]['count'] += 1
+                stats['par_statut'][statut]['montant'] += devis.get('totaux', {}).get('total_ht', 0.0)
+                stats['montant_total'] += devis.get('totaux', {}).get('total_ht', 0.0)
             
             # Taux d'acceptation
-            total_decides = stats['par_statut'].get('ACCEPTÉ', {}).get('count', 0) + \
-                           stats['par_statut'].get('REFUSÉ', {}).get('count', 0) + \
-                           stats['par_statut'].get('EXPIRÉ', {}).get('count', 0)
+            accepted_count = stats['par_statut'].get('ACCEPTÉ', {}).get('count', 0)
+            refused_count = stats['par_statut'].get('REFUSÉ', {}).get('count', 0)
+            expired_count = stats['par_statut'].get('EXPIRÉ', {}).get('count', 0)
+            
+            total_decides = accepted_count + refused_count + expired_count
             
             if total_decides > 0:
-                stats['taux_acceptation'] = (stats['par_statut'].get('ACCEPTÉ', {}).get('count', 0) / total_decides) * 100
+                stats['taux_acceptation'] = (accepted_count / total_decides) * 100
             
-            # Devis expirés
+            # Devis expirés (potentiellement, non encore marqués)
             query_expires = '''
                 SELECT COUNT(*) as count FROM formulaires 
-                WHERE type_formulaire = 'DEVIS' 
+                WHERE (type_formulaire = 'DEVIS' OR (type_formulaire = 'ESTIMATION' AND metadonnees_json LIKE '%"type_reel": "DEVIS"%'))
                 AND date_echeance < DATE('now') 
                 AND statut NOT IN ('ACCEPTÉ', 'REFUSÉ', 'EXPIRÉ', 'ANNULÉ')
             '''
@@ -1279,7 +1280,7 @@ class GestionnaireCRM:
             st.error(f"Erreur statistiques devis: {e}")
             return {}
     
-    def dupliquer_devis(self, devis_id, employee_id):
+    def dupliquer_devis(self, devis_id: int, employee_id: int) -> Optional[int]:
         """Duplique un devis existant"""
         if not self.use_sqlite:
             return None
@@ -1287,13 +1288,14 @@ class GestionnaireCRM:
         try:
             devis_original = self.get_devis_complet(devis_id)
             if not devis_original:
+                st.error("Devis original non trouvé pour duplication.")
                 return None
             
             # Créer nouveau devis basé sur l'original
             nouveau_devis_data = {
                 'client_company_id': devis_original['company_id'],
-                'client_contact_id': devis_original.get('client_contact_id'),
-                'project_id': devis_original.get('project_id'),
+                'client_contact_id': devis_original.get('client_contact_id'), # Peut être None
+                'project_id': devis_original.get('project_id'), # Peut être None
                 'employee_id': employee_id,
                 'date_echeance': (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d'),
                 'notes': f"Copie de {devis_original['numero_document']} - {devis_original.get('notes', '')}",
@@ -1307,7 +1309,7 @@ class GestionnaireCRM:
                     nouveau_id,
                     employee_id,
                     'CREATION',
-                    f"Devis dupliqué depuis {devis_original['numero_document']}"
+                    f"Devis dupliqué depuis #{devis_id} ({devis_original['numero_document']})"
                 )
             
             return nouveau_id
@@ -1617,452 +1619,7 @@ def render_crm_contact_form(crm_manager: GestionnaireCRM, contact_data=None):
                         'notes': notes
                     }
                     if contact_data:  # Modification
-                        if crm_manager.use_sqlite:
-                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
-                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets]
-                    projet_id = st.selectbox("Projet lié", options=[opt[0] for opt in projet_options],
-                                             format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
-                                             key="nouveau_devis_projet")
-                else:
-                    projet_id = None
-            
-            notes = st.text_area("Notes ou conditions", key="nouveau_devis_notes")
-            
-            # Boutons de soumission
-            submitted = st.form_submit_button("💾 Créer le Devis en Brouillon", type="primary", use_container_width=True)
-            
-            if submitted:
-                if not client_id or not responsable_id or not st.session_state.devis_lignes:
-                    st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
-                else:
-                    devis_data = {
-                        'client_company_id': client_id,
-                        'employee_id': responsable_id,
-                        'project_id': projet_id if projet_id else None,
-                        'date_echeance': echeance.strftime('%Y-%m-%d'),
-                        'notes': notes,
-                        'lignes': st.session_state.devis_lignes
-                    }
-                    
-                    devis_id = crm_manager.create_devis(devis_data)
-                    
-                    if devis_id:
-                        st.success(f"✅ Devis créé avec succès ! Numéro : {crm_manager.get_devis_complet(devis_id).get('numero_document')}")
-                        st.session_state.devis_lignes = []  # Vider les lignes pour le prochain devis
-                        st.rerun()
-                    else:
-                        st.error("Erreur lors de la création du devis.")
-    
-    with tab3:
-        st.subheader("Statistiques des Devis")
-        
-        if stats.get('total_devis', 0) > 0:
-            if stats.get('par_statut'):
-                statut_data = pd.DataFrame([
-                    {'Statut': k, 'Nombre': v['count'], 'Montant': v['montant']}
-                    for k, v in stats['par_statut'].items() if isinstance(v, dict)
-                ])
-                
-                col_graph1, col_graph2 = st.columns(2)
-                
-                with col_graph1:
-                    st.markdown("**Répartition par Statut (Nombre)**")
-                    st.bar_chart(statut_data.set_index('Statut')['Nombre'])
-                
-                with col_graph2:
-                    st.markdown("**Répartition par Statut (Montant)**")
-                    st.bar_chart(statut_data.set_index('Statut')['Montant'])
-        else:
-            st.info("Aucune donnée de devis disponible pour les statistiques.")
-
-def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
-    """Affiche les détails d'un devis"""
-    if not devis_data:
-        st.error("Devis non trouvé.")
-        return
-
-    st.subheader(f"🧾 Détails du Devis: {devis_data.get('numero_document')} (SQLite)")
-
-    # Informations principales
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info(f"**ID:** {devis_data.get('id')}")
-        st.write(f"**Client:** {devis_data.get('client_nom', 'N/A')}")
-        st.write(f"**Responsable:** {devis_data.get('responsable_nom', 'N/A')}")
-        st.write(f"**Statut:** {devis_data.get('statut', 'N/A')}")
-    with c2:
-        st.write(f"**Date création:** {devis_data.get('date_creation', 'N/A')[:10]}")
-        st.write(f"**Date échéance:** {devis_data.get('date_echeance', 'N/A')}")
-        st.write(f"**Projet lié:** {devis_data.get('nom_projet', 'Aucun')}")
-
-    # Totaux
-    totaux = devis_data.get('totaux', {})
-    st.markdown("### 💰 Totaux")
-    col_total1, col_total2, col_total3 = st.columns(3)
-    with col_total1:
-        st.metric("Total HT", f"{totaux.get('total_ht', 0):,.2f} $")
-    with col_total2:
-        st.metric("TVA", f"{totaux.get('montant_tva', 0):,.2f} $")
-    with col_total3:
-        st.metric("Total TTC", f"{totaux.get('total_ttc', 0):,.2f} $")
-
-    # Lignes du devis
-    st.markdown("### 📋 Lignes du Devis")
-    if devis_data.get('lignes'):
-        lignes_df_data = []
-        for ligne in devis_data['lignes']:
-            lignes_df_data.append({
-                "Description": ligne.get('description', ''),
-                "Quantité": ligne.get('quantite', 0),
-                "Unité": ligne.get('unite', ''),
-                "Prix unitaire": f"{ligne.get('prix_unitaire', 0):,.2f} $",
-                "Montant": f"{ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0):,.2f} $"
-            })
-        
-        st.dataframe(pd.DataFrame(lignes_df_data), use_container_width=True)
-    else:
-        st.info("Aucune ligne dans ce devis.")
-
-    # Notes
-    st.markdown("### 📝 Notes")
-    st.text_area("devis_detail_notes_display", value=devis_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
-
-    # Historique
-    st.markdown("### 📜 Historique")
-    if devis_data.get('historique'):
-        for hist in devis_data['historique']:
-            st.markdown(f"**{hist.get('type_validation', 'N/A')}** - {hist.get('date_validation', 'N/A')[:16]} par {hist.get('employee_nom', 'Système')}")
-            if hist.get('commentaires'):
-                st.caption(hist['commentaires'])
-            st.markdown("---")
-    else:
-        st.info("Aucun historique disponible.")
-
-    # Actions
-    st.markdown("### 🔧 Actions")
-    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
-    
-    with col_action1:
-        if st.button("✅ Accepter", key="accepter_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ACCEPTÉ', 1, "Accepté via interface"):
-                st.success("Devis accepté!")
-                st.rerun()
-    
-    with col_action2:
-        if st.button("❌ Refuser", key="refuser_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'REFUSÉ', 1, "Refusé via interface"):
-                st.success("Devis refusé.")
-                st.rerun()
-    
-    with col_action3:
-        if st.button("📧 Envoyer", key="envoyer_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', 1, "Envoyé via interface"):
-                st.success("Devis marqué comme envoyé!")
-                st.rerun()
-    
-    with col_action4:
-        if st.button("📄 Dupliquer", key="dupliquer_devis"):
-            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], 1)
-            if nouveau_id:
-                st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
-                st.rerun()
-
-    if st.button("Retour à la liste des devis", key="back_to_devis_list_from_details"):
-        st.session_state.crm_action = None
-        st.rerun()
-
-# =========================================================================
-# FONCTIONS DE GESTION DES ACTIONS CRM + DEVIS
-# =========================================================================
-
-def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
-    """Gestionnaire centralisé des actions CRM + Devis"""
-    
-    # Actions pour les contacts
-    if st.session_state.get('crm_action') == "create_contact":
-        render_crm_contact_form(crm_manager)
-    elif st.session_state.get('crm_action') == "edit_contact":
-        contact_id = st.session_state.get('crm_selected_id')
-        if contact_id:
-            contact_data = crm_manager.get_contact_by_id(contact_id)
-            render_crm_contact_form(crm_manager, contact_data)
-    elif st.session_state.get('crm_action') == "view_contact_details":
-        contact_id = st.session_state.get('crm_selected_id')
-        if contact_id:
-            contact_data = crm_manager.get_contact_by_id(contact_id)
-            render_crm_contact_details(crm_manager, projet_manager, contact_data)
-
-    # Actions pour les entreprises
-    elif st.session_state.get('crm_action') == "create_entreprise":
-        render_crm_entreprise_form(crm_manager)
-    elif st.session_state.get('crm_action') == "edit_entreprise":
-        entreprise_id = st.session_state.get('crm_selected_id')
-        if entreprise_id:
-            entreprise_data = crm_manager.get_entreprise_by_id(entreprise_id)
-            render_crm_entreprise_form(crm_manager, entreprise_data)
-    elif st.session_state.get('crm_action') == "view_entreprise_details":
-        entreprise_id = st.session_state.get('crm_selected_id')
-        if entreprise_id:
-            entreprise_data = crm_manager.get_entreprise_by_id(entreprise_id)
-            render_crm_entreprise_details(crm_manager, projet_manager, entreprise_data)
-
-    # Actions pour les interactions
-    elif st.session_state.get('crm_action') == "create_interaction":
-        render_crm_interaction_form(crm_manager)
-    elif st.session_state.get('crm_action') == "edit_interaction":
-        interaction_id = st.session_state.get('crm_selected_id')
-        if interaction_id:
-            interaction_data = crm_manager.get_interaction_by_id(interaction_id)
-            render_crm_interaction_form(crm_manager, interaction_data)
-    elif st.session_state.get('crm_action') == "view_interaction_details":
-        interaction_id = st.session_state.get('crm_selected_id')
-        if interaction_id:
-            interaction_data = crm_manager.get_interaction_by_id(interaction_id)
-            render_crm_interaction_details(crm_manager, projet_manager, interaction_data)
-
-    # Actions pour les devis (NOUVEAU)
-    elif st.session_state.get('crm_action') == "view_devis_details":
-        devis_id = st.session_state.get('crm_selected_id')
-        if devis_id:
-            devis_data = crm_manager.get_devis_complet(devis_id)
-            render_crm_devis_details(crm_manager, devis_data)
-
-def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
-    """Interface principale CRM avec support des devis"""
-    
-    st.title("📋 Gestion CRM + Devis")
-    
-    # Vérification du mode
-    if crm_manager.use_sqlite:
-        st.success("✅ Mode SQLite actif - Toutes les fonctionnalités disponibles")
-    else:
-        st.warning("⚠️ Mode JSON (rétrocompatibilité) - Fonctionnalités devis limitées")
-    
-    # Menu principal avec devis
-    if crm_manager.use_sqlite:
-        tab1, tab2, tab3, tab4 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions", "🧾 Devis"])
-    else:
-        tab1, tab2, tab3 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions"])
-    
-    with tab1:
-        render_crm_contacts_tab(crm_manager, projet_manager)
-    
-    with tab2:
-        render_crm_entreprises_tab(crm_manager, projet_manager)
-    
-    with tab3:
-        render_crm_interactions_tab(crm_manager)
-    
-    if crm_manager.use_sqlite:
-        with tab4:
-            render_crm_devis_tab(crm_manager)
-    
-    # Gestionnaire d'actions
-    handle_crm_actions(crm_manager, projet_manager)
-
-# =========================================================================
-# FONCTIONS UTILITAIRES ET HELPERS
-# =========================================================================
-
-def get_crm_statistics_summary(crm_manager: GestionnaireCRM):
-    """Résumé des statistiques CRM pour dashboard"""
-    try:
-        stats = {
-            'total_contacts': len(crm_manager.contacts),
-            'total_entreprises': len(crm_manager.entreprises),
-            'total_interactions': len(crm_manager.interactions),
-            'total_devis': 0,
-            'montant_devis': 0.0,
-            'taux_acceptation_devis': 0.0
-        }
-        
-        # Statistiques devis si disponibles
-        if crm_manager.use_sqlite:
-            devis_stats = crm_manager.get_devis_statistics()
-            stats['total_devis'] = devis_stats.get('total_devis', 0)
-            stats['montant_devis'] = devis_stats.get('montant_total', 0.0)
-            stats['taux_acceptation_devis'] = devis_stats.get('taux_acceptation', 0.0)
-        
-        return stats
-    except Exception as e:
-        st.error(f"Erreur calcul statistiques CRM: {e}")
-        return {}
-
-def export_crm_data_to_excel(crm_manager: GestionnaireCRM):
-    """Exporte les données CRM vers Excel (placeholder)"""
-    try:
-        # Créer un DataFrame avec toutes les données
-        contacts_df = pd.DataFrame(crm_manager.contacts)
-        entreprises_df = pd.DataFrame(crm_manager.entreprises)
-        interactions_df = pd.DataFrame(crm_manager.interactions)
-        
-        # En production, utiliser pandas.ExcelWriter pour créer un fichier multi-onglets
-        # writer = pd.ExcelWriter('export_crm.xlsx', engine='xlsxwriter')
-        # contacts_df.to_excel(writer, sheet_name='Contacts', index=False)
-        # entreprises_df.to_excel(writer, sheet_name='Entreprises', index=False)
-        # interactions_df.to_excel(writer, sheet_name='Interactions', index=False)
-        # writer.close()
-        
-        return {
-            'contacts': contacts_df,
-            'entreprises': entreprises_df, 
-            'interactions': interactions_df
-        }
-    except Exception as e:
-        st.error(f"Erreur export Excel: {e}")
-        return None
-
-def validate_devis_data(devis_data):
-    """Valide les données d'un devis avant création/modification"""
-    errors = []
-    
-    if not devis_data.get('client_company_id'):
-        errors.append("Client obligatoire")
-    
-    if not devis_data.get('employee_id'):
-        errors.append("Responsable obligatoire")
-    
-    if not devis_data.get('date_echeance'):
-        errors.append("Date d'échéance obligatoire")
-    
-    if not devis_data.get('lignes') or len(devis_data['lignes']) == 0:
-        errors.append("Au moins une ligne obligatoire")
-    
-    # Validation des lignes
-    for i, ligne in enumerate(devis_data.get('lignes', [])):
-        if not ligne.get('description'):
-            errors.append(f"Description ligne {i+1} obligatoire")
-        if ligne.get('quantite', 0) <= 0:
-            errors.append(f"Quantité ligne {i+1} doit être > 0")
-        if ligne.get('prix_unitaire', 0) <= 0:
-            errors.append(f"Prix unitaire ligne {i+1} doit être > 0")
-    
-    return errors
-
-def format_currency(amount, currency="CAD"):
-    """Formate un montant en devise"""
-    try:
-        if currency == "CAD":
-            return f"{amount:,.2f} $ CAD"
-        else:
-            return f"{amount:,.2f} {currency}"
-    except:
-        return "0,00 $"
-
-def calculate_devis_expiration_days(date_echeance):
-    """Calcule le nombre de jours avant expiration d'un devis"""
-    try:
-        if isinstance(date_echeance, str):
-            echeance = datetime.fromisoformat(date_echeance).date()
-        else:
-            echeance = date_echeance
-        
-        today = datetime.now().date()
-        delta = (echeance - today).days
-        
-        return delta
-    except:
-        return 0
-
-# =========================================================================
-# POINTS D'ENTRÉE PRINCIPAUX
-# =========================================================================
-
-def main_crm_interface(db_instance=None):
-    """Point d'entrée principal pour l'interface CRM complète"""
-    
-    # Initialiser le gestionnaire CRM
-    if db_instance:
-        crm_manager = GestionnaireCRM(db=db_instance)
-    else:
-        # Mode standalone (utilise JSON)
-        crm_manager = GestionnaireCRM()
-    
-    # Afficher l'interface principale
-    render_crm_main_interface(crm_manager)
-    
-    return crm_manager
-
-def demo_crm_with_devis():
-    """Démonstration du système CRM avec devis"""
-    
-    st.title("🎯 Démonstration CRM + Devis")
-    
-    # Note: En production, vous initialiseriez avec votre instance ERPDatabase réelle
-    # from erp_database import ERPDatabase
-    # db = ERPDatabase()
-    # crm_manager = GestionnaireCRM(db=db)
-    
-    # Pour la démo, utilisation du mode JSON
-    crm_manager = GestionnaireCRM()
-    
-    st.info("💡 Cette démonstration utilise le mode JSON. Pour les devis, utilisez le mode SQLite avec ERPDatabase.")
-    
-    # Afficher les statistiques
-    stats = get_crm_statistics_summary(crm_manager)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Contacts", stats['total_contacts'])
-    with col2:
-        st.metric("Entreprises", stats['total_entreprises'])  
-    with col3:
-        st.metric("Interactions", stats['total_interactions'])
-    with col4:
-        st.metric("Devis", stats['total_devis'])
-    
-    # Interface simplifiée
-    render_crm_main_interface(crm_manager)
-
-# =========================================================================
-# TESTS ET VALIDATION
-# =========================================================================
-
-def test_crm_functionality():
-    """Tests unitaires basiques pour le CRM"""
-    
-    # Test mode JSON
-    crm_json = GestionnaireCRM()
-    
-    # Test ajout contact
-    contact_data = {
-        'prenom': 'Test',
-        'nom_famille': 'User',
-        'email': 'test@example.com',
-        'telephone': '123456789',
-        'entreprise_id': 101,
-        'role': 'Testeur'
-    }
-    
-    contact_id = crm_json.ajouter_contact(contact_data)
-    assert contact_id is not None, "Échec ajout contact"
-    
-    # Test récupération contact
-    contact = crm_json.get_contact_by_id(contact_id)
-    assert contact is not None, "Échec récupération contact"
-    assert contact['prenom'] == 'Test', "Données contact incorrectes"
-    
-    # Test modification contact
-    success = crm_json.modifier_contact(contact_id, {'telephone': '987654321'})
-    assert success, "Échec modification contact"
-    
-    # Test suppression contact
-    success = crm_json.supprimer_contact(contact_id)
-    assert success, "Échec suppression contact"
-    
-    print("✅ Tous les tests CRM passent!")
-
-if __name__ == "__main__":
-    # Tests automatiques
-    try:
-        test_crm_functionality()
-    except Exception as e:
-        print(f"❌ Erreur tests: {e}")
-    
-    # Interface de démonstration
-    demo_crm_with_devis()
-
-# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ COMPLET ---modifier_contact(contact_data['id'], new_contact_data):
+                        if crm_manager.modifier_contact(contact_data['id'], new_contact_data):
                             st.success(f"Contact #{contact_data['id']} mis à jour en SQLite !")
                         else:
                             st.error("Erreur lors de la modification SQLite.")
@@ -2590,9 +2147,6 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
 # FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS
 # =========================================================================
 
-# --- Fichier: crm.py ---
-# Remplacez l'ancienne fonction par celle-ci
-
 def render_crm_devis_tab(crm_manager: GestionnaireCRM):
     """Interface Streamlit pour la gestion des devis"""
     if not crm_manager.use_sqlite:
@@ -2610,9 +2164,8 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
     with col2:
         st.metric("Taux d'acceptation", f"{stats.get('taux_acceptation', 0):.1f}%")
     with col3:
-        # Utiliser le montant total calculé, pas celui de la base qui peut être obsolète
-        montant_total_calculé = sum(s['montant'] for s in stats.get('par_statut', {}).values())
-        st.metric("Montant Total", f"{montant_total_calculé:,.0f} $")
+        montant_total = stats.get('montant_total', 0.0)
+        st.metric("Montant Total (HT)", f"{montant_total:,.0f} $")
     with col4:
         st.metric("En Attente", stats.get('en_attente', 0))
     
@@ -2700,10 +2253,13 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                         st.rerun()
                 
                 with col_action2:
-                    if st.button("✏️ Modifier", key="edit_devis", use_container_width=True):
-                        st.session_state.crm_action = "edit_devis"
-                        st.session_state.crm_selected_id = selected_devis_id
-                        st.rerun()
+                    if st.button("📄 Dupliquer", key="dupliquer_devis_liste", use_container_width=True):
+                        nouveau_id = crm_manager.dupliquer_devis(selected_devis_id, 1) # User 1 for now
+                        if nouveau_id:
+                            st.success(f"Devis dupliqué avec succès ! Nouveau devis #{nouveau_id}.")
+                            st.rerun()
+                        else:
+                            st.error("Erreur lors de la duplication du devis.")
                 
                 with col_action3:
                     if st.button("📧 Envoyer", key="send_devis", use_container_width=True):
@@ -2714,10 +2270,8 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                             st.error("Erreur lors du changement de statut.")
                 
                 with col_action4:
-                    if st.button("📄 Export PDF", key="export_devis", use_container_width=True):
-                        st.info("Fonctionnalité d'export PDF à venir.")
-                        export_data = crm_manager.get_devis_complet(selected_devis_id)
-                        st.json(export_data)  # En attendant la vraie génération PDF
+                    if st.button("✏️ Modifier", key="edit_devis", use_container_width=True, disabled=True):
+                         st.info("Fonctionnalité de modification à venir.")
         else:
             st.info("Aucun devis trouvé avec les filtres sélectionnés.")
     
@@ -2790,7 +2344,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                 
                 if crm_manager.use_sqlite:
                     employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
-                    emp_options = [(e['id'], e['nom']) for e in employees]
+                    emp_options = [(e['id'], e['nom']) for e in employees] if employees else []
                     responsable_id = st.selectbox("Responsable *", options=[opt[0] for opt in emp_options],
                                                   format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
                                                   key="nouveau_devis_responsable")
@@ -2801,4 +2355,460 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                 echeance = st.date_input("Date d'échéance *", value=datetime.now().date() + timedelta(days=30),
                                          key="nouveau_devis_echeance")
                 
-                if crm_manager.
+                if crm_manager.use_sqlite:
+                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
+                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets] if projets else [("", "Aucun projet")]
+                    projet_id = st.selectbox("Projet lié", options=[opt[0] for opt in projet_options],
+                                             format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
+                                             key="nouveau_devis_projet")
+                else:
+                    projet_id = None
+            
+            notes = st.text_area("Notes ou conditions", key="nouveau_devis_notes")
+            
+            # Boutons de soumission
+            submitted = st.form_submit_button("💾 Créer le Devis en Brouillon", type="primary", use_container_width=True)
+            
+            if submitted:
+                if not client_id or not responsable_id or not st.session_state.devis_lignes:
+                    st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
+                else:
+                    devis_data = {
+                        'client_company_id': client_id,
+                        'employee_id': responsable_id,
+                        'project_id': projet_id if projet_id else None,
+                        'date_echeance': echeance.strftime('%Y-%m-%d'),
+                        'notes': notes,
+                        'lignes': st.session_state.devis_lignes
+                    }
+                    
+                    devis_id = crm_manager.create_devis(devis_data)
+                    
+                    if devis_id:
+                        devis_cree = crm_manager.get_devis_complet(devis_id)
+                        st.success(f"✅ Devis créé avec succès ! Numéro : {devis_cree.get('numero_document')}")
+                        st.session_state.devis_lignes = []  # Vider les lignes pour le prochain devis
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de la création du devis.")
+    
+    with tab3:
+        st.subheader("Statistiques des Devis")
+        
+        if stats.get('total_devis', 0) > 0:
+            if stats.get('par_statut'):
+                statut_data = pd.DataFrame([
+                    {'Statut': k, 'Nombre': v['count'], 'Montant HT': v['montant']}
+                    for k, v in stats['par_statut'].items() if isinstance(v, dict)
+                ])
+                
+                col_graph1, col_graph2 = st.columns(2)
+                
+                with col_graph1:
+                    st.markdown("**Répartition par Statut (Nombre)**")
+                    st.bar_chart(statut_data.set_index('Statut')['Nombre'])
+                
+                with col_graph2:
+                    st.markdown("**Répartition par Statut (Montant HT)**")
+                    st.bar_chart(statut_data.set_index('Statut')['Montant HT'])
+        else:
+            st.info("Aucune donnée de devis disponible pour les statistiques.")
+
+def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
+    """Affiche les détails d'un devis"""
+    if not devis_data:
+        st.error("Devis non trouvé.")
+        return
+
+    st.subheader(f"🧾 Détails du Devis: {devis_data.get('numero_document')} (SQLite)")
+
+    # Informations principales
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info(f"**ID:** {devis_data.get('id')}")
+        st.write(f"**Client:** {devis_data.get('client_nom', 'N/A')}")
+        st.write(f"**Responsable:** {devis_data.get('responsable_nom', 'N/A')}")
+        st.write(f"**Statut:** {devis_data.get('statut', 'N/A')}")
+    with c2:
+        date_creation = devis_data.get('date_creation')
+        st.write(f"**Date création:** {date_creation[:10] if date_creation else 'N/A'}")
+        st.write(f"**Date échéance:** {devis_data.get('date_echeance', 'N/A')}")
+        st.write(f"**Projet lié:** {devis_data.get('nom_projet', 'Aucun')}")
+
+    # Totaux
+    totaux = devis_data.get('totaux', {})
+    st.markdown("### 💰 Totaux")
+    col_total1, col_total2, col_total3 = st.columns(3)
+    with col_total1:
+        st.metric("Total HT", f"{totaux.get('total_ht', 0):,.2f} $")
+    with col_total2:
+        st.metric("TVA", f"{totaux.get('montant_tva', 0):,.2f} $")
+    with col_total3:
+        st.metric("Total TTC", f"{totaux.get('total_ttc', 0):,.2f} $")
+
+    # Lignes du devis
+    st.markdown("### 📋 Lignes du Devis")
+    if devis_data.get('lignes'):
+        lignes_df_data = []
+        for ligne in devis_data['lignes']:
+            lignes_df_data.append({
+                "Description": ligne.get('description', ''),
+                "Quantité": ligne.get('quantite', 0),
+                "Unité": ligne.get('unite', ''),
+                "Prix unitaire": f"{ligne.get('prix_unitaire', 0):,.2f} $",
+                "Montant": f"{ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0):,.2f} $"
+            })
+        
+        st.dataframe(pd.DataFrame(lignes_df_data), use_container_width=True)
+    else:
+        st.info("Aucune ligne dans ce devis.")
+
+    # Notes
+    st.markdown("### 📝 Notes")
+    st.text_area("devis_detail_notes_display", value=devis_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
+
+    # Historique
+    st.markdown("### 📜 Historique")
+    if devis_data.get('historique'):
+        for hist in devis_data['historique']:
+            date_validation = hist.get('date_validation')
+            st.markdown(f"**{hist.get('type_validation', 'N/A')}** - {date_validation[:16] if date_validation else 'N/A'} par {hist.get('employee_nom', 'Système')}")
+            if hist.get('commentaires'):
+                st.caption(hist['commentaires'])
+            st.markdown("---")
+    else:
+        st.info("Aucun historique disponible.")
+
+    # Actions
+    st.markdown("### 🔧 Actions")
+    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
+    
+    with col_action1:
+        if st.button("✅ Accepter", key="accepter_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ACCEPTÉ', 1, "Accepté via interface"):
+                st.success("Devis accepté!")
+                st.rerun()
+    
+    with col_action2:
+        if st.button("❌ Refuser", key="refuser_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'REFUSÉ', 1, "Refusé via interface"):
+                st.success("Devis refusé.")
+                st.rerun()
+    
+    with col_action3:
+        if st.button("📧 Envoyer", key="envoyer_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', 1, "Envoyé via interface"):
+                st.success("Devis marqué comme envoyé!")
+                st.rerun()
+    
+    with col_action4:
+        if st.button("📄 Dupliquer", key="dupliquer_devis"):
+            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], 1)
+            if nouveau_id:
+                st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
+                st.rerun()
+
+    if st.button("Retour à la liste des devis", key="back_to_devis_list_from_details"):
+        st.session_state.crm_action = None
+        st.rerun()
+
+# =========================================================================
+# FONCTIONS DE GESTION DES ACTIONS CRM + DEVIS
+# =========================================================================
+
+def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
+    """Gestionnaire centralisé des actions CRM + Devis"""
+    
+    action = st.session_state.get('crm_action')
+    selected_id = st.session_state.get('crm_selected_id')
+    
+    # Actions pour les contacts
+    if action == "create_contact":
+        render_crm_contact_form(crm_manager)
+    elif action == "edit_contact" and selected_id:
+        contact_data = crm_manager.get_contact_by_id(selected_id)
+        render_crm_contact_form(crm_manager, contact_data)
+    elif action == "view_contact_details" and selected_id:
+        contact_data = crm_manager.get_contact_by_id(selected_id)
+        render_crm_contact_details(crm_manager, projet_manager, contact_data)
+
+    # Actions pour les entreprises
+    elif action == "create_entreprise":
+        render_crm_entreprise_form(crm_manager)
+    elif action == "edit_entreprise" and selected_id:
+        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_form(crm_manager, entreprise_data)
+    elif action == "view_entreprise_details" and selected_id:
+        entreprise_data = crm_manager.get_entreprise_by_id(selected_id)
+        render_crm_entreprise_details(crm_manager, projet_manager, entreprise_data)
+
+    # Actions pour les interactions
+    elif action == "create_interaction":
+        render_crm_interaction_form(crm_manager)
+    elif action == "edit_interaction" and selected_id:
+        interaction_data = crm_manager.get_interaction_by_id(selected_id)
+        render_crm_interaction_form(crm_manager, interaction_data)
+    elif action == "view_interaction_details" and selected_id:
+        interaction_data = crm_manager.get_interaction_by_id(selected_id)
+        render_crm_interaction_details(crm_manager, projet_manager, interaction_data)
+
+    # Actions pour les devis (NOUVEAU)
+    elif action == "view_devis_details" and selected_id:
+        devis_data = crm_manager.get_devis_complet(selected_id)
+        render_crm_devis_details(crm_manager, devis_data)
+
+def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
+    """Interface principale CRM avec support des devis"""
+    
+    st.title("📋 Gestion CRM + Devis")
+    
+    # Vérification du mode
+    if crm_manager.use_sqlite:
+        st.success("✅ Mode SQLite actif - Toutes les fonctionnalités disponibles")
+    else:
+        st.warning("⚠️ Mode JSON (rétrocompatibilité) - Fonctionnalités devis limitées")
+    
+    # Menu principal avec devis
+    if crm_manager.use_sqlite:
+        tab1, tab2, tab3, tab4 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions", "🧾 Devis"])
+    else:
+        tab1, tab2, tab3 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions"])
+    
+    with tab1:
+        render_crm_contacts_tab(crm_manager, projet_manager)
+    
+    with tab2:
+        render_crm_entreprises_tab(crm_manager, projet_manager)
+    
+    with tab3:
+        render_crm_interactions_tab(crm_manager)
+    
+    if crm_manager.use_sqlite:
+        with tab4:
+            render_crm_devis_tab(crm_manager)
+    
+    # Gestionnaire d'actions pour les formulaires et vues détaillées (qui apparaissent en dehors des onglets)
+    handle_crm_actions(crm_manager, projet_manager)
+
+# =========================================================================
+# FONCTIONS UTILITAIRES ET HELPERS
+# =========================================================================
+
+def get_crm_statistics_summary(crm_manager: GestionnaireCRM):
+    """Résumé des statistiques CRM pour dashboard"""
+    try:
+        stats = {
+            'total_contacts': len(crm_manager.contacts),
+            'total_entreprises': len(crm_manager.entreprises),
+            'total_interactions': len(crm_manager.interactions),
+            'total_devis': 0,
+            'montant_devis': 0.0,
+            'taux_acceptation_devis': 0.0
+        }
+        
+        # Statistiques devis si disponibles
+        if crm_manager.use_sqlite:
+            devis_stats = crm_manager.get_devis_statistics()
+            stats['total_devis'] = devis_stats.get('total_devis', 0)
+            stats['montant_devis'] = devis_stats.get('montant_total', 0.0)
+            stats['taux_acceptation_devis'] = devis_stats.get('taux_acceptation', 0.0)
+        
+        return stats
+    except Exception as e:
+        st.error(f"Erreur calcul statistiques CRM: {e}")
+        return {}
+
+def export_crm_data_to_excel(crm_manager: GestionnaireCRM):
+    """Exporte les données CRM vers Excel (placeholder)"""
+    try:
+        # Créer un DataFrame avec toutes les données
+        contacts_df = pd.DataFrame(crm_manager.contacts)
+        entreprises_df = pd.DataFrame(crm_manager.entreprises)
+        interactions_df = pd.DataFrame(crm_manager.interactions)
+        
+        # En production, utiliser pandas.ExcelWriter pour créer un fichier multi-onglets
+        # writer = pd.ExcelWriter('export_crm.xlsx', engine='xlsxwriter')
+        # contacts_df.to_excel(writer, sheet_name='Contacts', index=False)
+        # entreprises_df.to_excel(writer, sheet_name='Entreprises', index=False)
+        # interactions_df.to_excel(writer, sheet_name='Interactions', index=False)
+        # writer.close()
+        
+        return {
+            'contacts': contacts_df,
+            'entreprises': entreprises_df, 
+            'interactions': interactions_df
+        }
+    except Exception as e:
+        st.error(f"Erreur export Excel: {e}")
+        return None
+
+def validate_devis_data(devis_data):
+    """Valide les données d'un devis avant création/modification"""
+    errors = []
+    
+    if not devis_data.get('client_company_id'):
+        errors.append("Client obligatoire")
+    
+    if not devis_data.get('employee_id'):
+        errors.append("Responsable obligatoire")
+    
+    if not devis_data.get('date_echeance'):
+        errors.append("Date d'échéance obligatoire")
+    
+    if not devis_data.get('lignes') or len(devis_data['lignes']) == 0:
+        errors.append("Au moins une ligne obligatoire")
+    
+    # Validation des lignes
+    for i, ligne in enumerate(devis_data.get('lignes', [])):
+        if not ligne.get('description'):
+            errors.append(f"Description ligne {i+1} obligatoire")
+        if ligne.get('quantite', 0) <= 0:
+            errors.append(f"Quantité ligne {i+1} doit être > 0")
+        if ligne.get('prix_unitaire', 0) <= 0:
+            errors.append(f"Prix unitaire ligne {i+1} doit être > 0")
+    
+    return errors
+
+def format_currency(amount, currency="CAD"):
+    """Formate un montant en devise"""
+    try:
+        if currency == "CAD":
+            return f"{amount:,.2f} $ CAD"
+        else:
+            return f"{amount:,.2f} {currency}"
+    except:
+        return "0,00 $"
+
+def calculate_devis_expiration_days(date_echeance):
+    """Calcule le nombre de jours avant expiration d'un devis"""
+    try:
+        if isinstance(date_echeance, str):
+            echeance = datetime.fromisoformat(date_echeance).date()
+        else:
+            echeance = date_echeance
+        
+        today = datetime.now().date()
+        delta = (echeance - today).days
+        
+        return delta
+    except:
+        return 0
+
+# =========================================================================
+# POINTS D'ENTRÉE PRINCIPAUX
+# =========================================================================
+
+def main_crm_interface(db_instance=None, project_manager_instance=None):
+    """Point d'entrée principal pour l'interface CRM complète"""
+    
+    # Initialiser le gestionnaire CRM
+    # Le project_manager est nécessaire pour la transformation de devis en projet
+    crm_manager = GestionnaireCRM(db=db_instance, project_manager=project_manager_instance)
+    
+    # Afficher l'interface principale
+    render_crm_main_interface(crm_manager, project_manager_instance)
+    
+    return crm_manager
+
+def demo_crm_with_devis():
+    """Démonstration du système CRM avec devis"""
+    
+    st.title("🎯 Démonstration CRM + Devis")
+    
+    # Note: En production, vous initialiseriez avec votre instance ERPDatabase réelle
+    # from erp_database import ERPDatabase
+    # from projects import GestionnaireProjetSQL
+    # db = ERPDatabase()
+    # project_manager = GestionnaireProjetSQL(db=db)
+    # crm_manager = GestionnaireCRM(db=db, project_manager=project_manager)
+    
+    # Pour la démo, utilisation du mode JSON (sans devis)
+    crm_manager = GestionnaireCRM()
+    
+    st.info("💡 Cette démonstration utilise le mode JSON. Pour les devis, il faut un environnement SQLite avec ERPDatabase et GestionnaireProjetSQL.")
+    
+    # Afficher les statistiques
+    stats = get_crm_statistics_summary(crm_manager)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Contacts", stats['total_contacts'])
+    with col2:
+        st.metric("Entreprises", stats['total_entreprises'])  
+    with col3:
+        st.metric("Interactions", stats['total_interactions'])
+    with col4:
+        st.metric("Devis", stats['total_devis'])
+    
+    # Interface simplifiée (sans project_manager)
+    render_crm_main_interface(crm_manager, None)
+
+# =========================================================================
+# TESTS ET VALIDATION
+# =========================================================================
+
+def test_crm_functionality():
+    """Tests unitaires basiques pour le CRM"""
+    
+    # Test mode JSON
+    crm_json = GestionnaireCRM()
+    
+    # Test ajout contact
+    contact_data = {
+        'prenom': 'Test',
+        'nom_famille': 'User',
+        'email': 'test@example.com',
+        'telephone': '123456789',
+        'entreprise_id': 101,
+        'role': 'Testeur'
+    }
+    
+    contact_id = crm_json.ajouter_contact(contact_data)
+    assert contact_id is not None, "Échec ajout contact"
+    
+    # Test récupération contact
+    contact = crm_json.get_contact_by_id(contact_id)
+    assert contact is not None, "Échec récupération contact"
+    assert contact['prenom'] == 'Test', "Données contact incorrectes"
+    
+    # Test modification contact
+    success = crm_json.modifier_contact(contact_id, {'telephone': '987654321'})
+    assert success, "Échec modification contact"
+    
+    # Test suppression contact
+    success = crm_json.supprimer_contact(contact_id)
+    assert success, "Échec suppression contact"
+    
+    print("✅ Tous les tests CRM (mode JSON) passent!")
+
+if __name__ == "__main__":
+    st.set_page_config(layout="wide")
+    
+    # Pour une exécution standalone, on peut simuler la DB
+    # Ceci est juste pour la démonstration du fichier seul.
+    try:
+        from erp_database import ERPDatabase
+        from projects import GestionnaireProjetSQL
+
+        # Simuler une base de données en mémoire pour le test
+        # En production, utiliser le chemin du fichier DB: 'erp_prod.db'
+        db = ERPDatabase(db_name=":memory:") 
+        db.create_tables()
+
+        # Initialiser les managers
+        project_manager = GestionnaireProjetSQL(db=db)
+        crm_manager = GestionnaireCRM(db=db, project_manager=project_manager)
+
+        # Afficher l'interface complète
+        render_crm_main_interface(crm_manager, project_manager)
+        
+    except ImportError:
+        # Si les autres modules ne sont pas trouvés, lancer la démo en mode JSON
+        st.warning("Modules 'erp_database' ou 'projects' non trouvés. Lancement en mode démo JSON.")
+        demo_crm_with_devis()
+    except Exception as e:
+        st.error(f"Une erreur est survenue lors de l'initialisation: {e}")
+        st.info("Lancement en mode démo JSON de secours.")
+        demo_crm_with_devis()
+
+# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ COMPLET ---
