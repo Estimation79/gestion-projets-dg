@@ -1205,38 +1205,25 @@ class GestionnaireProjetSQL:
             return False
 
     def supprimer_projet(self, projet_id):
-        """Supprime un projet et ses données associées - VERSION CORRIGÉE"""
+        """Supprime un projet et ses données associées"""
         try:
-            # Vérifier que le projet existe
-            project_exists = self.db.execute_query("SELECT id FROM projects WHERE id = ?", (projet_id,))
-            if not project_exists:
-                st.error(f"Projet #{projet_id} non trouvé")
-                return False
-            # Supprimer dans l'ordre pour éviter les contraintes FK
-            cascade_order = [
-                "time_entries",      # Pointages TimeTracker
-                "formulaires",       # Bons de travail, bons d'achat
-                "project_assignments", # Assignations employés  
-                "operations",        # Opérations gamme
-                "materials",         # Matériaux BOM
-                "devis"             # Devis (si existe)
-            ]
-            
-            for table in cascade_order:
-                try:
-                    self.db.execute_update(f"DELETE FROM {table} WHERE project_id = ?", (projet_id,))
-                except Exception:
-                    pass  # Table peut ne pas exister ou être vide
-            
-            # Supprimer le projet principal
-            result = self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id,))
-            return bool(result)
+            # Supprimer en cascade (relations d'abord)
+            self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id,))
+            self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id,))
+            self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id,))
+            self.db.execute_update("DELETE FROM time_entries WHERE project_id = ?", (projet_id,))
+
+            # Supprimer le projet
+            self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id,))
+
+            return True
+
         except Exception as e:
-            st.error(f"❌ Erreur suppression projet #{projet_id}: {e}")
+            st.error(f"Erreur suppression projet: {e}")
             return False
 
 # ========================
-# INITIALISATION ERP SYSTÈME (ORIGINAL)
+# INITIALISATION ERP SYSTÈME (MODIFIÉ)
 # ========================
 
 def _init_base_data_if_empty():
@@ -1446,8 +1433,19 @@ def init_erp_system():
         st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
 
     # CORRECTION CRITIQUE : CRM avec base SQLite unifiée
+    # SECTION MODIFIÉE SELON LA DEMANDE
     if CRM_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
-        st.session_state.gestionnaire_crm = GestionnaireCRM(st.session_state.erp_db)
+        # On s'assure que le gestionnaire de projets est déjà initialisé
+        if 'gestionnaire' in st.session_state:
+            st.session_state.gestionnaire_crm = GestionnaireCRM(
+                db=st.session_state.erp_db, 
+                project_manager=st.session_state.gestionnaire  # Injection de la dépendance ici
+            )
+            print("✅ Gestionnaire CRM initialisé avec accès au gestionnaire de projets.")
+        else:
+            # Fallback si le gestionnaire de projet n'est pas prêt (ne devrait pas arriver)
+            st.session_state.gestionnaire_crm = GestionnaireCRM(db=st.session_state.erp_db)
+            print("⚠️ Gestionnaire CRM initialisé SANS accès au gestionnaire de projets.")
 
     # Gestionnaire employés (reste identique pour l'instant)
     if EMPLOYEES_AVAILABLE and 'gestionnaire_employes' not in st.session_state:
@@ -2975,7 +2973,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -3809,4 +3807,5 @@ print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
 print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
 print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
 print("✅ Module Kanban unifié intégré avec fallback")
+print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
 print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
