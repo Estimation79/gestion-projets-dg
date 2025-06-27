@@ -34,7 +34,12 @@ class GestionnaireFournisseurs:
             return []
     
     def get_fournisseurs_actifs_safe(self, fournisseurs: List[Dict]) -> List[Dict]:
-        """Méthode sécurisée pour filtrer les fournisseurs actifs - CORRECTION BUG"""
+        """
+        Méthode sécurisée pour filtrer les fournisseurs actifs - CORRECTION BUG
+        
+        NOTE: Cette méthode est conservée pour compatibilité, mais pour un affichage
+        cohérent, utilisez directement la logique booléenne sur est_actif dans les interfaces.
+        """
         actifs = []
         
         for f in fournisseurs:
@@ -1969,10 +1974,21 @@ def render_fournisseurs_liste(gestionnaire):
         fournisseurs = [f for f in fournisseurs if f.get('categorie_produits', '').upper() == category_filter.upper()]
     
     if statut_filter == 'ACTIF':
-        fournisseurs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs)
+        # Filtrer directement sur les données
+        fournisseurs = [f for f in fournisseurs if 
+                       (f.get('est_actif') is True or 
+                        f.get('est_actif') == 1 or 
+                        f.get('est_actif') == '1' or 
+                        str(f.get('est_actif')).lower() == 'true' or
+                        str(f.get('est_actif')).lower() == 'yes')]
     elif statut_filter == 'INACTIF':
-        fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs)
-        fournisseurs = [f for f in fournisseurs if f not in fournisseurs_actifs]
+        # Filtrer les inactifs
+        fournisseurs = [f for f in fournisseurs if not 
+                       (f.get('est_actif') is True or 
+                        f.get('est_actif') == 1 or 
+                        f.get('est_actif') == '1' or 
+                        str(f.get('est_actif')).lower() == 'true' or
+                        str(f.get('est_actif')).lower() == 'yes')]
     
     if recherche:
         terme = recherche.lower()
@@ -1992,8 +2008,16 @@ def render_fournisseurs_liste(gestionnaire):
     # Tableau des fournisseurs
     df_data = []
     for f in fournisseurs:
-        # Utilisation de la méthode sécurisée pour déterminer le statut
-        est_actif = gestionnaire.get_fournisseurs_actifs_safe([f])
+        # CORRECTION : Vérifier le statut directement sur le fournisseur
+        est_actif_raw = f.get('est_actif')
+        
+        # Utiliser la même logique que get_fournisseurs_actifs_safe mais pour un seul élément
+        est_actif = (est_actif_raw is True or 
+                     est_actif_raw == 1 or 
+                     est_actif_raw == '1' or 
+                     str(est_actif_raw).lower() == 'true' or
+                     str(est_actif_raw).lower() == 'yes')
+        
         statut_display = "✅ ACTIF" if est_actif else "❌ INACTIF"
         evaluation_display = f"⭐ {f.get('evaluation_qualite', 0)}/10"
         
@@ -2265,8 +2289,13 @@ def render_fournisseurs_categories(gestionnaire):
             delais = [f.get('delai_livraison_moyen', 0) for f in fournisseurs_cat if f.get('delai_livraison_moyen')]
             delai_moyen = sum(delais) / len(delais) if delais else 0
             
-            # Utiliser la méthode sécurisée pour compter les actifs
-            actifs = gestionnaire.get_fournisseurs_actifs_safe(fournisseurs_cat)
+            # Utiliser la logique cohérente pour compter les actifs
+            actifs = [f for f in fournisseurs_cat if 
+                     (f.get('est_actif') is True or 
+                      f.get('est_actif') == 1 or 
+                      f.get('est_actif') == '1' or 
+                      str(f.get('est_actif')).lower() == 'true' or
+                      str(f.get('est_actif')).lower() == 'yes')]
             
             categories_data.append({
                 '🏷️ Catégorie': category,
@@ -2378,8 +2407,14 @@ def render_fournisseur_form(gestionnaire, fournisseur_data=None):
             )
             
             if is_edit:
-                # Utiliser la méthode sécurisée pour déterminer le statut actuel
-                current_actif = bool(gestionnaire.get_fournisseurs_actifs_safe([fournisseur_data]))
+                # Utiliser la logique cohérente pour déterminer le statut actuel
+                est_actif_raw = fournisseur_data.get('est_actif')
+                current_actif = (est_actif_raw is True or 
+                                est_actif_raw == 1 or 
+                                est_actif_raw == '1' or 
+                                str(est_actif_raw).lower() == 'true' or
+                                str(est_actif_raw).lower() == 'yes')
+                
                 est_actif = st.checkbox(
                     "Fournisseur Actif",
                     value=current_actif,
@@ -2475,8 +2510,13 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
     
     info_col1, info_col2 = st.columns(2)
     
-    # Utiliser la méthode sécurisée pour déterminer le statut
-    est_actif = bool(gestionnaire.get_fournisseurs_actifs_safe([fournisseur_data]))
+    # Utiliser la logique cohérente pour déterminer le statut
+    est_actif_raw = fournisseur_data.get('est_actif')
+    est_actif = (est_actif_raw is True or 
+                 est_actif_raw == 1 or 
+                 est_actif_raw == '1' or 
+                 str(est_actif_raw).lower() == 'true' or
+                 str(est_actif_raw).lower() == 'yes')
     
     with info_col1:
         st.markdown(f"""
