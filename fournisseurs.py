@@ -3,6 +3,7 @@
 # + NOUVEAUX FORMULAIRES : Demande de Prix et Bon d'Achat intégrés
 # + CORRECTION BUG : Filtrage robuste des fournisseurs actifs
 # + MODIFICATIONS : Code Fournisseur automatique + Catégorie optionnelle
+# + CORRECTIONS : Génération code fournisseur + Diagnostic et réparation
 
 import streamlit as st
 import pandas as pd
@@ -18,6 +19,7 @@ class GestionnaireFournisseurs:
     Intégré avec la base de données SQLite unifiée
     + NOUVEAUX : Formulaires Demande de Prix et Bon d'Achat
     + MODIFICATIONS : Code Fournisseur automatique + Catégorie optionnelle
+    + CORRECTIONS : Génération code robuste + Outils de diagnostic
     """
     
     def __init__(self, db):
@@ -91,30 +93,161 @@ class GestionnaireFournisseurs:
             return []
     
     def generate_fournisseur_code(self) -> str:
-        """Génère un code fournisseur automatique - NOUVELLE MÉTHODE"""
+        """Génère un code fournisseur automatique - VERSION CORRIGÉE"""
         try:
             annee = datetime.now().year
             
-            # Récupérer le dernier numéro pour cette année
+            # Requête plus robuste pour récupérer le dernier numéro
             query = '''
                 SELECT code_fournisseur FROM fournisseurs 
-                WHERE code_fournisseur LIKE ?
-                ORDER BY id DESC LIMIT 1
+                WHERE code_fournisseur IS NOT NULL 
+                AND code_fournisseur LIKE ?
+                ORDER BY id DESC 
+                LIMIT 10
             '''
             pattern = f"FOUR-{annee}-%"
-            result = self.db.execute_query(query, (pattern,))
             
+            try:
+                result = self.db.execute_query(query, (pattern,))
+            except Exception as db_error:
+                print(f"Avertissement lors de la requête: {db_error}")
+                result = []
+            
+            # Traitement des résultats avec validation
+            sequence = 1
             if result:
-                last_code = result[0]['code_fournisseur']
-                sequence = int(last_code.split('-')[-1]) + 1
-            else:
-                sequence = 1
+                for row in result:
+                    code = row['code_fournisseur']
+                    if code and isinstance(code, str):
+                        # Validation du format : FOUR-YYYY-NNN
+                        parts = code.split('-')
+                        if len(parts) == 3 and parts[0] == 'FOUR' and parts[1] == str(annee):
+                            try:
+                                current_seq = int(parts[2])
+                                if current_seq >= sequence:
+                                    sequence = current_seq + 1
+                                    break  # Premier résultat valide trouvé
+                            except (ValueError, IndexError):
+                                # Code malformé, ignorer et continuer
+                                continue
             
-            return f"FOUR-{annee}-{sequence:03d}"
+            # Génération du nouveau code
+            nouveau_code = f"FOUR-{annee}-{sequence:03d}"
+            
+            # Vérification d'unicité (sécurité supplémentaire)
+            verification_query = "SELECT COUNT(*) as count FROM fournisseurs WHERE code_fournisseur = ?"
+            verification_result = self.db.execute_query(verification_query, (nouveau_code,))
+            
+            if verification_result and verification_result[0]['count'] > 0:
+                # Si le code existe déjà, incrémenter jusqu'à trouver un code libre
+                while True:
+                    sequence += 1
+                    nouveau_code = f"FOUR-{annee}-{sequence:03d}"
+                    verification_result = self.db.execute_query(verification_query, (nouveau_code,))
+                    if not verification_result or verification_result[0]['count'] == 0:
+                        break
+                    if sequence > 999:  # Sécurité pour éviter une boucle infinie
+                        raise Exception("Impossible de générer un code unique (limite atteinte)")
+            
+            print(f"Code fournisseur généré avec succès: {nouveau_code}")
+            return nouveau_code
             
         except Exception as e:
-            st.error(f"Erreur génération code fournisseur: {e}")
-            return f"FOUR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            print(f"Erreur dans generate_fournisseur_code: {e}")
+            # En cas d'erreur, générer un code basé sur timestamp
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            fallback_code = f"FOUR-{timestamp[-8:]}"
+            print(f"Utilisation du code de fallback: {fallback_code}")
+            return fallback_code
+    
+    def fix_corrupted_fournisseur_codes(self) -> Dict[str, int]:
+        """Méthode pour corriger les codes fournisseurs corrompus - NOUVELLE MÉTHODE"""
+        try:
+            # Récupérer tous les fournisseurs
+            query = "SELECT id, code_fournisseur FROM fournisseurs ORDER BY id"
+            fournisseurs = self.db.execute_query(query)
+            
+            stats = {
+                'total_verifies': 0,
+                'codes_corriges': 0,
+                'codes_vides': 0,
+                'erreurs': 0
+            }
+            
+            for fournisseur in fournisseurs:
+                stats['total_verifies'] += 1
+                fid = fournisseur['id']
+                code_actuel = fournisseur['code_fournisseur']
+                
+                needs_fix = False
+                
+                # Vérifier si le code est vide ou None
+                if not code_actuel or code_actuel.strip() == '':
+                    needs_fix = True
+                    stats['codes_vides'] += 1
+                else:
+                    # Vérifier le format : FOUR-YYYY-NNN
+                    parts = code_actuel.split('-')
+                    if (len(parts) != 3 or 
+                        parts[0] != 'FOUR' or 
+                        not parts[1].isdigit() or 
+                        len(parts[1]) != 4 or
+                        not parts[2].isdigit() or 
+                        len(parts[2]) != 3):
+                        needs_fix = True
+                        stats['codes_corriges'] += 1
+                
+                if needs_fix:
+                    try:
+                        # Générer un nouveau code
+                        nouveau_code = self.generate_fournisseur_code()
+                        
+                        # Mettre à jour la base de données
+                        update_query = "UPDATE fournisseurs SET code_fournisseur = ? WHERE id = ?"
+                        affected = self.db.execute_update(update_query, (nouveau_code, fid))
+                        
+                        if affected > 0:
+                            print(f"Code corrigé pour fournisseur ID {fid}: '{code_actuel}' → '{nouveau_code}'")
+                        else:
+                            stats['erreurs'] += 1
+                            
+                    except Exception as e:
+                        print(f"Erreur correction fournisseur ID {fid}: {e}")
+                        stats['erreurs'] += 1
+            
+            return stats
+            
+        except Exception as e:
+            print(f"Erreur lors de la correction des codes: {e}")
+            return {'erreurs': 1}
+    
+    def fix_all_fournisseur_status(self) -> int:
+        """Méthode pour corriger tous les statuts None - NOUVELLE MÉTHODE"""
+        try:
+            # Mettre tous les statuts None à actif (1)
+            query = "UPDATE fournisseurs SET est_actif = 1 WHERE est_actif IS NULL"
+            affected = self.db.execute_update(query)
+            
+            # Vérifier les résultats
+            verify_query = """
+                SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN est_actif = 1 THEN 1 END) as actifs,
+                    COUNT(CASE WHEN est_actif = 0 THEN 1 END) as inactifs,
+                    COUNT(CASE WHEN est_actif IS NULL THEN 1 END) as nulls
+                FROM fournisseurs
+            """
+            stats = self.db.execute_query(verify_query)
+            
+            if stats:
+                stat_row = stats[0]
+                print(f"Statuts après correction: Total={stat_row['total']}, Actifs={stat_row['actifs']}, Inactifs={stat_row['inactifs']}, Nulls={stat_row['nulls']}")
+            
+            return affected
+            
+        except Exception as e:
+            print(f"Erreur correction statuts: {e}")
+            return 0
     
     def create_fournisseur(self, company_id: int, fournisseur_data: Dict) -> int:
         """Crée un nouveau fournisseur"""
@@ -504,8 +637,164 @@ class GestionnaireFournisseurs:
             st.error(f"Erreur récupération détails formulaire: {e}")
             return {}
 
+def render_diagnostic_tab(gestionnaire):
+    """Onglet de diagnostic et réparation des problèmes fournisseurs - NOUVEAU"""
+    st.markdown("### 🔧 Diagnostic et Réparation")
+    st.markdown("Cet onglet permet de diagnostiquer et corriger les problèmes courants.")
+    
+    # Diagnostic automatique
+    st.markdown("#### 🔍 Diagnostic Automatique")
+    
+    if st.button("🔍 Lancer Diagnostic Complet", use_container_width=True, type="primary"):
+        with st.spinner("Diagnostic en cours..."):
+            # 1. Vérifier les codes fournisseurs
+            st.markdown("**1. Vérification des codes fournisseurs...**")
+            try:
+                query_codes = """
+                    SELECT 
+                        id, 
+                        code_fournisseur,
+                        CASE 
+                            WHEN code_fournisseur IS NULL THEN 'NULL'
+                            WHEN code_fournisseur = '' THEN 'VIDE'
+                            WHEN code_fournisseur NOT LIKE 'FOUR-____-___' THEN 'MALFORMÉ'
+                            ELSE 'OK'
+                        END as status_code
+                    FROM fournisseurs
+                """
+                codes_result = gestionnaire.db.execute_query(query_codes)
+                
+                codes_stats = {'OK': 0, 'NULL': 0, 'VIDE': 0, 'MALFORMÉ': 0}
+                for row in codes_result:
+                    codes_stats[row['status_code']] += 1
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("✅ Codes OK", codes_stats['OK'])
+                with col2:
+                    st.metric("⚠️ Codes NULL", codes_stats['NULL'])
+                with col3:
+                    st.metric("⚠️ Codes Vides", codes_stats['VIDE'])
+                with col4:
+                    st.metric("❌ Codes Malformés", codes_stats['MALFORMÉ'])
+                
+            except Exception as e:
+                st.error(f"Erreur diagnostic codes: {e}")
+            
+            # 2. Vérifier les statuts
+            st.markdown("**2. Vérification des statuts...**")
+            try:
+                query_statuts = """
+                    SELECT 
+                        COUNT(*) as total,
+                        COUNT(CASE WHEN est_actif = 1 THEN 1 END) as actifs,
+                        COUNT(CASE WHEN est_actif = 0 THEN 1 END) as inactifs,
+                        COUNT(CASE WHEN est_actif IS NULL THEN 1 END) as nulls
+                    FROM fournisseurs
+                """
+                statuts_result = gestionnaire.db.execute_query(query_statuts)
+                
+                if statuts_result:
+                    row = statuts_result[0]
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("📊 Total", row['total'])
+                    with col2:
+                        st.metric("✅ Actifs", row['actifs'])
+                    with col3:
+                        st.metric("❌ Inactifs", row['inactifs'])
+                    with col4:
+                        st.metric("⚠️ Statuts NULL", row['nulls'])
+                
+            except Exception as e:
+                st.error(f"Erreur diagnostic statuts: {e}")
+            
+            # 3. Tester la génération de code
+            st.markdown("**3. Test de génération de code...**")
+            try:
+                test_code = gestionnaire.generate_fournisseur_code()
+                st.success(f"✅ Test réussi - Code généré: {test_code}")
+            except Exception as e:
+                st.error(f"❌ Test échoué: {e}")
+    
+    st.markdown("---")
+    
+    # Réparations
+    st.markdown("#### 🔧 Réparations")
+    
+    repair_col1, repair_col2 = st.columns(2)
+    
+    with repair_col1:
+        st.markdown("**Corriger les Codes Fournisseurs**")
+        if st.button("🔧 Réparer Tous les Codes", use_container_width=True):
+            with st.spinner("Réparation des codes en cours..."):
+                try:
+                    stats = gestionnaire.fix_corrupted_fournisseur_codes()
+                    st.success(f"""
+✅ Réparation terminée !
+- Fournisseurs vérifiés: {stats['total_verifies']}
+- Codes corrigés: {stats['codes_corriges']}
+- Codes vides remplis: {stats['codes_vides']}
+- Erreurs: {stats['erreurs']}
+                    """)
+                except Exception as e:
+                    st.error(f"Erreur lors de la réparation: {e}")
+    
+    with repair_col2:
+        st.markdown("**Corriger les Statuts**")
+        if st.button("🔧 Réparer Tous les Statuts", use_container_width=True):
+            with st.spinner("Réparation des statuts en cours..."):
+                try:
+                    affected = gestionnaire.fix_all_fournisseur_status()
+                    st.success(f"✅ {affected} statut(s) corrigé(s) !")
+                except Exception as e:
+                    st.error(f"Erreur lors de la réparation: {e}")
+    
+    st.markdown("---")
+    
+    # Outils avancés
+    st.markdown("#### 🛠️ Outils Avancés")
+    
+    with st.expander("🔍 Voir Données Brutes", expanded=False):
+        if st.button("Afficher Table Fournisseurs", key="show_raw_data"):
+            try:
+                query = "SELECT id, code_fournisseur, est_actif FROM fournisseurs ORDER BY id"
+                raw_data = gestionnaire.db.execute_query(query)
+                
+                if raw_data:
+                    df_raw = pd.DataFrame(raw_data)
+                    st.dataframe(df_raw, use_container_width=True)
+                else:
+                    st.info("Aucune donnée trouvée")
+                    
+            except Exception as e:
+                st.error(f"Erreur affichage données: {e}")
+    
+    with st.expander("🗄️ Requêtes SQL Manuelles", expanded=False):
+        st.warning("⚠️ Attention: Utilisez ces outils uniquement si vous connaissez SQL !")
+        
+        sql_query = st.text_area(
+            "Requête SQL:",
+            value="SELECT * FROM fournisseurs LIMIT 5;",
+            help="Saisir une requête SQL de lecture (SELECT uniquement)"
+        )
+        
+        if st.button("▶️ Exécuter Requête"):
+            if sql_query.strip().upper().startswith('SELECT'):
+                try:
+                    result = gestionnaire.db.execute_query(sql_query)
+                    if result:
+                        df_result = pd.DataFrame(result)
+                        st.dataframe(df_result, use_container_width=True)
+                    else:
+                        st.info("Aucun résultat")
+                except Exception as e:
+                    st.error(f"Erreur requête: {e}")
+            else:
+                st.error("Seules les requêtes SELECT sont autorisées")
+
 def show_fournisseurs_page():
-    """Page principale du module Fournisseurs avec NOUVEAUX formulaires DP/BA"""
+    """Page principale du module Fournisseurs avec NOUVEAUX formulaires DP/BA et DIAGNOSTIC"""
     st.markdown("## 🏪 Gestion des Fournisseurs DG Inc.")
     
     # Initialisation du gestionnaire
@@ -524,11 +813,14 @@ def show_fournisseurs_page():
     if 'form_lines_data' not in st.session_state:
         st.session_state.form_lines_data = []
     
-    # NOUVEAUX Onglets avec formulaires intégrés
-    tab_dashboard, tab_liste, tab_performance, tab_categories, tab_demande_prix, tab_bon_achat = st.tabs([
-        "📊 Dashboard", "📋 Liste Fournisseurs", "📈 Performances", 
+    # Onglets avec DIAGNOSTIC en premier - MODIFICATION PRINCIPALE
+    tab_diagnostic, tab_dashboard, tab_liste, tab_performance, tab_categories, tab_demande_prix, tab_bon_achat = st.tabs([
+        "🔧 Diagnostic", "📊 Dashboard", "📋 Liste Fournisseurs", "📈 Performances", 
         "🏷️ Catégories", "📋 Demande de Prix", "🛒 Bon d'Achat"
     ])
+    
+    with tab_diagnostic:
+        render_diagnostic_tab(gestionnaire)
     
     with tab_dashboard:
         render_fournisseurs_dashboard(gestionnaire)
