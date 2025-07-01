@@ -3572,7 +3572,7 @@ def show_kanban_legacy():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_project_modal():
-    """Affichage des détails d'un projet dans un expander - MODIFIÉ sans Sous-tâches et Matériaux"""
+    """Affichage des détails d'un projet dans un expander - MODIFIÉ avec opérations complètes BT incluses"""
     if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
         return
 
@@ -3613,46 +3613,115 @@ def show_project_modal():
             st.markdown("##### 📝 Description")
             st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
 
-        # MODIFIÉ : Onglets simplifiés - uniquement Opérations et Pièces Jointes
+        # Onglets avec opérations complètes et pièces jointes
         if ATTACHMENTS_AVAILABLE:
-            tabs_mod = st.tabs(["🔧 Opérations", "📎 Pièces Jointes"])
+            tabs_mod = st.tabs(["🔧 Opérations Complètes", "📎 Pièces Jointes"])
         else:
-            tabs_mod = st.tabs(["🔧 Opérations"])
+            tabs_mod = st.tabs(["🔧 Opérations Complètes"])
 
-        # Onglet Opérations (maintenant à l'indice 0)
+        # Onglet Opérations MODIFIÉ - Récupération complète via base de données
         with tabs_mod[0]:
-            ops_mod = proj_mod.get('operations', [])
-            if not ops_mod:
-                st.info("Aucune opération définie.")
-            else:
-                total_t_mod = 0
-                for op_item in ops_mod:
-                    tps = op_item.get('temps_estime', 0)
-                    total_t_mod += tps
-                    op_color = {
-                        'À FAIRE': 'orange',
-                        'EN COURS': 'var(--primary-color)',
-                        'TERMINÉ': 'var(--success-color)'
-                    }.get(op_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
-
-                    poste_travail = op_item.get('poste_travail', 'Non assigné')
+            try:
+                # NOUVEAU : Récupérer TOUTES les opérations du projet via la base de données
+                # Cela inclut les opérations directes ET celles créées via les Bons de Travail
+                project_id = proj_mod.get('id')
+                if project_id and hasattr(st.session_state, 'erp_db'):
+                    all_operations = st.session_state.erp_db.get_project_operations_with_work_centers(project_id)
+                else:
+                    # Fallback sur l'ancienne méthode si la base n'est pas disponible
+                    all_operations = proj_mod.get('operations', [])
+                
+                if not all_operations:
+                    st.info("Aucune opération définie pour ce projet.")
+                else:
+                    # Regrouper les opérations par source
+                    operations_directes = []
+                    operations_bt = []
+                    
+                    for op in all_operations:
+                        if op.get('formulaire_bt_id'):
+                            # Opération créée via un Bon de Travail
+                            operations_bt.append(op)
+                        else:
+                            # Opération directe du projet
+                            operations_directes.append(op)
+                    
+                    # Afficher les statistiques globales
+                    total_temps = sum(float(op.get('temps_estime', 0) or 0) for op in all_operations)
+                    total_operations = len(all_operations)
+                    
                     st.markdown(f"""
-                    <div class='info-card' style='border-left:4px solid {op_color};margin-top:0.5rem;'>
-                        <h5 style='margin:0 0 0.3rem 0;'>{op_item.get('sequence', '?')} - {op_item.get('description', 'N/A')}</h5>
-                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
-                            <span>🏭 {poste_travail}</span>
-                            <span>⏱️ {tps}h</span>
-                            <span>👨‍🔧 {op_item.get('ressource', 'N/A')}</span>
-                            <span>🚦 {op_item.get('statut', 'N/A')}</span>
-                        </div>
+                    <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-bottom:1rem;'>
+                        <h5 style='color:var(--primary-color-darker);margin:0;'>
+                            📊 Total: {total_operations} opération(s) | ⏱️ Temps Total: {total_temps:.1f}h
+                        </h5>
+                        <p style='margin:0.5rem 0 0 0;font-size:0.9em;'>
+                            🔧 Directes: {len(operations_directes)} | 📋 Via Bons de Travail: {len(operations_bt)}
+                        </p>
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    # Section 1 : Opérations directes du projet
+                    if operations_directes:
+                        st.markdown("#### 🔧 Opérations Directes du Projet")
+                        for op in operations_directes:
+                            _afficher_operation_dans_modal(op, "var(--primary-color)")
+                    
+                    # Section 2 : Opérations via Bons de Travail
+                    if operations_bt:
+                        st.markdown("#### 📋 Opérations via Bons de Travail")
+                        
+                        # Regrouper par BT
+                        bt_groups = {}
+                        for op in operations_bt:
+                            bt_id = op.get('formulaire_bt_id')
+                            bt_numero = op.get('bt_numero', f'BT #{bt_id}')
+                            if bt_numero not in bt_groups:
+                                bt_groups[bt_numero] = {
+                                    'bt_id': bt_id,
+                                    'bt_statut': op.get('bt_statut', 'N/A'),
+                                    'operations': []
+                                }
+                            bt_groups[bt_numero]['operations'].append(op)
+                        
+                        # Afficher par BT
+                        for bt_numero, bt_data in bt_groups.items():
+                            bt_statut = bt_data['bt_statut']
+                            bt_color = {
+                                'BROUILLON': '#f59e0b',
+                                'VALIDÉ': '#3b82f6', 
+                                'EN COURS': '#10b981',
+                                'TERMINÉ': '#059669',
+                                'ANNULÉ': '#ef4444'
+                            }.get(bt_statut, '#6b7280')
+                            
+                            st.markdown(f"""
+                            <div style='background:#f8fafc;border:1px solid {bt_color};border-radius:6px;padding:0.5rem;margin:0.5rem 0;'>
+                                <h6 style='margin:0;color:{bt_color};'>📋 {bt_numero} - Statut: {bt_statut}</h6>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            for op in bt_data['operations']:
+                                _afficher_operation_dans_modal(op, bt_color)
+                    
+            except Exception as e:
+                st.error(f"Erreur lors de la récupération des opérations: {e}")
+                # Fallback sur l'ancienne méthode
+                ops_mod = proj_mod.get('operations', [])
+                if not ops_mod:
+                    st.info("Aucune opération définie.")
+                else:
+                    total_t_mod = 0
+                    for op_item in ops_mod:
+                        tps = op_item.get('temps_estime', 0)
+                        total_t_mod += tps
+                        _afficher_operation_dans_modal(op_item, "orange")
 
-                st.markdown(f"""
-                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
-                    <h5 style='color:var(--primary-color-darker);margin:0;'>⏱️ Temps Total Est.: {total_t_mod}h</h5>
-                </div>
-                """, unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
+                        <h5 style='color:var(--primary-color-darker);margin:0;'>⏱️ Temps Total Est.: {total_t_mod}h</h5>
+                    </div>
+                    """, unsafe_allow_html=True)
 
         # Onglet Pièces Jointes (maintenant à l'indice 1)
         if ATTACHMENTS_AVAILABLE:
@@ -3664,6 +3733,66 @@ def show_project_modal():
             st.session_state.show_project_modal = False
             st.rerun()
 
+
+def _afficher_operation_dans_modal(operation, border_color):
+    """Fonction helper pour afficher une opération dans la modal avec informations complètes"""
+    temps = operation.get('temps_estime', 0)
+    statut = operation.get('statut', 'À FAIRE')
+    
+    # Couleur selon le statut
+    statut_color = {
+        'À FAIRE': '#f59e0b',
+        'EN COURS': '#3b82f6',
+        'TERMINÉ': '#10b981'
+    }.get(statut, '#6b7280')
+    
+    # Informations sur le poste de travail
+    poste_travail = operation.get('work_center_name') or operation.get('poste_travail', 'Non assigné')
+    departement = operation.get('work_center_departement', '')
+    cout_horaire = operation.get('work_center_cout_horaire', 0)
+    
+    # Calcul du coût estimé
+    try:
+        cout_estime = float(temps or 0) * float(cout_horaire or 0)
+    except (ValueError, TypeError):
+        cout_estime = 0.0
+    
+    # Numéro de séquence
+    sequence = operation.get('sequence_number') or operation.get('sequence', '?')
+    
+    # Description de l'opération
+    description = operation.get('description', 'N/A')
+    
+    # Ressource assignée
+    ressource = operation.get('ressource', 'N/A')
+    
+    st.markdown(f"""
+    <div class='info-card' style='border-left:4px solid {border_color};margin-top:0.5rem;'>
+        <div style='display:flex;justify-content:space-between;align-items:center;'>
+            <h5 style='margin:0 0 0.3rem 0;'>
+                {sequence} - {description}
+            </h5>
+            <span style='background:{statut_color};color:white;padding:2px 8px;border-radius:4px;font-size:0.8em;'>
+                {statut}
+            </span>
+        </div>
+        <div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;font-size:0.9em;margin-top:0.5rem;'>
+            <div>
+                <strong>🏭 Poste:</strong> {poste_travail}<br>
+                <small style='color:#6b7280;'>{departement}</small>
+            </div>
+            <div>
+                <strong>⏱️ Temps:</strong> {temps}h<br>
+                <strong>👨‍🔧 Ressource:</strong> {ressource}
+            </div>
+            <div>
+                <strong>💰 Coût Estimé:</strong> {cout_estime:.2f}$<br>
+                <small style='color:#6b7280;'>({cout_horaire}$/h)</small>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
 def show_footer():
     st.markdown("---")
     st.markdown("""
