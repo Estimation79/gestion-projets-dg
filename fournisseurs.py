@@ -80,12 +80,41 @@ class GestionnaireFournisseurs:
             print(f"Info: Nettoyage DB pas nécessaire ou erreur: {e}")
     
     def get_all_fournisseurs(self) -> List[Dict]:
-        """Récupère tous les fournisseurs avec leurs statistiques"""
+        """Récupère tous les fournisseurs avec leurs statistiques et company_id"""
         try:
-            return self.db.get_fournisseurs_with_stats()
+            # Requête modifiée pour inclure explicitement company_id
+            query = '''
+                SELECT f.*, c.nom, c.secteur, c.adresse, c.site_web,
+                       COUNT(form.id) as nombre_commandes,
+                       COALESCE(SUM(form.montant_total), 0) as montant_total_commandes
+                FROM fournisseurs f
+                JOIN companies c ON f.company_id = c.id
+                LEFT JOIN formulaires form ON c.id = form.company_id 
+                    AND form.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')
+                GROUP BY f.id, f.company_id, c.nom, c.secteur, c.adresse, c.site_web,
+                         f.code_fournisseur, f.categorie_produits, f.delai_livraison_moyen,
+                         f.conditions_paiement, f.evaluation_qualite, f.contact_commercial,
+                         f.contact_technique, f.certifications, f.notes_evaluation,
+                         f.date_creation, f.date_modification
+                ORDER BY c.nom
+            '''
+            rows = self.db.execute_query(query)
+            return [dict(row) for row in rows] if rows else []
         except Exception as e:
-            st.error(f"Erreur récupération fournisseurs: {e}")
-            return []
+            print(f"Erreur dans get_all_fournisseurs: {e}")
+            # Fallback: récupération simple avec company_id garanti
+            try:
+                fallback_query = '''
+                    SELECT f.*, c.nom
+                    FROM fournisseurs f
+                    JOIN companies c ON f.company_id = c.id
+                    ORDER BY c.nom
+                '''
+                rows = self.db.execute_query(fallback_query)
+                return [dict(row) for row in rows] if rows else []
+            except Exception as e2:
+                st.error(f"Erreur récupération fournisseurs: {e2}")
+                return []
     
     def get_fournisseur_by_id(self, fournisseur_id: int) -> Dict:
         """Récupère un fournisseur par ID avec détails complets"""
@@ -669,6 +698,13 @@ def render_create_demande_prix_form(gestionnaire):
     # Vérification des fournisseurs
     fournisseurs = gestionnaire.get_all_fournisseurs()
     
+    # DEBUG TEMPORAIRE - Afficher la structure des données
+    if fournisseurs and len(fournisseurs) > 0:
+        with st.expander("🔍 DEBUG - Structure des données fournisseurs", expanded=False):
+            st.write("**Premier fournisseur (exemple):**")
+            st.json(fournisseurs[0])
+            st.write("**Clés disponibles:**", list(fournisseurs[0].keys()))
+    
     if not fournisseurs:
         st.warning("⚠️ Aucun fournisseur disponible.")
         st.info("💡 Créez d'abord un fournisseur dans l'onglet 'Liste Fournisseurs' pour pouvoir créer une demande de prix.")
@@ -849,6 +885,12 @@ def render_create_demande_prix_form(gestionnaire):
             if not st.session_state.dp_lines:
                 st.error("❌ Ajoutez au moins un article avant de créer la demande.")
             else:
+                # Vérification de la validité du fournisseur sélectionné
+                if not selected_fournisseur or 'company_id' not in selected_fournisseur:
+                    st.error("❌ Erreur avec le fournisseur sélectionné. Veuillez réessayer.")
+                    st.rerun()
+                    return
+                
                 formulaire_data = {
                     'type_formulaire': 'DEMANDE_PRIX',
                     'numero_document': numero_dp,
@@ -859,7 +901,7 @@ def render_create_demande_prix_form(gestionnaire):
                     'date_echeance': date_echeance.isoformat(),
                     'notes': notes,
                     'metadonnees_json': json.dumps({
-                        'fournisseur_nom': selected_fournisseur.get('nom'),
+                        'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
                         'type_document': 'demande_prix'
                     })
                 }
@@ -880,6 +922,13 @@ def render_create_bon_achat_form(gestionnaire):
     
     # Vérification des fournisseurs
     fournisseurs = gestionnaire.get_all_fournisseurs()
+    
+    # DEBUG TEMPORAIRE - Afficher la structure des données
+    if fournisseurs and len(fournisseurs) > 0:
+        with st.expander("🔍 DEBUG - Structure des données fournisseurs", expanded=False):
+            st.write("**Premier fournisseur (exemple):**")
+            st.json(fournisseurs[0])
+            st.write("**Clés disponibles:**", list(fournisseurs[0].keys()))
     
     if not fournisseurs:
         st.warning("⚠️ Aucun fournisseur disponible.")
@@ -1089,6 +1138,12 @@ def render_create_bon_achat_form(gestionnaire):
             if not st.session_state.ba_lines:
                 st.error("❌ Ajoutez au moins un article avant de créer le bon d'achat.")
             else:
+                # Vérification de la validité du fournisseur sélectionné
+                if not selected_fournisseur or 'company_id' not in selected_fournisseur:
+                    st.error("❌ Erreur avec le fournisseur sélectionné. Veuillez réessayer.")
+                    st.rerun()
+                    return
+                
                 formulaire_data = {
                     'type_formulaire': 'BON_ACHAT',
                     'numero_document': numero_ba,
@@ -1099,7 +1154,7 @@ def render_create_bon_achat_form(gestionnaire):
                     'date_echeance': date_echeance.isoformat(),
                     'notes': notes,
                     'metadonnees_json': json.dumps({
-                        'fournisseur_nom': selected_fournisseur.get('nom'),
+                        'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
                         'type_document': 'bon_achat',
                         'total_calcule': sum(l['quantite'] * l['prix_unitaire'] for l in st.session_state.ba_lines)
                     })
