@@ -38,6 +38,9 @@ class GestionnaireFournisseurs:
             if has_est_actif:
                 st.info("🔧 Nettoyage de la base de données en cours...")
                 
+                # Désactiver les contraintes de clé étrangère temporairement
+                self.db.execute_update("PRAGMA foreign_keys=OFF")
+                
                 # Créer une nouvelle table sans la colonne est_actif
                 self.db.execute_update("""
                     CREATE TABLE IF NOT EXISTS fournisseurs_new (
@@ -66,7 +69,9 @@ class GestionnaireFournisseurs:
                      certifications, notes_evaluation, date_creation, date_modification)
                     SELECT id, company_id, code_fournisseur, categorie_produits, delai_livraison_moyen,
                            conditions_paiement, evaluation_qualite, contact_commercial, contact_technique,
-                           certifications, notes_evaluation, date_creation, date_modification
+                           certifications, notes_evaluation, 
+                           COALESCE(date_creation, created_at, CURRENT_TIMESTAMP),
+                           COALESCE(date_modification, created_at, CURRENT_TIMESTAMP)
                     FROM fournisseurs
                 """)
                 
@@ -74,10 +79,18 @@ class GestionnaireFournisseurs:
                 self.db.execute_update("DROP TABLE fournisseurs")
                 self.db.execute_update("ALTER TABLE fournisseurs_new RENAME TO fournisseurs")
                 
+                # Réactiver les contraintes de clé étrangère
+                self.db.execute_update("PRAGMA foreign_keys=ON")
+                
                 st.success("✅ Base de données nettoyée - Colonne est_actif supprimée")
                 
         except Exception as e:
             print(f"Info: Nettoyage DB pas nécessaire ou erreur: {e}")
+            # Réactiver les contraintes en cas d'erreur
+            try:
+                self.db.execute_update("PRAGMA foreign_keys=ON")
+            except:
+                pass
     
     def get_all_fournisseurs(self) -> List[Dict]:
         """Récupère tous les fournisseurs avec leurs statistiques et company_id"""
@@ -474,6 +487,14 @@ class GestionnaireFournisseurs:
     def create_formulaire_with_lines(self, formulaire_data: Dict, lignes_data: List[Dict]) -> int:
         """Crée un formulaire avec ses lignes de détail"""
         try:
+            # Vérifier que la company existe avant de créer le formulaire
+            check_company_query = "SELECT id FROM companies WHERE id = ?"
+            company_exists = self.db.execute_query(check_company_query, (formulaire_data['company_id'],))
+            
+            if not company_exists:
+                st.error(f"❌ Erreur: L'entreprise ID {formulaire_data['company_id']} n'existe pas.")
+                return None
+            
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 
@@ -520,17 +541,25 @@ class GestionnaireFournisseurs:
                     ))
                 
                 # Enregistrer la création dans l'historique
-                cursor.execute('''
-                    INSERT INTO formulaire_validations
-                    (formulaire_id, employee_id, type_validation, commentaires)
-                    VALUES (?, ?, 'CREATION', ?)
-                ''', (formulaire_id, formulaire_data.get('employee_id'), f"Création {formulaire_data['type_formulaire']}"))
+                try:
+                    cursor.execute('''
+                        INSERT INTO formulaire_validations
+                        (formulaire_id, employee_id, type_validation, commentaires)
+                        VALUES (?, ?, 'CREATION', ?)
+                    ''', (formulaire_id, formulaire_data.get('employee_id'), f"Création {formulaire_data['type_formulaire']}"))
+                except Exception as validation_error:
+                    # L'historique n'est pas critique, continuer même en cas d'erreur
+                    print(f"Avertissement: Impossible d'enregistrer l'historique: {validation_error}")
                 
                 conn.commit()
                 return formulaire_id
                 
         except Exception as e:
-            st.error(f"Erreur création formulaire: {e}")
+            error_msg = str(e)
+            if "FOREIGN KEY constraint failed" in error_msg:
+                st.error(f"❌ Erreur de contrainte: Vérifiez que l'entreprise sélectionnée existe toujours.")
+            else:
+                st.error(f"❌ Erreur création formulaire: {e}")
             return None
     
     def get_formulaires_fournisseur(self, company_id: int, type_formulaire: str = None) -> List[Dict]:
