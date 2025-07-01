@@ -3089,3 +3089,524 @@ div[style*="background: rgb(30, 64, 175)"] {
         padding: 1.2rem 1rem !important;
     }
 }
+
+/* ============================================================
+   STYLES POUR PIÈCES JOINTES - À AJOUTER DANS style.css
+   ============================================================ */
+
+/* Zone d'upload drag & drop */
+.attachment-upload-zone {
+    border: 2px dashed var(--primary-color);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #f0fdf4 100%);
+    margin: 1rem 0;
+    transition: all 0.3s ease;
+    position: relative;
+    cursor: pointer;
+}
+
+.attachment-upload-zone:hover {
+    border-color: var(--primary-color-dark);
+    background: linear-gradient(135deg, var(--primary-color-light) 0%, #dcfce7 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 169, 113, 0.2);
+}
+
+.attachment-upload-zone::before {
+    content: "📤";
+    font-size: 3rem;
+    display: block;
+    margin-bottom: 1rem;
+    opacity: 0.8;
+}
+
+.attachment-upload-zone .upload-text {
+    font-size: 1.1rem;
+    color: var(--primary-color-darkest);
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.attachment-upload-zone .upload-hint {
+    font-size: 0.9rem;
+    color: var(--text-color-muted);
+    opacity: 0.8;
+}
+
+/* Cartes de fichiers attachés */
+.attachment-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 0.5rem 0;
+    background: white;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.attachment-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: var(--primary-color);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.attachment-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+    border-color: var(--primary-color-light);
+}
+
+.attachment-card:hover::before {
+    opacity: 1;
+}
+
+/* En-têtes de catégories */
+.attachment-category-header {
+    background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #e6f3ff 100%);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin: 1.5rem 0 1rem 0;
+    font-weight: 600;
+    color: var(--primary-color-darkest);
+    border-left: 4px solid var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.attachment-category-header .category-icon {
+    font-size: 1.2rem;
+    margin-right: 0.5rem;
+}
+
+.attachment-category-header .category-count {
+    background: white;
+    color: var(--primary-color-darkest);
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+/* Informations de fichier */
+.attachment-file-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: #f8fafc;
+    border-radius: 6px;
+    margin: 0.5rem 0;
+    border: 1px solid #e2e8f0;
+    transition: background 0.2s ease;
+}
+
+.attachment-file-info:hover {
+    background: #f1f5f9;
+}
+
+.attachment-file-info .file-name {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 0.25rem;
+}
+
+.attachment-file-info .file-meta {
+    font-size: 0.85rem;
+    color: var(--text-color-muted);
+    display: flex;
+    gap: 1rem;
+}
+
+.attachment-file-info .file-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+/* Statistiques des pièces jointes */
+.attachment-stats {
+    background: linear-gradient(135deg, #e6f3ff 0%, #cce7ff 100%);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    border: 1px solid #bfdbfe;
+}
+
+.attachment-stats h4 {
+    color: #1e40af;
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem;
+}
+
+.attachment-stats .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.attachment-stats .stat-item {
+    background: white;
+    padding: 0.75rem;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.attachment-stats .stat-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--primary-color-darkest);
+}
+
+.attachment-stats .stat-label {
+    font-size: 0.8rem;
+    color: var(--text-color-muted);
+    margin-top: 0.25rem;
+}
+
+/* Badges de catégorie */
+.category-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 16px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: white;
+    margin-right: 0.5rem;
+    gap: 0.25rem;
+}
+
+.category-badge.DOCUMENT { 
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+}
+
+.category-badge.IMAGE { 
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.category-badge.TECHNIQUE { 
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.category-badge.ARCHIVE { 
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+}
+
+.category-badge.MEDIA { 
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.category-badge.AUTRE { 
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+}
+
+/* Boutons d'action pour fichiers */
+.attachment-action-btn {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+    min-width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attachment-action-btn:hover {
+    background: var(--primary-color-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 169, 113, 0.3);
+}
+
+.attachment-action-btn.delete {
+    background: #ef4444;
+}
+
+.attachment-action-btn.delete:hover {
+    background: #dc2626;
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+}
+
+/* Indicateurs de progression d'upload */
+.upload-progress {
+    background: #e5e7eb;
+    border-radius: 4px;
+    height: 6px;
+    margin: 0.5rem 0;
+    overflow: hidden;
+}
+
+.upload-progress-bar {
+    background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-color-light) 100%);
+    height: 100%;
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+/* Messages d'état */
+.attachment-message {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.attachment-message.success {
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+}
+
+.attachment-message.error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.attachment-message.warning {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.attachment-message.info {
+    background: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+}
+
+/* Zone de prévisualisation */
+.attachment-preview {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 0.5rem 0;
+    text-align: center;
+}
+
+.attachment-preview img {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.attachment-preview .preview-placeholder {
+    width: 100px;
+    height: 100px;
+    background: #e5e7eb;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    font-size: 2rem;
+    color: #6b7280;
+}
+
+/* Types de fichiers spécifiques */
+.file-type-icon {
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+}
+
+.file-type-icon.pdf { color: #dc2626; }
+.file-type-icon.doc { color: #2563eb; }
+.file-type-icon.xls { color: #16a34a; }
+.file-type-icon.img { color: #7c3aed; }
+.file-type-icon.zip { color: #f59e0b; }
+.file-type-icon.video { color: #ef4444; }
+.file-type-icon.audio { color: #8b5cf6; }
+.file-type-icon.dwg { color: #059669; }
+
+/* Liste des fichiers autorisés */
+.allowed-files-list {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+    color: #15803d;
+}
+
+.allowed-files-list .file-extensions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+}
+
+.allowed-files-list .file-ext {
+    background: white;
+    border: 1px solid #bbf7d0;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.8rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .attachment-upload-zone {
+        padding: 1.5rem 1rem;
+    }
+    
+    .attachment-file-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .attachment-file-info .file-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+    
+    .attachment-category-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .attachment-stats .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .category-badge {
+        margin-bottom: 0.25rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .attachment-stats .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .attachment-upload-zone {
+        padding: 1rem;
+    }
+    
+    .attachment-upload-zone::before {
+        font-size: 2rem;
+    }
+}
+
+/* Animations */
+@keyframes attachmentSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.attachment-card {
+    animation: attachmentSlideIn 0.3s ease-out;
+}
+
+@keyframes uploadSuccess {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.upload-success-animation {
+    animation: uploadSuccess 0.4s ease-out;
+}
+
+/* Drag & Drop States */
+.drag-over {
+    border-color: var(--primary-color-dark) !important;
+    background: var(--primary-color-light) !important;
+    transform: scale(1.02);
+}
+
+.drag-active {
+    border-style: solid;
+    border-width: 3px;
+}
+
+/* Tooltips pour les boutons */
+.attachment-tooltip {
+    position: relative;
+}
+
+.attachment-tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 1000;
+}
+
+.attachment-tooltip:hover::after {
+    opacity: 1;
+}
+
+/* Style pour la navigation des onglets */
+.attachment-tabs {
+    border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 1rem;
+}
+
+.attachment-tab {
+    display: inline-block;
+    padding: 0.75rem 1rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--text-color-muted);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.attachment-tab.active {
+    color: var(--primary-color-darkest);
+    border-bottom-color: var(--primary-color);
+}
+
+.attachment-tab:hover {
+    color: var(--primary-color-dark);
+    background: #f8fafc;
+}
+
+print("✅ Styles CSS pour pièces jointes créés");
+print("🎨 Design moderne avec animations et responsive");
+print("📱 Compatible mobile et tablette");
+print("🔧 Intégration parfaite avec le thème ERP DG Inc.");
