@@ -8,6 +8,7 @@
 # VERSION FINALE : Support complet de la modification des Bons de Travail
 # NOUVELLE VERSION : Ajout dropdown Fournisseur/Sous-traitant simple
 # VERSION PDF : Intégration complète export PDF professionnel
+# VERSION SUPPRESSION : Fonctionnalité complète de suppression sécurisée des BT
 
 import streamlit as st
 import pandas as pd
@@ -39,6 +40,7 @@ class GestionnaireBonsTravail:
     VERSION FINALE avec support complet de modification
     NOUVELLE VERSION avec support fournisseurs/sous-traitants
     VERSION PDF avec export professionnel
+    VERSION SUPPRESSION avec suppression sécurisée complète
     """
     
     def __init__(self, db):
@@ -64,6 +66,13 @@ class GestionnaireBonsTravail:
             
         if 'bt_show_success' not in st.session_state:
             st.session_state.bt_show_success = False
+        
+        # NOUVEAU : Variables pour la suppression
+        if 'bt_confirm_delete' not in st.session_state:
+            st.session_state.bt_confirm_delete = None
+        
+        if 'bt_delete_confirmed' not in st.session_state:
+            st.session_state.bt_delete_confirmed = False
 
     def get_empty_bt_form(self) -> Dict:
         """Retourne un formulaire BT vide - MODIFIÉ pour supporter l'auto-sélection"""
@@ -406,6 +415,117 @@ class GestionnaireBonsTravail:
         except Exception as e:
             logger.error(f"Erreur mise à jour BT {bt_id}: {e}")
             return False
+    
+    def delete_bon_travail(self, bt_id: int) -> bool:
+        """
+        Supprime complètement un bon de travail et toutes ses données associées
+        NOUVELLE FONCTION : Suppression sécurisée avec nettoyage complet
+        """
+        try:
+            # Vérifier que le BT existe
+            bt_data = self.load_bon_travail(bt_id)
+            if not bt_data:
+                logger.error(f"BT {bt_id} non trouvé pour suppression")
+                return False
+            
+            # Commencer une transaction pour assurer la cohérence
+            # Note: SQLite supporte les transactions implicites
+            
+            # 1. Supprimer les validations/historique
+            self.db.execute_query('''
+                DELETE FROM formulaire_validations 
+                WHERE formulaire_id = ?
+            ''', (bt_id,))
+            
+            # 2. Supprimer les lignes (tâches et matériaux)
+            self.db.execute_query('''
+                DELETE FROM formulaire_lignes 
+                WHERE formulaire_id = ?
+            ''', (bt_id,))
+            
+            # 3. Supprimer les entrées TimeTracker associées (si existantes)
+            self.db.execute_query('''
+                DELETE FROM time_entries 
+                WHERE formulaire_bt_id = ?
+            ''', (bt_id,))
+            
+            # 4. Supprimer le formulaire principal
+            result = self.db.execute_query('''
+                DELETE FROM formulaires 
+                WHERE id = ? AND type_formulaire = 'BON_TRAVAIL'
+            ''', (bt_id,))
+            
+            # Enregistrer l'action de suppression dans les logs
+            logger.info(f"Bon de Travail {bt_data['numero_document']} (ID: {bt_id}) supprimé avec succès")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression BT {bt_id}: {e}")
+            return False
+
+    def get_bt_delete_impact(self, bt_id: int) -> Dict:
+        """
+        Analyse l'impact de la suppression d'un BT
+        NOUVELLE FONCTION : Analyse des dépendances avant suppression
+        """
+        try:
+            # Récupérer les informations du BT
+            bt_data = self.load_bon_travail(bt_id)
+            if not bt_data:
+                return {'exists': False}
+            
+            # Compter les lignes associées
+            lignes_count = self.db.execute_query('''
+                SELECT COUNT(*) as count FROM formulaire_lignes 
+                WHERE formulaire_id = ?
+            ''', (bt_id,))
+            
+            # Compter les entrées TimeTracker
+            timetracker_count = self.db.execute_query('''
+                SELECT COUNT(*) as count, COALESCE(SUM(total_hours), 0) as total_hours,
+                       COALESCE(SUM(total_cost), 0) as total_cost
+                FROM time_entries 
+                WHERE formulaire_bt_id = ?
+            ''', (bt_id,))
+            
+            # Compter les validations
+            validations_count = self.db.execute_query('''
+                SELECT COUNT(*) as count FROM formulaire_validations 
+                WHERE formulaire_id = ?
+            ''', (bt_id,))
+            
+            impact = {
+                'exists': True,
+                'bt_info': {
+                    'numero_document': bt_data['numero_document'],
+                    'project_name': bt_data['project_name'],
+                    'client_name': bt_data['client_name'],
+                    'statut': bt_data.get('statut', 'BROUILLON')
+                },
+                'lignes_count': lignes_count[0]['count'] if lignes_count else 0,
+                'timetracker_sessions': timetracker_count[0]['count'] if timetracker_count else 0,
+                'timetracker_hours': timetracker_count[0]['total_hours'] if timetracker_count else 0,
+                'timetracker_cost': timetracker_count[0]['total_cost'] if timetracker_count else 0,
+                'validations_count': validations_count[0]['count'] if validations_count else 0
+            }
+            
+            # Évaluer le niveau de risque
+            if impact['timetracker_sessions'] > 0:
+                impact['risk_level'] = 'HIGH'
+                impact['risk_message'] = "⚠️ ATTENTION: Ce BT contient des données TimeTracker (heures pointées)"
+            elif impact['lignes_count'] > 5:
+                impact['risk_level'] = 'MEDIUM'
+                impact['risk_message'] = "⚠️ Ce BT contient plusieurs tâches/matériaux"
+            else:
+                impact['risk_level'] = 'LOW'
+                impact['risk_message'] = "✅ Suppression à faible risque"
+            
+            return impact
+            
+        except Exception as e:
+            logger.error(f"Erreur analyse impact suppression BT {bt_id}: {e}")
+            return {'exists': False, 'error': str(e)}
     
     def load_bon_travail(self, bt_id: int) -> Optional[Dict]:
         """
@@ -1752,11 +1872,154 @@ def show_bt_actions():
                     st.session_state.bt_mode = 'create'
                     st.rerun()
 
+def show_bt_delete_confirmation():
+    """
+    Affiche la boîte de dialogue de confirmation de suppression
+    NOUVELLE FONCTION : Interface de confirmation sécurisée
+    """
+    if not st.session_state.bt_confirm_delete:
+        return
+    
+    bt_id = st.session_state.bt_confirm_delete
+    gestionnaire = st.session_state.gestionnaire_bt
+    
+    # Analyser l'impact de la suppression
+    impact = gestionnaire.get_bt_delete_impact(bt_id)
+    
+    if not impact.get('exists'):
+        st.error("❌ Bon de Travail non trouvé")
+        st.session_state.bt_confirm_delete = None
+        return
+    
+    bt_info = impact['bt_info']
+    risk_level = impact.get('risk_level', 'LOW')
+    
+    # Couleur selon le niveau de risque
+    if risk_level == 'HIGH':
+        alert_color = 'error'
+        warning_icon = '🚨'
+    elif risk_level == 'MEDIUM':
+        alert_color = 'warning'
+        warning_icon = '⚠️'
+    else:
+        alert_color = 'info'
+        warning_icon = '🗑️'
+    
+    # Affichage de la confirmation
+    with st.container():
+        if alert_color == 'error':
+            st.error(f"""
+            {warning_icon} **CONFIRMATION DE SUPPRESSION - RISQUE ÉLEVÉ**
+            
+            **Bon de Travail à supprimer :**
+            - **N°:** {bt_info['numero_document']}
+            - **Projet:** {bt_info['project_name']}
+            - **Client:** {bt_info['client_name']}
+            - **Statut:** {bt_info['statut']}
+            
+            **⚠️ DONNÉES QUI SERONT SUPPRIMÉES :**
+            - **{impact['lignes_count']} tâche(s)/matériau(x)**
+            - **{impact['timetracker_sessions']} session(s) TimeTracker** ({impact['timetracker_hours']:.1f}h, {impact['timetracker_cost']:,.0f}$)
+            - **{impact['validations_count']} validation(s)/historique**
+            
+            {impact['risk_message']}
+            
+            **🚨 CETTE ACTION EST IRRÉVERSIBLE ! 🚨**
+            """)
+        elif alert_color == 'warning':
+            st.warning(f"""
+            {warning_icon} **CONFIRMATION DE SUPPRESSION**
+            
+            **Bon de Travail à supprimer :**
+            - **N°:** {bt_info['numero_document']}
+            - **Projet:** {bt_info['project_name']}
+            - **Client:** {bt_info['client_name']}
+            
+            **Données qui seront supprimées :**
+            - {impact['lignes_count']} tâche(s)/matériau(x)
+            - {impact['validations_count']} validation(s)
+            
+            {impact['risk_message']}
+            """)
+        else:
+            st.info(f"""
+            {warning_icon} **Confirmation de suppression**
+            
+            **Bon de Travail :** {bt_info['numero_document']} - {bt_info['project_name']}
+            
+            **Données à supprimer :** {impact['lignes_count']} ligne(s)
+            
+            {impact['risk_message']}
+            """)
+        
+        # Étape de confirmation selon le niveau de risque
+        if risk_level == 'HIGH':
+            # Confirmation à deux étapes pour risque élevé
+            if not st.session_state.bt_delete_confirmed:
+                st.markdown("**📝 Veuillez taper 'SUPPRIMER' pour confirmer :**")
+                confirm_text = st.text_input(
+                    "Confirmation requise:",
+                    placeholder="Tapez SUPPRIMER en majuscules",
+                    key="bt_delete_confirm_text"
+                )
+                
+                if confirm_text == "SUPPRIMER":
+                    st.session_state.bt_delete_confirmed = True
+                    st.rerun()
+            else:
+                st.success("✅ Confirmation reçue. Vous pouvez maintenant procéder à la suppression.")
+        
+        # Boutons d'action
+        col_delete, col_cancel = st.columns(2)
+        
+        with col_delete:
+            # Activer le bouton selon le niveau de risque
+            delete_enabled = True
+            if risk_level == 'HIGH' and not st.session_state.bt_delete_confirmed:
+                delete_enabled = False
+                button_text = "❌ Confirmation requise"
+            else:
+                button_text = f"🗑️ SUPPRIMER DÉFINITIVEMENT"
+            
+            if st.button(
+                button_text, 
+                type="primary" if delete_enabled else "secondary",
+                disabled=not delete_enabled,
+                use_container_width=True, 
+                key="bt_confirm_delete_final_btn"
+            ):
+                # Procéder à la suppression
+                if gestionnaire.delete_bon_travail(bt_id):
+                    st.success(f"✅ Bon de Travail {bt_info['numero_document']} supprimé avec succès !")
+                    
+                    # Nettoyer les variables de session
+                    st.session_state.bt_confirm_delete = None
+                    st.session_state.bt_delete_confirmed = False
+                    
+                    # Retourner à la liste
+                    st.session_state.bt_mode = 'manage'
+                    
+                    # Recharger la page après un court délai
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la suppression. Veuillez réessayer.")
+        
+        with col_cancel:
+            if st.button("❌ Annuler", use_container_width=True, key="bt_cancel_delete_btn"):
+                st.session_state.bt_confirm_delete = None
+                st.session_state.bt_delete_confirmed = False
+                st.rerun()
+
 def show_bt_management():
-    """Interface de gestion des bons de travail"""
+    """Interface de gestion des bons de travail avec suppression"""
     gestionnaire = st.session_state.gestionnaire_bt
     
     st.markdown("### 📋 Gestion des Bons de Travail")
+    
+    # Afficher la confirmation de suppression si nécessaire
+    if st.session_state.bt_confirm_delete:
+        show_bt_delete_confirmation()
+        return  # Ne pas afficher le reste pendant la confirmation
     
     # Récupérer tous les BT
     bons = gestionnaire.get_all_bons_travail()
@@ -1857,8 +2120,11 @@ def show_bt_management():
                         st.rerun()
                 
                 with action_detail_col4:
+                    # MISE À JOUR : Bouton suppression fonctionnel
                     if st.button("🗑️ Supprimer", key=f"del_{bon['id']}", type="secondary"):
-                        st.error("🗑️ Fonction de suppression en développement")
+                        st.session_state.bt_confirm_delete = bon['id']
+                        st.session_state.bt_delete_confirmed = False
+                        st.rerun()
 
 def show_bt_statistics():
     """Affichage des statistiques des BT"""
@@ -2647,6 +2913,7 @@ def show_production_management_page():
     Reproduit l'interface du fichier HTML en version Streamlit avec extension postes
     VERSION FINALE : Support complet de la modification des BT + Types numériques harmonisés
     VERSION PDF : Export PDF professionnel intégré
+    VERSION SUPPRESSION : Fonctionnalité complète de suppression sécurisée des BT
     """
     
     # Appliquer les styles DG
