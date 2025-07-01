@@ -591,19 +591,45 @@ def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_
         st.code(content, language=language)
         
     elif preview_type == 'pdf':
-        st.markdown("**📄 Fichier PDF détecté**")
-        st.info("💡 Utilisez le bouton de téléchargement pour ouvrir le PDF dans votre navigateur")
+        st.markdown("**📄 Aperçu du fichier PDF:**")
         
-        # Offrir le téléchargement direct
+        try:
+            # Lire le fichier PDF
+            with open(content, 'rb') as pdf_file:
+                pdf_content = pdf_file.read()
+            
+            # Encoder en base64 pour l'affichage
+            import base64
+            pdf_base64 = base64.b64encode(pdf_content).decode('utf-8')
+            
+            # Afficher le PDF dans un iframe
+            pdf_display = f"""
+            <iframe 
+                src="data:application/pdf;base64,{pdf_base64}" 
+                width="100%" 
+                height="600px" 
+                style="border: none;">
+                <p>Votre navigateur ne supporte pas l'affichage des PDFs. 
+                   <a href="data:application/pdf;base64,{pdf_base64}" target="_blank">Cliquez ici pour ouvrir le PDF</a>
+                </p>
+            </iframe>
+            """
+            
+            st.markdown(pdf_display, unsafe_allow_html=True)
+            
+        except Exception as e:
+            st.error(f"Erreur lors de l'affichage du PDF: {e}")
+            st.info("💡 Utilisez le bouton de téléchargement ci-dessous pour ouvrir le PDF")
+        
+        # Bouton de téléchargement en secours
         download_result = attachments_manager.download_attachment(attachment_id)
         if download_result:
             file_content, original_filename, mime_type = download_result
             st.download_button(
-                "📄 Télécharger et Ouvrir PDF",
+                "📄 Télécharger PDF",
                 data=file_content,
                 file_name=original_filename,
                 mime=mime_type,
-                type="primary",
                 use_container_width=True
             )
             
