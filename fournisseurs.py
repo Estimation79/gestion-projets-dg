@@ -663,7 +663,7 @@ def render_bon_achat_tab(gestionnaire):
         render_view_bon_achat(gestionnaire)
 
 def render_create_demande_prix_form(gestionnaire):
-    """Formulaire de création de Demande de Prix - VERSION SIMPLIFIÉE"""
+    """Formulaire de création de Demande de Prix - VERSION CORRIGÉE"""
     st.markdown("#### ➕ Nouvelle Demande de Prix")
     
     # Vérification des fournisseurs
@@ -678,7 +678,114 @@ def render_create_demande_prix_form(gestionnaire):
             st.rerun()
         return
     
+    # Initialiser les lignes si nécessaire
+    if 'dp_lines' not in st.session_state:
+        st.session_state.dp_lines = []
+    
+    # Section pour ajouter des articles (HORS du formulaire)
+    st.markdown("#### 📦 Articles à chiffrer")
+    
+    with st.expander("➕ Ajouter un article", expanded=len(st.session_state.dp_lines) == 0):
+        add_col1, add_col2, add_col3 = st.columns(3)
+        
+        with add_col1:
+            # Recherche d'article dans l'inventaire
+            search_term = st.text_input("🔍 Rechercher article:", key="dp_search_article")
+            articles = gestionnaire.get_inventory_items_for_selection(search_term)
+            
+            if articles:
+                selected_article = st.selectbox(
+                    "Article inventaire:",
+                    options=[None] + articles,
+                    format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
+                    key="dp_selected_article"
+                )
+            else:
+                selected_article = None
+                st.info("Aucun article trouvé ou saisie manuelle")
+            
+            description_article = st.text_input(
+                "Description:",
+                value=selected_article.get('nom', '') if selected_article else '',
+                key="dp_description"
+            )
+        
+        with add_col2:
+            code_article = st.text_input(
+                "Code article:",
+                value=selected_article.get('code_interne', '') if selected_article else '',
+                key="dp_code"
+            )
+            
+            quantite = st.number_input(
+                "Quantité:",
+                min_value=0.01,
+                value=1.0,
+                step=0.01,
+                key="dp_quantite"
+            )
+        
+        with add_col3:
+            unite = st.selectbox(
+                "Unité:",
+                options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
+                key="dp_unite"
+            )
+            
+            notes_ligne = st.text_input(
+                "Notes ligne:",
+                key="dp_notes_ligne"
+            )
+        
+        if st.button("➕ Ajouter à la demande", use_container_width=True, key="dp_add_line"):
+            if description_article and quantite > 0:
+                nouvelle_ligne = {
+                    'description': description_article,
+                    'code_article': code_article,
+                    'quantite': quantite,
+                    'unite': unite,
+                    'notes_ligne': notes_ligne
+                }
+                st.session_state.dp_lines.append(nouvelle_ligne)
+                st.success("Article ajouté !")
+                st.rerun()
+            else:
+                st.error("Description et quantité sont obligatoires.")
+    
+    # Affichage des lignes ajoutées (HORS du formulaire)
+    if st.session_state.dp_lines:
+        st.markdown("**Articles dans la demande:**")
+        
+        for i, ligne in enumerate(st.session_state.dp_lines):
+            col_desc, col_qty, col_action = st.columns([3, 1, 1])
+            
+            with col_desc:
+                st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
+                if ligne['notes_ligne']:
+                    st.caption(f"📝 {ligne['notes_ligne']}")
+            
+            with col_qty:
+                st.markdown(f"{ligne['quantite']} {ligne['unite']}")
+            
+            with col_action:
+                if st.button("🗑️", key=f"dp_remove_{i}", help="Supprimer cette ligne"):
+                    st.session_state.dp_lines.pop(i)
+                    st.rerun()
+    else:
+        st.info("Aucun article ajouté. Ajoutez au moins un article pour créer la demande.")
+    
+    # Actions rapides pour vider la liste
+    if st.session_state.dp_lines:
+        if st.button("🗑️ Vider tous les articles", key="dp_clear_all"):
+            st.session_state.dp_lines = []
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Formulaire principal (SANS la gestion des lignes)
     with st.form("demande_prix_form", clear_on_submit=False):
+        st.markdown("#### 📋 Informations de la Demande")
+        
         # En-tête du formulaire
         col1, col2 = st.columns(2)
         
@@ -727,107 +834,9 @@ def render_create_demande_prix_form(gestionnaire):
             help="Notes qui apparaîtront sur la demande de prix"
         )
         
-        st.markdown("---")
-        st.markdown("#### 📦 Articles à chiffrer")
-        
-        # Gestion des lignes d'articles
-        if 'dp_lines' not in st.session_state:
-            st.session_state.dp_lines = []
-        
-        # Ajouter une ligne
-        with st.expander("➕ Ajouter un article", expanded=len(st.session_state.dp_lines) == 0):
-            add_col1, add_col2, add_col3 = st.columns(3)
-            
-            with add_col1:
-                # Recherche d'article dans l'inventaire
-                search_term = st.text_input("🔍 Rechercher article:", key="dp_search_article")
-                articles = gestionnaire.get_inventory_items_for_selection(search_term)
-                
-                if articles:
-                    selected_article = st.selectbox(
-                        "Article inventaire:",
-                        options=[None] + articles,
-                        format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
-                        key="dp_selected_article"
-                    )
-                else:
-                    selected_article = None
-                    st.info("Aucun article trouvé ou saisie manuelle")
-                
-                description_article = st.text_input(
-                    "Description:",
-                    value=selected_article.get('nom', '') if selected_article else '',
-                    key="dp_description"
-                )
-            
-            with add_col2:
-                code_article = st.text_input(
-                    "Code article:",
-                    value=selected_article.get('code_interne', '') if selected_article else '',
-                    key="dp_code"
-                )
-                
-                quantite = st.number_input(
-                    "Quantité:",
-                    min_value=0.01,
-                    value=1.0,
-                    step=0.01,
-                    key="dp_quantite"
-                )
-            
-            with add_col3:
-                unite = st.selectbox(
-                    "Unité:",
-                    options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
-                    key="dp_unite"
-                )
-                
-                notes_ligne = st.text_input(
-                    "Notes ligne:",
-                    key="dp_notes_ligne"
-                )
-            
-            if st.form_submit_button("➕ Ajouter à la demande", use_container_width=True):
-                if description_article and quantite > 0:
-                    nouvelle_ligne = {
-                        'description': description_article,
-                        'code_article': code_article,
-                        'quantite': quantite,
-                        'unite': unite,
-                        'notes_ligne': notes_ligne
-                    }
-                    st.session_state.dp_lines.append(nouvelle_ligne)
-                    st.success("Article ajouté !")
-                    st.rerun()
-                else:
-                    st.error("Description et quantité sont obligatoires.")
-        
-        # Affichage des lignes ajoutées
-        if st.session_state.dp_lines:
-            st.markdown("**Articles dans la demande:**")
-            
-            for i, ligne in enumerate(st.session_state.dp_lines):
-                col_desc, col_qty, col_action = st.columns([3, 1, 1])
-                
-                with col_desc:
-                    st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
-                    if ligne['notes_ligne']:
-                        st.caption(f"📝 {ligne['notes_ligne']}")
-                
-                with col_qty:
-                    st.markdown(f"{ligne['quantite']} {ligne['unite']}")
-                
-                with col_action:
-                    if st.button("🗑️", key=f"dp_remove_{i}", help="Supprimer cette ligne"):
-                        st.session_state.dp_lines.pop(i)
-                        st.rerun()
-        
-        else:
-            st.info("Aucun article ajouté. Ajoutez au moins un article pour créer la demande.")
-        
         # Boutons de soumission
         st.markdown("---")
-        submit_col1, submit_col2, submit_col3 = st.columns(3)
+        submit_col1, submit_col2 = st.columns(2)
         
         with submit_col1:
             submitted = st.form_submit_button("📋 Créer Demande de Prix", use_container_width=True)
@@ -835,42 +844,38 @@ def render_create_demande_prix_form(gestionnaire):
         with submit_col2:
             save_draft = st.form_submit_button("💾 Sauver Brouillon", use_container_width=True)
         
-        with submit_col3:
-            clear_form = st.form_submit_button("🗑️ Vider Formulaire", use_container_width=True)
-        
         # Traitement du formulaire
-        if (submitted or save_draft) and st.session_state.dp_lines:
-            formulaire_data = {
-                'type_formulaire': 'DEMANDE_PRIX',
-                'numero_document': numero_dp,
-                'company_id': selected_fournisseur['company_id'],
-                'employee_id': 1,  # À adapter selon l'utilisateur connecté
-                'statut': 'VALIDÉ' if submitted else 'BROUILLON',
-                'priorite': priorite,
-                'date_echeance': date_echeance.isoformat(),
-                'notes': notes,
-                'metadonnees_json': json.dumps({
-                    'fournisseur_nom': selected_fournisseur.get('nom'),
-                    'type_document': 'demande_prix'
-                })
-            }
-            
-            formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.dp_lines)
-            
-            if formulaire_id:
-                action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
-                st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
-                st.session_state.dp_lines = []  # Vider les lignes
-                st.rerun()
+        if (submitted or save_draft):
+            if not st.session_state.dp_lines:
+                st.error("❌ Ajoutez au moins un article avant de créer la demande.")
             else:
-                st.error("❌ Erreur lors de la création de la demande.")
-        
-        if clear_form:
-            st.session_state.dp_lines = []
-            st.rerun()
+                formulaire_data = {
+                    'type_formulaire': 'DEMANDE_PRIX',
+                    'numero_document': numero_dp,
+                    'company_id': selected_fournisseur['company_id'],
+                    'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                    'statut': 'VALIDÉ' if submitted else 'BROUILLON',
+                    'priorite': priorite,
+                    'date_echeance': date_echeance.isoformat(),
+                    'notes': notes,
+                    'metadonnees_json': json.dumps({
+                        'fournisseur_nom': selected_fournisseur.get('nom'),
+                        'type_document': 'demande_prix'
+                    })
+                }
+                
+                formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.dp_lines)
+                
+                if formulaire_id:
+                    action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
+                    st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
+                    st.session_state.dp_lines = []  # Vider les lignes
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la création de la demande.")
 
 def render_create_bon_achat_form(gestionnaire):
-    """Formulaire de création de Bon d'Achat - VERSION SIMPLIFIÉE"""
+    """Formulaire de création de Bon d'Achat - VERSION CORRIGÉE"""
     st.markdown("#### 🛒 Nouveau Bon d'Achat")
     
     # Vérification des fournisseurs
@@ -885,7 +890,142 @@ def render_create_bon_achat_form(gestionnaire):
             st.rerun()
         return
     
+    # Initialiser les lignes si nécessaire
+    if 'ba_lines' not in st.session_state:
+        st.session_state.ba_lines = []
+    
+    # Section pour ajouter des articles (HORS du formulaire)
+    st.markdown("#### 🛒 Articles à commander")
+    
+    with st.expander("➕ Ajouter un article", expanded=len(st.session_state.ba_lines) == 0):
+        add_col1, add_col2, add_col3, add_col4 = st.columns(4)
+        
+        with add_col1:
+            # Recherche d'article dans l'inventaire
+            search_term = st.text_input("🔍 Rechercher article:", key="ba_search_article")
+            articles = gestionnaire.get_inventory_items_for_selection(search_term)
+            
+            if articles:
+                selected_article = st.selectbox(
+                    "Article inventaire:",
+                    options=[None] + articles,
+                    format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
+                    key="ba_selected_article"
+                )
+            else:
+                selected_article = None
+                st.info("Aucun article trouvé")
+            
+            description_article = st.text_input(
+                "Description *:",
+                value=selected_article.get('nom', '') if selected_article else '',
+                key="ba_description"
+            )
+        
+        with add_col2:
+            code_article = st.text_input(
+                "Code article:",
+                value=selected_article.get('code_interne', '') if selected_article else '',
+                key="ba_code"
+            )
+            
+            quantite = st.number_input(
+                "Quantité *:",
+                min_value=0.01,
+                value=1.0,
+                step=0.01,
+                key="ba_quantite"
+            )
+        
+        with add_col3:
+            unite = st.selectbox(
+                "Unité:",
+                options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
+                key="ba_unite"
+            )
+            
+            prix_unitaire = st.number_input(
+                "Prix unitaire $ *:",
+                min_value=0.0,
+                value=0.0,
+                step=0.01,
+                key="ba_prix"
+            )
+        
+        with add_col4:
+            montant_ligne = quantite * prix_unitaire
+            st.metric("💰 Montant ligne:", f"{montant_ligne:.2f} $")
+            
+            notes_ligne = st.text_input(
+                "Notes ligne:",
+                key="ba_notes_ligne"
+            )
+        
+        if st.button("➕ Ajouter au bon d'achat", use_container_width=True, key="ba_add_line"):
+            if description_article and quantite > 0 and prix_unitaire >= 0:
+                nouvelle_ligne = {
+                    'description': description_article,
+                    'code_article': code_article,
+                    'quantite': quantite,
+                    'unite': unite,
+                    'prix_unitaire': prix_unitaire,
+                    'notes_ligne': notes_ligne
+                }
+                st.session_state.ba_lines.append(nouvelle_ligne)
+                st.success("Article ajouté !")
+                st.rerun()
+            else:
+                st.error("Description, quantité et prix sont obligatoires.")
+    
+    # Affichage des lignes ajoutées avec calcul du total (HORS du formulaire)
+    if st.session_state.ba_lines:
+        st.markdown("**Articles dans le bon d'achat:**")
+        
+        total_montant = 0
+        for i, ligne in enumerate(st.session_state.ba_lines):
+            montant_ligne = ligne['quantite'] * ligne['prix_unitaire']
+            total_montant += montant_ligne
+            
+            with st.container():
+                col_desc, col_qty, col_prix, col_montant, col_action = st.columns([3, 1, 1, 1, 1])
+                
+                with col_desc:
+                    st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
+                    if ligne['notes_ligne']:
+                        st.caption(f"📝 {ligne['notes_ligne']}")
+                
+                with col_qty:
+                    st.markdown(f"{ligne['quantite']} {ligne['unite']}")
+                
+                with col_prix:
+                    st.markdown(f"{ligne['prix_unitaire']:.2f} $")
+                
+                with col_montant:
+                    st.markdown(f"**{montant_ligne:.2f} $**")
+                
+                with col_action:
+                    if st.button("🗑️", key=f"ba_remove_{i}", help="Supprimer cette ligne"):
+                        st.session_state.ba_lines.pop(i)
+                        st.rerun()
+        
+        # Affichage du total
+        st.markdown("---")
+        st.markdown(f"### 💰 **Total Bon d'Achat: {total_montant:.2f} $ CAD**")
+    else:
+        st.info("Aucun article ajouté. Ajoutez au moins un article pour créer le bon d'achat.")
+    
+    # Actions rapides pour vider la liste
+    if st.session_state.ba_lines:
+        if st.button("🗑️ Vider tous les articles", key="ba_clear_all"):
+            st.session_state.ba_lines = []
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Formulaire principal (SANS la gestion des lignes)
     with st.form("bon_achat_form", clear_on_submit=False):
+        st.markdown("#### 🛒 Informations du Bon d'Achat")
+        
         # En-tête du formulaire
         col1, col2 = st.columns(2)
         
@@ -934,135 +1074,9 @@ def render_create_bon_achat_form(gestionnaire):
             help="Notes qui apparaîtront sur le bon d'achat"
         )
         
-        st.markdown("---")
-        st.markdown("#### 🛒 Articles à commander")
-        
-        # Gestion des lignes d'articles avec PRIX
-        if 'ba_lines' not in st.session_state:
-            st.session_state.ba_lines = []
-        
-        # Ajouter une ligne
-        with st.expander("➕ Ajouter un article", expanded=len(st.session_state.ba_lines) == 0):
-            add_col1, add_col2, add_col3, add_col4 = st.columns(4)
-            
-            with add_col1:
-                # Recherche d'article dans l'inventaire
-                search_term = st.text_input("🔍 Rechercher article:", key="ba_search_article")
-                articles = gestionnaire.get_inventory_items_for_selection(search_term)
-                
-                if articles:
-                    selected_article = st.selectbox(
-                        "Article inventaire:",
-                        options=[None] + articles,
-                        format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
-                        key="ba_selected_article"
-                    )
-                else:
-                    selected_article = None
-                    st.info("Aucun article trouvé")
-                
-                description_article = st.text_input(
-                    "Description *:",
-                    value=selected_article.get('nom', '') if selected_article else '',
-                    key="ba_description"
-                )
-            
-            with add_col2:
-                code_article = st.text_input(
-                    "Code article:",
-                    value=selected_article.get('code_interne', '') if selected_article else '',
-                    key="ba_code"
-                )
-                
-                quantite = st.number_input(
-                    "Quantité *:",
-                    min_value=0.01,
-                    value=1.0,
-                    step=0.01,
-                    key="ba_quantite"
-                )
-            
-            with add_col3:
-                unite = st.selectbox(
-                    "Unité:",
-                    options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
-                    key="ba_unite"
-                )
-                
-                prix_unitaire = st.number_input(
-                    "Prix unitaire $ *:",
-                    min_value=0.0,
-                    value=0.0,
-                    step=0.01,
-                    key="ba_prix"
-                )
-            
-            with add_col4:
-                montant_ligne = quantite * prix_unitaire
-                st.metric("💰 Montant ligne:", f"{montant_ligne:.2f} $")
-                
-                notes_ligne = st.text_input(
-                    "Notes ligne:",
-                    key="ba_notes_ligne"
-                )
-            
-            if st.form_submit_button("➕ Ajouter au bon d'achat", use_container_width=True):
-                if description_article and quantite > 0 and prix_unitaire >= 0:
-                    nouvelle_ligne = {
-                        'description': description_article,
-                        'code_article': code_article,
-                        'quantite': quantite,
-                        'unite': unite,
-                        'prix_unitaire': prix_unitaire,
-                        'notes_ligne': notes_ligne
-                    }
-                    st.session_state.ba_lines.append(nouvelle_ligne)
-                    st.success("Article ajouté !")
-                    st.rerun()
-                else:
-                    st.error("Description, quantité et prix sont obligatoires.")
-        
-        # Affichage des lignes ajoutées avec calcul du total
-        if st.session_state.ba_lines:
-            st.markdown("**Articles dans le bon d'achat:**")
-            
-            total_montant = 0
-            for i, ligne in enumerate(st.session_state.ba_lines):
-                montant_ligne = ligne['quantite'] * ligne['prix_unitaire']
-                total_montant += montant_ligne
-                
-                with st.container():
-                    col_desc, col_qty, col_prix, col_montant, col_action = st.columns([3, 1, 1, 1, 1])
-                    
-                    with col_desc:
-                        st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
-                        if ligne['notes_ligne']:
-                            st.caption(f"📝 {ligne['notes_ligne']}")
-                    
-                    with col_qty:
-                        st.markdown(f"{ligne['quantite']} {ligne['unite']}")
-                    
-                    with col_prix:
-                        st.markdown(f"{ligne['prix_unitaire']:.2f} $")
-                    
-                    with col_montant:
-                        st.markdown(f"**{montant_ligne:.2f} $**")
-                    
-                    with col_action:
-                        if st.button("🗑️", key=f"ba_remove_{i}", help="Supprimer cette ligne"):
-                            st.session_state.ba_lines.pop(i)
-                            st.rerun()
-            
-            # Affichage du total
-            st.markdown("---")
-            st.markdown(f"### 💰 **Total Bon d'Achat: {total_montant:.2f} $ CAD**")
-        
-        else:
-            st.info("Aucun article ajouté. Ajoutez au moins un article pour créer le bon d'achat.")
-        
         # Boutons de soumission
         st.markdown("---")
-        submit_col1, submit_col2, submit_col3 = st.columns(3)
+        submit_col1, submit_col2 = st.columns(2)
         
         with submit_col1:
             submitted = st.form_submit_button("🛒 Créer Bon d'Achat", use_container_width=True)
@@ -1070,40 +1084,36 @@ def render_create_bon_achat_form(gestionnaire):
         with submit_col2:
             save_draft = st.form_submit_button("💾 Sauver Brouillon", use_container_width=True)
         
-        with submit_col3:
-            clear_form = st.form_submit_button("🗑️ Vider Formulaire", use_container_width=True)
-        
         # Traitement du formulaire
-        if (submitted or save_draft) and st.session_state.ba_lines:
-            formulaire_data = {
-                'type_formulaire': 'BON_ACHAT',
-                'numero_document': numero_ba,
-                'company_id': selected_fournisseur['company_id'],
-                'employee_id': 1,  # À adapter selon l'utilisateur connecté
-                'statut': 'VALIDÉ' if submitted else 'BROUILLON',
-                'priorite': priorite,
-                'date_echeance': date_echeance.isoformat(),
-                'notes': notes,
-                'metadonnees_json': json.dumps({
-                    'fournisseur_nom': selected_fournisseur.get('nom'),
-                    'type_document': 'bon_achat',
-                    'total_calcule': sum(l['quantite'] * l['prix_unitaire'] for l in st.session_state.ba_lines)
-                })
-            }
-            
-            formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.ba_lines)
-            
-            if formulaire_id:
-                action_text = "créé et envoyé" if submitted else "sauvé en brouillon"
-                st.success(f"✅ Bon d'Achat {numero_ba} {action_text} ! (ID: {formulaire_id})")
-                st.session_state.ba_lines = []  # Vider les lignes
-                st.rerun()
+        if (submitted or save_draft):
+            if not st.session_state.ba_lines:
+                st.error("❌ Ajoutez au moins un article avant de créer le bon d'achat.")
             else:
-                st.error("❌ Erreur lors de la création du bon d'achat.")
-        
-        if clear_form:
-            st.session_state.ba_lines = []
-            st.rerun()
+                formulaire_data = {
+                    'type_formulaire': 'BON_ACHAT',
+                    'numero_document': numero_ba,
+                    'company_id': selected_fournisseur['company_id'],
+                    'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                    'statut': 'VALIDÉ' if submitted else 'BROUILLON',
+                    'priorite': priorite,
+                    'date_echeance': date_echeance.isoformat(),
+                    'notes': notes,
+                    'metadonnees_json': json.dumps({
+                        'fournisseur_nom': selected_fournisseur.get('nom'),
+                        'type_document': 'bon_achat',
+                        'total_calcule': sum(l['quantite'] * l['prix_unitaire'] for l in st.session_state.ba_lines)
+                    })
+                }
+                
+                formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.ba_lines)
+                
+                if formulaire_id:
+                    action_text = "créé et envoyé" if submitted else "sauvé en brouillon"
+                    st.success(f"✅ Bon d'Achat {numero_ba} {action_text} ! (ID: {formulaire_id})")
+                    st.session_state.ba_lines = []  # Vider les lignes
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de la création du bon d'achat.")
 
 def render_list_demandes_prix(gestionnaire):
     """Liste des demandes de prix"""
@@ -1702,10 +1712,19 @@ def render_fournisseurs_liste(gestionnaire):
             
             with action_col5:
                 if st.button("🗑️ Supprimer", use_container_width=True, key=f"liste_delete_fournisseur_{selected_fournisseur_id}"):
-                    if st.warning("Êtes-vous sûr de vouloir supprimer définitivement ce fournisseur ?"):
+                    # Demander confirmation avant suppression
+                    if st.session_state.get(f'confirm_delete_{selected_fournisseur_id}', False):
                         if gestionnaire.delete_fournisseur(selected_fournisseur_id):
                             st.success("Fournisseur supprimé avec succès !")
+                            if f'confirm_delete_{selected_fournisseur_id}' in st.session_state:
+                                del st.session_state[f'confirm_delete_{selected_fournisseur_id}']
                             st.rerun()
+                        else:
+                            st.error("Erreur lors de la suppression.")
+                    else:
+                        st.session_state[f'confirm_delete_{selected_fournisseur_id}'] = True
+                        st.warning("⚠️ Cliquez à nouveau pour confirmer la suppression définitive.")
+                        st.rerun()
 
 def render_fournisseurs_performance(gestionnaire):
     """Analyse des performances des fournisseurs - VERSION SIMPLIFIÉE"""
