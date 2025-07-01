@@ -1,7 +1,7 @@
 # fournisseurs.py - Module Fournisseurs pour ERP Production DG Inc.
-# Version nettoyée - Suppression complète de la logique d'activation/désactivation
+# Version corrigée avec solution d'urgence intégrée
 # + NOUVEAUX FORMULAIRES : Demande de Prix et Bon d'Achat intégrés
-# + NETTOYAGE : Suppression complète du système est_actif
+# + CORRECTION : Solution d'urgence pour supprimer la colonne est_actif
 # + SIMPLIFICATION : Code Fournisseur automatique + Catégorie optionnelle
 
 import streamlit as st
@@ -10,6 +10,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 import json
+import sqlite3
+import shutil
 from typing import Dict, List, Optional, Any
 
 class GestionnaireFournisseurs:
@@ -17,7 +19,7 @@ class GestionnaireFournisseurs:
     Gestionnaire complet pour les fournisseurs de l'ERP Production DG Inc.
     Intégré avec la base de données SQLite unifiée
     + NOUVEAUX : Formulaires Demande de Prix et Bon d'Achat
-    + NETTOYAGE : Suppression complète du système d'activation/désactivation
+    + CORRECTION : Solution d'urgence intégrée pour problème colonne est_actif
     + SIMPLIFICATION : Code Fournisseur automatique + Catégorie optionnelle
     """
     
@@ -27,23 +29,157 @@ class GestionnaireFournisseurs:
         self._cleanup_database()
     
     def _cleanup_database(self):
-        """Nettoie la base de données en supprimant la colonne est_actif si elle existe"""
+        """
+        Nettoie la base de données en supprimant définitivement la colonne est_actif
+        VERSION ROBUSTE avec gestion d'erreurs améliorée
+        """
         try:
-            # Vérifier si la colonne existe
+            # Vérifier d'abord si la colonne existe
             check_query = "PRAGMA table_info(fournisseurs)"
             columns = self.db.execute_query(check_query)
             
-            has_est_actif = any(col['name'] == 'est_actif' for col in columns)
+            if not columns:
+                print("Info: Table fournisseurs non trouvée")
+                return
             
-            if has_est_actif:
-                st.info("🔧 Nettoyage de la base de données en cours...")
+            column_names = [col['name'] for col in columns]
+            has_est_actif = 'est_actif' in column_names
+            
+            if not has_est_actif:
+                print("✅ Colonne 'est_actif' déjà supprimée")
+                return
+            
+            print("🔧 Début du nettoyage robuste de la base de données...")
+            
+            # Utilisation d'une connexion directe pour plus de contrôle
+            with sqlite3.connect(self.db.db_path) as conn:
+                cursor = conn.cursor()
                 
-                # Désactiver les contraintes de clé étrangère temporairement
-                self.db.execute_update("PRAGMA foreign_keys=OFF")
+                # 1. Sauvegarder les données existantes
+                cursor.execute("SELECT * FROM fournisseurs")
+                existing_data = cursor.fetchall()
                 
-                # Créer une nouvelle table sans la colonne est_actif
-                self.db.execute_update("""
-                    CREATE TABLE IF NOT EXISTS fournisseurs_new (
+                # Récupérer les noms de colonnes (sans est_actif)
+                original_columns = [description[0] for description in cursor.description]
+                target_columns = [col for col in original_columns if col != 'est_actif']
+                
+                print(f"📋 Colonnes originales: {original_columns}")
+                print(f"📋 Colonnes cibles: {target_columns}")
+                print(f"📊 Données à migrer: {len(existing_data)} lignes")
+                
+                # 2. Désactiver les contraintes temporairement
+                cursor.execute("PRAGMA foreign_keys=OFF")
+                
+                # 3. Commencer une transaction
+                cursor.execute("BEGIN TRANSACTION")
+                
+                try:
+                    # 4. Créer la nouvelle table avec la structure correcte
+                    cursor.execute("""
+                        CREATE TABLE fournisseurs_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            company_id INTEGER NOT NULL,
+                            code_fournisseur TEXT UNIQUE,
+                            categorie_produits TEXT,
+                            delai_livraison_moyen INTEGER DEFAULT 14,
+                            conditions_paiement TEXT DEFAULT '30 jours net',
+                            evaluation_qualite INTEGER DEFAULT 5,
+                            contact_commercial TEXT,
+                            contact_technique TEXT,
+                            certifications TEXT,
+                            notes_evaluation TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (company_id) REFERENCES companies (id)
+                        )
+                    """)
+                    
+                    # 5. Migrer les données ligne par ligne (plus sûr)
+                    if existing_data:
+                        # Créer la requête d'insertion dynamiquement
+                        placeholders = ', '.join(['?' for _ in target_columns])
+                        insert_query = f"INSERT INTO fournisseurs_new ({', '.join(target_columns)}) VALUES ({placeholders})"
+                        
+                        # Index des colonnes à copier (exclut est_actif)
+                        source_indexes = [i for i, col in enumerate(original_columns) if col != 'est_actif']
+                        
+                        for row in existing_data:
+                            # Extraire seulement les colonnes nécessaires
+                            filtered_row = [row[i] for i in source_indexes]
+                            cursor.execute(insert_query, filtered_row)
+                    
+                    # 6. Vérifier que la migration s'est bien passée
+                    cursor.execute("SELECT COUNT(*) FROM fournisseurs_new")
+                    new_count = cursor.fetchone()[0]
+                    
+                    if new_count != len(existing_data):
+                        raise Exception(f"Migration incomplète: {new_count}/{len(existing_data)} lignes")
+                    
+                    # 7. Supprimer l'ancienne table et renommer
+                    cursor.execute("DROP TABLE fournisseurs")
+                    cursor.execute("ALTER TABLE fournisseurs_new RENAME TO fournisseurs")
+                    
+                    # 8. Recréer les index
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fournisseurs_company ON fournisseurs(company_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fournisseurs_code ON fournisseurs(code_fournisseur)")
+                    
+                    # 9. Valider la transaction
+                    cursor.execute("COMMIT")
+                    
+                    # 10. Réactiver les contraintes
+                    cursor.execute("PRAGMA foreign_keys=ON")
+                    
+                    # 11. Vérification finale
+                    cursor.execute("PRAGMA table_info(fournisseurs)")
+                    final_columns = [col[1] for col in cursor.fetchall()]
+                    
+                    if 'est_actif' in final_columns:
+                        raise Exception("La colonne 'est_actif' existe encore après nettoyage!")
+                    
+                    print(f"✅ Nettoyage terminé avec succès!")
+                    print(f"📋 Nouvelles colonnes: {final_columns}")
+                    print(f"📊 {new_count} lignes migrées")
+                    
+                except Exception as transaction_error:
+                    # Annuler la transaction en cas d'erreur
+                    cursor.execute("ROLLBACK")
+                    cursor.execute("PRAGMA foreign_keys=ON")
+                    raise transaction_error
+                    
+        except Exception as e:
+            error_msg = f"Erreur lors du nettoyage robuste: {e}"
+            print(error_msg)
+            # Ne pas afficher d'erreur Streamlit ici car on n'est pas encore dans l'interface
+    
+    def emergency_fix_database(self):
+        """
+        Correction d'urgence de la base de données - méthode publique
+        Pour utilisation depuis l'interface Streamlit
+        """
+        try:
+            # Créer une sauvegarde
+            backup_path = f"{self.db.db_path}.emergency_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            shutil.copy2(self.db.db_path, backup_path)
+            
+            with sqlite3.connect(self.db.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Sauvegarder les données existantes
+                cursor.execute("""
+                    SELECT id, company_id, code_fournisseur, categorie_produits, 
+                           delai_livraison_moyen, conditions_paiement, evaluation_qualite,
+                           contact_commercial, contact_technique, certifications, 
+                           notes_evaluation, created_at
+                    FROM fournisseurs
+                """)
+                backup_data = cursor.fetchall()
+                
+                # Supprimer complètement la table
+                cursor.execute("PRAGMA foreign_keys=OFF")
+                cursor.execute("DROP TABLE IF EXISTS fournisseurs")
+                
+                # Recréer la table proprement
+                cursor.execute("""
+                    CREATE TABLE fournisseurs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         company_id INTEGER NOT NULL,
                         code_fournisseur TEXT UNIQUE,
@@ -55,42 +191,40 @@ class GestionnaireFournisseurs:
                         contact_technique TEXT,
                         certifications TEXT,
                         notes_evaluation TEXT,
-                        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        date_modification TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (company_id) REFERENCES companies (id)
                     )
                 """)
                 
-                # Copier les données (sans est_actif)
-                self.db.execute_update("""
-                    INSERT INTO fournisseurs_new 
+                # Réinsérer les données
+                cursor.executemany("""
+                    INSERT INTO fournisseurs 
                     (id, company_id, code_fournisseur, categorie_produits, delai_livraison_moyen,
                      conditions_paiement, evaluation_qualite, contact_commercial, contact_technique,
-                     certifications, notes_evaluation, date_creation, date_modification)
-                    SELECT id, company_id, code_fournisseur, categorie_produits, delai_livraison_moyen,
-                           conditions_paiement, evaluation_qualite, contact_commercial, contact_technique,
-                           certifications, notes_evaluation, 
-                           COALESCE(date_creation, created_at, CURRENT_TIMESTAMP),
-                           COALESCE(date_modification, created_at, CURRENT_TIMESTAMP)
-                    FROM fournisseurs
-                """)
+                     certifications, notes_evaluation, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, backup_data)
                 
-                # Supprimer l'ancienne table et renommer la nouvelle
-                self.db.execute_update("DROP TABLE fournisseurs")
-                self.db.execute_update("ALTER TABLE fournisseurs_new RENAME TO fournisseurs")
+                # Recréer les index
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_fournisseurs_company ON fournisseurs(company_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_fournisseurs_code ON fournisseurs(code_fournisseur)")
                 
-                # Réactiver les contraintes de clé étrangère
-                self.db.execute_update("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA foreign_keys=ON")
+                conn.commit()
                 
-                st.success("✅ Base de données nettoyée - Colonne est_actif supprimée")
+                return True, len(backup_data), backup_path
                 
         except Exception as e:
-            print(f"Info: Nettoyage DB pas nécessaire ou erreur: {e}")
-            # Réactiver les contraintes en cas d'erreur
-            try:
-                self.db.execute_update("PRAGMA foreign_keys=ON")
-            except:
-                pass
+            return False, 0, str(e)
+    
+    def check_est_actif_exists(self):
+        """Vérifie si la colonne est_actif existe encore"""
+        try:
+            columns = self.db.execute_query("PRAGMA table_info(fournisseurs)")
+            column_names = [col['name'] for col in columns]
+            return 'est_actif' in column_names
+        except:
+            return False
     
     def get_all_fournisseurs(self) -> List[Dict]:
         """Récupère tous les fournisseurs avec leurs statistiques et company_id"""
@@ -641,7 +775,7 @@ class GestionnaireFournisseurs:
             return {}
 
 def show_fournisseurs_page():
-    """Page principale du module Fournisseurs - VERSION NETTOYÉE"""
+    """Page principale du module Fournisseurs - VERSION CORRIGÉE"""
     st.markdown("## 🏪 Gestion des Fournisseurs DG Inc.")
     
     # Initialisation du gestionnaire
@@ -660,7 +794,7 @@ def show_fournisseurs_page():
     if 'form_lines_data' not in st.session_state:
         st.session_state.form_lines_data = []
     
-    # Onglets simplifiés
+    # Onglets
     tab_dashboard, tab_liste, tab_performance, tab_categories, tab_demande_prix, tab_bon_achat = st.tabs([
         "📊 Dashboard", "📋 Liste Fournisseurs", "📈 Performances", 
         "🏷️ Catégories", "📋 Demande de Prix", "🛒 Bon d'Achat"
@@ -738,34 +872,69 @@ def render_bon_achat_tab(gestionnaire):
         render_view_bon_achat(gestionnaire)
 
 def render_create_demande_prix_form(gestionnaire):
-    """Formulaire de création de Demande de Prix - VERSION CORRIGÉE"""
+    """Formulaire de création de Demande de Prix - VERSION CORRIGÉE AVEC SOLUTION D'URGENCE"""
     st.markdown("#### ➕ Nouvelle Demande de Prix")
+    
+    # =========================================================================
+    # SOLUTION D'URGENCE INTÉGRÉE - VÉRIFICATION ET CORRECTION
+    # =========================================================================
+    
+    # Vérifier si le problème de colonne est_actif existe encore
+    if gestionnaire.check_est_actif_exists():
+        st.error("🚨 PROBLÈME DÉTECTÉ: La colonne 'est_actif' existe encore dans la base de données")
+        st.warning("⚠️ Cela empêche la création de formulaires. Correction nécessaire.")
+        
+        with st.expander("🔧 CORRECTION D'URGENCE", expanded=True):
+            st.markdown("""
+            **Ce que fait la correction :**
+            - Sauvegarde automatique de votre base de données
+            - Suppression définitive de la colonne problématique 'est_actif'
+            - Préservation de toutes vos données existantes
+            - Recréation propre de la table fournisseurs
+            """)
+            
+            col_fix1, col_fix2 = st.columns(2)
+            
+            with col_fix1:
+                if st.button("🔧 CORRIGER MAINTENANT", type="primary", use_container_width=True):
+                    with st.spinner("Correction en cours..."):
+                        success, count, info = gestionnaire.emergency_fix_database()
+                        
+                        if success:
+                            st.success(f"✅ SUCCÈS! Base de données corrigée!")
+                            st.success(f"📊 {count} fournisseur(s) préservé(s)")
+                            st.success(f"💾 Sauvegarde: {info}")
+                            st.info("🔄 Rechargement automatique dans 3 secondes...")
+                            
+                            # Auto-rechargement
+                            import time
+                            time.sleep(3)
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Échec de la correction: {info}")
+                            st.error("💡 Essayez de redémarrer l'application")
+            
+            with col_fix2:
+                if st.button("📋 Diagnostic Détaillé", use_container_width=True):
+                    with st.expander("🔍 Diagnostic", expanded=True):
+                        try:
+                            columns = gestionnaire.db.execute_query("PRAGMA table_info(fournisseurs)")
+                            st.markdown("**Colonnes actuelles:**")
+                            for col in columns:
+                                status = "❌ PROBLÉMATIQUE" if col['name'] == 'est_actif' else "✅ OK"
+                                st.write(f"- {col['name']} | {col['type']} | {status}")
+                        except Exception as e:
+                            st.error(f"Erreur diagnostic: {e}")
+        
+        # Stopper l'exécution du reste du formulaire si le problème existe
+        st.stop()
+    
+    # =========================================================================
+    # SUITE DU FORMULAIRE NORMAL (après correction)
+    # =========================================================================
     
     # Vérification des fournisseurs
     fournisseurs = gestionnaire.get_all_fournisseurs()
-    
-    # DEBUG TEMPORAIRE - Afficher la structure des données
-    if fournisseurs and len(fournisseurs) > 0:
-        with st.expander("🔍 DEBUG - Structure des données fournisseurs", expanded=False):
-            st.write("**Premier fournisseur (exemple):**")
-            st.json(fournisseurs[0])
-            st.write("**Clés disponibles:**", list(fournisseurs[0].keys()))
-            
-            # Vérifier si la colonne est_actif existe encore
-            if 'est_actif' in fournisseurs[0]:
-                st.warning("⚠️ La colonne 'est_actif' existe encore dans les données")
-                if st.button("🔧 Forcer le nettoyage de la DB", key="force_cleanup_ba"):
-                    gestionnaire._cleanup_database()
-                    st.success("Nettoyage forcé terminé - Rechargez la page")
-                    st.rerun()
-            
-            # Vérifier si la colonne est_actif existe encore
-            if 'est_actif' in fournisseurs[0]:
-                st.warning("⚠️ La colonne 'est_actif' existe encore dans les données")
-                if st.button("🔧 Forcer le nettoyage de la DB", key="force_cleanup_dp"):
-                    gestionnaire._cleanup_database()
-                    st.success("Nettoyage forcé terminé - Rechargez la page")
-                    st.rerun()
     
     if not fournisseurs:
         st.warning("⚠️ Aucun fournisseur disponible.")
@@ -953,77 +1122,86 @@ def render_create_demande_prix_form(gestionnaire):
                     st.rerun()
                     return
                 
-                # DEBUG AVANCÉ - Diagnostic du problème de contrainte
                 company_id = selected_fournisseur['company_id']
-                fournisseur_id = selected_fournisseur.get('id')
                 
-                with st.expander("🔍 DIAGNOSTIC CONTRAINTE", expanded=True):
-                    st.write(f"**Fournisseur sélectionné:** {selected_fournisseur.get('nom')}")
-                    st.write(f"**Fournisseur ID:** {fournisseur_id}")
-                    st.write(f"**Company ID récupéré:** {company_id}")
-                    
-                    # Vérifier si la company existe
-                    check_company = gestionnaire.db.execute_query("SELECT id, nom FROM companies WHERE id = ?", (company_id,))
-                    if check_company:
-                        st.success(f"✅ Company trouvée: {check_company[0]['nom']} (ID: {check_company[0]['id']})")
-                    else:
-                        st.error(f"❌ Company ID {company_id} n'existe PAS dans la table companies!")
-                    
-                    # Vérifier si le fournisseur existe
-                    check_fournisseur = gestionnaire.db.execute_query("SELECT id, company_id FROM fournisseurs WHERE id = ?", (fournisseur_id,))
-                    if check_fournisseur:
-                        st.success(f"✅ Fournisseur trouvé: ID {check_fournisseur[0]['id']}, Company ID: {check_fournisseur[0]['company_id']}")
-                    else:
-                        st.error(f"❌ Fournisseur ID {fournisseur_id} n'existe PAS!")
-                    
-                    # Lister toutes les companies disponibles
-                    all_companies = gestionnaire.db.execute_query("SELECT id, nom FROM companies ORDER BY nom")
-                    st.write("**Companies disponibles:**")
-                    for comp in all_companies:
-                        st.write(f"- ID {comp['id']}: {comp['nom']}")
+                # Vérifier que la company existe
+                check_company = gestionnaire.db.execute_query("SELECT id, nom FROM companies WHERE id = ?", (company_id,))
+                if not check_company:
+                    st.error(f"❌ Erreur: L'entreprise ID {company_id} n'existe pas dans la base.")
+                    return
                 
-                # Continuer avec la création si les vérifications passent
-                if check_company:
-                    formulaire_data = {
-                        'type_formulaire': 'DEMANDE_PRIX',
-                        'numero_document': numero_dp,
-                        'company_id': company_id,
-                        'employee_id': 1,  # À adapter selon l'utilisateur connecté
-                        'statut': 'VALIDÉ' if submitted else 'BROUILLON',
-                        'priorite': priorite,
-                        'date_echeance': date_echeance.isoformat(),
-                        'notes': notes,
-                        'metadonnees_json': json.dumps({
-                            'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
-                            'type_document': 'demande_prix'
-                        })
-                    }
-                    
-                    formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.dp_lines)
-                    
-                    if formulaire_id:
-                        action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
-                        st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
-                        st.session_state.dp_lines = []  # Vider les lignes
-                        st.rerun()
-                    else:
-                        st.error("❌ Erreur lors de la création de la demande.")
+                formulaire_data = {
+                    'type_formulaire': 'DEMANDE_PRIX',
+                    'numero_document': numero_dp,
+                    'company_id': company_id,
+                    'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                    'statut': 'VALIDÉ' if submitted else 'BROUILLON',
+                    'priorite': priorite,
+                    'date_echeance': date_echeance.isoformat(),
+                    'notes': notes,
+                    'metadonnees_json': json.dumps({
+                        'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
+                        'type_document': 'demande_prix'
+                    })
+                }
+                
+                formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.dp_lines)
+                
+                if formulaire_id:
+                    action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
+                    st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
+                    st.session_state.dp_lines = []  # Vider les lignes
+                    st.rerun()
                 else:
-                    st.error("❌ Impossible de créer la demande - problème de contrainte détecté ci-dessus.")
+                    st.error("❌ Erreur lors de la création de la demande.")
 
 def render_create_bon_achat_form(gestionnaire):
-    """Formulaire de création de Bon d'Achat - VERSION CORRIGÉE"""
+    """Formulaire de création de Bon d'Achat - VERSION CORRIGÉE AVEC SOLUTION D'URGENCE"""
     st.markdown("#### 🛒 Nouveau Bon d'Achat")
+    
+    # =========================================================================
+    # SOLUTION D'URGENCE INTÉGRÉE - VÉRIFICATION ET CORRECTION
+    # =========================================================================
+    
+    # Vérifier si le problème de colonne est_actif existe encore
+    if gestionnaire.check_est_actif_exists():
+        st.error("🚨 PROBLÈME DÉTECTÉ: La colonne 'est_actif' existe encore dans la base de données")
+        st.warning("⚠️ Cela empêche la création de formulaires. Correction nécessaire.")
+        
+        with st.expander("🔧 CORRECTION D'URGENCE", expanded=True):
+            st.info("La même correction que pour les Demandes de Prix s'applique ici.")
+            
+            col_fix1, col_fix2 = st.columns(2)
+            
+            with col_fix1:
+                if st.button("🔧 CORRIGER MAINTENANT", type="primary", use_container_width=True, key="ba_fix"):
+                    with st.spinner("Correction en cours..."):
+                        success, count, info = gestionnaire.emergency_fix_database()
+                        
+                        if success:
+                            st.success(f"✅ SUCCÈS! Base de données corrigée!")
+                            st.success(f"📊 {count} fournisseur(s) préservé(s)")
+                            st.info("🔄 Rechargement automatique dans 3 secondes...")
+                            
+                            # Auto-rechargement
+                            import time
+                            time.sleep(3)
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Échec de la correction: {info}")
+            
+            with col_fix2:
+                st.info("💡 Vous pouvez aussi corriger depuis l'onglet 'Demande de Prix'")
+        
+        # Stopper l'exécution du reste du formulaire si le problème existe
+        st.stop()
+    
+    # =========================================================================
+    # SUITE DU FORMULAIRE NORMAL (après correction)
+    # =========================================================================
     
     # Vérification des fournisseurs
     fournisseurs = gestionnaire.get_all_fournisseurs()
-    
-    # DEBUG TEMPORAIRE - Afficher la structure des données
-    if fournisseurs and len(fournisseurs) > 0:
-        with st.expander("🔍 DEBUG - Structure des données fournisseurs", expanded=False):
-            st.write("**Premier fournisseur (exemple):**")
-            st.json(fournisseurs[0])
-            st.write("**Clés disponibles:**", list(fournisseurs[0].keys()))
     
     if not fournisseurs:
         st.warning("⚠️ Aucun fournisseur disponible.")
@@ -1738,6 +1916,29 @@ def render_fournisseurs_dashboard(gestionnaire):
     action_col1, action_col2, action_col3, action_col4 = st.columns(4)
     
     with action_col1:
+        if st.button("✏️ Modifier", use_container_width=True, key="details_edit_from_details"):
+            st.session_state.fournisseur_action = "edit_fournisseur"
+            st.rerun()
+    
+    with action_col2:
+        if st.button("📊 Voir Performance", use_container_width=True, key="details_perf_from_details"):
+            st.info("💡 Consultez l'onglet 'Performances' pour l'analyse complète.")
+    
+    with action_col3:
+        if st.button("📋 Créer Demande Prix", use_container_width=True, key="details_create_dp_from_details"):
+            st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
+            st.info("💡 Consultez l'onglet 'Demande de Prix' - Fournisseur pré-sélectionné !")
+    
+    with action_col4:
+        if st.button("🛒 Créer Bon d'Achat", use_container_width=True, key="details_create_ba_from_details"):
+            st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
+            st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
+    
+    st.markdown("</div>", unsafe_allow_html=True)("#### ⚡ Actions Rapides")
+    
+    action_col1, action_col2, action_col3, action_col4 = st.columns(4)
+    
+    with action_col1:
         if st.button("➕ Nouveau Fournisseur", use_container_width=True, key="dashboard_new_fournisseur"):
             st.session_state.fournisseur_action = "create_fournisseur"
             st.rerun()
@@ -2354,27 +2555,4 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
     
     # Actions rapides
     st.markdown("---")
-    st.markdown("#### ⚡ Actions Rapides")
-    
-    action_col1, action_col2, action_col3, action_col4 = st.columns(4)
-    
-    with action_col1:
-        if st.button("✏️ Modifier", use_container_width=True, key="details_edit_from_details"):
-            st.session_state.fournisseur_action = "edit_fournisseur"
-            st.rerun()
-    
-    with action_col2:
-        if st.button("📊 Voir Performance", use_container_width=True, key="details_perf_from_details"):
-            st.info("💡 Consultez l'onglet 'Performances' pour l'analyse complète.")
-    
-    with action_col3:
-        if st.button("📋 Créer Demande Prix", use_container_width=True, key="details_create_dp_from_details"):
-            st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
-            st.info("💡 Consultez l'onglet 'Demande de Prix' - Fournisseur pré-sélectionné !")
-    
-    with action_col4:
-        if st.button("🛒 Créer Bon d'Achat", use_container_width=True, key="details_create_ba_from_details"):
-            st.session_state.preselected_fournisseur_id = fournisseur_data.get('id')
-            st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
-    
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown
