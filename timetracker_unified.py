@@ -2,6 +2,7 @@
 # VERSION OPÉRATIONS UNIQUEMENT - Pointage granulaire sur opérations des Bons de Travail
 # Utilise directement erp_database.py pour un punch spécialisé et efficace
 # Support complet du pointage sur opérations et tâches BT depuis formulaire_lignes
+# NOUVEAU: Gestion d'historique en mode administrateur avec suppressions sécurisées
 
 import streamlit as st
 import pandas as pd
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Tuple
 import logging
 import json
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,7 @@ class TimeTrackerUnified:
     Interface optimisée pour le suivi opérationnel en production
     Support complet des tâches BT depuis formulaire_lignes
     Avec méthodes de diagnostic intégrées
+    NOUVEAU: Gestion administrative avec suppression d'historique
     """
     
     def __init__(self, db):
@@ -857,6 +860,431 @@ class TimeTrackerUnified:
             return []
     
     # =========================================================================
+    # MÉTHODES ADMINISTRATIVES - GESTION HISTORIQUE
+    # =========================================================================
+    
+    def create_history_backup(self) -> str:
+        """Crée une sauvegarde de l'historique avant suppression"""
+        try:
+            backup_data = {
+                'timestamp': datetime.now().isoformat(),
+                'time_entries': []
+            }
+            
+            # Récupérer tous les pointages avec détails
+            query = '''
+                SELECT te.*, 
+                       p.nom_projet, 
+                       e.prenom || ' ' || e.nom as employee_name,
+                       o.description as operation_description,
+                       f.numero_document as bt_numero
+                FROM time_entries te
+                LEFT JOIN projects p ON te.project_id = p.id
+                LEFT JOIN employees e ON te.employee_id = e.id
+                LEFT JOIN operations o ON te.operation_id = o.id
+                LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id
+                ORDER BY te.punch_in DESC
+            '''
+            
+            rows = self.db.execute_query(query)
+            for row in rows:
+                backup_data['time_entries'].append(dict(row))
+            
+            # Créer le fichier de sauvegarde
+            backup_json = json.dumps(backup_data, indent=2, default=str)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"timetracker_backup_{timestamp}.json"
+            
+            logger.info(f"Sauvegarde créée: {len(backup_data['time_entries'])} entrées")
+            return backup_json, filename
+            
+        except Exception as e:
+            logger.error(f"Erreur création sauvegarde: {e}")
+            return None, None
+    
+    def get_history_statistics(self) -> Dict:
+        """Statistiques de l'historique pour l'interface admin"""
+        try:
+            stats = {}
+            
+            # Statistiques générales
+            general_stats = self.db.execute_query('''
+                SELECT 
+                    COUNT(*) as total_entries,
+                    COUNT(CASE WHEN punch_out IS NOT NULL THEN 1 END) as completed_entries,
+                    COUNT(CASE WHEN punch_out IS NULL THEN 1 END) as active_entries,
+                    COUNT(DISTINCT employee_id) as unique_employees,
+                    MIN(DATE(punch_in)) as first_date,
+                    MAX(DATE(punch_in)) as last_date,
+                    COALESCE(SUM(total_hours), 0) as total_hours,
+                    COALESCE(SUM(total_cost), 0) as total_cost
+                FROM time_entries
+            ''')
+            
+            if general_stats:
+                stats.update(dict(general_stats[0]))
+            
+            # Répartition par type
+            type_stats = self.db.execute_query('''
+                SELECT 
+                    COUNT(CASE WHEN operation_id IS NOT NULL THEN 1 END) as operation_entries,
+                    COUNT(CASE WHEN formulaire_bt_id IS NOT NULL THEN 1 END) as bt_entries,
+                    COUNT(CASE WHEN operation_id IS NULL AND formulaire_bt_id IS NULL THEN 1 END) as general_entries
+                FROM time_entries
+            ''')
+            
+            if type_stats:
+                stats.update(dict(type_stats[0]))
+            
+            # Statistiques par période
+            period_stats = self.db.execute_query('''
+                SELECT 
+                    COUNT(CASE WHEN DATE(punch_in) >= DATE('now', '-7 days') THEN 1 END) as last_7_days,
+                    COUNT(CASE WHEN DATE(punch_in) >= DATE('now', '-30 days') THEN 1 END) as last_30_days,
+                    COUNT(CASE WHEN DATE(punch_in) >= DATE('now', '-90 days') THEN 1 END) as last_90_days,
+                    COUNT(CASE WHEN DATE(punch_in) < DATE('now', '-365 days') THEN 1 END) as older_than_year
+                FROM time_entries
+            ''')
+            
+            if period_stats:
+                stats.update(dict(period_stats[0]))
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur statistiques historique: {e}")
+            return {}
+    
+    def clear_all_time_entries(self, create_backup: bool = True) -> Dict:
+        """Efface TOUT l'historique des pointages"""
+        try:
+            result = {
+                'success': False,
+                'entries_deleted': 0,
+                'backup_created': False,
+                'backup_data': None,
+                'backup_filename': None,
+                'message': ''
+            }
+            
+            # Créer une sauvegarde si demandé
+            if create_backup:
+                backup_data, backup_filename = self.create_history_backup()
+                if backup_data:
+                    result['backup_created'] = True
+                    result['backup_data'] = backup_data
+                    result['backup_filename'] = backup_filename
+            
+            # Compter les entrées avant suppression
+            count_result = self.db.execute_query("SELECT COUNT(*) as count FROM time_entries")
+            entries_count = count_result[0]['count'] if count_result else 0
+            
+            # Supprimer toutes les entrées
+            deleted = self.db.execute_update("DELETE FROM time_entries")
+            
+            result['entries_deleted'] = entries_count
+            result['success'] = True
+            result['message'] = f"✅ {entries_count} entrées supprimées avec succès"
+            
+            logger.warning(f"SUPPRESSION TOTALE: {entries_count} entrées de time_entries supprimées")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression totale: {e}")
+            return {
+                'success': False,
+                'entries_deleted': 0,
+                'message': f"❌ Erreur: {str(e)}"
+            }
+    
+    def clear_time_entries_by_date_range(self, start_date: str, end_date: str, create_backup: bool = True) -> Dict:
+        """Efface les pointages dans une plage de dates"""
+        try:
+            result = {
+                'success': False,
+                'entries_deleted': 0,
+                'backup_created': False,
+                'backup_data': None,
+                'backup_filename': None,
+                'message': ''
+            }
+            
+            # Créer une sauvegarde si demandé
+            if create_backup:
+                backup_data, backup_filename = self.create_history_backup()
+                if backup_data:
+                    result['backup_created'] = True
+                    result['backup_data'] = backup_data
+                    result['backup_filename'] = backup_filename
+            
+            # Compter les entrées dans la plage
+            count_query = '''
+                SELECT COUNT(*) as count FROM time_entries 
+                WHERE DATE(punch_in) BETWEEN ? AND ?
+            '''
+            count_result = self.db.execute_query(count_query, (start_date, end_date))
+            entries_count = count_result[0]['count'] if count_result else 0
+            
+            if entries_count == 0:
+                result['message'] = "Aucune entrée trouvée dans cette période"
+                return result
+            
+            # Supprimer les entrées dans la plage
+            delete_query = '''
+                DELETE FROM time_entries 
+                WHERE DATE(punch_in) BETWEEN ? AND ?
+            '''
+            deleted = self.db.execute_update(delete_query, (start_date, end_date))
+            
+            result['entries_deleted'] = entries_count
+            result['success'] = True
+            result['message'] = f"✅ {entries_count} entrées supprimées pour la période {start_date} à {end_date}"
+            
+            logger.warning(f"SUPPRESSION PAR PÉRIODE: {entries_count} entrées supprimées ({start_date} à {end_date})")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression par période: {e}")
+            return {
+                'success': False,
+                'entries_deleted': 0,
+                'message': f"❌ Erreur: {str(e)}"
+            }
+    
+    def clear_time_entries_by_employee(self, employee_id: int, create_backup: bool = True) -> Dict:
+        """Efface tous les pointages d'un employé spécifique"""
+        try:
+            result = {
+                'success': False,
+                'entries_deleted': 0,
+                'backup_created': False,
+                'backup_data': None,
+                'backup_filename': None,
+                'employee_name': '',
+                'message': ''
+            }
+            
+            # Récupérer le nom de l'employé
+            emp_result = self.db.execute_query(
+                "SELECT prenom || ' ' || nom as name FROM employees WHERE id = ?",
+                (employee_id,)
+            )
+            employee_name = emp_result[0]['name'] if emp_result else f"ID {employee_id}"
+            result['employee_name'] = employee_name
+            
+            # Créer une sauvegarde si demandé
+            if create_backup:
+                backup_data, backup_filename = self.create_history_backup()
+                if backup_data:
+                    result['backup_created'] = True
+                    result['backup_data'] = backup_data
+                    result['backup_filename'] = backup_filename
+            
+            # Compter les entrées de l'employé
+            count_result = self.db.execute_query(
+                "SELECT COUNT(*) as count FROM time_entries WHERE employee_id = ?",
+                (employee_id,)
+            )
+            entries_count = count_result[0]['count'] if count_result else 0
+            
+            if entries_count == 0:
+                result['message'] = f"Aucune entrée trouvée pour {employee_name}"
+                return result
+            
+            # Supprimer les entrées de l'employé
+            deleted = self.db.execute_update(
+                "DELETE FROM time_entries WHERE employee_id = ?",
+                (employee_id,)
+            )
+            
+            result['entries_deleted'] = entries_count
+            result['success'] = True
+            result['message'] = f"✅ {entries_count} entrées supprimées pour {employee_name}"
+            
+            logger.warning(f"SUPPRESSION PAR EMPLOYÉ: {entries_count} entrées supprimées pour {employee_name} (ID: {employee_id})")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression par employé: {e}")
+            return {
+                'success': False,
+                'entries_deleted': 0,
+                'message': f"❌ Erreur: {str(e)}"
+            }
+    
+    def clear_completed_entries_only(self, older_than_days: int = 30, create_backup: bool = True) -> Dict:
+        """Efface seulement les pointages terminés plus vieux que X jours"""
+        try:
+            result = {
+                'success': False,
+                'entries_deleted': 0,
+                'backup_created': False,
+                'backup_data': None,
+                'backup_filename': None,
+                'message': ''
+            }
+            
+            # Créer une sauvegarde si demandé
+            if create_backup:
+                backup_data, backup_filename = self.create_history_backup()
+                if backup_data:
+                    result['backup_created'] = True
+                    result['backup_data'] = backup_data
+                    result['backup_filename'] = backup_filename
+            
+            cutoff_date = (datetime.now() - timedelta(days=older_than_days)).strftime('%Y-%m-%d')
+            
+            # Compter les entrées terminées anciennes
+            count_query = '''
+                SELECT COUNT(*) as count FROM time_entries 
+                WHERE punch_out IS NOT NULL 
+                AND DATE(punch_in) < ?
+            '''
+            count_result = self.db.execute_query(count_query, (cutoff_date,))
+            entries_count = count_result[0]['count'] if count_result else 0
+            
+            if entries_count == 0:
+                result['message'] = f"Aucune entrée terminée trouvée avant {cutoff_date}"
+                return result
+            
+            # Supprimer les entrées terminées anciennes
+            delete_query = '''
+                DELETE FROM time_entries 
+                WHERE punch_out IS NOT NULL 
+                AND DATE(punch_in) < ?
+            '''
+            deleted = self.db.execute_update(delete_query, (cutoff_date,))
+            
+            result['entries_deleted'] = entries_count
+            result['success'] = True
+            result['message'] = f"✅ {entries_count} entrées terminées supprimées (antérieures au {cutoff_date})"
+            
+            logger.warning(f"SUPPRESSION ENTRÉES TERMINÉES: {entries_count} entrées supprimées (avant {cutoff_date})")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression entrées terminées: {e}")
+            return {
+                'success': False,
+                'entries_deleted': 0,
+                'message': f"❌ Erreur: {str(e)}"
+            }
+    
+    def clear_orphaned_entries(self, create_backup: bool = True) -> Dict:
+        """Efface les pointages orphelins (projets/employés/opérations supprimés)"""
+        try:
+            result = {
+                'success': False,
+                'entries_deleted': 0,
+                'backup_created': False,
+                'backup_data': None,
+                'backup_filename': None,
+                'orphan_details': {},
+                'message': ''
+            }
+            
+            # Créer une sauvegarde si demandé
+            if create_backup:
+                backup_data, backup_filename = self.create_history_backup()
+                if backup_data:
+                    result['backup_created'] = True
+                    result['backup_data'] = backup_data
+                    result['backup_filename'] = backup_filename
+            
+            orphan_count = 0
+            orphan_details = {}
+            
+            # 1. Pointages avec employés supprimés
+            emp_orphans = self.db.execute_query('''
+                SELECT COUNT(*) as count FROM time_entries te
+                WHERE te.employee_id NOT IN (SELECT id FROM employees)
+            ''')
+            emp_count = emp_orphans[0]['count'] if emp_orphans else 0
+            if emp_count > 0:
+                self.db.execute_update('''
+                    DELETE FROM time_entries 
+                    WHERE employee_id NOT IN (SELECT id FROM employees)
+                ''')
+                orphan_count += emp_count
+                orphan_details['employees'] = emp_count
+            
+            # 2. Pointages avec projets supprimés
+            proj_orphans = self.db.execute_query('''
+                SELECT COUNT(*) as count FROM time_entries te
+                WHERE te.project_id IS NOT NULL 
+                AND te.project_id NOT IN (SELECT id FROM projects)
+            ''')
+            proj_count = proj_orphans[0]['count'] if proj_orphans else 0
+            if proj_count > 0:
+                self.db.execute_update('''
+                    DELETE FROM time_entries 
+                    WHERE project_id IS NOT NULL 
+                    AND project_id NOT IN (SELECT id FROM projects)
+                ''')
+                orphan_count += proj_count
+                orphan_details['projects'] = proj_count
+            
+            # 3. Pointages avec opérations supprimées
+            op_orphans = self.db.execute_query('''
+                SELECT COUNT(*) as count FROM time_entries te
+                WHERE te.operation_id IS NOT NULL 
+                AND te.operation_id NOT IN (SELECT id FROM operations)
+            ''')
+            op_count = op_orphans[0]['count'] if op_orphans else 0
+            if op_count > 0:
+                self.db.execute_update('''
+                    DELETE FROM time_entries 
+                    WHERE operation_id IS NOT NULL 
+                    AND operation_id NOT IN (SELECT id FROM operations)
+                ''')
+                orphan_count += op_count
+                orphan_details['operations'] = op_count
+            
+            # 4. Pointages avec BT supprimés
+            bt_orphans = self.db.execute_query('''
+                SELECT COUNT(*) as count FROM time_entries te
+                WHERE te.formulaire_bt_id IS NOT NULL 
+                AND te.formulaire_bt_id NOT IN (
+                    SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'
+                )
+            ''')
+            bt_count = bt_orphans[0]['count'] if bt_orphans else 0
+            if bt_count > 0:
+                self.db.execute_update('''
+                    DELETE FROM time_entries 
+                    WHERE formulaire_bt_id IS NOT NULL 
+                    AND formulaire_bt_id NOT IN (
+                        SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'
+                    )
+                ''')
+                orphan_count += bt_count
+                orphan_details['bt_formulaires'] = bt_count
+            
+            result['entries_deleted'] = orphan_count
+            result['orphan_details'] = orphan_details
+            result['success'] = True
+            
+            if orphan_count > 0:
+                result['message'] = f"✅ {orphan_count} entrées orphelines supprimées"
+                logger.warning(f"SUPPRESSION ORPHELINS: {orphan_count} entrées supprimées - {orphan_details}")
+            else:
+                result['message'] = "Aucune entrée orpheline trouvée"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression orphelins: {e}")
+            return {
+                'success': False,
+                'entries_deleted': 0,
+                'message': f"❌ Erreur: {str(e)}"
+            }
+    
+    # =========================================================================
     # MÉTHODES STATISTIQUES
     # =========================================================================
     
@@ -1012,7 +1440,7 @@ class TimeTrackerUnified:
                     f.statut,
                     COUNT(fl.id) as nb_lignes,
                     COUNT(CASE WHEN fl.sequence_ligne < 1000 AND fl.description IS NOT NULL 
-                               AND fl.description != '' AND fl.description != 'None' THEN 1 END) as nb_taches
+                                   AND fl.description != '' AND fl.description != 'None' THEN 1 END) as nb_taches
                 FROM formulaires f
                 LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
                 WHERE f.type_formulaire = 'BON_TRAVAIL'
@@ -1244,8 +1672,8 @@ def show_timetracker_unified_interface():
     st.info("🔧 **Pointage granulaire sur les opérations spécifiques des Bons de Travail**")
     
     # Onglets pour le mode opérations
-    tab_operations, tab_history_op, tab_stats_op = st.tabs([
-        "🔧 Pointage Opérations", "📊 Historique", "📈 Statistiques"
+    tab_operations, tab_history_op, tab_stats_op, tab_admin = st.tabs([
+        "🔧 Pointage Opérations", "📊 Historique", "📈 Statistiques", "⚙️ Administration"
     ])
     
     with tab_operations:
@@ -1256,6 +1684,9 @@ def show_timetracker_unified_interface():
     
     with tab_stats_op:
         show_operation_statistics_interface(tt)
+    
+    with tab_admin:
+        show_admin_interface(tt)
 
 # =========================================================================
 # INTERFACES MODE OPÉRATIONS - POINTAGE GRANULAIRE
@@ -1636,6 +2067,318 @@ def show_operation_statistics_interface(tt):
     
     else:
         st.info("Aucune opération disponible pour les statistiques")
+
+# =========================================================================
+# INTERFACE ADMINISTRATEUR - NOUVELLE SECTION
+# =========================================================================
+
+def show_admin_interface(tt):
+    """Interface d'administration avec gestion de l'historique"""
+    
+    st.markdown("#### ⚙️ Administration - Gestion de l'Historique")
+    st.warning("🔒 **ZONE ADMINISTRATEUR** - Utilisez ces fonctions avec précaution")
+    
+    # Vérification de sécurité simple
+    if 'admin_authenticated' not in st.session_state:
+        st.session_state.admin_authenticated = False
+    
+    if not st.session_state.admin_authenticated:
+        st.markdown("##### 🔐 Authentification Administrateur")
+        password = st.text_input("Mot de passe administrateur:", type="password", key="admin_password")
+        
+        if st.button("🔓 Se connecter"):
+            # Mot de passe simple pour la démo - À changer en production !
+            if password == "admin123":
+                st.session_state.admin_authenticated = True
+                st.success("✅ Authentification réussie")
+                st.rerun()
+            else:
+                st.error("❌ Mot de passe incorrect")
+        
+        st.info("💡 **Mot de passe de démo:** admin123")
+        return
+    
+    # Interface admin authentifiée
+    st.success("🔓 **Connecté en tant qu'administrateur**")
+    
+    if st.button("🔒 Se déconnecter", key="admin_logout"):
+        st.session_state.admin_authenticated = False
+        st.rerun()
+    
+    # Statistiques de l'historique
+    st.markdown("##### 📊 Statistiques de l'Historique")
+    
+    history_stats = tt.get_history_statistics()
+    
+    if history_stats:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Entrées", history_stats.get('total_entries', 0))
+        col2.metric("Terminées", history_stats.get('completed_entries', 0))
+        col3.metric("Actives", history_stats.get('active_entries', 0))
+        col4.metric("Employés", history_stats.get('unique_employees', 0))
+        
+        col5, col6, col7, col8 = st.columns(4)
+        col5.metric("Heures Total", f"{history_stats.get('total_hours', 0):.1f}h")
+        col6.metric("Coût Total", f"{history_stats.get('total_cost', 0):,.0f}$")
+        col7.metric("Première Entrée", history_stats.get('first_date', 'N/A'))
+        col8.metric("Dernière Entrée", history_stats.get('last_date', 'N/A'))
+        
+        # Répartition par type
+        st.markdown("**Répartition par Type:**")
+        col_type1, col_type2, col_type3 = st.columns(3)
+        col_type1.metric("Opérations", history_stats.get('operation_entries', 0))
+        col_type2.metric("Tâches BT", history_stats.get('bt_entries', 0))
+        col_type3.metric("Général", history_stats.get('general_entries', 0))
+        
+        # Répartition par période
+        st.markdown("**Répartition par Période:**")
+        col_per1, col_per2, col_per3, col_per4 = st.columns(4)
+        col_per1.metric("7 derniers jours", history_stats.get('last_7_days', 0))
+        col_per2.metric("30 derniers jours", history_stats.get('last_30_days', 0))
+        col_per3.metric("90 derniers jours", history_stats.get('last_90_days', 0))
+        col_per4.metric("Plus d'un an", history_stats.get('older_than_year', 0))
+    
+    st.markdown("---")
+    
+    # Options de suppression
+    st.markdown("##### 🗑️ Options de Suppression d'Historique")
+    
+    # Créer les onglets pour différents types de suppression
+    tab_all, tab_date, tab_employee, tab_completed, tab_orphans = st.tabs([
+        "🔥 Tout Effacer", "📅 Par Période", "👤 Par Employé", "✅ Terminés Anciens", "🗑️ Orphelins"
+    ])
+    
+    with tab_all:
+        st.markdown("#### 🔥 Effacer TOUT l'Historique")
+        st.error("⚠️ **DANGER** - Cette action supprimera TOUTES les entrées de pointage de manière permanente !")
+        
+        create_backup_all = st.checkbox("📦 Créer une sauvegarde avant suppression", value=True, key="backup_all")
+        
+        confirm_all = st.text_input(
+            "Tapez 'SUPPRIMER TOUT' pour confirmer:",
+            key="confirm_delete_all"
+        )
+        
+        if st.button("🔥 EFFACER TOUT L'HISTORIQUE", type="primary", key="delete_all_btn"):
+            if confirm_all == "SUPPRIMER TOUT":
+                with st.spinner("Suppression en cours..."):
+                    result = tt.clear_all_time_entries(create_backup_all)
+                
+                if result['success']:
+                    st.success(result['message'])
+                    
+                    if result['backup_created'] and result['backup_data']:
+                        st.download_button(
+                            label="💾 Télécharger la Sauvegarde",
+                            data=result['backup_data'],
+                            file_name=result['backup_filename'],
+                            mime="application/json"
+                        )
+                    
+                    # Forcer le rechargement des stats
+                    st.rerun()
+                else:
+                    st.error(result['message'])
+            else:
+                st.error("❌ Confirmation incorrecte. Tapez exactement 'SUPPRIMER TOUT'")
+    
+    with tab_date:
+        st.markdown("#### 📅 Effacer par Période")
+        
+        col_date1, col_date2 = st.columns(2)
+        with col_date1:
+            start_date = st.date_input("Date de début:", key="delete_start_date")
+        with col_date2:
+            end_date = st.date_input("Date de fin:", key="delete_end_date")
+        
+        if start_date <= end_date:
+            create_backup_date = st.checkbox("📦 Créer une sauvegarde avant suppression", value=True, key="backup_date")
+            
+            if st.button("🗑️ Effacer la Période", key="delete_date_btn"):
+                with st.spinner("Suppression en cours..."):
+                    result = tt.clear_time_entries_by_date_range(
+                        start_date.strftime('%Y-%m-%d'),
+                        end_date.strftime('%Y-%m-%d'),
+                        create_backup_date
+                    )
+                
+                if result['success']:
+                    st.success(result['message'])
+                    
+                    if result['backup_created'] and result['backup_data']:
+                        st.download_button(
+                            label="💾 Télécharger la Sauvegarde",
+                            data=result['backup_data'],
+                            file_name=result['backup_filename'],
+                            mime="application/json"
+                        )
+                    
+                    st.rerun()
+                else:
+                    st.error(result['message'])
+        else:
+            st.error("❌ La date de fin doit être postérieure à la date de début")
+    
+    with tab_employee:
+        st.markdown("#### 👤 Effacer par Employé")
+        
+        employees = tt.get_all_employees()
+        if employees:
+            employee_options = {emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees}
+            
+            selected_emp_id = st.selectbox(
+                "Sélectionner l'employé:",
+                options=list(employee_options.keys()),
+                format_func=lambda x: employee_options[x],
+                key="delete_employee_select"
+            )
+            
+            if selected_emp_id:
+                # Afficher un aperçu des données de l'employé
+                emp_stats = tt.get_employee_statistics(selected_emp_id, days=365)
+                if emp_stats:
+                    st.info(f"📊 Données trouvées: {emp_stats.get('total_sessions', 0)} sessions, {emp_stats.get('total_hours', 0):.1f}h")
+                
+                create_backup_emp = st.checkbox("📦 Créer une sauvegarde avant suppression", value=True, key="backup_emp")
+                
+                if st.button("🗑️ Effacer cet Employé", key="delete_emp_btn"):
+                    with st.spinner("Suppression en cours..."):
+                        result = tt.clear_time_entries_by_employee(selected_emp_id, create_backup_emp)
+                    
+                    if result['success']:
+                        st.success(result['message'])
+                        
+                        if result['backup_created'] and result['backup_data']:
+                            st.download_button(
+                                label="💾 Télécharger la Sauvegarde",
+                                data=result['backup_data'],
+                                file_name=result['backup_filename'],
+                                mime="application/json"
+                            )
+                        
+                        st.rerun()
+                    else:
+                        st.error(result['message'])
+        else:
+            st.warning("Aucun employé trouvé")
+    
+    with tab_completed:
+        st.markdown("#### ✅ Effacer les Pointages Terminés Anciens")
+        st.info("💡 Cette option ne supprime que les pointages terminés, gardant les pointages actifs")
+        
+        older_than_days = st.number_input(
+            "Supprimer les pointages terminés plus vieux que (jours):",
+            min_value=1,
+            max_value=365,
+            value=30,
+            key="older_than_days"
+        )
+        
+        # Aperçu des données qui seraient supprimées
+        cutoff_date = (datetime.now() - timedelta(days=older_than_days)).strftime('%Y-%m-%d')
+        st.caption(f"Supprimera les pointages terminés avant le {cutoff_date}")
+        
+        create_backup_completed = st.checkbox("📦 Créer une sauvegarde avant suppression", value=True, key="backup_completed")
+        
+        if st.button("🗑️ Effacer les Pointages Terminés Anciens", key="delete_completed_btn"):
+            with st.spinner("Suppression en cours..."):
+                result = tt.clear_completed_entries_only(older_than_days, create_backup_completed)
+            
+            if result['success']:
+                st.success(result['message'])
+                
+                if result['backup_created'] and result['backup_data']:
+                    st.download_button(
+                        label="💾 Télécharger la Sauvegarde",
+                        data=result['backup_data'],
+                        file_name=result['backup_filename'],
+                        mime="application/json"
+                    )
+                
+                st.rerun()
+            else:
+                st.error(result['message'])
+    
+    with tab_orphans:
+        st.markdown("#### 🗑️ Nettoyer les Données Orphelines")
+        st.info("💡 Supprime les pointages liés à des employés, projets, opérations ou BT supprimés")
+        
+        # Diagnostic préalable
+        if st.button("🔍 Analyser les Orphelins", key="analyze_orphans"):
+            diagnostic = tt.diagnostic_timetracker_data()
+            
+            if diagnostic.get('problemes_detectes'):
+                st.markdown("**🚨 Problèmes détectés:**")
+                for probleme in diagnostic['problemes_detectes']:
+                    st.warning(probleme)
+            else:
+                st.success("✅ Aucun problème détecté dans les données")
+        
+        create_backup_orphans = st.checkbox("📦 Créer une sauvegarde avant suppression", value=True, key="backup_orphans")
+        
+        if st.button("🗑️ Nettoyer les Orphelins", key="delete_orphans_btn"):
+            with st.spinner("Nettoyage en cours..."):
+                result = tt.clear_orphaned_entries(create_backup_orphans)
+            
+            if result['success']:
+                st.success(result['message'])
+                
+                if result.get('orphan_details'):
+                    st.markdown("**Détail des suppressions:**")
+                    for category, count in result['orphan_details'].items():
+                        st.write(f"- {category}: {count} entrées")
+                
+                if result['backup_created'] and result['backup_data']:
+                    st.download_button(
+                        label="💾 Télécharger la Sauvegarde",
+                        data=result['backup_data'],
+                        file_name=result['backup_filename'],
+                        mime="application/json"
+                    )
+                
+                st.rerun()
+            else:
+                st.error(result['message'])
+    
+    st.markdown("---")
+    
+    # Outils de diagnostic
+    st.markdown("##### 🔧 Outils de Diagnostic")
+    
+    col_diag1, col_diag2 = st.columns(2)
+    
+    with col_diag1:
+        if st.button("🩺 Diagnostic Complet", key="full_diagnostic"):
+            diagnostic = tt.diagnostic_timetracker_data()
+            
+            st.markdown("**📊 Résultats du Diagnostic:**")
+            
+            # Afficher les statistiques principales
+            if diagnostic.get('time_entries'):
+                te_stats = diagnostic['time_entries']
+                st.json(te_stats)
+            
+            # Afficher les problèmes
+            if diagnostic.get('problemes_detectes'):
+                st.markdown("**🚨 Problèmes détectés:**")
+                for probleme in diagnostic['problemes_detectes']:
+                    st.error(probleme)
+            else:
+                st.success("✅ Système en bon état")
+    
+    with col_diag2:
+        if st.button("🔧 Corriger les Orphelins BT", key="fix_orphans"):
+            result = tt.corriger_pointages_bt_orphelins()
+            
+            if result.get('erreur'):
+                st.error(f"❌ Erreur: {result['erreur']}")
+            else:
+                st.success(f"✅ {result['corrections_effectuees']} corrections effectuées sur {result['orphelins_trouves']} orphelins trouvés")
+                
+                if result.get('erreurs'):
+                    st.warning("⚠️ Erreurs lors de certaines corrections:")
+                    for erreur in result['erreurs']:
+                        st.write(f"- {erreur}")
 
 # =========================================================================
 # FONCTION PRINCIPALE D'AFFICHAGE
