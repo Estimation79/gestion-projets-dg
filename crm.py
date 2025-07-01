@@ -1,5 +1,5 @@
-# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ ---
-# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis
+# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION ---
+# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis + Modification
 
 import json
 import os
@@ -902,6 +902,73 @@ class GestionnaireCRM:
         except Exception as e:
             st.error(f"Erreur création devis: {e}")
             return None
+    
+    def modifier_devis(self, devis_id: int, devis_data: Dict[str, Any]) -> bool:
+        """
+        Modifie un devis existant
+        
+        Args:
+            devis_id: ID du devis à modifier
+            devis_data: Nouvelles données du devis (même structure que create_devis)
+        """
+        if not self.use_sqlite:
+            st.error("Modification devis disponible uniquement en mode SQLite")
+            return False
+        
+        try:
+            # Vérifier que le devis existe et n'est pas dans un état non modifiable
+            devis_existant = self.get_devis_complet(devis_id)
+            if not devis_existant:
+                st.error(f"Devis #{devis_id} non trouvé.")
+                return False
+            
+            # Vérifier le statut - empêcher modification des devis approuvés/terminés
+            statuts_non_modifiables = ['APPROUVÉ', 'TERMINÉ', 'ANNULÉ']
+            if devis_existant.get('statut') in statuts_non_modifiables:
+                st.error(f"Impossible de modifier un devis au statut '{devis_existant.get('statut')}'")
+                return False
+            
+            # Mettre à jour les informations principales du formulaire
+            query = '''
+                UPDATE formulaires 
+                SET company_id = ?, employee_id = ?, project_id = ?, 
+                    date_echeance = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            '''
+            
+            rows_affected = self.db.execute_update(query, (
+                devis_data['client_company_id'],
+                devis_data['employee_id'],
+                devis_data.get('project_id'),
+                devis_data['date_echeance'],
+                devis_data.get('notes', ''),
+                devis_id
+            ))
+            
+            if rows_affected > 0:
+                # Supprimer les anciennes lignes et ajouter les nouvelles
+                self.db.execute_update("DELETE FROM formulaire_lignes WHERE formulaire_id = ?", (devis_id,))
+                
+                # Ajouter les nouvelles lignes
+                if devis_data.get('lignes'):
+                    for i, ligne in enumerate(devis_data['lignes'], 1):
+                        self.ajouter_ligne_devis(devis_id, i, ligne)
+                
+                # Enregistrer la modification dans l'historique
+                self.enregistrer_validation_devis(
+                    devis_id,
+                    devis_data['employee_id'],
+                    'MODIFICATION',
+                    f"Devis modifié via interface"
+                )
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            st.error(f"Erreur modification devis: {e}")
+            return False
     
     def ajouter_ligne_devis(self, devis_id: int, sequence: int, ligne_data: Dict[str, Any]) -> Optional[int]:
         """Ajoute une ligne à un devis"""
@@ -2285,8 +2352,10 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                             st.error("Erreur lors du changement de statut.")
                 
                 with col_action4:
-                    if st.button("✏️ Modifier", key="edit_devis", use_container_width=True, disabled=True):
-                         st.info("Fonctionnalité de modification à venir.")
+                    if st.button("✏️ Modifier", key="edit_devis", use_container_width=True):
+                        st.session_state.crm_action = "edit_devis"
+                        st.session_state.crm_selected_id = selected_devis_id
+                        st.rerun()
         else:
             st.info("Aucun devis trouvé avec les filtres sélectionnés.")
     
@@ -2342,7 +2411,6 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                             st.rerun()
                 st.markdown(f"**Total (HT) : {total_ht_preview:,.2f} $**")
         st.markdown("---")
-
 
         # --- PARTIE 2 : FORMULAIRE FINAL POUR LES INFORMATIONS GÉNÉRALES ---
         st.markdown("##### Étape 2 : Renseigner les informations générales et créer")
@@ -2532,6 +2600,197 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
         st.session_state.crm_action = None
         st.rerun()
 
+def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
+    """Formulaire de modification d'un devis existant"""
+    if not devis_data:
+        st.error("Devis non trouvé pour modification.")
+        return
+
+    st.subheader(f"✏️ Modifier le Devis: {devis_data.get('numero_document')}")
+    
+    # Vérifier que le devis est modifiable
+    statuts_non_modifiables = ['APPROUVÉ', 'TERMINÉ', 'ANNULÉ']
+    if devis_data.get('statut') in statuts_non_modifiables:
+        st.error(f"Ce devis ne peut pas être modifié car il est au statut '{devis_data.get('statut')}'")
+        if st.button("Retour aux détails du devis"):
+            st.session_state.crm_action = "view_devis_details"
+            st.rerun()
+        return
+
+    # Initialiser les lignes dans la session si ce n'est pas déjà fait
+    if 'edit_devis_lignes' not in st.session_state or st.session_state.get('edit_devis_id') != devis_data['id']:
+        st.session_state.edit_devis_lignes = devis_data.get('lignes', [])
+        st.session_state.edit_devis_id = devis_data['id']
+
+    # --- PARTIE 1 : GESTION DES LIGNES (COMME DANS LA CRÉATION) ---
+    st.markdown("##### Lignes du devis")
+    
+    # Formulaire pour ajouter/modifier une ligne
+    with st.container(border=True):
+        col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
+        with col_ligne1:
+            description = st.text_input("Description", key="edit_ligne_description")
+        with col_ligne2:
+            quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="edit_ligne_quantite", format="%.2f")
+        with col_ligne3:
+            unite = st.selectbox("Unité", options=["UN", "H", "JOUR", "FORFAIT"], key="edit_ligne_unite")
+        with col_ligne4:
+            prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="edit_ligne_prix", format="%.2f")
+        with col_ligne5:
+            st.write("")
+            if st.button("➕ Ajouter", key="edit_ajouter_ligne_btn", use_container_width=True):
+                if description and quantite > 0:
+                    st.session_state.edit_devis_lignes.append({
+                        'description': description,
+                        'quantite': quantite,
+                        'unite': unite,
+                        'prix_unitaire': prix_unitaire
+                    })
+                    st.rerun()
+                else:
+                    st.warning("La description et la quantité sont requises.")
+
+    # Affichage des lignes avec possibilité de suppression
+    if st.session_state.edit_devis_lignes:
+        st.markdown("**Lignes actuelles :**")
+        total_ht_preview = 0
+        with st.container(border=True):
+            for i, ligne in enumerate(st.session_state.edit_devis_lignes):
+                col_disp, col_del = st.columns([10, 1])
+                with col_disp:
+                    montant = ligne['quantite'] * ligne['prix_unitaire']
+                    total_ht_preview += montant
+                    st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
+                with col_del:
+                    if st.button("🗑️", key=f"edit_remove_ligne_{i}", help="Supprimer la ligne"):
+                        st.session_state.edit_devis_lignes.pop(i)
+                        st.rerun()
+            st.markdown(f"**Total (HT) : {total_ht_preview:,.2f} $**")
+    
+    st.markdown("---")
+
+    # --- PARTIE 2 : FORMULAIRE PRINCIPAL ---
+    st.markdown("##### Informations générales")
+
+    with st.form("formulaire_modifier_devis"):
+        col_base1, col_base2 = st.columns(2)
+        
+        with col_base1:
+            # Client
+            clients = crm_manager.entreprises
+            client_options = [(c['id'], c['nom']) for c in clients]
+            current_client_id = devis_data.get('company_id')
+            client_index = next((i for i, (opt_id, _) in enumerate(client_options) if opt_id == current_client_id), 0)
+            
+            client_id = st.selectbox("Client *", 
+                                   options=[opt[0] for opt in client_options],
+                                   format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), ''),
+                                   index=client_index,
+                                   key="edit_devis_client")
+            
+            # Responsable
+            if crm_manager.use_sqlite:
+                employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
+                emp_options = [(e['id'], e['nom']) for e in employees] if employees else []
+                current_emp_id = devis_data.get('employee_id')
+                emp_index = next((i for i, (opt_id, _) in enumerate(emp_options) if opt_id == current_emp_id), 0)
+                
+                responsable_id = st.selectbox("Responsable *", 
+                                            options=[opt[0] for opt in emp_options],
+                                            format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
+                                            index=emp_index,
+                                            key="edit_devis_responsable")
+            else:
+                responsable_id = devis_data.get('employee_id', 1)
+
+        with col_base2:
+            # Date d'échéance
+            try:
+                current_echeance = datetime.fromisoformat(devis_data.get('date_echeance')).date()
+            except:
+                current_echeance = datetime.now().date() + timedelta(days=30)
+            
+            echeance = st.date_input("Date d'échéance *", 
+                                   value=current_echeance,
+                                   key="edit_devis_echeance")
+            
+            # Projet lié
+            if crm_manager.use_sqlite:
+                projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
+                projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets] if projets else [("", "Aucun projet")]
+                current_projet_id = devis_data.get('project_id', "")
+                projet_index = next((i for i, (opt_id, _) in enumerate(projet_options) if opt_id == current_projet_id), 0)
+                
+                projet_id = st.selectbox("Projet lié", 
+                                       options=[opt[0] for opt in projet_options],
+                                       format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
+                                       index=projet_index,
+                                       key="edit_devis_projet")
+            else:
+                projet_id = devis_data.get('project_id')
+
+        # Notes
+        notes = st.text_area("Notes ou conditions", 
+                           value=devis_data.get('notes', ''),
+                           key="edit_devis_notes")
+
+        # Boutons
+        col_submit, col_cancel = st.columns(2)
+        with col_submit:
+            submitted = st.form_submit_button("💾 Sauvegarder les modifications", type="primary", use_container_width=True)
+        with col_cancel:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                # Nettoyer les variables de session
+                if 'edit_devis_lignes' in st.session_state:
+                    del st.session_state.edit_devis_lignes
+                if 'edit_devis_id' in st.session_state:
+                    del st.session_state.edit_devis_id
+                st.session_state.crm_action = "view_devis_details"
+                st.rerun()
+
+        if submitted:
+            if not client_id or not responsable_id or not st.session_state.edit_devis_lignes:
+                st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
+            else:
+                # Valider les données
+                errors = validate_devis_data({
+                    'client_company_id': client_id,
+                    'employee_id': responsable_id,
+                    'date_echeance': echeance.strftime('%Y-%m-%d'),
+                    'lignes': st.session_state.edit_devis_lignes
+                })
+                
+                if errors:
+                    st.error("Erreurs de validation :")
+                    for error in errors:
+                        st.write(f"• {error}")
+                else:
+                    # Construire les données de modification
+                    modification_data = {
+                        'client_company_id': client_id,
+                        'employee_id': responsable_id,
+                        'project_id': projet_id if projet_id else None,
+                        'date_echeance': echeance.strftime('%Y-%m-%d'),
+                        'notes': notes,
+                        'lignes': st.session_state.edit_devis_lignes
+                    }
+                    
+                    # Effectuer la modification
+                    if crm_manager.modifier_devis(devis_data['id'], modification_data):
+                        st.success("✅ Devis modifié avec succès !")
+                        
+                        # Nettoyer les variables de session
+                        if 'edit_devis_lignes' in st.session_state:
+                            del st.session_state.edit_devis_lignes
+                        if 'edit_devis_id' in st.session_state:
+                            del st.session_state.edit_devis_id
+                        
+                        # Retourner aux détails
+                        st.session_state.crm_action = "view_devis_details"
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de la modification du devis.")
+
 # =========================================================================
 # FONCTIONS DE GESTION DES ACTIONS CRM + DEVIS
 # =========================================================================
@@ -2576,6 +2835,9 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
     elif action == "view_devis_details" and selected_id:
         devis_data = crm_manager.get_devis_complet(selected_id)
         render_crm_devis_details(crm_manager, devis_data)
+    elif action == "edit_devis" and selected_id:
+        devis_data = crm_manager.get_devis_complet(selected_id)
+        render_crm_devis_edit_form(crm_manager, devis_data)
 
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
     """Interface principale CRM avec support des devis"""
@@ -2831,4 +3093,4 @@ if __name__ == "__main__":
         st.info("Lancement en mode démo JSON de secours.")
         demo_crm_with_devis()
 
-# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ COMPLET ---
+# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION COMPLÈTE ---
