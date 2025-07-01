@@ -1130,15 +1130,15 @@ class GestionnaireProjetSQL:
             self.db.execute_update(query, (
                 project_id,
                 projet_data['nom_projet'],
-                projet_data.get('client_company_id'),  # Peut être NULL
+                projet_data.get('client_company_id'),
                 projet_data.get('client_nom_cache'),
-                projet_data.get('client_legacy', ''),  # Legacy field
+                projet_data.get('client_legacy', ''),
                 projet_data.get('statut', 'À FAIRE'),
                 projet_data.get('priorite', 'MOYEN'),
-                projet_data.get('tache'),
+                projet_data['tache'],          # <-- Accès direct risqué
                 projet_data.get('date_soumis'),
                 projet_data.get('date_prevu'),
-                bd_ft_estime,
+                bd_ft_estime,                  # <-- Variable calculée à partir de la clé
                 prix_estime,
                 projet_data.get('description')
             ))
