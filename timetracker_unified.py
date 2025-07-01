@@ -853,7 +853,7 @@ class TimeTrackerUnified:
         """Récupère les employés avec pointage actif sur opérations avec infos enrichies"""
         try:
             query = '''
-                SELECT DISTINCT 
+                SELECT 
                     e.id, 
                     e.prenom || ' ' || e.nom as name, 
                     e.poste, 
@@ -892,13 +892,6 @@ class TimeTrackerUnified:
                     wc.nom as work_center_name,
                     wc.departement as work_center_dept,
                     
-                    -- Informations Tâche BT (si applicable)
-                    fl.id as bt_task_id,
-                    fl.description as bt_task_description,
-                    fl.sequence_ligne as bt_task_sequence,
-                    fl.prix_unitaire as bt_task_temps_estime,
-                    fl.notes_ligne as bt_task_notes,
-                    
                     -- Type de pointage
                     CASE 
                         WHEN te.operation_id IS NOT NULL THEN 'OPERATION'
@@ -912,15 +905,44 @@ class TimeTrackerUnified:
                 LEFT JOIN operations o ON te.operation_id = o.id
                 LEFT JOIN work_centers wc ON o.work_center_id = wc.id
                 LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id AND f.type_formulaire = 'BON_TRAVAIL'
-                LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id 
-                    AND fl.sequence_ligne < 1000 
-                    AND fl.description IS NOT NULL
-                    AND fl.description != ''
                 WHERE te.punch_out IS NULL
                 ORDER BY te.punch_in
             '''
+            
             rows = self.db.execute_query(query)
-            return [dict(row) for row in rows]
+            result = []
+            
+            for row in rows:
+                emp_data = dict(row)
+                
+                # Si c'est un pointage BT, récupérer les infos de la tâche
+                if emp_data['pointage_type'] == 'BT_TASK' and emp_data['bt_id']:
+                    # Récupérer les détails de la tâche BT
+                    task_query = '''
+                        SELECT 
+                            fl.id as bt_task_id,
+                            fl.description as bt_task_description,
+                            fl.sequence_ligne as bt_task_sequence,
+                            fl.prix_unitaire as bt_task_temps_estime,
+                            fl.notes_ligne as bt_task_notes
+                        FROM formulaire_lignes fl
+                        WHERE fl.formulaire_id = ?
+                        AND fl.sequence_ligne < 1000 
+                        AND fl.description IS NOT NULL
+                        AND fl.description != ''
+                        AND fl.description != 'None'
+                        ORDER BY fl.sequence_ligne
+                        LIMIT 1
+                    '''
+                    
+                    task_result = self.db.execute_query(task_query, (emp_data['bt_id'],))
+                    if task_result:
+                        task_data = dict(task_result[0])
+                        emp_data.update(task_data)
+                
+                result.append(emp_data)
+            
+            return result
             
         except Exception as e:
             logger.error(f"Erreur employés actifs avec opérations: {e}")
