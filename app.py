@@ -1735,19 +1735,6 @@ def show_portal_home():
     st.markdown("""
     <div class="portal-footer">
         <h4>🏭 ERP Production DG Inc.</h4>
-        <p>
-            <strong>Desmarais & Gagné Inc.</strong> • Fabrication métallique et industrielle<br>
-            🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🔧 TimeTracker Pro & Postes • 🔄 Kanban Unifié<br>
-            💾 Stockage persistant • 📎 Pièces Jointes • 🔄 Navigation fluide • 🔒 Sécurisé
-        </p>
-        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-            <small>
-                👥 <strong>Employés:</strong> Interface unifiée TimeTracker Pro & Postes<br>
-                👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
-                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié • 🔄 Kanban Projets + Opérations<br>
-                📎 <strong>NOUVEAU:</strong> Gestion complète des pièces jointes par projet
-            </small>
-        </div>
         <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); text-align: center;">
             <small style="color: var(--text-color-muted); font-style: italic;">
                 💻 Développé par <strong>Sylvain Leduc</strong> • 2025
