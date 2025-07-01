@@ -1,63 +1,66 @@
-# bt_pdf_export_improved.py - Export PDF amélioré des Bons de Travail - Desmarais & Gagné Inc.
-# Version corrigée avec meilleure présentation et sans superposition de texte
+# bt_pdf_export.py - Module d'export PDF pour les Bons de Travail
+# Desmarais & Gagné Inc. - Système ERP Production
+# Génération de PDFs professionnels avec identité DG Inc.
 
 import streamlit as st
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, cm, mm
+from reportlab.lib.units import inch, mm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus.tableofcontents import TableOfContents
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 from reportlab.pdfgen import canvas
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
-from reportlab.graphics.shapes import Drawing, Rect
-from reportlab.graphics import renderPDF
+from reportlab.lib.utils import ImageReader
 from datetime import datetime
 import io
+import base64
 import logging
 
-# Configuration logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class BTToPDFExporter:
-    """
-    Générateur PDF amélioré pour les Bons de Travail DG Inc.
-    Version corrigée sans superposition de texte
-    """
+# Couleurs DG Inc.
+DG_PRIMARY = colors.Color(0, 169/255, 113/255)      # #00A971
+DG_PRIMARY_DARK = colors.Color(0, 103/255, 61/255)  # #00673D
+DG_LIGHT_GREEN = colors.Color(220/255, 252/255, 231/255)  # #DCFCE7
+DG_GRAY = colors.Color(55/255, 65/255, 81/255)      # #374151
+DG_LIGHT_GRAY = colors.Color(107/255, 114/255, 128/255)  # #6B7280
+
+class BTPDFGenerator:
+    """Générateur de PDF pour les Bons de Travail"""
     
     def __init__(self):
-        self.page_width, self.page_height = A4
-        self.margin = 2*cm
-        self.content_width = self.page_width - 2*self.margin
+        self.page_width = A4[0]
+        self.page_height = A4[1]
+        self.margin = 50
+        self.content_width = self.page_width - 2 * self.margin
         
-        # Palette de couleurs DG Inc.
-        self.dg_green = colors.Color(0, 169/255, 113/255)  # #00A971
-        self.dg_green_dark = colors.Color(0, 103/255, 61/255)  # #00673D
-        self.dg_green_light = colors.Color(220/255, 252/255, 231/255)  # #DCFCE7
-        self.dg_green_ultra_light = colors.Color(240/255, 253/255, 244/255)  # #F0FDF4
-        self.dg_gray = colors.Color(55/255, 65/255, 81/255)  # #374151
-        self.dg_gray_light = colors.Color(156/255, 163/255, 175/255)  # #9CA3AF
-        self.dg_gray_ultra_light = colors.Color(249/255, 250/255, 251/255)  # #F9FAFB
-        self.dg_blue = colors.Color(59/255, 130/255, 246/255)  # #3B82F6
-        self.dg_orange = colors.Color(245/255, 158/255, 11/255)  # #F59E0B
-        self.dg_red = colors.Color(239/255, 68/255, 68/255)  # #EF4444
-        
-        # Styles personnalisés
-        self.setup_styles()
-    
-    def setup_styles(self):
-        """Configure les styles personnalisés DG Inc."""
+        # Styles
         self.styles = getSampleStyleSheet()
+        self._create_custom_styles()
+    
+    def _create_custom_styles(self):
+        """Créer les styles personnalisés DG Inc."""
         
         # Style titre principal
         self.styles.add(ParagraphStyle(
             name='DGTitle',
             parent=self.styles['Heading1'],
             fontSize=24,
-            textColor=self.dg_green_dark,
+            textColor=DG_PRIMARY_DARK,
             spaceAfter=20,
-            spaceBefore=10,
             alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
+        ))
+        
+        # Style sous-titre
+        self.styles.add(ParagraphStyle(
+            name='DGSubtitle',
+            parent=self.styles['Heading2'],
+            fontSize=16,
+            textColor=DG_PRIMARY,
+            spaceAfter=12,
+            spaceBefore=20,
             fontName='Helvetica-Bold'
         ))
         
@@ -66,584 +69,538 @@ class BTToPDFExporter:
             name='DGSection',
             parent=self.styles['Heading3'],
             fontSize=14,
-            textColor=colors.white,
-            spaceAfter=10,
-            spaceBefore=15,
-            fontName='Helvetica-Bold',
-            borderWidth=0,
-            borderPadding=8,
-            backColor=self.dg_green,
-            alignment=TA_LEFT,
-            leftIndent=5
-        ))
-        
-        # Style sous-section
-        self.styles.add(ParagraphStyle(
-            name='DGSubSection',
-            parent=self.styles['Heading4'],
-            fontSize=12,
-            textColor=self.dg_green_dark,
+            textColor=DG_PRIMARY_DARK,
             spaceAfter=8,
-            spaceBefore=10,
+            spaceBefore=16,
             fontName='Helvetica-Bold'
         ))
         
-        # Style normal
+        # Style normal DG
         self.styles.add(ParagraphStyle(
             name='DGNormal',
             parent=self.styles['Normal'],
             fontSize=10,
-            textColor=self.dg_gray,
+            textColor=DG_GRAY,
             spaceAfter=6,
-            fontName='Helvetica',
-            alignment=TA_LEFT
+            fontName='Helvetica'
         ))
         
-        # Style important
+        # Style info importante
         self.styles.add(ParagraphStyle(
             name='DGImportant',
             parent=self.styles['Normal'],
             fontSize=11,
-            textColor=self.dg_green_dark,
+            textColor=DG_PRIMARY_DARK,
             fontName='Helvetica-Bold',
-            spaceAfter=8,
-            leftIndent=5,
-            borderWidth=1,
-            borderColor=self.dg_green,
-            borderPadding=6,
-            backColor=self.dg_green_ultra_light
+            spaceAfter=6
         ))
-
-    def create_header_footer(self, canvas, doc):
-        """Crée l'en-tête et le pied de page simplifiés"""
+        
+        # Style petite info
+        self.styles.add(ParagraphStyle(
+            name='DGSmall',
+            parent=self.styles['Normal'],
+            fontSize=8,
+            textColor=DG_LIGHT_GRAY,
+            fontName='Helvetica'
+        ))
+    
+    def _create_header_footer(self, canvas, doc):
+        """Créer l'en-tête et le pied de page"""
         canvas.saveState()
         
-        # === EN-TÊTE SIMPLIFIÉ ===
-        header_height = 60
-        
-        # Fond de l'en-tête
-        canvas.setFillColor(self.dg_green_dark)
-        canvas.rect(0, self.page_height - header_height, self.page_width, header_height, fill=1)
-        
-        # Logo DG simplifié
-        logo_x = self.margin
-        logo_y = self.page_height - header_height + 10
+        # En-tête
+        # Logo DG simulé (rectangle avec texte)
+        canvas.setFillColor(DG_PRIMARY)
+        canvas.rect(self.margin, self.page_height - 80, 60, 30, fill=1, stroke=0)
         
         canvas.setFillColor(colors.white)
-        canvas.roundRect(logo_x, logo_y, 60, 35, 5, fill=1)
-        canvas.setFillColor(self.dg_green_dark)
         canvas.setFont('Helvetica-Bold', 16)
-        canvas.drawCentredString(logo_x + 30, logo_y + 15, "DG")
+        canvas.drawCentredText(self.margin + 30, self.page_height - 68, "DG")
         
         # Nom de l'entreprise
-        canvas.setFillColor(colors.white)
+        canvas.setFillColor(DG_PRIMARY_DARK)
         canvas.setFont('Helvetica-Bold', 18)
-        canvas.drawString(logo_x + 80, logo_y + 25, "Desmarais & Gagne inc.")
+        canvas.drawString(self.margin + 80, self.page_height - 60, "Desmarais & Gagné inc.")
         
-        canvas.setFont('Helvetica', 10)
-        canvas.drawString(logo_x + 80, logo_y + 10, "Solutions industrielles d'excellence")
-        
-        # Coordonnées alignées à droite
+        # Coordonnées
+        canvas.setFillColor(DG_GRAY)
         canvas.setFont('Helvetica', 9)
-        right_margin = self.page_width - self.margin
-        canvas.drawRightString(right_margin, logo_y + 30, "565 rue Maisonneuve, Granby, QC J2G 3H5")
-        canvas.drawRightString(right_margin, logo_y + 20, "Tel.: (450) 372-9630")
-        canvas.drawRightString(right_margin, logo_y + 10, "Telec.: (450) 372-8122")
-        
-        # === PIED DE PAGE SIMPLIFIÉ ===
-        footer_y = self.margin - 10
-        
-        # Ligne décorative
-        canvas.setStrokeColor(self.dg_green)
-        canvas.setLineWidth(1)
-        canvas.line(self.margin, footer_y + 15, self.page_width - self.margin, footer_y + 15)
-        
-        # Informations du pied de page
-        canvas.setFillColor(self.dg_gray)
-        canvas.setFont('Helvetica', 8)
-        
-        # Date de génération
-        date_text = f"Document genere le {datetime.now().strftime('%d/%m/%Y a %H:%M')}"
-        canvas.drawString(self.margin, footer_y, date_text)
-        
-        # Titre centré
-        canvas.setFont('Helvetica-Bold', 9)
-        canvas.drawCentredString(self.page_width/2, footer_y, "BON DE TRAVAIL - Systeme ERP DG Inc.")
-        
-        # Numéro de page
-        page_text = f"Page {doc.page}"
-        canvas.setFont('Helvetica', 8)
-        canvas.drawRightString(self.page_width - self.margin, footer_y, page_text)
-        
-        canvas.restoreState()
-
-    def export_bt_to_pdf(self, form_data):
-        """
-        Génère le PDF du Bon de Travail avec présentation améliorée
-        """
-        try:
-            # Créer un buffer en mémoire
-            buffer = io.BytesIO()
-            
-            # Créer le document PDF
-            doc = SimpleDocTemplate(
-                buffer,
-                pagesize=A4,
-                rightMargin=self.margin,
-                leftMargin=self.margin,
-                topMargin=self.margin + 70,  # Espace pour l'en-tête
-                bottomMargin=self.margin + 30  # Espace pour le pied de page
-            )
-            
-            # Construire le contenu
-            story = []
-            
-            # Titre principal
-            story.append(Paragraph("BON DE TRAVAIL", self.styles['DGTitle']))
-            story.append(Spacer(1, 15))
-            
-            # Informations générales
-            self._add_general_info(story, form_data)
-            story.append(Spacer(1, 15))
-            
-            # Tâches et opérations
-            self._add_tasks_section(story, form_data)
-            story.append(Spacer(1, 15))
-            
-            # Matériaux
-            self._add_materials_section(story, form_data)
-            story.append(Spacer(1, 15))
-            
-            # Instructions
-            self._add_instructions_section(story, form_data)
-            story.append(Spacer(1, 15))
-            
-            # Signatures
-            self._add_signatures_section(story)
-            
-            # Construire le PDF
-            doc.build(story, onFirstPage=self.create_header_footer, 
-                     onLaterPages=self.create_header_footer)
-            
-            # Récupérer le contenu
-            pdf_content = buffer.getvalue()
-            buffer.close()
-            
-            logger.info(f"PDF ameliore genere avec succes pour BT {form_data.get('numero_document', 'N/A')}")
-            return pdf_content
-            
-        except Exception as e:
-            logger.error(f"Erreur generation PDF ameliore: {e}")
-            raise e
-
-    def _add_general_info(self, story, form_data):
-        """Ajoute les informations générales avec badge de statut"""
-        # Badge de statut en haut
-        story.append(Paragraph("INFORMATIONS GENERALES", self.styles['DGSection']))
-        story.append(Spacer(1, 8))
-        
-        # Tableau de statut simplifié
-        numero = form_data.get('numero_document', 'N/A')
-        priority = form_data.get('priority', 'NORMAL')
-        statut = form_data.get('statut', 'BROUILLON')
-        
-        priority_display = self._format_priority_simple(priority)
-        
-        status_data = [
-            ['Numero:', numero, 'Priorite:', priority_display, 'Statut:', statut]
+        contact_info = [
+            "565 rue Maisonneuve, Granby, QC J2G 3H5",
+            "Tél.: (450) 372-9630 | Téléc.: (450) 372-8122",
+            "www.dg-inc.com"
         ]
         
-        status_table = Table(status_data, colWidths=[2*cm, 3.5*cm, 2*cm, 2.5*cm, 2*cm, 3*cm])
-        status_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), self.dg_green_light),
-            ('TEXTCOLOR', (0, 0), (-1, -1), self.dg_gray),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        y_contact = self.page_height - 75
+        for line in contact_info:
+            canvas.drawRightString(self.page_width - self.margin, y_contact, line)
+            y_contact -= 12
+        
+        # Ligne de séparation
+        canvas.setStrokeColor(DG_PRIMARY)
+        canvas.setLineWidth(2)
+        canvas.line(self.margin, self.page_height - 100, 
+                   self.page_width - self.margin, self.page_height - 100)
+        
+        # Pied de page
+        canvas.setFillColor(DG_LIGHT_GRAY)
+        canvas.setFont('Helvetica', 8)
+        
+        # Date d'impression
+        date_impression = f"Imprimé le {datetime.now().strftime('%d/%m/%Y à %H:%M')}"
+        canvas.drawString(self.margin, 30, date_impression)
+        
+        # Numéro de page
+        page_num = f"Page {doc.page}"
+        canvas.drawRightString(self.page_width - self.margin, 30, page_num)
+        
+        # Ligne de pied
+        canvas.setStrokeColor(DG_PRIMARY)
+        canvas.setLineWidth(1)
+        canvas.line(self.margin, 45, self.page_width - self.margin, 45)
+        
+        canvas.restoreState()
+    
+    def _create_info_section(self, form_data):
+        """Créer la section d'informations générales"""
+        elements = []
+        
+        # Titre du document
+        title = Paragraph("BON DE TRAVAIL", self.styles['DGTitle'])
+        elements.append(title)
+        elements.append(Spacer(1, 20))
+        
+        # Informations principales dans un tableau
+        info_data = [
+            ['N° Bon de Travail:', form_data.get('numero_document', 'N/A'), 
+             'Date de création:', form_data.get('date_creation', datetime.now().strftime('%Y-%m-%d'))[:10]],
+            ['Projet:', form_data.get('project_name', 'N/A'), 
+             'Client:', form_data.get('client_name', 'N/A')],
+            ['Chargé de projet:', form_data.get('project_manager', 'Non assigné'), 
+             'Priorité:', self._get_priority_display(form_data.get('priority', 'NORMAL'))],
+            ['Date début prévue:', form_data.get('start_date', 'N/A'), 
+             'Date fin prévue:', form_data.get('end_date', 'N/A')]
+        ]
+        
+        info_table = Table(info_data, colWidths=[80, 120, 80, 120])
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), DG_LIGHT_GREEN),
+            ('BACKGROUND', (2, 0), (2, -1), DG_LIGHT_GREEN),
+            ('TEXTCOLOR', (0, 0), (-1, -1), DG_GRAY),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTNAME', (3, 0), (3, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 1, self.dg_green),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('GRID', (0, 0), (-1, -1), 1, DG_PRIMARY),
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.white, DG_LIGHT_GREEN])
         ]))
         
-        story.append(status_table)
-        story.append(Spacer(1, 10))
+        elements.append(info_table)
+        elements.append(Spacer(1, 20))
         
-        # Tableau principal des informations avec largeurs ajustées
-        data = [
-            ['Projet:', form_data.get('project_name', 'N/A')],
-            ['Client:', form_data.get('client_name', 'N/A')],
-            ['Charge de projet:', form_data.get('project_manager', 'Non assigne')],
-            ['Date debut:', form_data.get('start_date', 'N/A')],
-            ['Date fin prevue:', form_data.get('end_date', 'N/A')],
-        ]
-        
-        table = Table(data, colWidths=[4*cm, 12*cm])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), self.dg_green),
-            ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 1, self.dg_green_light),
-            ('ROWBACKGROUNDS', (1, 0), (1, -1), [colors.white, self.dg_gray_ultra_light]),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ]))
-        
-        story.append(table)
-
-    def _add_tasks_section(self, story, form_data):
-        """Ajoute la section des tâches avec largeurs optimisées"""
-        story.append(Paragraph("TACHES ET OPERATIONS", self.styles['DGSection']))
-        story.append(Spacer(1, 8))
+        return elements
+    
+    def _create_tasks_section(self, form_data):
+        """Créer la section des tâches"""
+        elements = []
         
         tasks = form_data.get('tasks', [])
+        if not tasks or not any(task.get('operation') or task.get('description') for task in tasks):
+            return elements
         
-        if not tasks or not any(t.get('operation') or t.get('description') for t in tasks):
-            no_task_text = "Aucune tache definie pour ce bon de travail."
-            story.append(Paragraph(no_task_text, self.styles['DGNormal']))
-            return
+        # Titre de section
+        section_title = Paragraph("TÂCHES ET OPÉRATIONS", self.styles['DGSection'])
+        elements.append(section_title)
         
-        # En-têtes sans emojis
-        headers = ['Operation', 'Description', 'Qte', 'H.Prev', 'H.Reel', 'Assigne', 'Fournisseur', 'Statut']
-        data = [headers]
+        # En-têtes du tableau
+        headers = ['#', 'Opération', 'Description', 'Qté', 'H. Prév.', 'H. Réel.', 'Assigné à', 'Fournisseur', 'Statut']
         
-        total_planned = 0
-        total_actual = 0
+        # Données des tâches
+        task_data = [headers]
         
-        for task in tasks:
-            if task.get('operation') or task.get('description'):
-                operation = task.get('operation', '')
-                description = task.get('description', '')
-                quantity = task.get('quantity', 1)
-                planned_hours = task.get('planned_hours', 0.0)
-                actual_hours = task.get('actual_hours', 0.0)
-                assigned_to = task.get('assigned_to', '')
-                fournisseur = task.get('fournisseur', '-- Interne --')
-                status = self._format_status_simple(task.get('status', 'pending'))
-                
-                total_planned += planned_hours
-                total_actual += actual_hours
-                
-                # Tronquer les textes pour éviter les débordements
-                operation_display = operation[:15] + '...' if len(operation) > 15 else operation
-                description_display = description[:20] + '...' if len(description) > 20 else description
-                assigned_display = assigned_to[:12] + '...' if len(assigned_to) > 12 else assigned_to
-                fournisseur_display = fournisseur[:15] + '...' if len(fournisseur) > 15 else fournisseur
-                
-                data.append([
-                    operation_display,
-                    description_display,
-                    str(quantity),
-                    f"{planned_hours:.1f}h",
-                    f"{actual_hours:.1f}h",
-                    assigned_display,
-                    fournisseur_display,
-                    status
-                ])
+        valid_tasks = [task for task in tasks if task.get('operation') or task.get('description')]
         
-        # Ligne de totaux
-        data.append([
-            'TOTAUX', '', '', 
-            f"{total_planned:.1f}h", 
-            f"{total_actual:.1f}h", 
-            '', '', ''
-        ])
-        
-        # Largeurs de colonnes optimisées pour A4
-        col_widths = [2.8*cm, 3.2*cm, 1*cm, 1.2*cm, 1.2*cm, 2*cm, 2.5*cm, 1.8*cm]
-        table = Table(data, colWidths=col_widths)
-        table.setStyle(TableStyle([
-            # En-têtes
-            ('BACKGROUND', (0, 0), (-1, 0), self.dg_green_dark),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        for i, task in enumerate(valid_tasks, 1):
+            operation = task.get('operation', '')
+            description = task.get('description', '')
+            quantity = str(task.get('quantity', 1))
+            planned_hours = f"{task.get('planned_hours', 0):.1f}h"
+            actual_hours = f"{task.get('actual_hours', 0):.1f}h"
+            assigned_to = task.get('assigned_to', '')
+            fournisseur = task.get('fournisseur', '-- Interne --')
+            status = self._get_status_display(task.get('status', 'pending'))
             
-            # Données
-            ('FONTNAME', (0, 1), (-1, -2), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -2), 8),
-            ('ALIGN', (2, 1), (4, -1), 'CENTER'),  # Colonnes numériques
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            # Limiter la longueur des textes pour l'affichage
+            if len(operation) > 15:
+                operation = operation[:12] + "..."
+            if len(description) > 20:
+                description = description[:17] + "..."
+            if len(assigned_to) > 12:
+                assigned_to = assigned_to[:9] + "..."
+            if len(fournisseur) > 15:
+                fournisseur = fournisseur[:12] + "..."
             
-            # Ligne totaux
-            ('BACKGROUND', (0, -1), (-1, -1), self.dg_green),
-            ('TEXTCOLOR', (0, -1), (-1, -1), colors.white),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, -1), (-1, -1), 9),
-            
-            # Grille
-            ('GRID', (0, 0), (-1, -1), 0.5, self.dg_green_light),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, self.dg_gray_ultra_light]),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 4),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-        ]))
+            task_data.append([
+                str(i), operation, description, quantity, 
+                planned_hours, actual_hours, assigned_to, fournisseur, status
+            ])
         
-        story.append(table)
-
-    def _add_materials_section(self, story, form_data):
-        """Ajoute la section des matériaux"""
-        story.append(Paragraph("MATERIAUX ET OUTILS REQUIS", self.styles['DGSection']))
-        story.append(Spacer(1, 8))
+        # Créer le tableau
+        if len(task_data) > 1:  # Si on a au moins une tâche + headers
+            tasks_table = Table(task_data, colWidths=[20, 60, 80, 25, 35, 35, 60, 60, 45])
+            tasks_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('ALIGN', (1, 1), (2, -1), 'LEFT'),  # Opération et description à gauche
+                ('ALIGN', (6, 1), (7, -1), 'LEFT'),  # Assigné et fournisseur à gauche
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN])
+            ]))
+            
+            elements.append(tasks_table)
+            elements.append(Spacer(1, 10))
+            
+            # Totaux
+            total_planned = sum(task.get('planned_hours', 0) for task in valid_tasks)
+            total_actual = sum(task.get('actual_hours', 0) for task in valid_tasks)
+            internal_planned = sum(task.get('planned_hours', 0) for task in valid_tasks 
+                                 if task.get('fournisseur') == '-- Interne --')
+            external_planned = total_planned - internal_planned
+            
+            totals_text = f"""
+            <b>TOTAUX:</b><br/>
+            • Heures prévues: <b>{total_planned:.1f}h</b> (Interne: {internal_planned:.1f}h, Externe: {external_planned:.1f}h)<br/>
+            • Heures réelles: <b>{total_actual:.1f}h</b><br/>
+            • Nombre de tâches: <b>{len(valid_tasks)}</b>
+            """
+            
+            totals_para = Paragraph(totals_text, self.styles['DGImportant'])
+            elements.append(totals_para)
+            elements.append(Spacer(1, 15))
+        
+        return elements
+    
+    def _create_materials_section(self, form_data):
+        """Créer la section des matériaux"""
+        elements = []
         
         materials = form_data.get('materials', [])
+        valid_materials = [mat for mat in materials if mat.get('name')]
         
-        if not materials or not any(m.get('name') for m in materials):
-            no_material_text = "Aucun materiau ou outil specifie pour ce bon de travail."
-            story.append(Paragraph(no_material_text, self.styles['DGNormal']))
-            return
+        if not valid_materials:
+            return elements
         
-        # En-têtes simplifiés
-        headers = ['Materiau/Outil', 'Description', 'Qte', 'Unite', 'Fournisseur', 'Disponibilite', 'Notes']
-        data = [headers]
+        # Titre de section
+        section_title = Paragraph("MATÉRIAUX ET OUTILS REQUIS", self.styles['DGSection'])
+        elements.append(section_title)
         
-        for material in materials:
-            if material.get('name'):
-                name = material.get('name', '')
-                description = material.get('description', '')
-                quantity = material.get('quantity', 1.0)
-                unit = material.get('unit', 'pcs')
-                fournisseur = material.get('fournisseur', '-- Interne --')
-                available = self._format_availability_simple(material.get('available', 'yes'))
-                notes = material.get('notes', '')
-                
-                # Tronquer pour éviter les débordements
-                name_display = name[:18] + '...' if len(name) > 18 else name
-                description_display = description[:20] + '...' if len(description) > 20 else description
-                fournisseur_display = fournisseur[:15] + '...' if len(fournisseur) > 15 else fournisseur
-                notes_display = notes[:20] + '...' if len(notes) > 20 else notes
-                
-                data.append([
-                    name_display,
-                    description_display,
-                    f"{quantity:.1f}",
-                    unit,
-                    fournisseur_display,
-                    available,
-                    notes_display
-                ])
+        # En-têtes du tableau
+        headers = ['#', 'Matériau/Outil', 'Description', 'Quantité', 'Unité', 'Fournisseur', 'Disponibilité', 'Notes']
         
-        # Largeurs optimisées
-        col_widths = [3*cm, 3.5*cm, 1*cm, 1*cm, 2.5*cm, 2*cm, 2.5*cm]
-        table = Table(data, colWidths=col_widths)
-        table.setStyle(TableStyle([
-            # En-têtes
-            ('BACKGROUND', (0, 0), (-1, 0), self.dg_blue),
+        # Données des matériaux
+        material_data = [headers]
+        
+        for i, material in enumerate(valid_materials, 1):
+            name = material.get('name', '')
+            description = material.get('description', '')
+            quantity = f"{material.get('quantity', 1):.1f}"
+            unit = material.get('unit', 'pcs')
+            fournisseur = material.get('fournisseur', '-- Interne --')
+            available = self._get_availability_display(material.get('available', 'yes'))
+            notes = material.get('notes', '')
+            
+            # Limiter la longueur des textes
+            if len(name) > 20:
+                name = name[:17] + "..."
+            if len(description) > 25:
+                description = description[:22] + "..."
+            if len(fournisseur) > 15:
+                fournisseur = fournisseur[:12] + "..."
+            if len(notes) > 20:
+                notes = notes[:17] + "..."
+            
+            material_data.append([
+                str(i), name, description, quantity, unit, fournisseur, available, notes
+            ])
+        
+        # Créer le tableau
+        materials_table = Table(material_data, colWidths=[20, 70, 80, 35, 30, 60, 50, 75])
+        materials_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            
-            # Données
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 1), (-1, -1), 8),
-            ('ALIGN', (2, 1), (3, -1), 'CENTER'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (1, 1), (2, -1), 'LEFT'),  # Nom et description à gauche
+            ('ALIGN', (5, 1), (7, -1), 'LEFT'),  # Fournisseur et notes à gauche
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            
-            # Style
-            ('GRID', (0, 0), (-1, -1), 0.5, self.dg_gray_light),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.dg_gray_ultra_light]),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 4),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN])
         ]))
         
-        story.append(table)
-
-    def _add_instructions_section(self, story, form_data):
-        """Ajoute la section des instructions"""
-        story.append(Paragraph("INSTRUCTIONS ET NOTES", self.styles['DGSection']))
-        story.append(Spacer(1, 8))
+        elements.append(materials_table)
+        elements.append(Spacer(1, 15))
+        
+        return elements
+    
+    def _create_instructions_section(self, form_data):
+        """Créer la section des instructions"""
+        elements = []
+        
+        work_instructions = form_data.get('work_instructions', '').strip()
+        safety_notes = form_data.get('safety_notes', '').strip()
+        quality_requirements = form_data.get('quality_requirements', '').strip()
+        
+        if not any([work_instructions, safety_notes, quality_requirements]):
+            return elements
+        
+        # Titre de section
+        section_title = Paragraph("INSTRUCTIONS ET NOTES", self.styles['DGSection'])
+        elements.append(section_title)
         
         # Instructions de travail
-        work_instructions = form_data.get('work_instructions', '')
         if work_instructions:
-            story.append(Paragraph("Instructions de travail:", self.styles['DGSubSection']))
-            story.append(Paragraph(work_instructions, self.styles['DGNormal']))
-            story.append(Spacer(1, 8))
+            work_title = Paragraph("<b>Instructions de travail:</b>", self.styles['DGImportant'])
+            elements.append(work_title)
+            
+            work_text = Paragraph(work_instructions, self.styles['DGNormal'])
+            elements.append(work_text)
+            elements.append(Spacer(1, 10))
         
         # Notes de sécurité
-        safety_notes = form_data.get('safety_notes', '')
         if safety_notes:
-            story.append(Paragraph("Notes de securite:", self.styles['DGSubSection']))
-            story.append(Paragraph(safety_notes, self.styles['DGImportant']))
-            story.append(Spacer(1, 8))
+            safety_title = Paragraph("<b>⚠️ Notes de sécurité:</b>", self.styles['DGImportant'])
+            elements.append(safety_title)
+            
+            safety_text = Paragraph(safety_notes, self.styles['DGNormal'])
+            elements.append(safety_text)
+            elements.append(Spacer(1, 10))
         
         # Exigences qualité
-        quality_requirements = form_data.get('quality_requirements', '')
         if quality_requirements:
-            story.append(Paragraph("Exigences qualite:", self.styles['DGSubSection']))
-            story.append(Paragraph(quality_requirements, self.styles['DGNormal']))
-
-    def _add_signatures_section(self, story):
-        """Ajoute la section des signatures"""
-        story.append(Spacer(1, 20))
-        story.append(Paragraph("SIGNATURES ET APPROBATIONS", self.styles['DGSection']))
-        story.append(Spacer(1, 10))
+            quality_title = Paragraph("<b>🎯 Exigences qualité:</b>", self.styles['DGImportant'])
+            elements.append(quality_title)
+            
+            quality_text = Paragraph(quality_requirements, self.styles['DGNormal'])
+            elements.append(quality_text)
+            elements.append(Spacer(1, 10))
         
-        # Tableau simplifié pour les signatures
-        sig_data = [
-            ['Prepare par:', '', 'Date:', '', 'Approuve par:', '', 'Date:', ''],
-            ['', '', '', '', '', '', '', ''],
-            ['Signature:', '', '', '', 'Signature:', '', '', ''],
-            ['', '', '', '', '', '', '', ''],
+        return elements
+    
+    def _create_signatures_section(self):
+        """Créer la section des signatures"""
+        elements = []
+        
+        # Titre de section
+        section_title = Paragraph("VALIDATIONS ET SIGNATURES", self.styles['DGSection'])
+        elements.append(section_title)
+        
+        # Tableau des signatures
+        signature_data = [
+            ['Rôle', 'Nom', 'Signature', 'Date'],
+            ['Chargé de projet', '', '', ''],
+            ['Superviseur production', '', '', ''],
+            ['Contrôle qualité', '', '', ''],
+            ['Client (si requis)', '', '', '']
         ]
         
-        sig_table = Table(sig_data, colWidths=[2.5*cm, 3*cm, 1.5*cm, 2*cm, 2.5*cm, 3*cm, 1.5*cm, 2*cm])
-        sig_table.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('BACKGROUND', (0, 0), (-1, 0), self.dg_green_light),
-            ('BACKGROUND', (0, 2), (-1, 2), self.dg_green_light),
-            ('TEXTCOLOR', (0, 0), (-1, -1), self.dg_gray),
-            ('GRID', (0, 0), (-1, -1), 0.5, self.dg_green_light),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        signatures_table = Table(signature_data, colWidths=[100, 120, 120, 80])
+        signatures_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (1, -1), 'LEFT'),  # Rôle et nom à gauche
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 1, DG_GRAY),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white]),
+            ('ROWHEIGHT', (0, 1), (-1, -1), 35)  # Hauteur pour les signatures
         ]))
         
-        story.append(sig_table)
+        elements.append(signatures_table)
+        elements.append(Spacer(1, 20))
         
-        # Note légale
-        story.append(Spacer(1, 15))
-        legal_note = "Ce document constitue un engagement contractuel. Toute modification doit etre approuvee par ecrit."
-        story.append(Paragraph(legal_note, self.styles['DGNormal']))
-
-    def _format_priority_simple(self, priority):
-        """Formate la priorité sans emojis"""
+        return elements
+    
+    def _get_priority_display(self, priority):
+        """Convertir la priorité en affichage"""
         priority_map = {
-            'NORMAL': 'Normal',
-            'URGENT': 'Urgent',
-            'CRITIQUE': 'Critique'
+            'NORMAL': '🟢 Normal',
+            'URGENT': '🟡 Urgent',
+            'CRITIQUE': '🔴 Critique'
         }
         return priority_map.get(priority, priority)
-
-    def _format_status_simple(self, status):
-        """Formate le statut sans emojis"""
+    
+    def _get_status_display(self, status):
+        """Convertir le statut en affichage"""
         status_map = {
             'pending': 'En attente',
             'in-progress': 'En cours',
-            'completed': 'Termine',
+            'completed': 'Terminé',
             'on-hold': 'En pause'
         }
         return status_map.get(status, status)
-
-    def _format_availability_simple(self, availability):
-        """Formate la disponibilité sans emojis"""
-        avail_map = {
-            'yes': 'Disponible',
-            'no': 'Non dispo',
-            'partial': 'Partiel',
-            'ordered': 'Commande'
+    
+    def _get_availability_display(self, availability):
+        """Convertir la disponibilité en affichage"""
+        availability_map = {
+            'yes': '✅ Disponible',
+            'no': '❌ Non dispo',
+            'partial': '⚠️ Partiel',
+            'ordered': '📦 Commandé'
         }
-        return avail_map.get(availability, availability)
-
-
-def export_bt_pdf_streamlit(form_data):
-    """Interface Streamlit pour l'export PDF amélioré"""
-    try:
-        # Créer l'exporteur
-        exporter = BTToPDFExporter()
+        return availability_map.get(availability, availability)
+    
+    def generate_pdf(self, form_data):
+        """Générer le PDF complet"""
+        # Créer un buffer pour le PDF
+        buffer = io.BytesIO()
+        
+        # Créer le document
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=self.margin,
+            leftMargin=self.margin,
+            topMargin=120,  # Plus d'espace pour l'en-tête
+            bottomMargin=70  # Plus d'espace pour le pied de page
+        )
+        
+        # Éléments du document
+        elements = []
+        
+        # Ajouter toutes les sections
+        elements.extend(self._create_info_section(form_data))
+        elements.extend(self._create_tasks_section(form_data))
+        elements.extend(self._create_materials_section(form_data))
+        elements.extend(self._create_instructions_section(form_data))
+        elements.extend(self._create_signatures_section())
         
         # Générer le PDF
-        with st.spinner("Generation du PDF en cours..."):
-            pdf_content = exporter.export_bt_to_pdf(form_data)
+        doc.build(elements, onFirstPage=self._create_header_footer, 
+                 onLaterPages=self._create_header_footer)
+        
+        # Retourner le buffer
+        buffer.seek(0)
+        return buffer
+
+def export_bt_pdf_streamlit(form_data):
+    """
+    Fonction principale d'export PDF pour Streamlit
+    """
+    try:
+        # Validation des données minimales
+        if not form_data.get('numero_document'):
+            st.error("❌ Numéro de document requis pour l'export PDF")
+            return
+        
+        if not form_data.get('project_name'):
+            st.error("❌ Nom du projet requis pour l'export PDF")
+            return
+        
+        # Créer le générateur PDF
+        pdf_generator = BTPDFGenerator()
+        
+        # Générer le PDF
+        with st.spinner("📄 Génération du PDF en cours..."):
+            pdf_buffer = pdf_generator.generate_pdf(form_data)
         
         # Nom du fichier
-        numero_document = form_data.get('numero_document', 'BT')
-        filename = f"BT_{numero_document}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        numero_doc = form_data.get('numero_document', 'BT')
+        projet = form_data.get('project_name', 'Projet')[:20]  # Limiter la longueur
+        # Nettoyer le nom pour le fichier
+        projet_clean = "".join(c for c in projet if c.isalnum() or c in (' ', '-', '_')).strip()
+        filename = f"BT_{numero_doc}_{projet_clean}_{datetime.now().strftime('%Y%m%d')}.pdf"
         
         # Bouton de téléchargement
         st.download_button(
-            label="Telecharger le PDF",
-            data=pdf_content,
+            label="📥 Télécharger le PDF",
+            data=pdf_buffer.getvalue(),
             file_name=filename,
             mime="application/pdf",
             type="primary",
-            use_container_width=True
+            help=f"Télécharger le bon de travail {numero_doc} en PDF"
         )
         
-        st.success(f"PDF genere avec succes ! **{filename}**")
+        st.success(f"✅ PDF généré avec succès ! Fichier: {filename}")
         
-        # Statistiques
-        tasks_count = len([t for t in form_data.get('tasks', []) if t.get('operation') or t.get('description')])
-        materials_count = len([m for m in form_data.get('materials', []) if m.get('name')])
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Taches", tasks_count)
-        with col2:
-            st.metric("Materiaux", materials_count)
-        with col3:
-            st.metric("Taille", f"{len(pdf_content):,} bytes")
-        
-        return True
+        # Informations sur le PDF généré
+        pdf_size = len(pdf_buffer.getvalue())
+        st.info(f"""
+        📋 **Informations PDF:**
+        - **Bon de Travail:** {numero_doc}
+        - **Projet:** {form_data.get('project_name', 'N/A')}
+        - **Client:** {form_data.get('client_name', 'N/A')}
+        - **Taille:** {pdf_size:,} octets
+        - **Pages:** Estimation 1-2 pages selon le contenu
+        """)
         
     except Exception as e:
-        st.error(f"Erreur lors de la generation du PDF: {e}")
-        logger.error(f"Erreur export PDF: {e}")
-        return False
+        logger.error(f"Erreur génération PDF: {e}")
+        st.error(f"❌ Erreur lors de la génération du PDF: {str(e)}")
+        st.info("💡 Vérifiez que ReportLab est installé: `pip install reportlab`")
 
-
-# Test avec données simplifiées
-if __name__ == "__main__":
-    sample_data = {
-        'numero_document': 'BT-2025-003',
-        'project_name': 'Projet Test',
+def test_pdf_generation():
+    """Fonction de test pour vérifier la génération PDF"""
+    test_data = {
+        'numero_document': 'BT-2024-001',
+        'project_name': 'Projet Test PDF',
         'client_name': 'Client Test',
-        'project_manager': 'Manager Test',
+        'project_manager': 'Jean Dupont',
         'priority': 'NORMAL',
-        'start_date': '2025-06-26',
-        'end_date': '2025-07-10',
-        'statut': 'VALIDÉ',
-        'work_instructions': 'Instructions de travail test.',
-        'safety_notes': 'Notes de sécurité importantes.',
-        'quality_requirements': 'Exigences qualité standards.',
+        'start_date': '2024-01-15',
+        'end_date': '2024-01-22',
+        'work_instructions': 'Instructions de test pour vérifier la génération PDF.',
+        'safety_notes': 'Port des EPI obligatoire.',
+        'quality_requirements': 'Contrôle dimensionnel selon ISO 9001.',
         'tasks': [
             {
-                'operation': 'Operation 1',
-                'description': 'Description 1',
+                'operation': 'Programmation CNC',
+                'description': 'Programmation pièce complexe',
                 'quantity': 1,
-                'planned_hours': 5.0,
-                'actual_hours': 4.5,
-                'assigned_to': 'Technicien 1',
+                'planned_hours': 4.0,
+                'actual_hours': 0.0,
+                'assigned_to': 'Programmeur 1',
                 'fournisseur': '-- Interne --',
-                'status': 'completed'
+                'status': 'pending'
             }
         ],
         'materials': [
             {
-                'name': 'Materiau 1',
-                'description': 'Description materiau',
-                'quantity': 10.0,
-                'unit': 'pcs',
-                'fournisseur': 'Fournisseur Test',
+                'name': 'Acier 316L',
+                'description': 'Plaque 10mm',
+                'quantity': 2.5,
+                'unit': 'kg',
+                'fournisseur': 'Métallurgie Québec',
                 'available': 'yes',
-                'notes': 'Notes test'
+                'notes': 'Stock disponible'
             }
         ]
     }
     
-    try:
-        exporter = BTToPDFExporter()
-        pdf_content = exporter.export_bt_to_pdf(sample_data)
-        
-        with open('test_bt_ameliore.pdf', 'wb') as f:
-            f.write(pdf_content)
-        
-        print("PDF ameliore genere: test_bt_ameliore.pdf")
-        print(f"Taille: {len(pdf_content):,} bytes")
-        
-    except Exception as e:
-        print(f"Erreur: {e}")
+    return test_data
+
+if __name__ == "__main__":
+    # Test de la génération PDF
+    test_data = test_pdf_generation()
+    generator = BTPDFGenerator()
+    pdf_buffer = generator.generate_pdf(test_data)
+    
+    with open("test_bt.pdf", "wb") as f:
+        f.write(pdf_buffer.getvalue())
+    
+    print("PDF de test généré: test_bt.pdf")
