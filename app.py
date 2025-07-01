@@ -2374,46 +2374,7 @@ def show_dashboard():
 
     gestionnaire_formulaires = st.session_state.get('gestionnaire_formulaires')
 
-    # Affichage notification migration
-    if st.session_state.get('migration_completed'):
-        st.success("🎉 Migration complétée ! ERP Production DG Inc. utilise maintenant une architecture unifiée avec module production unifié.")
-
-    # CHECKPOINT 6: Notification TimeTracker Pro
-    if st.session_state.get('timetracker_unified'):
-        st.info("""
-        🚀 **TimeTracker Pro Unifié Actif !**
-        
-        ✅ Intégration complète Bons de Travail ↔ TimeTracker
-        ✅ Interface unique : Pointage + Gestion BTs + Analytics + Productivité  
-        ✅ Workflow seamless : Création BT → Assignation → Pointage → Suivi → Finalisation
-        
-        📍 **Accès :** Navigation → ⏱️🔧 TimeTracker Pro
-        """)
-
-    # NOUVEAU: Notification Kanban unifié
-    if KANBAN_AVAILABLE:
-        st.info("""
-        🔄 **Module Kanban Unifié Actif !**
-        
-        ✅ Vue Projets par Statuts avec drag & drop
-        ✅ Vue Opérations par Postes de Travail
-        ✅ Interface moderne avec statistiques en temps réel
-        
-        📍 **Accès :** Navigation → 🔄 Kanban Unifié
-        """)
-
-    # NOUVEAU: Notification Pièces Jointes
-    if ATTACHMENTS_AVAILABLE:
-        st.info("""
-        📎 **Système de Pièces Jointes Actif !**
-        
-        ✅ Upload sécurisé multi-fichiers par projet
-        ✅ Catégorisation automatique (Documents, Images, Techniques...)
-        ✅ Gestion des versions et téléchargements
-        ✅ Intégration complète dans les détails projet
-        
-        📍 **Accès :** Détails Projet → Onglet "📎 Pièces Jointes"
-        """)
+    # Messages de notification supprimés pour une interface plus épurée
 
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
