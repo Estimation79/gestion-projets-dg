@@ -12,6 +12,10 @@ plotly>=5.15.0
 # === INTERFACE ET VISUALISATION ===
 # Plotly déjà inclus ci-dessus
 
+# === EXPORT PDF BONS DE TRAVAIL ===
+# OBLIGATOIRE pour l'export PDF des Bons de Travail
+reportlab>=4.0.0
+
 # === OPTIONNEL : BACKUP AUTOMATIQUE ===
 # Installez cette dépendance pour activer les sauvegardes automatiques
 schedule>=1.2.0
@@ -19,8 +23,8 @@ schedule>=1.2.0
 # === OPTIONNEL : FONCTIONNALITÉS AVANCÉES ===
 # Décommentez selon vos besoins :
 
-# Pour le traitement d'images (si utilisé dans certains modules)
-# Pillow>=9.0.0
+# Pour le traitement d'images ET support d'images dans les PDFs (RECOMMANDÉ)
+Pillow>=9.0.0
 
 # Pour les calculs scientifiques avancés (si utilisé)
 # numpy>=1.21.0
@@ -46,12 +50,23 @@ schedule>=1.2.0
 # Installation complète (recommandée) :
 # pip install -r requirements.txt
 #
-# Installation minimale (sans backup automatique) :
+# Installation minimale (SANS export PDF ni backup) :
 # pip install streamlit pandas plotly
 #
-# Pour activer le backup automatique après installation minimale :
+# Installation avec export PDF (recommandée pour production) :
+# pip install streamlit pandas plotly reportlab Pillow
+#
+# Pour activer le backup automatique après installation :
 # pip install schedule
+#
+# === NOUVELLES FONCTIONNALITÉS ===
+# 
+# 📄 EXPORT PDF BONS DE TRAVAIL :
+# - ReportLab : Génération de PDFs professionnels
+# - Pillow : Support d'images dans les PDFs (recommandé)
+# - Fonctionnalité disponible dans le module de gestion des Bons de Travail
 #
 # === COMPATIBILITÉ ===
 # Python 3.8+ recommandé
 # Testé avec Python 3.9, 3.10, 3.11
+# ReportLab compatible avec toutes les versions supportées
