@@ -3778,29 +3778,12 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    
-    footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🔧 TimeTracker Pro Unifié • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
-    
-    if 'timetracker_unified' in st.session_state and st.session_state.timetracker_unified:
-        footer_text += " • ✅ TimeTracker Pro Actif avec BT Intégrés"
-    
-    if KANBAN_AVAILABLE:
-        footer_text += " • 🔄 Kanban Unifié (Projets + Opérations)"
-    else:
-        footer_text += " • 🔄 Kanban Interne"
-    
-    # NOUVEAU : Indication module pièces jointes
-    if ATTACHMENTS_AVAILABLE:
-        footer_text += " • 📎 Pièces Jointes Actives"
-    
-    if 'storage_manager' in st.session_state and st.session_state.storage_manager:
-        storage_info = st.session_state.storage_manager.get_storage_info()
-        if storage_info['environment_type'] == 'RENDER_PERSISTENT':
-            footer_text += " • 💾 Stockage Persistant Render"
-        elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
-            footer_text += " • ⚠️ Mode Temporaire"
-
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • TimeTracker Pro Refactorisé • Stockage Persistant Render • 📎 Gestion Pièces Jointes • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'>
+        <p>🏭 ERP Production DG Inc.</p>
+        <p style='font-style: italic;'>💻 Développé par <strong>Sylvain Leduc</strong> • 2025</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ========================
 # FONCTION PRINCIPALE AVEC PORTAIL
