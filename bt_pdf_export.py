@@ -1,20 +1,18 @@
-# bt_pdf_export.py - Module d'export PDF pour les Bons de Travail
+# bt_pdf_export.py - Module d'export PDF pour les Bons de Travail - VERSION CORRIGÉE
 # Desmarais & Gagné Inc. - Système ERP Production
 # Génération de PDFs professionnels avec identité DG Inc.
+# CORRECTION : Utilisation des bonnes méthodes ReportLab
 
 import streamlit as st
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, mm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-from reportlab.platypus.tableofcontents import TableOfContents
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
 from datetime import datetime
 import io
-import base64
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,7 +25,7 @@ DG_GRAY = colors.Color(55/255, 65/255, 81/255)      # #374151
 DG_LIGHT_GRAY = colors.Color(107/255, 114/255, 128/255)  # #6B7280
 
 class BTPDFGenerator:
-    """Générateur de PDF pour les Bons de Travail"""
+    """Générateur de PDF pour les Bons de Travail - VERSION CORRIGÉE"""
     
     def __init__(self):
         self.page_width = A4[0]
@@ -105,7 +103,7 @@ class BTPDFGenerator:
         ))
     
     def _create_header_footer(self, canvas, doc):
-        """Créer l'en-tête et le pied de page"""
+        """Créer l'en-tête et le pied de page - VERSION CORRIGÉE"""
         canvas.saveState()
         
         # En-tête
@@ -113,16 +111,18 @@ class BTPDFGenerator:
         canvas.setFillColor(DG_PRIMARY)
         canvas.rect(self.margin, self.page_height - 80, 60, 30, fill=1, stroke=0)
         
+        # CORRECTION : Utiliser drawString avec calcul manuel pour centrer
         canvas.setFillColor(colors.white)
         canvas.setFont('Helvetica-Bold', 16)
-        canvas.drawCentredText(self.margin + 30, self.page_height - 68, "DG")
+        text_width = canvas.stringWidth("DG", 'Helvetica-Bold', 16)
+        canvas.drawString(self.margin + 30 - text_width/2, self.page_height - 68, "DG")
         
         # Nom de l'entreprise
         canvas.setFillColor(DG_PRIMARY_DARK)
         canvas.setFont('Helvetica-Bold', 18)
         canvas.drawString(self.margin + 80, self.page_height - 60, "Desmarais & Gagné inc.")
         
-        # Coordonnées
+        # Coordonnées - CORRECTION : Utiliser drawRightString correctement
         canvas.setFillColor(DG_GRAY)
         canvas.setFont('Helvetica', 9)
         contact_info = [
@@ -500,7 +500,7 @@ class BTPDFGenerator:
 
 def export_bt_pdf_streamlit(form_data):
     """
-    Fonction principale d'export PDF pour Streamlit
+    Fonction principale d'export PDF pour Streamlit - VERSION CORRIGÉE
     """
     try:
         # Validation des données minimales
