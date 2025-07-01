@@ -1826,7 +1826,7 @@ def handle_timetracker_redirect():
     return False
 
 def show_employee_interface():
-    """Interface simplifiée pour les employés"""
+    """Interface simplifiée pour les employés - TimeTracker uniquement"""
     st.markdown("""
     <div class="employee-header">
         <h2>👥 Interface Employé - DG Inc.</h2>
@@ -1834,67 +1834,16 @@ def show_employee_interface():
     </div>
     """, unsafe_allow_html=True)
 
-    # Onglets pour organiser l'interface employé
-    tab_timetracker, tab_production = st.tabs([
-        "⏱️ TimeTracker", "📊 Production"
-    ])
-
-    with tab_timetracker:
-        if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
-            try:
-                # Interface TimeTracker Pro complète
-                show_timetracker_unified_interface()
-            except Exception as e:
-                st.error(f"Erreur TimeTracker Pro: {e}")
-                show_fallback_timetracker()
-        else:
+    # Interface TimeTracker Pro directe (sans onglets)
+    if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
+        try:
+            # Interface TimeTracker Pro complète
+            show_timetracker_unified_interface()
+        except Exception as e:
+            st.error(f"Erreur TimeTracker Pro: {e}")
             show_fallback_timetracker()
-
-    with tab_production:
-        st.markdown("### 🏭 État de la Production")
-
-        # Statistiques de production - ARCHITECTURE UNIFIÉE
-        stats = get_system_stats()
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            # Stats depuis TimeTracker unifié si disponible
-            postes_count = stats['postes']
-            if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
-                try:
-                    postes_stats = st.session_state.timetracker_unified.get_work_centers_statistics()
-                    postes_count = postes_stats.get('total_postes', stats['postes'])
-                except Exception:
-                    pass
-            st.metric("🏭 Postes Actifs", postes_count)
-        with col2:
-            st.metric("📊 Projets", stats['projets'])
-        with col3:
-            # Simulation efficacité
-            efficacite = random.uniform(82, 87)
-            st.metric("⚡ Efficacité", f"{efficacite:.1f}%")
-
-        # État des postes (simulation avec architecture unifiée)
-        st.markdown("#### 🔧 État des Postes de Travail (Architecture Unifiée)")
-
-        postes_demo = [
-            {"nom": "Robot ABB GMAW Station 1", "statut": "🟢 En Production", "operateur": "Jean D."},
-            {"nom": "Découpe Plasma CNC", "statut": "🟡 En Attente", "operateur": "Marie T."},
-            {"nom": "Assemblage Manuel Station A", "statut": "🟢 En Production", "operateur": "Paul L."},
-            {"nom": "Robot KUKA Station 2", "statut": "🔴 Maintenance", "operateur": "-"},
-            {"nom": "Presse Hydraulique", "statut": "🟢 En Production", "operateur": "Sophie R."}
-        ]
-
-        for poste in postes_demo:
-            col1, col2, col3 = st.columns([3, 2, 2])
-            with col1:
-                st.write(f"**{poste['nom']}**")
-            with col2:
-                st.write(poste['statut'])
-            with col3:
-                st.write(f"👤 {poste['operateur']}")
-
-        st.info("💡 Interface unifiée TimeTracker Pro & Postes - Gestion centralisée")
+    else:
+        show_fallback_timetracker()
 
     # Bouton retour
     st.markdown("---")
