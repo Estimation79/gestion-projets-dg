@@ -1,5 +1,5 @@
 # attachments_manager.py - Gestionnaire de Pièces Jointes pour Projets ERP DG Inc.
-# NOUVEAU MODULE : Gestion complète des fichiers attachés aux projets
+# NOUVEAU MODULE : Gestion complète des fichiers attachés aux projets + APERÇU DE FICHIERS
 
 import streamlit as st
 import os
@@ -11,11 +11,13 @@ import hashlib
 import shutil
 from typing import List, Dict, Optional, Tuple
 import base64
+from PIL import Image
+import io
 
 class AttachmentsManager:
     """
     Gestionnaire de pièces jointes pour les projets ERP DG Inc.
-    Gère l'upload, le stockage, et la récupération sécurisée des fichiers.
+    Gère l'upload, le stockage, la récupération sécurisée et l'aperçu des fichiers.
     """
     
     def __init__(self, db, storage_manager=None):
@@ -33,6 +35,8 @@ class AttachmentsManager:
             'xls': 'DOCUMENT', 'xlsx': 'DOCUMENT',
             'txt': 'DOCUMENT', 'rtf': 'DOCUMENT',
             'odt': 'DOCUMENT', 'ods': 'DOCUMENT',
+            'csv': 'DOCUMENT', 'json': 'DOCUMENT',
+            'xml': 'DOCUMENT', 'md': 'DOCUMENT',
             
             # Images
             'jpg': 'IMAGE', 'jpeg': 'IMAGE', 'png': 'IMAGE',
@@ -65,6 +69,16 @@ class AttachmentsManager:
             'ARCHIVE': {'icon': '📦', 'label': 'Archive'},
             'MEDIA': {'icon': '🎬', 'label': 'Média'},
             'AUTRE': {'icon': '📎', 'label': 'Autre'}
+        }
+        
+        # Types de fichiers prévisualisables
+        self.previewable_types = {
+            # Images
+            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp',
+            # Texte
+            'txt', 'md', 'csv', 'json', 'xml',
+            # PDF (via Streamlit)
+            'pdf'
         }
     
     def _get_upload_directory(self) -> str:
@@ -110,11 +124,18 @@ class AttachmentsManager:
                 uploaded_by TEXT,
                 is_active BOOLEAN DEFAULT 1,
                 download_count INTEGER DEFAULT 0,
+                preview_count INTEGER DEFAULT 0,
                 FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
             )
             """
             
             self.db.execute_update(create_table_query)
+            
+            # Ajouter la colonne preview_count si elle n'existe pas (migration)
+            try:
+                self.db.execute_update("ALTER TABLE project_attachments ADD COLUMN preview_count INTEGER DEFAULT 0")
+            except:
+                pass  # Colonne existe déjà
             
             # Index pour performance
             index_queries = [
@@ -176,6 +197,11 @@ class AttachmentsManager:
             return False, f"Extension .{file_extension} non autorisée. Extensions autorisées: {allowed_extensions}"
         
         return True, "Fichier autorisé"
+    
+    def is_file_previewable(self, file_extension: str) -> bool:
+        """Vérifie si un fichier peut être prévisualisé"""
+        ext = file_extension.lower().lstrip('.')
+        return ext in self.previewable_types
     
     def upload_file(self, uploaded_file, project_id: int, description: str = "", uploaded_by: str = "Utilisateur") -> Optional[int]:
         """
@@ -264,7 +290,7 @@ class AttachmentsManager:
         try:
             query = """
                 SELECT id, filename, original_filename, file_size, file_type, file_extension,
-                       category, description, upload_date, uploaded_by, download_count
+                       category, description, upload_date, uploaded_by, download_count, preview_count
                 FROM project_attachments 
                 WHERE project_id = ? AND is_active = 1 
                 ORDER BY upload_date DESC
@@ -290,6 +316,70 @@ class AttachmentsManager:
             
         except Exception as e:
             st.error(f"Erreur récupération pièce jointe: {e}")
+            return None
+    
+    def preview_attachment(self, attachment_id: int) -> Optional[Dict]:
+        """
+        Génère un aperçu du fichier selon son type
+        
+        Returns:
+            Dict avec les informations d'aperçu ou None si impossible
+        """
+        try:
+            attachment = self.get_attachment_by_id(attachment_id)
+            if not attachment:
+                return None
+            
+            file_path = attachment['file_path']
+            if not os.path.exists(file_path):
+                st.error("Fichier physique non trouvé")
+                return None
+            
+            file_extension = attachment['file_extension'].lower().lstrip('.')
+            
+            # Mettre à jour le compteur de prévisualisations
+            self.db.execute_update(
+                "UPDATE project_attachments SET preview_count = preview_count + 1 WHERE id = ?",
+                (attachment_id,)
+            )
+            
+            preview_data = {
+                'attachment': attachment,
+                'preview_type': None,
+                'content': None,
+                'error': None
+            }
+            
+            # Gestion selon le type de fichier
+            if file_extension in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']:
+                preview_data['preview_type'] = 'image'
+                preview_data['content'] = file_path
+                
+            elif file_extension in ['txt', 'md', 'csv', 'json', 'xml']:
+                preview_data['preview_type'] = 'text'
+                try:
+                    # Lire le fichier texte (limité à 10KB pour éviter les problèmes)
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(10240)  # 10KB max
+                        if len(content) == 10240:
+                            content += "\n\n... (fichier tronqué pour l'aperçu)"
+                        preview_data['content'] = content
+                except Exception as e:
+                    preview_data['error'] = f"Erreur lecture fichier texte: {e}"
+                    
+            elif file_extension == 'pdf':
+                preview_data['preview_type'] = 'pdf'
+                # Pour PDF, on retourne le chemin du fichier pour téléchargement/affichage
+                preview_data['content'] = file_path
+                
+            else:
+                preview_data['preview_type'] = 'unsupported'
+                preview_data['error'] = f"Aperçu non supporté pour les fichiers .{file_extension}"
+            
+            return preview_data
+            
+        except Exception as e:
+            st.error(f"Erreur génération aperçu: {e}")
             return None
     
     def download_attachment(self, attachment_id: int) -> Optional[Tuple[bytes, str, str]]:
@@ -441,6 +531,120 @@ class AttachmentsManager:
             st.error(f"Erreur nettoyage: {e}")
 
 
+def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_id: int):
+    """
+    Affiche l'aperçu d'un fichier dans une modal
+    """
+    preview_data = attachments_manager.preview_attachment(attachment_id)
+    
+    if not preview_data:
+        st.error("Impossible de générer l'aperçu")
+        return
+    
+    attachment = preview_data['attachment']
+    preview_type = preview_data['preview_type']
+    content = preview_data['content']
+    error = preview_data['error']
+    
+    # En-tête de l'aperçu
+    st.markdown(f"### 👁️ Aperçu: {attachment['original_filename']}")
+    
+    # Informations du fichier
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"**📊 Taille:** {attachments_manager.format_file_size(attachment['file_size'])}")
+    with col2:
+        st.markdown(f"**📂 Catégorie:** {attachment['category']}")
+    with col3:
+        preview_count = attachment.get('preview_count', 0)
+        st.markdown(f"**👁️ Vues:** {preview_count}")
+    
+    if attachment['description']:
+        st.markdown(f"**📝 Description:** {attachment['description']}")
+    
+    st.markdown("---")
+    
+    # Affichage selon le type
+    if error:
+        st.error(f"❌ {error}")
+        
+    elif preview_type == 'image':
+        try:
+            st.image(content, caption=attachment['original_filename'], use_column_width=True)
+        except Exception as e:
+            st.error(f"Erreur affichage image: {e}")
+            
+    elif preview_type == 'text':
+        st.markdown("**📄 Contenu du fichier:**")
+        
+        # Déterminer le langage pour la coloration syntaxique
+        file_ext = attachment['file_extension'].lower().lstrip('.')
+        language_map = {
+            'json': 'json',
+            'xml': 'xml',
+            'csv': 'csv',
+            'md': 'markdown',
+            'txt': 'text'
+        }
+        language = language_map.get(file_ext, 'text')
+        
+        st.code(content, language=language)
+        
+    elif preview_type == 'pdf':
+        st.markdown("**📄 Fichier PDF détecté**")
+        st.info("💡 Utilisez le bouton de téléchargement pour ouvrir le PDF dans votre navigateur")
+        
+        # Offrir le téléchargement direct
+        download_result = attachments_manager.download_attachment(attachment_id)
+        if download_result:
+            file_content, original_filename, mime_type = download_result
+            st.download_button(
+                "📄 Télécharger et Ouvrir PDF",
+                data=file_content,
+                file_name=original_filename,
+                mime=mime_type,
+                type="primary",
+                use_container_width=True
+            )
+            
+    elif preview_type == 'unsupported':
+        st.warning("🚫 Aperçu non disponible pour ce type de fichier")
+        
+        # Afficher des métadonnées à la place
+        st.markdown("**📋 Informations du fichier:**")
+        st.markdown(f"- **Type MIME:** {attachment['file_type']}")
+        st.markdown(f"- **Extension:** {attachment['file_extension']}")
+        st.markdown(f"- **Uploadé le:** {attachment['upload_date']}")
+        st.markdown(f"- **Par:** {attachment['uploaded_by']}")
+        
+        download_count = attachment.get('download_count', 0)
+        if download_count > 0:
+            st.markdown(f"- **Téléchargements:** {download_count}")
+    
+    # Boutons d'action
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Bouton de téléchargement
+        download_result = attachments_manager.download_attachment(attachment_id)
+        if download_result:
+            file_content, original_filename, mime_type = download_result
+            st.download_button(
+                "⬇️ Télécharger",
+                data=file_content,
+                file_name=original_filename,
+                mime=mime_type,
+                use_container_width=True
+            )
+    
+    with col2:
+        if st.button("✖️ Fermer l'aperçu", use_container_width=True):
+            if f'show_preview_{attachment_id}' in st.session_state:
+                del st.session_state[f'show_preview_{attachment_id}']
+            st.rerun()
+
+
 def show_project_attachments_interface(attachments_manager: AttachmentsManager, project_id: int):
     """
     Interface Streamlit pour gérer les pièces jointes d'un projet
@@ -467,6 +671,10 @@ def show_project_attachments_interface(attachments_manager: AttachmentsManager, 
         allowed_exts = sorted(attachments_manager.allowed_file_types.keys())
         st.info(f"**Types autorisés:** {', '.join(allowed_exts)}")
         st.info(f"**Taille max:** {attachments_manager.max_file_size / (1024*1024):.0f} MB par fichier")
+        
+        # Types prévisualisables
+        previewable_exts = sorted(attachments_manager.previewable_types)
+        st.success(f"**👁️ Aperçu disponible pour:** {', '.join(previewable_exts)}")
         
         # Upload multiple
         uploaded_files = st.file_uploader(
@@ -537,14 +745,19 @@ def show_project_attachments_interface(attachments_manager: AttachmentsManager, 
 
 
 def show_attachments_category(attachments_manager: AttachmentsManager, category: str, attachments: List[Dict]):
-    """Affiche les pièces jointes d'une catégorie"""
+    """Affiche les pièces jointes d'une catégorie avec bouton d'aperçu"""
     
     category_info = attachments_manager.categories.get(category, {'icon': '📎', 'label': category})
     st.markdown(f"#### {category_info['icon']} {category_info['label']} ({len(attachments)})")
     
     for attachment in attachments:
+        attachment_id = attachment['id']
+        
+        # Vérifier si on doit afficher l'aperçu pour ce fichier
+        show_preview_key = f'show_preview_{attachment_id}'
+        
         with st.container():
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 1.5])
             
             with col1:
                 st.markdown(f"**{attachment['original_filename']}**")
@@ -554,7 +767,11 @@ def show_attachments_category(attachments_manager: AttachmentsManager, category:
             with col2:
                 size_formatted = attachments_manager.format_file_size(attachment['file_size'])
                 st.markdown(f"📊 {size_formatted}")
-                st.caption(f"⬇️ {attachment['download_count']} téléchargement(s)")
+                
+                # Afficher les compteurs
+                download_count = attachment.get('download_count', 0)
+                preview_count = attachment.get('preview_count', 0)
+                st.caption(f"⬇️ {download_count} • 👁️ {preview_count}")
             
             with col3:
                 upload_date = datetime.fromisoformat(attachment['upload_date'].replace('Z', '+00:00'))
@@ -562,23 +779,47 @@ def show_attachments_category(attachments_manager: AttachmentsManager, category:
                 st.caption(f"👤 {attachment['uploaded_by']}")
             
             with col4:
+                # Boutons d'action
+                button_col1, button_col2, button_col3 = st.columns(3)
+                
+                # Bouton d'aperçu
+                with button_col1:
+                    file_ext = attachment['file_extension'].lower().lstrip('.')
+                    can_preview = attachments_manager.is_file_previewable(file_ext)
+                    
+                    if can_preview:
+                        if st.button("👁️", key=f"preview_{attachment_id}", help="Aperçu", use_container_width=True):
+                            st.session_state[show_preview_key] = True
+                            st.rerun()
+                    else:
+                        st.button("🚫", key=f"no_preview_{attachment_id}", help="Aperçu non disponible", 
+                                disabled=True, use_container_width=True)
+                
                 # Bouton de téléchargement
-                download_result = attachments_manager.download_attachment(attachment['id'])
-                if download_result:
-                    file_content, original_filename, mime_type = download_result
-                    st.download_button(
-                        "⬇️",
-                        data=file_content,
-                        file_name=original_filename,
-                        mime=mime_type,
-                        help="Télécharger",
-                        key=f"download_{attachment['id']}"
-                    )
+                with button_col2:
+                    download_result = attachments_manager.download_attachment(attachment_id)
+                    if download_result:
+                        file_content, original_filename, mime_type = download_result
+                        st.download_button(
+                            "⬇️",
+                            data=file_content,
+                            file_name=original_filename,
+                            mime=mime_type,
+                            help="Télécharger",
+                            key=f"download_{attachment_id}",
+                            use_container_width=True
+                        )
                 
                 # Bouton de suppression
-                if st.button("🗑️", key=f"delete_{attachment['id']}", help="Supprimer"):
-                    if attachments_manager.delete_attachment(attachment['id']):
-                        st.rerun()
+                with button_col3:
+                    if st.button("🗑️", key=f"delete_{attachment_id}", help="Supprimer", use_container_width=True):
+                        if attachments_manager.delete_attachment(attachment_id):
+                            st.rerun()
+            
+            # Affichage de l'aperçu si demandé
+            if st.session_state.get(show_preview_key, False):
+                with st.expander(f"👁️ Aperçu: {attachment['original_filename']}", expanded=True):
+                    show_file_preview_modal(attachments_manager, attachment_id)
             
             st.markdown("---")
 
@@ -605,6 +846,7 @@ def show_attachments_tab_in_project_modal(project):
     else:
         st.error("ID du projet non valide")
 
-print("✅ Module Gestionnaire de Pièces Jointes créé")
-print("📎 Fonctionnalités : Upload, Download, Catégorisation, Sécurité")
+print("✅ Module Gestionnaire de Pièces Jointes avec Aperçu créé")
+print("📎 Fonctionnalités : Upload, Download, Aperçu, Catégorisation, Sécurité")
+print("👁️ Types prévisualisables : Images, Texte, PDF, JSON, CSV, XML, Markdown")
 print("🔗 Prêt pour intégration dans app.py")
