@@ -1077,7 +1077,7 @@ class GestionnaireCRM:
                 )
                 
                 # Actions spéciales selon le nouveau statut
-                if nouveau_statut == 'ACCEPTÉ':
+                if nouveau_statut == 'APPROUVÉ':
                     self.on_devis_accepte(devis_id)
                 elif nouveau_statut == 'EXPIRÉ':
                     self.on_devis_expire(devis_id)
