@@ -606,48 +606,29 @@ class TimeTrackerUnified:
     def get_punch_history(self, employee_id: int = None, days: int = 7) -> List[Dict]:
         """
         Récupère l'historique des pointages avec support opérations ET tâches BT
-        Inclut informations enrichies projet/client/BT
         """
         try:
             start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
             
             query = '''
                 SELECT te.*, 
-                       DATE(te.punch_in) as date_travail,
-                       
-                       -- Informations Employé
+                       p.nom_projet, 
                        e.prenom || ' ' || e.nom as employee_name,
                        e.poste as employee_poste,
-                       e.departement as employee_dept,
-                       
-                       -- Informations Projet enrichies
-                       p.nom_projet, 
-                       p.client_nom_cache as client_nom,
-                       p.description as project_description,
-                       p.priorite as project_priorite,
-                       p.statut as project_statut,
+                       DATE(te.punch_in) as date_travail,
                        
                        -- Opérations classiques
                        o.description as operation_description,
                        o.sequence_number,
-                       o.temps_estime,
-                       o.statut as operation_statut,
                        wc.nom as work_center_name,
-                       wc.departement as work_center_dept,
                        
-                       -- Informations BT enrichies
+                       -- Informations BT
                        f.numero_document as bt_numero,
                        f.statut as bt_statut,
-                       f.date_creation as bt_date_creation,
-                       JSON_EXTRACT(f.metadonnees_json, '$.description') as bt_description,
-                       JSON_EXTRACT(f.metadonnees_json, '$.client_final') as bt_client_final,
-                       JSON_EXTRACT(f.metadonnees_json, '$.priorite') as bt_priorite,
-                       JSON_EXTRACT(f.metadonnees_json, '$.deadline') as bt_deadline,
                        
                        -- Tâches BT depuis formulaire_lignes
                        fl.description as bt_task_description,
                        fl.sequence_ligne as bt_task_sequence,
-                       fl.prix_unitaire as bt_task_temps_estime,
                        
                        -- Déterminer le type de pointage
                        CASE 
@@ -657,8 +638,8 @@ class TimeTrackerUnified:
                        END as pointage_type
                        
                 FROM time_entries te
-                LEFT JOIN employees e ON te.employee_id = e.id
                 LEFT JOIN projects p ON te.project_id = p.id
+                LEFT JOIN employees e ON te.employee_id = e.id
                 
                 -- Jointures pour vraies opérations
                 LEFT JOIN operations o ON te.operation_id = o.id
@@ -850,55 +831,15 @@ class TimeTrackerUnified:
             return []
     
     def get_active_employees_with_operations(self) -> List[Dict]:
-        """Récupère les employés avec pointage actif sur opérations avec infos enrichies"""
+        """Récupère les employés avec pointage actif sur opérations"""
         try:
             query = '''
-                SELECT 
-                    e.id, 
-                    e.prenom || ' ' || e.nom as name, 
-                    e.poste, 
-                    e.departement,
-                    te.punch_in,
-                    te.notes,
-                    ROUND((JULIANDAY('now') - JULIANDAY(te.punch_in)) * 24, 2) as hours_worked,
-                    
-                    -- Informations Projet
-                    p.id as project_id,
-                    p.nom_projet, 
-                    p.client_nom_cache as client_nom,
-                    p.description as project_description,
-                    p.priorite as project_priorite,
-                    p.statut as project_statut,
-                    p.date_debut as project_date_debut,
-                    p.date_fin_prevue as project_date_fin,
-                    
-                    -- Informations BT
-                    f.id as bt_id,
-                    f.numero_document as bt_numero,
-                    f.statut as bt_statut,
-                    f.date_creation as bt_date_creation,
-                    f.date_derniere_modification as bt_date_maj,
-                    JSON_EXTRACT(f.metadonnees_json, '$.description') as bt_description,
-                    JSON_EXTRACT(f.metadonnees_json, '$.client_final') as bt_client_final,
-                    JSON_EXTRACT(f.metadonnees_json, '$.priorite') as bt_priorite,
-                    JSON_EXTRACT(f.metadonnees_json, '$.deadline') as bt_deadline,
-                    
-                    -- Informations Opération
-                    o.id as operation_id,
-                    o.description as operation_description,
-                    o.sequence_number, 
-                    o.temps_estime,
-                    o.statut as operation_statut,
-                    wc.nom as work_center_name,
-                    wc.departement as work_center_dept,
-                    
-                    -- Type de pointage
-                    CASE 
-                        WHEN te.operation_id IS NOT NULL THEN 'OPERATION'
-                        WHEN te.formulaire_bt_id IS NOT NULL THEN 'BT_TASK'
-                        ELSE 'GENERAL'
-                    END as pointage_type
-                    
+                SELECT DISTINCT e.id, e.prenom || ' ' || e.nom as name, 
+                       e.poste, p.nom_projet, te.punch_in,
+                       o.description as operation_description,
+                       o.sequence_number, wc.nom as work_center_name,
+                       f.numero_document as bt_numero,
+                       ROUND((JULIANDAY('now') - JULIANDAY(te.punch_in)) * 24, 2) as hours_worked
                 FROM time_entries te
                 JOIN employees e ON te.employee_id = e.id
                 LEFT JOIN projects p ON te.project_id = p.id
@@ -908,41 +849,8 @@ class TimeTrackerUnified:
                 WHERE te.punch_out IS NULL
                 ORDER BY te.punch_in
             '''
-            
             rows = self.db.execute_query(query)
-            result = []
-            
-            for row in rows:
-                emp_data = dict(row)
-                
-                # Si c'est un pointage BT, récupérer les infos de la tâche
-                if emp_data['pointage_type'] == 'BT_TASK' and emp_data['bt_id']:
-                    # Récupérer les détails de la tâche BT
-                    task_query = '''
-                        SELECT 
-                            fl.id as bt_task_id,
-                            fl.description as bt_task_description,
-                            fl.sequence_ligne as bt_task_sequence,
-                            fl.prix_unitaire as bt_task_temps_estime,
-                            fl.notes_ligne as bt_task_notes
-                        FROM formulaire_lignes fl
-                        WHERE fl.formulaire_id = ?
-                        AND fl.sequence_ligne < 1000 
-                        AND fl.description IS NOT NULL
-                        AND fl.description != ''
-                        AND fl.description != 'None'
-                        ORDER BY fl.sequence_ligne
-                        LIMIT 1
-                    '''
-                    
-                    task_result = self.db.execute_query(task_query, (emp_data['bt_id'],))
-                    if task_result:
-                        task_data = dict(task_result[0])
-                        emp_data.update(task_data)
-                
-                result.append(emp_data)
-            
-            return result
+            return [dict(row) for row in rows]
             
         except Exception as e:
             logger.error(f"Erreur employés actifs avec opérations: {e}")
@@ -1364,159 +1272,40 @@ def show_operation_punch_interface(tt):
         st.markdown("##### 🟢 Employés Pointés sur Opérations")
         
         for emp in active_employees:
-            # Utiliser un expander pour chaque employé pour plus de détails
-            with st.expander(f"👤 **{emp['name']}** - {emp['hours_worked']:.1f}h", expanded=True):
-                
-                # Ligne 1: Informations employé et temps
-                col1, col2, col3, col4 = st.columns([2, 3, 2, 2])
-                
-                with col1:
-                    st.write(f"**👤 {emp['name']}**")
-                    st.caption(f"🏢 {emp['poste']}")
-                    if emp['departement']:
-                        st.caption(f"📍 Dép. {emp['departement']}")
-                
-                with col2:
-                    # Informations temporelles
-                    st.write(f"⏰ **Depuis:** {emp['punch_in'][:16] if emp['punch_in'] else 'N/A'}")
-                    st.metric("Temps Écoulé", f"{emp['hours_worked']:.1f}h")
-                
-                with col3:
-                    # Notes si présentes
-                    if emp.get('notes'):
-                        st.write("📝 **Notes:**")
-                        st.caption(emp['notes'])
-                
-                with col4:
-                    # Bouton sortie en évidence
-                    if st.button("🔴 Pointer Sortie", key=f"out_op_{emp['id']}", use_container_width=True, type="primary"):
-                        notes_out = st.text_input(f"Notes sortie {emp['name']}:", key=f"notes_out_op_{emp['id']}")
-                        if tt.punch_out(emp['id'], notes_out):
-                            st.success(f"✅ {emp['name']} pointé sortie !")
-                            st.rerun()
-                        else:
-                            st.error("❌ Erreur pointage sortie")
-                
-                # Ligne 2: Informations Projet/Client
-                st.markdown("**📋 Informations Projet/Client**")
-                col_proj1, col_proj2, col_proj3 = st.columns(3)
-                
-                with col_proj1:
-                    if emp['client_nom']:
-                        st.write(f"🏢 **Client:** {emp['client_nom']}")
-                    else:
-                        st.write("🏢 **Client:** Non spécifié")
-                    
-                    if emp['nom_projet']:
-                        st.write(f"📁 **Projet:** {emp['nom_projet']}")
-                        st.caption(f"ID: {emp['project_id']}")
-                
-                with col_proj2:
-                    if emp['project_description']:
-                        st.write(f"📄 **Description Projet:**")
-                        st.caption(emp['project_description'])
-                    
-                    if emp['project_priorite']:
-                        priority_emoji = {"HAUTE": "🔴", "MOYENNE": "🟡", "BASSE": "🟢"}.get(emp['project_priorite'], "⚪")
-                        st.write(f"{priority_emoji} **Priorité:** {emp['project_priorite']}")
-                
-                with col_proj3:
-                    if emp['project_statut']:
-                        status_emoji = {"EN COURS": "🟢", "PLANIFIÉ": "🟡", "TERMINÉ": "✅", "EN ATTENTE": "⏸️"}.get(emp['project_statut'], "⚪")
-                        st.write(f"{status_emoji} **Statut Projet:** {emp['project_statut']}")
-                    
-                    if emp['project_date_fin']:
-                        st.write(f"📅 **Échéance:** {emp['project_date_fin'][:10]}")
-                
-                # Ligne 3: Informations Bon de Travail
+            col1, col2, col3, col4 = st.columns([3, 4, 2, 2])
+            
+            with col1:
+                st.write(f"**{emp['name']}**")
+                st.caption(emp['poste'])
+            
+            with col2:
+                # Affichage hiérarchique de l'opération
                 if emp['bt_numero']:
-                    st.markdown("**📋 Informations Bon de Travail**")
-                    col_bt1, col_bt2, col_bt3 = st.columns(3)
-                    
-                    with col_bt1:
-                        st.write(f"📋 **BT:** {emp['bt_numero']}")
-                        bt_status_emoji = {"BROUILLON": "📝", "VALIDÉ": "✅", "EN COURS": "🟢", "TERMINÉ": "✅"}.get(emp['bt_statut'], "⚪")
-                        st.write(f"{bt_status_emoji} **Statut BT:** {emp['bt_statut']}")
-                    
-                    with col_bt2:
-                        if emp['bt_description']:
-                            st.write(f"📄 **Description BT:**")
-                            st.caption(emp['bt_description'])
-                        
-                        if emp['bt_client_final'] and emp['bt_client_final'] != emp['client_nom']:
-                            st.write(f"🏢 **Client Final:** {emp['bt_client_final']}")
-                    
-                    with col_bt3:
-                        if emp['bt_date_creation']:
-                            st.write(f"📅 **Créé:** {emp['bt_date_creation'][:10]}")
-                        
-                        if emp['bt_deadline']:
-                            st.write(f"⏰ **Deadline BT:** {emp['bt_deadline']}")
-                        
-                        if emp['bt_priorite']:
-                            priority_emoji = {"HAUTE": "🔴", "MOYENNE": "🟡", "BASSE": "🟢"}.get(emp['bt_priorite'], "⚪")
-                            st.write(f"{priority_emoji} **Priorité BT:** {emp['bt_priorite']}")
+                    st.write(f"📋 **BT {emp['bt_numero']}**")
+                    st.caption(f"Projet: {emp['nom_projet']}")
+                else:
+                    st.write(f"📋 **{emp['nom_projet']}**")
                 
-                # Ligne 4: Informations Opération/Tâche
-                st.markdown("**🔧 Informations Opération/Tâche**")
-                col_op1, col_op2, col_op3 = st.columns(3)
-                
-                with col_op1:
-                    if emp['pointage_type'] == 'OPERATION' and emp['operation_description']:
-                        st.write(f"🔧 **Opération {emp['sequence_number']:02d}:**")
-                        st.write(emp['operation_description'])
-                        
-                        if emp['temps_estime']:
-                            st.metric("Temps Estimé", f"{emp['temps_estime']:.1f}h")
-                    
-                    elif emp['pointage_type'] == 'BT_TASK' and emp['bt_task_description']:
-                        st.write(f"📋 **Tâche {emp['bt_task_sequence']:02d}:**")
-                        st.write(emp['bt_task_description'])
-                        
-                        if emp['bt_task_temps_estime']:
-                            st.metric("Temps Estimé", f"{emp['bt_task_temps_estime']:.1f}h")
-                    
-                    else:
-                        st.write("📋 **Tâche Générale**")
-                
-                with col_op2:
+                if emp['operation_description']:
+                    st.write(f"🔧 **Op.{emp['sequence_number']:02d}:** {emp['operation_description']}")
                     if emp['work_center_name']:
-                        st.write(f"🏭 **Poste:** {emp['work_center_name']}")
-                        if emp['work_center_dept']:
-                            st.caption(f"Département: {emp['work_center_dept']}")
-                    
-                    if emp['operation_statut']:
-                        op_status_emoji = {"À FAIRE": "📝", "EN COURS": "🟢", "TERMINÉ": "✅"}.get(emp['operation_statut'], "⚪")
-                        st.write(f"{op_status_emoji} **Statut:** {emp['operation_statut']}")
+                        st.caption(f"🏭 {emp['work_center_name']}")
+                else:
+                    st.caption("Opération générale")
                 
-                with col_op3:
-                    # Calcul de performance si temps estimé disponible
-                    temps_estime = emp.get('temps_estime') or emp.get('bt_task_temps_estime', 0)
-                    if temps_estime and temps_estime > 0:
-                        progress_pct = (emp['hours_worked'] / temps_estime) * 100
-                        
-                        if progress_pct < 80:
-                            perf_emoji = "🟢"
-                            perf_text = "Dans les temps"
-                        elif progress_pct < 120:
-                            perf_emoji = "🟡"
-                            perf_text = "Attention"
-                        else:
-                            perf_emoji = "🔴"
-                            perf_text = "Dépassement"
-                        
-                        st.write(f"{perf_emoji} **Performance:** {perf_text}")
-                        st.progress(min(1.0, progress_pct / 100))
-                        st.caption(f"Progression: {progress_pct:.1f}%")
-                    
-                    # Notes spécifiques à la tâche
-                    if emp.get('bt_task_notes'):
-                        try:
-                            task_notes = json.loads(emp['bt_task_notes'])
-                            if task_notes.get('operation'):
-                                st.caption(f"Info: {task_notes['operation']}")
-                        except:
-                            pass
+                st.caption(f"Depuis: {emp['punch_in'][:16]}")
+            
+            with col3:
+                st.metric("Heures", f"{emp['hours_worked']:.1f}h")
+            
+            with col4:
+                if st.button("🔴 Pointer Sortie", key=f"out_op_{emp['id']}", use_container_width=True):
+                    notes = st.text_input(f"Notes sortie {emp['name']}:", key=f"notes_out_op_{emp['id']}")
+                    if tt.punch_out(emp['id'], notes):
+                        st.success(f"✅ {emp['name']} pointé sortie !")
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur pointage sortie")
         
         st.markdown("---")
     
@@ -1649,62 +1438,40 @@ def show_history_interface_operations(tt):
         st.info("Aucun pointage trouvé")
         return
     
-    # Résumé étendu
-    st.markdown("##### 📊 Résumé de la Période")
-    
-    # Calculs de base
+    # Résumé
     total_sessions = len(history)
     completed_sessions = len([h for h in history if h['punch_out'] is not None])
     total_hours = sum(h['total_hours'] or 0 for h in history)
     total_revenue = sum(h['total_cost'] or 0 for h in history)
     
-    # Calculs enrichis
-    unique_clients = len(set(h.get('client_nom', 'N/A') for h in history if h.get('client_nom')))
-    unique_projects = len(set(h.get('nom_projet', 'N/A') for h in history if h.get('nom_projet')))
-    unique_bts = len(set(h.get('bt_numero', 'N/A') for h in history if h.get('bt_numero')))
-    unique_employees = len(set(h.get('employee_name', 'N/A') for h in history if h.get('employee_name')))
-    
-    # Métriques étendues
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Sessions", total_sessions)
     col2.metric("Terminées", completed_sessions)
-    col3.metric("Employés", unique_employees)
-    col4.metric("Clients", unique_clients)
-    col5.metric("Projets", unique_projects)
-    col6.metric("Bons Travail", unique_bts)
-    
-    col7, col8, col9 = st.columns(3)
-    col7.metric("Heures Total", f"{total_hours:.1f}h")
-    col8.metric("Revenus", f"{total_revenue:,.0f}$")
-    
-    # Calcul du taux horaire moyen
-    avg_hourly_rate = total_revenue / total_hours if total_hours > 0 else 0
-    col9.metric("Taux Moyen", f"{avg_hourly_rate:.0f}$/h")
+    col3.metric("Heures Total", f"{total_hours:.1f}h")
+    col4.metric("Revenus", f"{total_revenue:,.0f}$")
     
     # Tableau détaillé
     st.markdown("##### 📋 Détail des Pointages sur Opérations")
     
     df_data = []
     for h in history:
-        punch_data = dict(h)
-        
         # Formatage spécial pour opérations
-        if punch_data['operation_description']:
-            task_display = f"Op.{punch_data['sequence_number']:02d}: {punch_data['operation_description']}"
-            if punch_data['work_center_name']:
-                task_display += f" ({punch_data['work_center_name']})"
+        if h['operation_description']:
+            task_display = f"Op.{h['sequence_number']:02d}: {h['operation_description']}"
+            if h['work_center_name']:
+                task_display += f" ({h['work_center_name']})"
         else:
             task_display = "Tâche générale"
         
         # Extraire numéros pour colonnes séparées
-        numero_projet = punch_data.get('project_id', 'N/A')
-        numero_bt = punch_data.get('bt_numero', '')
+        numero_projet = h.get('project_id', 'N/A')
+        numero_bt = h.get('bt_numero', '')
         
         # Formatage projet/BT pour colonne nom
-        if punch_data['bt_numero']:
-            project_display = f"{punch_data['nom_projet']}"
+        if h['bt_numero']:
+            project_display = f"{h['nom_projet']}"
         else:
-            project_display = punch_data['nom_projet'] or 'N/A'
+            project_display = h['nom_projet'] or 'N/A'
         
         # Statut et durée
         if h['punch_out'] is None and h['punch_in']:
@@ -1723,47 +1490,18 @@ def show_history_interface_operations(tt):
             hours_display = f"{h['total_hours']:.1f}h" if h['total_hours'] else "0h"
             cost_display = f"{h['total_cost']:,.0f}$" if h['total_cost'] else "0$"
         
-        # Calculer temps estimé et performance
-        if punch_data['pointage_type'] == 'OPERATION':
-            temps_estime = h.get('temps_estime', 0) or 0
-        elif punch_data['pointage_type'] == 'BT_TASK':
-            temps_estime = h.get('bt_task_temps_estime', 0) or 0
-        else:
-            temps_estime = 0
-        
-        # Indicateur de performance
-        performance_indicator = "N/A"
-        if temps_estime > 0 and h.get('total_hours'):
-            performance_pct = (h['total_hours'] / temps_estime) * 100
-            if performance_pct <= 90:
-                performance_indicator = "🟢 Excellent"
-            elif performance_pct <= 110:
-                performance_indicator = "🟡 Bon"
-            else:
-                performance_indicator = "🔴 Dépassement"
-        
         df_data.append({
             'ID': h['id'],
             'Statut': status,
-            'Date': h['date_travail'],
-            'Employé': h['employee_name'],
-            'Département': h.get('employee_dept', 'N/A'),
-            'Client': h.get('client_nom') or h.get('bt_client_final', 'N/A'),
             'No. Projet': numero_projet,
             'Nom Projet': project_display,
-            'Description Projet': h.get('project_description', '')[:50] + ('...' if h.get('project_description', '') and len(h.get('project_description', '')) > 50 else ''),
-            'Priorité Projet': h.get('project_priorite', 'N/A'),
             'No. BT': numero_bt,
-            'Description BT': (h.get('bt_description', '') or '')[:50] + ('...' if h.get('bt_description', '') and len(h.get('bt_description', '')) > 50 else ''),
-            'Deadline BT': h.get('bt_deadline', 'N/A')[:10] if h.get('bt_deadline') else 'N/A',
-            'Priorité BT': h.get('bt_priorite', 'N/A'),
-            'Opération/Tâche': task_display,
-            'Poste Travail': punch_data['work_center_name'] or 'N/A',
-            'Temps Estimé': f"{temps_estime:.1f}h" if temps_estime else 'N/A',
+            'Opération': task_display,
+            'Date': h['date_travail'],
+            'Employé': h['employee_name'],
             'Début': h['punch_in'][-8:-3] if h['punch_in'] else 'N/A',
             'Fin': h['punch_out'][-8:-3] if h['punch_out'] else 'En cours',
             'Durée': hours_display,
-            'Performance': performance_indicator,
             'Coût': cost_display,
             'Notes': h['notes'] or ''
         })
