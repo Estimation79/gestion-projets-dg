@@ -1,4 +1,4 @@
-# --- START OF FILE kanban.py - VERSION UNIFIÉE PROJETS + BTs + OPÉRATIONS (COMPLET) ---
+# --- START OF FILE kanban.py - VERSION UNIFIÉE PROJETS + BTs + OPÉRATIONS (COMPLET CORRIGÉ) ---
 
 import streamlit as st
 import pandas as pd
@@ -7,7 +7,8 @@ from typing import List, Dict, Any, Optional
 
 # KANBAN UNIFIÉ - Vue Projets par Statuts + Vue BTs par Postes + Vue Opérations par Postes
 # Compatible avec app.py et erp_database.py pour une intégration complète
-# NOUVEAU : Ajout de la vue "BTs par Postes de Travail"
+# VERSION CORRIGÉE : Vue "BTs par Postes de Travail" entièrement fonctionnelle
+# NOUVEAU : Diagnostic automatique et création de données de test
 
 # === CONFIGURATION POUR VUE PROJETS ===
 STATUTS_KANBAN = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON", "ANNULÉ"]
@@ -400,47 +401,134 @@ def gerer_reassignation_operation(erp_db, nouveau_poste_nom: str) -> bool:
         return False
 
 
-# === FONCTIONS POUR LA NOUVELLE VUE : BTs PAR POSTES ===
+# === FONCTIONS POUR LA VUE : BTs PAR POSTES (VERSION CORRIGÉE) ===
 
-def get_bt_to_workcenter_associations(erp_db):
-    """Récupère toutes les associations BT -> Poste via les opérations."""
+def get_bt_to_workcenter_associations_fixed(erp_db):
+    """Récupère toutes les associations BT -> Poste via les opérations (VERSION CORRIGÉE)"""
     try:
-        query = """
-            SELECT
+        # PREMIÈRE APPROCHE : Via les opérations (idéal)
+        query_operations = """
+            SELECT DISTINCT
                 f.id as bt_id, f.numero_document as bt_numero, f.statut as bt_statut,
                 f.priorite as bt_priorite, f.date_echeance, p.nom_projet, c.nom as client_nom,
                 wc.nom as poste_travail_nom
             FROM formulaires f
-            JOIN operations o ON f.id = o.formulaire_bt_id
-            JOIN work_centers wc ON o.work_center_id = wc.id
+            INNER JOIN operations o ON f.id = o.formulaire_bt_id
+            INNER JOIN work_centers wc ON o.work_center_id = wc.id
             LEFT JOIN projects p ON f.project_id = p.id
             LEFT JOIN companies c ON f.company_id = c.id
-            WHERE f.type_formulaire = 'BON_TRAVAIL' AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+            WHERE f.type_formulaire = 'BON_TRAVAIL' 
+            AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+            AND wc.statut = 'ACTIF'
         """
-        return [dict(row) for row in erp_db.execute_query(query)]
+        
+        associations_operations = erp_db.execute_query(query_operations)
+        result_ops = [dict(row) for row in associations_operations] if associations_operations else []
+        
+        # DEUXIÈME APPROCHE : Via les réservations de postes (fallback)
+        query_reservations = """
+            SELECT DISTINCT
+                f.id as bt_id, f.numero_document as bt_numero, f.statut as bt_statut,
+                f.priorite as bt_priorite, f.date_echeance, p.nom_projet, c.nom as client_nom,
+                wc.nom as poste_travail_nom
+            FROM formulaires f
+            INNER JOIN bt_reservations_postes btr ON f.id = btr.bt_id
+            INNER JOIN work_centers wc ON btr.work_center_id = wc.id
+            LEFT JOIN projects p ON f.project_id = p.id
+            LEFT JOIN companies c ON f.company_id = c.id
+            WHERE f.type_formulaire = 'BON_TRAVAIL' 
+            AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+            AND btr.statut = 'RÉSERVÉ'
+            AND wc.statut = 'ACTIF'
+        """
+        
+        associations_reservations = erp_db.execute_query(query_reservations)
+        result_res = [dict(row) for row in associations_reservations] if associations_reservations else []
+        
+        # TROISIÈME APPROCHE : BTs orphelins (sans associations)
+        query_orphelins = """
+            SELECT DISTINCT
+                f.id as bt_id, f.numero_document as bt_numero, f.statut as bt_statut,
+                f.priorite as bt_priorite, f.date_echeance, p.nom_projet, c.nom as client_nom,
+                'NON ASSIGNÉ' as poste_travail_nom
+            FROM formulaires f
+            LEFT JOIN projects p ON f.project_id = p.id
+            LEFT JOIN companies c ON f.company_id = c.id
+            WHERE f.type_formulaire = 'BON_TRAVAIL' 
+            AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+            AND f.id NOT IN (
+                SELECT DISTINCT formulaire_bt_id 
+                FROM operations 
+                WHERE formulaire_bt_id IS NOT NULL AND work_center_id IS NOT NULL
+            )
+            AND f.id NOT IN (
+                SELECT DISTINCT bt_id 
+                FROM bt_reservations_postes 
+                WHERE statut = 'RÉSERVÉ'
+            )
+        """
+        
+        associations_orphelins = erp_db.execute_query(query_orphelins)
+        result_orphelins = [dict(row) for row in associations_orphelins] if associations_orphelins else []
+        
+        # Combiner tous les résultats
+        all_results = result_ops + result_res + result_orphelins
+        
+        # Supprimer les doublons basés sur bt_id
+        seen_bt_ids = set()
+        unique_results = []
+        for bt in all_results:
+            if bt['bt_id'] not in seen_bt_ids:
+                unique_results.append(bt)
+                seen_bt_ids.add(bt['bt_id'])
+        
+        return unique_results
+        
     except Exception as e:
         st.error(f"Erreur lors de la récupération des associations BT-Postes : {e}")
         return []
 
 
-def organiser_bts_par_poste(associations: List[Dict], work_centers: List[Dict]) -> Dict[str, List[Dict]]:
-    """Organise les Bons de Travail par poste de travail, en dédupliquant."""
-    bts_par_poste_dedup = {wc['nom']: {} for wc in work_centers}
-    for row in associations:
-        poste_nom = row['poste_travail_nom']
-        bt_id = row['bt_id']
-        if poste_nom in bts_par_poste_dedup:
+def organiser_bts_par_poste_fixed(associations: List[Dict], work_centers: List[Dict]) -> Dict[str, List[Dict]]:
+    """Organise les Bons de Travail par poste de travail (VERSION CORRIGÉE)"""
+    try:
+        # Initialiser avec tous les postes actifs + poste spécial pour non assignés
+        bts_par_poste_dedup = {wc['nom']: {} for wc in work_centers if wc.get('statut') == 'ACTIF'}
+        bts_par_poste_dedup['NON ASSIGNÉ'] = {}
+        
+        for row in associations:
+            poste_nom = row.get('poste_travail_nom', 'NON ASSIGNÉ')
+            bt_id = row['bt_id']
+            
+            # S'assurer que le poste existe dans notre structure
+            if poste_nom not in bts_par_poste_dedup:
+                if poste_nom != 'NON ASSIGNÉ':
+                    poste_nom = 'NON ASSIGNÉ'
+            
+            # Éviter les doublons par BT ID
             if bt_id not in bts_par_poste_dedup[poste_nom]:
-                bts_par_poste_dedup[poste_nom][bt_id] = {
-                    'id': bt_id, 
-                    'numero_document': row['bt_numero'], 
-                    'statut': row['bt_statut'],
-                    'priorite': row['bt_priorite'], 
-                    'nom_projet': row['nom_projet'],
-                    'client_nom': row['client_nom'], 
-                    'date_echeance': row['date_echeance']
+                bt_data = {
+                    'id': bt_id,
+                    'numero_document': row.get('bt_numero', 'N/A'),
+                    'statut': row.get('bt_statut', 'BROUILLON'),
+                    'priorite': row.get('bt_priorite', 'NORMAL'),
+                    'nom_projet': row.get('nom_projet', 'Projet non lié'),
+                    'client_nom': row.get('client_nom', 'Client non spécifié'),
+                    'date_echeance': row.get('date_echeance', 'N/A')
                 }
-    return {poste: list(bts.values()) for poste, bts in bts_par_poste_dedup.items()}
+                bts_par_poste_dedup[poste_nom][bt_id] = bt_data
+        
+        # Convertir les dictionnaires en listes
+        result = {}
+        for poste, bts_dict in bts_par_poste_dedup.items():
+            result[poste] = list(bts_dict.values())
+        
+        return result
+        
+    except Exception as e:
+        st.error(f"Erreur lors de l'organisation des BTs par poste: {e}")
+        # Retourner une structure vide mais valide
+        return {wc['nom']: [] for wc in work_centers if wc.get('statut') == 'ACTIF'}
 
 
 def afficher_carte_bt_pour_poste(bt: Dict[str, Any], poste_nom: str) -> None:
@@ -476,6 +564,206 @@ def afficher_carte_bt_pour_poste(bt: Dict[str, Any], poste_nom: str) -> None:
         
         st.info(f"Redirection vers les détails du BT #{bt_id}...")
         st.rerun()
+
+
+def create_test_bt_data(erp_db):
+    """Crée des données de test pour démontrer la vue BTs par Postes"""
+    try:
+        st.info("🔧 Création de données de test pour la vue BTs par Postes...")
+        
+        # 1. Créer un projet de test si nécessaire
+        projects = erp_db.execute_query("SELECT id FROM projects LIMIT 1")
+        if projects:
+            project_id = projects[0]['id']
+        else:
+            project_id = erp_db.execute_insert(
+                "INSERT INTO projects (nom_projet, client_nom_cache, statut, priorite) VALUES (?, ?, ?, ?)",
+                ("Projet Test BT", "Client Test", "EN COURS", "NORMAL")
+            )
+        
+        # 2. Créer des BTs de test
+        bt_data = [
+            ("BT-TEST-001", "URGENT", "Fabrication châssis"),
+            ("BT-TEST-002", "NORMAL", "Usinage pièces précision"),
+            ("BT-TEST-003", "CRITIQUE", "Assemblage final")
+        ]
+        
+        created_bts = []
+        for numero, priorite, description in bt_data:
+            # Vérifier si le BT existe déjà
+            existing = erp_db.execute_query("SELECT id FROM formulaires WHERE numero_document = ?", (numero,))
+            if not existing:
+                bt_id = erp_db.execute_insert("""
+                    INSERT INTO formulaires 
+                    (type_formulaire, numero_document, project_id, statut, priorite, notes)
+                    VALUES ('BON_TRAVAIL', ?, ?, 'VALIDÉ', ?, ?)
+                """, (numero, project_id, priorite, description))
+                created_bts.append(bt_id)
+        
+        # 3. Récupérer quelques postes de travail
+        work_centers = erp_db.execute_query("SELECT id, nom FROM work_centers WHERE statut = 'ACTIF' LIMIT 3")
+        
+        if not work_centers:
+            # Créer des postes de test
+            postes_test = [
+                ("Poste Test 1", "USINAGE"),
+                ("Poste Test 2", "SOUDAGE"),
+                ("Poste Test 3", "ASSEMBLAGE")
+            ]
+            
+            work_centers = []
+            for nom, dept in postes_test:
+                wc_id = erp_db.execute_insert("""
+                    INSERT INTO work_centers (nom, departement, statut, capacite_theorique)
+                    VALUES (?, ?, 'ACTIF', 8.0)
+                """, (nom, dept))
+                work_centers.append({'id': wc_id, 'nom': nom})
+        
+        if work_centers and created_bts:
+            # 4. Créer des opérations liées aux BTs
+            for i, bt_id in enumerate(created_bts):
+                if i < len(work_centers):
+                    wc_id = work_centers[i]['id']
+                    wc_name = work_centers[i]['nom']
+                    
+                    # Créer une opération
+                    erp_db.execute_insert("""
+                        INSERT INTO operations 
+                        (project_id, work_center_id, formulaire_bt_id, sequence_number, description, temps_estime, statut, poste_travail)
+                        VALUES (?, ?, ?, ?, ?, ?, 'À FAIRE', ?)
+                    """, (project_id, wc_id, bt_id, 10, f"Opération test pour BT #{bt_id}", 4.0, wc_name))
+                    
+                    # Créer une réservation de poste
+                    erp_db.execute_insert("""
+                        INSERT INTO bt_reservations_postes
+                        (bt_id, work_center_id, date_prevue, statut, notes_reservation)
+                        VALUES (?, ?, DATE('now', '+1 day'), 'RÉSERVÉ', ?)
+                    """, (bt_id, wc_id, f"Réservation test pour {wc_name}"))
+        
+        st.success(f"✅ Données de test créées: {len(created_bts)} BTs avec opérations et réservations")
+        
+        return len(created_bts) > 0
+        
+    except Exception as e:
+        st.error(f"Erreur création données test: {e}")
+        return False
+
+
+def show_kanban_bts_par_poste_fixed():
+    """NOUVELLE VUE CORRIGÉE : Affiche les Bons de Travail regroupés par Poste de Travail."""
+    if 'erp_db' not in st.session_state:
+        st.error("⚠️ Base de données ERP non initialisée.")
+        return
+
+    erp_db = st.session_state.erp_db
+    
+    try:
+        # Récupérer les postes de travail actifs
+        work_centers = erp_db.execute_query("SELECT * FROM work_centers WHERE statut = 'ACTIF' ORDER BY departement, nom")
+        work_centers = [dict(wc) for wc in work_centers]
+        
+        if not work_centers:
+            st.warning("🏭 Aucun poste de travail actif trouvé.")
+            return
+
+        # Diagnostiquer d'abord les données disponibles
+        with st.expander("🔍 Diagnostic des données", expanded=False):
+            # Compter les BTs totaux
+            total_bts = erp_db.execute_query("SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'")
+            bt_count = total_bts[0]['count'] if total_bts else 0
+            st.write(f"📋 Total BTs dans le système: {bt_count}")
+            
+            # Compter les BTs actifs
+            active_bts = erp_db.execute_query("SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL' AND statut NOT IN ('TERMINÉ', 'ANNULÉ')")
+            active_count = active_bts[0]['count'] if active_bts else 0
+            st.write(f"🟢 BTs actifs (non terminés): {active_count}")
+            
+            # Compter les opérations liées aux BTs
+            ops_with_bt = erp_db.execute_query("SELECT COUNT(*) as count FROM operations WHERE formulaire_bt_id IS NOT NULL")
+            ops_bt_count = ops_with_bt[0]['count'] if ops_with_bt else 0
+            st.write(f"⚙️ Opérations liées à des BTs: {ops_bt_count}")
+            
+            # Compter les réservations de postes
+            reservations = erp_db.execute_query("SELECT COUNT(*) as count FROM bt_reservations_postes WHERE statut = 'RÉSERVÉ'")
+            res_count = reservations[0]['count'] if reservations else 0
+            st.write(f"🏭 Réservations de postes actives: {res_count}")
+            
+            if active_count == 0:
+                st.info("💡 Aucun BT actif trouvé. Créez des Bons de Travail pour voir cette vue.")
+                return
+            elif ops_bt_count == 0 and res_count == 0:
+                st.warning("⚠️ Les BTs existent mais ne sont pas liés aux postes de travail. Vous devez soit:")
+                st.write("- Créer des opérations liées aux BTs")
+                st.write("- Réserver des postes de travail pour les BTs")
+
+        # Ajouter un bouton pour créer des données de test
+        if st.button("🔧 Créer des données de test BT", help="Crée des BTs de test avec liens vers les postes"):
+            if create_test_bt_data(erp_db):
+                st.rerun()
+
+        # Récupérer les associations avec la nouvelle fonction corrigée
+        associations_bt_poste = get_bt_to_workcenter_associations_fixed(erp_db)
+        bts_par_poste = organiser_bts_par_poste_fixed(associations_bt_poste, work_centers)
+        
+        # Afficher le kanban
+        st.markdown('<div class="kanban-operations-container">', unsafe_allow_html=True)
+        
+        # Calculer les colonnes à afficher
+        postes_avec_bts = {nom: bts for nom, bts in bts_par_poste.items() if bts}
+        postes_vides = {nom: bts for nom, bts in bts_par_poste.items() if not bts}
+        
+        # Afficher d'abord les postes avec des BTs
+        if postes_avec_bts:
+            for poste_nom, bts_poste in postes_avec_bts.items():
+                stats_poste = {'total_bts': len(bts_poste)}
+
+                st.markdown(f'''
+                <div class="kanban-operations-column">
+                    <div class="kanban-operations-header">
+                        🔧 {poste_nom} ({stats_poste["total_bts"]})
+                    </div>
+                ''', unsafe_allow_html=True)
+                
+                st.markdown('<div class="kanban-operations-cards-zone">', unsafe_allow_html=True)
+                
+                # Trier par priorité puis par date d'échéance
+                priorite_order = {'CRITIQUE': 0, 'URGENT': 1, 'NORMAL': 2, 'BAS': 3}
+                bts_tries = sorted(bts_poste, 
+                                 key=lambda bt: (
+                                     priorite_order.get(bt.get('priorite', 'NORMAL'), 4),
+                                     bt.get('date_echeance', '9999-12-31')
+                                 ))
+                
+                for bt in bts_tries:
+                    afficher_carte_bt_pour_poste(bt, poste_nom)
+
+                st.markdown('</div></div>', unsafe_allow_html=True)
+        
+        # Afficher les postes vides (optionnel, en mode compact)
+        if postes_vides:
+            with st.expander(f"📋 Postes vides ({len(postes_vides)})", expanded=False):
+                vides_text = ", ".join(postes_vides.keys())
+                st.write(f"Postes sans BTs assignés: {vides_text}")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Résumé statistique
+        if associations_bt_poste:
+            total_bts_affiches = len(associations_bt_poste)
+            postes_utilises = len([p for p in bts_par_poste.values() if p])
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📋 BTs affichés", total_bts_affiches)
+            with col2:
+                st.metric("🏭 Postes utilisés", postes_utilises)
+            with col3:
+                st.metric("🏭 Postes disponibles", len(work_centers))
+
+    except Exception as e:
+        st.error(f"❌ Erreur lors de l'affichage du Kanban des BTs : {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 
 # === FONCTIONS D'AFFICHAGE COMMUNES ===
@@ -903,58 +1191,6 @@ def show_kanban_projets():
         st.markdown('</div>', unsafe_allow_html=True)
 
 
-def show_kanban_bts_par_poste():
-    """NOUVELLE VUE : Affiche les Bons de Travail regroupés par Poste de Travail."""
-    if 'erp_db' not in st.session_state:
-        st.error("⚠️ Base de données ERP non initialisée.")
-        return
-
-    erp_db = st.session_state.erp_db
-    
-    try:
-        work_centers = erp_db.execute_query("SELECT * FROM work_centers WHERE statut = 'ACTIF' ORDER BY departement, nom")
-        work_centers = [dict(wc) for wc in work_centers]
-        
-        if not work_centers:
-            st.warning("🏭 Aucun poste de travail actif trouvé.")
-            return
-
-        associations_bt_poste = get_bt_to_workcenter_associations(erp_db)
-        bts_par_poste = organiser_bts_par_poste(associations_bt_poste, work_centers)
-        
-        st.markdown('<div class="kanban-operations-container">', unsafe_allow_html=True)
-        postes_a_afficher = [wc['nom'] for wc in work_centers]
-
-        for poste_nom in postes_a_afficher:
-            bts_poste = bts_par_poste.get(poste_nom, [])
-            stats_poste = {'total_bts': len(bts_poste)}
-
-            st.markdown(f'''
-            <div class="kanban-operations-column">
-                <div class="kanban-operations-header">
-                    🔧 {poste_nom} ({stats_poste["total_bts"]})
-                </div>
-            ''', unsafe_allow_html=True)
-            
-            st.markdown('<div class="kanban-operations-cards-zone">', unsafe_allow_html=True)
-            
-            if not bts_poste:
-                st.markdown('<div class="empty-poste-column">📋 Aucun BT</div>', unsafe_allow_html=True)
-            else:
-                bts_tries = sorted(bts_poste, 
-                                 key=lambda bt: (PRIORITES.index(bt.get('priorite', 'BAS')) if bt.get('priorite') in PRIORITES else 99, 
-                                               bt.get('date_echeance', '9999-12-31')))
-                for bt in bts_tries:
-                    afficher_carte_bt_pour_poste(bt, poste_nom)
-
-            st.markdown('</div></div>', unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"❌ Erreur lors de l'affichage du Kanban des BTs : {e}")
-
-
 def show_kanban_operations():
     """Affiche la vue Kanban des opérations par postes de travail."""
     if 'erp_db' not in st.session_state:
@@ -1079,7 +1315,7 @@ def afficher_modal_operation():
 # === FONCTION PRINCIPALE UNIFIÉE ===
 
 def show_kanban_sqlite():
-    """Fonction principale - Vue Kanban Unifiée."""
+    """Fonction principale - Vue Kanban Unifiée avec correction BTs."""
     afficher_css_kanban()
     
     st.markdown("## 🔄 Vue Kanban Unifiée - ERP Production DG Inc.")
@@ -1102,8 +1338,8 @@ def show_kanban_sqlite():
         st.markdown("### 📋 Vue Projets - Organisés par Statuts")
         show_kanban_projets()
     elif mode_kanban == "🏭 BTs par Postes de Travail":
-        st.markdown("### 🏭 Vue Bons de Travail - Organisés par Postes")
-        show_kanban_bts_par_poste()
+        st.markdown("### 🏭 Vue Bons de Travail - Organisés par Postes (VERSION CORRIGÉE)")
+        show_kanban_bts_par_poste_fixed()
     else:
         st.markdown("### ⚙️ Vue Opérations - Organisées par Postes")
         show_kanban_operations()
@@ -1126,7 +1362,7 @@ def app():
 # === TEST AUTONOME ===
 if __name__ == "__main__":
     st.title("🔄 Module Kanban Unifié - Test Autonome")
-    st.info("Version unifiée pour projets et opérations avec l'architecture SQLite")
+    st.info("Version unifiée pour projets et opérations avec l'architecture SQLite - CORRIGÉE")
     
     if 'gestionnaire' not in st.session_state or 'erp_db' not in st.session_state:
         st.error("⚠️ Ce module doit être lancé depuis app.py.")
@@ -1134,4 +1370,4 @@ if __name__ == "__main__":
     
     show_kanban_sqlite()
 
-# --- END OF FILE kanban.py - VERSION UNIFIÉE PROJETS + BTs + OPÉRATIONS (COMPLET) ---
+# --- END OF FILE kanban.py - VERSION UNIFIÉE PROJETS + BTs + OPÉRATIONS (COMPLET CORRIGÉ) ---
