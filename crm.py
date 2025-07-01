@@ -1,5 +1,5 @@
-# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION ---
-# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis + Modification
+# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION + SUPPRESSION ---
+# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis + Modification + Suppression
 
 import json
 import os
@@ -18,6 +18,7 @@ class GestionnaireCRM:
     NOUVELLE ARCHITECTURE : Gestionnaire CRM utilisant SQLite au lieu de JSON
     Compatible avec ERPDatabase pour une architecture unifiée
     + SYSTÈME DEVIS INTÉGRÉ utilisant l'infrastructure formulaires existante
+    + SUPPRESSION DE DEVIS avec sécurité et traçabilité
     """
     
     def __init__(self, db=None, project_manager=None):
@@ -968,6 +969,74 @@ class GestionnaireCRM:
             
         except Exception as e:
             st.error(f"Erreur modification devis: {e}")
+            return False
+    
+    def supprimer_devis(self, devis_id: int, employee_id: int, motif: str = "") -> bool:
+        """
+        Supprime un devis et toutes ses données associées
+        
+        Args:
+            devis_id: ID du devis à supprimer
+            employee_id: ID de l'employé qui effectue la suppression
+            motif: Motif de suppression (optionnel)
+        
+        Returns:
+            bool: True si suppression réussie, False sinon
+        """
+        if not self.use_sqlite:
+            st.error("Suppression de devis disponible uniquement en mode SQLite")
+            return False
+        
+        try:
+            # Vérifier que le devis existe
+            devis_existant = self.get_devis_complet(devis_id)
+            if not devis_existant:
+                st.error(f"Devis #{devis_id} non trouvé.")
+                return False
+            
+            # Vérifier les permissions de suppression selon le statut
+            statuts_non_supprimables = ['APPROUVÉ', 'TERMINÉ']
+            if devis_existant.get('statut') in statuts_non_supprimables:
+                st.error(f"Impossible de supprimer un devis au statut '{devis_existant.get('statut')}'")
+                st.info("💡 Conseil: Vous pouvez annuler le devis au lieu de le supprimer.")
+                return False
+            
+            # Enregistrer l'action avant suppression (pour audit)
+            self.enregistrer_validation_devis(
+                devis_id,
+                employee_id,
+                'SUPPRESSION',
+                f"Devis supprimé. Motif: {motif if motif else 'Non spécifié'}"
+            )
+            
+            # Supprimer en cascade dans l'ordre correct
+            # 1. Supprimer les validations
+            self.db.execute_update(
+                "DELETE FROM formulaire_validations WHERE formulaire_id = ?", 
+                (devis_id,)
+            )
+            
+            # 2. Supprimer les lignes
+            self.db.execute_update(
+                "DELETE FROM formulaire_lignes WHERE formulaire_id = ?", 
+                (devis_id,)
+            )
+            
+            # 3. Supprimer le devis principal
+            rows_affected = self.db.execute_update(
+                "DELETE FROM formulaires WHERE id = ?", 
+                (devis_id,)
+            )
+            
+            if rows_affected > 0:
+                st.success(f"✅ Devis #{devis_id} ({devis_existant.get('numero_document')}) supprimé avec succès!")
+                return True
+            else:
+                st.error("Aucune ligne affectée lors de la suppression.")
+                return False
+            
+        except Exception as e:
+            st.error(f"Erreur lors de la suppression du devis: {e}")
             return False
     
     def ajouter_ligne_devis(self, devis_id: int, sequence: int, ligne_data: Dict[str, Any]) -> Optional[int]:
@@ -2232,11 +2301,11 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
         st.rerun()
 
 # =========================================================================
-# FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS
+# FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS AVEC SUPPRESSION
 # =========================================================================
 
 def render_crm_devis_tab(crm_manager: GestionnaireCRM):
-    """Interface Streamlit pour la gestion des devis"""
+    """Interface Streamlit pour la gestion des devis avec suppression"""
     if not crm_manager.use_sqlite:
         st.warning("⚠️ Le système de devis n'est disponible qu'en mode SQLite.")
         return
@@ -2322,7 +2391,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             df = pd.DataFrame(display_data)
             st.dataframe(df, use_container_width=True)
             
-            # Actions sur devis sélectionné
+            # Actions sur devis sélectionné MODIFIÉES AVEC SUPPRESSION
             st.markdown("---")
             selected_devis_id = st.selectbox(
                 "Sélectionner un devis pour actions:",
@@ -2332,7 +2401,14 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             )
             
             if selected_devis_id:
-                col_action1, col_action2, col_action3, col_action4 = st.columns(4)
+                # Vérifier si le devis peut être supprimé
+                selected_devis = next((d for d in devis_list if d['id'] == selected_devis_id), None)
+                peut_supprimer = selected_devis and selected_devis.get('statut') not in ['APPROUVÉ', 'TERMINÉ']
+                
+                if peut_supprimer:
+                    col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+                else:
+                    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
                 
                 with col_action1:
                     if st.button("👁️ Voir Détails", key="voir_devis", use_container_width=True):
@@ -2342,7 +2418,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                 
                 with col_action2:
                     if st.button("📄 Dupliquer", key="dupliquer_devis_liste", use_container_width=True):
-                        nouveau_id = crm_manager.dupliquer_devis(selected_devis_id, 1) # User 1 for now
+                        nouveau_id = crm_manager.dupliquer_devis(selected_devis_id, 1)
                         if nouveau_id:
                             st.success(f"Devis dupliqué avec succès ! Nouveau devis #{nouveau_id}.")
                             st.rerun()
@@ -2362,6 +2438,35 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                         st.session_state.crm_action = "edit_devis"
                         st.session_state.crm_selected_id = selected_devis_id
                         st.rerun()
+                
+                # Bouton de suppression si possible
+                if peut_supprimer:
+                    with col_action5:
+                        if st.button("🗑️ Supprimer", key="delete_devis_liste", use_container_width=True, type="secondary"):
+                            st.session_state.crm_confirm_delete_devis_id = selected_devis_id
+                            st.rerun()
+                
+                # Gestion de la confirmation de suppression dans la liste
+                if 'crm_confirm_delete_devis_id' in st.session_state and st.session_state.crm_confirm_delete_devis_id == selected_devis_id:
+                    st.markdown("---")
+                    st.error(f"⚠️ Confirmer la suppression du devis #{selected_devis_id}")
+                    
+                    motif = st.text_input("Motif (optionnel):", key="motif_liste")
+                    
+                    col_conf, col_ann = st.columns(2)
+                    with col_conf:
+                        if st.button("🗑️ SUPPRIMER", key="confirm_delete_liste", type="primary"):
+                            if crm_manager.supprimer_devis(selected_devis_id, 1, motif):
+                                del st.session_state.crm_confirm_delete_devis_id
+                                st.rerun()
+                    with col_ann:
+                        if st.button("❌ Annuler", key="cancel_delete_liste"):
+                            del st.session_state.crm_confirm_delete_devis_id
+                            st.rerun()
+                
+                # Afficher un message si le devis ne peut pas être supprimé
+                if not peut_supprimer:
+                    st.info(f"💡 Ce devis ne peut pas être supprimé car il est au statut '{selected_devis.get('statut') if selected_devis else 'INCONNU'}'. Vous pouvez l'annuler à la place.")
         else:
             st.info("Aucun devis trouvé avec les filtres sélectionnés.")
     
@@ -2504,7 +2609,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             st.info("Aucune donnée de devis disponible pour les statistiques.")
 
 def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
-    """Affiche les détails d'un devis"""
+    """Affiche les détails d'un devis avec option de suppression"""
     if not devis_data:
         st.error("Devis non trouvé.")
         return
@@ -2568,14 +2673,21 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
     else:
         st.info("Aucun historique disponible.")
 
-    # Actions
+    # Actions MODIFIÉES avec suppression
     st.markdown("### 🔧 Actions")
-    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
     
-    # CORRECTION : Utiliser l'ID de l'employé responsable du devis au lieu de '1'
-    # On utilise .get() avec une valeur par défaut (1) pour plus de sécurité,
-    # au cas où aucun employé ne serait assigné.
+    # Déterminer si le devis peut être supprimé
+    statuts_non_supprimables = ['APPROUVÉ', 'TERMINÉ']
+    peut_supprimer = devis_data.get('statut') not in statuts_non_supprimables
+    
     responsable_id = devis_data.get('employee_id', 1)
+
+    if peut_supprimer:
+        # 5 colonnes si suppression possible
+        col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+    else:
+        # 4 colonnes si pas de suppression
+        col_action1, col_action2, col_action3, col_action4 = st.columns(4)
 
     with col_action1:
         if st.button("✅ Accepter", key="accepter_devis"):
@@ -2600,6 +2712,45 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
             nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], responsable_id)
             if nouveau_id:
                 st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
+                st.rerun()
+
+    # Bouton de suppression (si possible)
+    if peut_supprimer:
+        with col_action5:
+            if st.button("🗑️ Supprimer", key="supprimer_devis_btn", type="secondary"):
+                st.session_state.crm_confirm_delete_devis_id = devis_data['id']
+                st.rerun()
+
+    # Gestion de la confirmation de suppression
+    if 'crm_confirm_delete_devis_id' in st.session_state and st.session_state.crm_confirm_delete_devis_id == devis_data['id']:
+        st.markdown("---")
+        st.error(f"⚠️ **ATTENTION : Suppression définitive du devis {devis_data.get('numero_document')}**")
+        st.warning("Cette action est irréversible. Le devis et toutes ses données seront définitivement supprimés de la base de données.")
+        
+        # Champ pour le motif de suppression
+        motif_suppression = st.text_input(
+            "Motif de suppression (optionnel):", 
+            placeholder="Ex: Erreur de saisie, doublon, demande client...",
+            key="motif_suppression_devis"
+        )
+        
+        col_confirm, col_cancel = st.columns(2)
+        
+        with col_confirm:
+            if st.button("🗑️ CONFIRMER LA SUPPRESSION", key="confirm_delete_devis", type="primary"):
+                if crm_manager.supprimer_devis(devis_data['id'], responsable_id, motif_suppression):
+                    # Suppression réussie, nettoyer la session et retourner à la liste
+                    del st.session_state.crm_confirm_delete_devis_id
+                    st.session_state.crm_action = None
+                    st.session_state.crm_selected_id = None
+                    st.rerun()
+                else:
+                    # En cas d'erreur, rester sur la page
+                    del st.session_state.crm_confirm_delete_devis_id
+        
+        with col_cancel:
+            if st.button("❌ Annuler la suppression", key="cancel_delete_devis"):
+                del st.session_state.crm_confirm_delete_devis_id
                 st.rerun()
 
     if st.button("Retour à la liste des devis", key="back_to_devis_list_from_details"):
@@ -2837,7 +2988,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
         interaction_data = crm_manager.get_interaction_by_id(selected_id)
         render_crm_interaction_details(crm_manager, projet_manager, interaction_data)
 
-    # Actions pour les devis (NOUVEAU)
+    # Actions pour les devis (AVEC SUPPRESSION)
     elif action == "view_devis_details" and selected_id:
         devis_data = crm_manager.get_devis_complet(selected_id)
         render_crm_devis_details(crm_manager, devis_data)
@@ -2846,7 +2997,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
         render_crm_devis_edit_form(crm_manager, devis_data)
 
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
-    """Interface principale CRM avec support des devis"""
+    """Interface principale CRM avec support des devis et suppression"""
     
     st.title("📋 Gestion CRM + Devis")
     
@@ -3099,4 +3250,4 @@ if __name__ == "__main__":
         st.info("Lancement en mode démo JSON de secours.")
         demo_crm_with_devis()
 
-# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION COMPLÈTE ---
+# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION + SUPPRESSION COMPLÈTE ---
