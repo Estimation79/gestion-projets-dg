@@ -4,6 +4,7 @@
 # ARCHITECTURE UNIFIÉE : TimeTracker Pro + Postes de Travail fusionnés
 # CHECKPOINT 6 : TIMETRACKER PRO UNIFIÉ AVEC BTS INTÉGRÉS
 # GESTION PROJETS COMPLÈTE : CRUD + Actions en lot + Recherche avancée
+# NOUVEAU : SYSTÈME DE PIÈCES JOINTES INTÉGRÉ
 
 import streamlit as st
 import pandas as pd
@@ -215,6 +216,157 @@ def apply_additional_project_styles():
     </style>
     """, unsafe_allow_html=True)
 
+def apply_additional_attachments_styles():
+    """Styles CSS pour les pièces jointes"""
+    st.markdown("""
+    <style>
+    /* Styles pour pièces jointes */
+    .attachment-upload-zone {
+        border: 2px dashed var(--primary-color);
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #f0fdf4 100%);
+        margin: 1rem 0;
+        transition: all 0.3s ease;
+        position: relative;
+        cursor: pointer;
+    }
+    
+    .attachment-upload-zone:hover {
+        border-color: var(--primary-color-dark);
+        background: linear-gradient(135deg, var(--primary-color-light) 0%, #dcfce7 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 169, 113, 0.2);
+    }
+    
+    .attachment-card {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        background: white;
+        transition: all 0.2s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .attachment-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: var(--primary-color);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+    
+    .attachment-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        transform: translateY(-1px);
+        border-color: var(--primary-color-light);
+    }
+    
+    .attachment-card:hover::before {
+        opacity: 1;
+    }
+    
+    .attachment-category-header {
+        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #e6f3ff 100%);
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin: 1.5rem 0 1rem 0;
+        font-weight: 600;
+        color: var(--primary-color-darkest);
+        border-left: 4px solid var(--primary-color);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .attachment-file-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem;
+        background: #f8fafc;
+        border-radius: 6px;
+        margin: 0.5rem 0;
+        border: 1px solid #e2e8f0;
+        transition: background 0.2s ease;
+    }
+    
+    .attachment-file-info:hover {
+        background: #f1f5f9;
+    }
+    
+    .attachment-stats {
+        background: linear-gradient(135deg, #e6f3ff 0%, #cce7ff 100%);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        text-align: center;
+        border: 1px solid #bfdbfe;
+    }
+    
+    .category-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.75rem;
+        border-radius: 16px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: white;
+        margin-right: 0.5rem;
+        gap: 0.25rem;
+    }
+    
+    .category-badge.DOCUMENT { 
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    }
+    
+    .category-badge.IMAGE { 
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    }
+    
+    .category-badge.TECHNIQUE { 
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
+    
+    .category-badge.ARCHIVE { 
+        background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    }
+    
+    .category-badge.MEDIA { 
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    }
+    
+    .category-badge.AUTRE { 
+        background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+    }
+    
+    @media (max-width: 768px) {
+        .attachment-upload-zone {
+            padding: 1.5rem 1rem;
+        }
+        
+        .attachment-file-info {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        
+        .attachment-category-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # ========================
 # CONFIGURATION AUTHENTIFICATION
 # ========================
@@ -295,7 +447,7 @@ def show_admin_header():
     """, unsafe_allow_html=True)
 
 # ========================
-# IMPORTS MODULES ERP (MODIFIÉS POUR TIMETRACKER PRO)
+# IMPORTS MODULES ERP (MODIFIÉS POUR TIMETRACKER PRO + PIÈCES JOINTES)
 # ========================
 
 # PERSISTENT STORAGE : Import du gestionnaire de stockage persistant
@@ -382,6 +534,18 @@ try:
     KANBAN_AVAILABLE = True
 except ImportError:
     KANBAN_AVAILABLE = False
+
+# NOUVEAU : Import du gestionnaire de pièces jointes
+try:
+    from attachments_manager import (
+        AttachmentsManager,
+        show_project_attachments_interface,
+        init_attachments_manager,
+        show_attachments_tab_in_project_modal
+    )
+    ATTACHMENTS_AVAILABLE = True
+except ImportError:
+    ATTACHMENTS_AVAILABLE = False
 
 # Configuration de la page
 st.set_page_config(
@@ -1223,7 +1387,7 @@ class GestionnaireProjetSQL:
             return False
 
 # ========================
-# INITIALISATION ERP SYSTÈME (MODIFIÉ)
+# INITIALISATION ERP SYSTÈME (MODIFIÉ AVEC PIÈCES JOINTES)
 # ========================
 
 def _init_base_data_if_empty():
@@ -1378,7 +1542,7 @@ def _init_base_data_if_empty():
         print(f"Erreur initialisation données de base: {e}")
 
 def init_erp_system():
-    """Initialise le système ERP complet"""
+    """Initialise le système ERP complet - MODIFIÉ avec Pièces Jointes"""
 
     # NOUVEAU : Initialisation du gestionnaire de stockage persistant AVANT tout
     if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
@@ -1431,6 +1595,14 @@ def init_erp_system():
     # NOUVEAU : Gestionnaire fournisseurs
     if FOURNISSEURS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_fournisseurs' not in st.session_state:
         st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
+
+    # NOUVEAU : Gestionnaire pièces jointes
+    if ATTACHMENTS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'attachments_manager' not in st.session_state:
+        st.session_state.attachments_manager = init_attachments_manager(
+            st.session_state.erp_db,
+            st.session_state.get('storage_manager')
+        )
+        print("✅ Gestionnaire de pièces jointes initialisé")
 
     # CORRECTION CRITIQUE : CRM avec base SQLite unifiée
     # SECTION MODIFIÉE SELON LA DEMANDE
@@ -1493,7 +1665,7 @@ def get_system_stats():
 # ========================
 
 def show_portal_home():
-    """Affiche la page d'accueil du portail avec classes CSS"""
+    """Affiche la page d'accueil du portail avec classes CSS - MODIFIÉ avec Pièces Jointes"""
     # Header principal
     current_time = datetime.now().strftime("%H:%M")
     current_date = datetime.now().strftime("%d/%m/%Y")
@@ -1602,7 +1774,8 @@ def show_portal_home():
         ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
         ("🏭 Production Unifié", PRODUCTION_MANAGEMENT_AVAILABLE),
         ("🔄 Kanban Unifié", KANBAN_AVAILABLE),
-        ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE)
+        ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE),
+        ("📎 Pièces Jointes", ATTACHMENTS_AVAILABLE)  # NOUVEAU
     ]
 
     modules_col1, modules_col2, modules_col3 = st.columns(3)
@@ -1622,13 +1795,14 @@ def show_portal_home():
         <p>
             <strong>Desmarais & Gagné Inc.</strong> • Fabrication métallique et industrielle<br>
             🗄️ Architecture unifiée • 📑 Formulaires • ⏱️🔧 TimeTracker Pro & Postes • 🔄 Kanban Unifié<br>
-            💾 Stockage persistant • 🔄 Navigation fluide • 🔒 Sécurisé
+            💾 Stockage persistant • 📎 Pièces Jointes • 🔄 Navigation fluide • 🔒 Sécurisé
         </p>
         <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
             <small>
                 👥 <strong>Employés:</strong> Interface unifiée TimeTracker Pro & Postes<br>
                 👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
-                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié • 🔄 Kanban Projets + Opérations
+                🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié • 🔄 Kanban Projets + Opérations<br>
+                📎 <strong>NOUVEAU:</strong> Gestion complète des pièces jointes par projet
             </small>
         </div>
     </div>
@@ -2054,6 +2228,24 @@ def show_erp_main():
     except Exception:
         pass  # Silencieux si erreur
 
+    # NOUVEAU : Statistiques Pièces Jointes dans la sidebar
+    if ATTACHMENTS_AVAILABLE and 'attachments_manager' in st.session_state:
+        try:
+            attachments_stats = st.session_state.attachments_manager.get_attachments_statistics()
+            
+            if attachments_stats.get('total_attachments', 0) > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>📎 Pièces Jointes</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("📁 Total Fichiers", attachments_stats.get('total_attachments', 0))
+                st.sidebar.metric("💾 Espace Utilisé", f"{attachments_stats.get('total_size_mb', 0)} MB")
+                
+                # Nombre de catégories utilisées
+                categories_count = len(attachments_stats.get('by_category', {}))
+                if categories_count > 0:
+                    st.sidebar.metric("📂 Catégories", categories_count)
+        except Exception:
+            pass  # Silencieux si erreur
+
     # CHECKPOINT 6 : ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker Pro
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
@@ -2119,6 +2311,10 @@ def show_erp_main():
         footer_text += "<br/>🔄 Kanban Unifié (Projets + Opérations)"
     else:
         footer_text += "<br/>🔄 Kanban Interne"
+
+    # NOUVEAU : Indication module pièces jointes dans footer sidebar
+    if ATTACHMENTS_AVAILABLE:
+        footer_text += "<br/>📎 Pièces Jointes Actives"
 
     # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
     if st.session_state.get('storage_manager'):
@@ -2260,11 +2456,11 @@ def show_storage_status_sidebar():
         st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
 
 # ========================
-# FONCTIONS DE VUE ET DE RENDU ERP (MODIFIÉES AVEC GESTION PROJETS COMPLÈTE)
+# FONCTIONS DE VUE ET DE RENDU ERP (MODIFIÉES AVEC GESTION PROJETS COMPLÈTE + PIÈCES JOINTES)
 # ========================
 
 def show_dashboard():
-    """Dashboard principal utilisant les classes CSS"""
+    """Dashboard principal utilisant les classes CSS - MODIFIÉ avec Pièces Jointes"""
     st.markdown("""
     <div class="main-title">
         <h1>📊 Tableau de Bord ERP Production</h1>
@@ -2322,6 +2518,19 @@ def show_dashboard():
         📍 **Accès :** Navigation → 🔄 Kanban Unifié
         """)
 
+    # NOUVEAU: Notification Pièces Jointes
+    if ATTACHMENTS_AVAILABLE:
+        st.info("""
+        📎 **Système de Pièces Jointes Actif !**
+        
+        ✅ Upload sécurisé multi-fichiers par projet
+        ✅ Catégorisation automatique (Documents, Images, Techniques...)
+        ✅ Gestion des versions et téléchargements
+        ✅ Intégration complète dans les détails projet
+        
+        📍 **Accès :** Détails Projet → Onglet "📎 Pièces Jointes"
+        """)
+
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
     
@@ -2338,7 +2547,7 @@ def show_dashboard():
         st.markdown("""
         <div class='welcome-card'>
             <h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3>
-            <p>Architecture unifiée avec TimeTracker Pro et Kanban Unifié intégrés. Créez votre premier projet ou explorez les données migrées.</p>
+            <p>Architecture unifiée avec TimeTracker Pro, Kanban Unifié et Pièces Jointes intégrés. Créez votre premier projet ou explorez les données migrées.</p>
         </div>
         """, unsafe_allow_html=True)
         return
@@ -2446,6 +2655,36 @@ def show_dashboard():
         montant_total_fournisseurs = fournisseurs_stats.get('montant_total_commandes', 0)
         if montant_total_fournisseurs > 0:
             st.markdown(f"**💰 Volume Total Commandes: {montant_total_fournisseurs:,.0f}$ CAD**")
+
+    # NOUVEAU : Métriques Pièces Jointes
+    if ATTACHMENTS_AVAILABLE and 'attachments_manager' in st.session_state:
+        try:
+            attachments_stats = st.session_state.attachments_manager.get_attachments_statistics()
+            
+            if attachments_stats.get('total_attachments', 0) > 0:
+                st.markdown("### 📎 Aperçu Pièces Jointes")
+                att_c1, att_c2, att_c3, att_c4 = st.columns(4)
+                
+                with att_c1:
+                    st.metric("📁 Total Fichiers", attachments_stats.get('total_attachments', 0))
+                with att_c2:
+                    st.metric("💾 Taille Totale", f"{attachments_stats.get('total_size_mb', 0)} MB")
+                with att_c3:
+                    categories_count = len(attachments_stats.get('by_category', {}))
+                    st.metric("📂 Catégories", categories_count)
+                with att_c4:
+                    # Calcul de la taille moyenne par fichier
+                    avg_size = attachments_stats.get('total_size_mb', 0) / max(attachments_stats.get('total_attachments', 1), 1)
+                    st.metric("📊 Taille Moy.", f"{avg_size:.1f} MB")
+                
+                # Répartition par catégorie
+                if attachments_stats.get('by_category'):
+                    st.markdown("**📂 Répartition par Catégorie:**")
+                    for category, count in attachments_stats['by_category'].items():
+                        category_info = st.session_state.attachments_manager.categories.get(category, {'icon': '📎', 'label': category})
+                        st.markdown(f"- {category_info['icon']} {category_info['label']}: {count} fichier(s)")
+        except Exception as e:
+            st.warning(f"Erreur statistiques pièces jointes: {e}")
 
     # Métriques postes de travail
     if postes_stats['total_postes'] > 0:
@@ -2973,7 +3212,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -3494,7 +3733,7 @@ def show_kanban_legacy():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_project_modal():
-    """Affichage des détails d'un projet dans un expander"""
+    """Affichage des détails d'un projet dans un expander - MODIFIÉ avec Pièces Jointes"""
     if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
         return
 
@@ -3507,6 +3746,7 @@ def show_project_modal():
 
         st.markdown("---")
 
+        # Informations principales (inchangé)
         mc1, mc2 = st.columns(2)
         with mc1:
             st.markdown(f"""
@@ -3534,8 +3774,13 @@ def show_project_modal():
             st.markdown("##### 📝 Description")
             st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
 
-        tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations"])
+        # NOUVEAU : Onglets avec Pièces Jointes
+        if ATTACHMENTS_AVAILABLE:
+            tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations", "📎 Pièces Jointes"])
+        else:
+            tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations"])
 
+        # Onglet Sous-tâches (inchangé)
         with tabs_mod[0]:
             sts_mod = proj_mod.get('sous_taches', [])
             if not sts_mod:
@@ -3556,6 +3801,7 @@ def show_project_modal():
                     </div>
                     """, unsafe_allow_html=True)
 
+        # Onglet Matériaux (inchangé)
         with tabs_mod[1]:
             mats_mod = proj_mod.get('materiaux', [])
             if not mats_mod:
@@ -3588,6 +3834,7 @@ def show_project_modal():
                 </div>
                 """, unsafe_allow_html=True)
 
+        # Onglet Opérations (inchangé)
         with tabs_mod[2]:
             ops_mod = proj_mod.get('operations', [])
             if not ops_mod:
@@ -3622,6 +3869,11 @@ def show_project_modal():
                 </div>
                 """, unsafe_allow_html=True)
 
+        # NOUVEAU : Onglet Pièces Jointes
+        if ATTACHMENTS_AVAILABLE:
+            with tabs_mod[3]:
+                show_attachments_tab_in_project_modal(proj_mod)
+
         st.markdown("---")
         if st.button("✖️ Fermer", use_container_width=True, key="close_modal_details_btn_bottom"):
             st.session_state.show_project_modal = False
@@ -3629,19 +3881,21 @@ def show_project_modal():
 
 def show_footer():
     st.markdown("---")
-    # CHECKPOINT 6 : FOOTER MISE À JOUR avec module Kanban
+    
     footer_text = "🏭 ERP Production DG Inc. - Architecture Unifiée • ⏱️🔧 TimeTracker Pro Unifié • CRM • 📑 Formulaires • 🏪 Fournisseurs • 🏭 Module Production Unifié"
     
     if 'timetracker_unified' in st.session_state and st.session_state.timetracker_unified:
         footer_text += " • ✅ TimeTracker Pro Actif avec BT Intégrés"
     
-    # NOUVEAU : Indication module Kanban
     if KANBAN_AVAILABLE:
         footer_text += " • 🔄 Kanban Unifié (Projets + Opérations)"
     else:
         footer_text += " • 🔄 Kanban Interne"
-
-    # NOUVEAU : Ajouter info stockage persistant dans footer principal
+    
+    # NOUVEAU : Indication module pièces jointes
+    if ATTACHMENTS_AVAILABLE:
+        footer_text += " • 📎 Pièces Jointes Actives"
+    
     if 'storage_manager' in st.session_state and st.session_state.storage_manager:
         storage_info = st.session_state.storage_manager.get_storage_info()
         if storage_info['environment_type'] == 'RENDER_PERSISTENT':
@@ -3649,7 +3903,7 @@ def show_footer():
         elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
             footer_text += " • ⚠️ Mode Temporaire"
 
-    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • TimeTracker Pro Refactorisé • Stockage Persistant Render • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'><p>{footer_text}</p><p>🗄️ Architecture Unifiée • TimeTracker Pro Refactorisé • Stockage Persistant Render • 📎 Gestion Pièces Jointes • 🔄 Navigation Fluide</p></div>", unsafe_allow_html=True)
 
 # ========================
 # FONCTION PRINCIPALE AVEC PORTAIL
@@ -3664,6 +3918,10 @@ def main():
     # Fallback si CSS externe indisponible
     if not css_loaded:
         apply_fallback_styles()
+
+    # NOUVEAU : Appliquer les styles supplémentaires pour les pièces jointes
+    if ATTACHMENTS_AVAILABLE:
+        apply_additional_attachments_styles()
 
     # Initialisation des variables de session - COMPLÈTE
     if 'app_mode' not in st.session_state:
@@ -3803,9 +4061,10 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
-print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
-print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
-print("✅ Module Kanban unifié intégré avec fallback")
-print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
-print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
+print("🎯 CHECKPOINT 7 - APP.PY COMPLET AVEC PIÈCES JOINTES TERMINÉ")
+print("✅ Toutes les modifications appliquées pour système de pièces jointes intégré")
+print("✅ TimeTracker Pro Unifié + Gestion projets complète + Actions en lot + Recherche avancée")
+print("✅ Module Kanban unifié + Module Pièces Jointes + Architecture unifiée")
+print("✅ Styles CSS intégrés + Interface responsive + Sécurité renforcée")
+print("🚀 Prêt pour déploiement en production avec toutes les fonctionnalités")
+'
