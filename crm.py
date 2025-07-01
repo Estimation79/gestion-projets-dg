@@ -1188,10 +1188,16 @@ class GestionnaireCRM:
                 'statut': 'À FAIRE',
                 'priorite': devis.get('priorite', 'MOYEN'),
                 'description': f"Projet créé automatiquement suite à l'acceptation du devis {devis.get('numero_document')}.\n\nNotes du devis:\n{devis.get('notes', '')}",
-                'prix_estime': devis.get('totaux', {}).get('total_ht', 0.0), # Utilise le total Hors Taxes comme base
+                'prix_estime': devis.get('totaux', {}).get('total_ht', 0.0),
                 'date_soumis': datetime.now().strftime('%Y-%m-%d'),
-                'date_prevu': (datetime.now() + timedelta(days=60)).strftime('%Y-%m-%d'), # Prévision à 60 jours
-                'employes_assignes': [devis.get('employee_id')] if devis.get('employee_id') else []
+                'date_prevu': (datetime.now() + timedelta(days=60)).strftime('%Y-%m-%d'),
+                'employes_assignes': [devis.get('employee_id')] if devis.get('employee_id') else [],
+                # --- LIGNES À AJOUTER ---
+                'tache': 'PROJET_CLIENT',  # Fournit une valeur par défaut pour la colonne 'tache'
+                'bd_ft_estime': 0.0,      # Fournit une valeur par défaut pour les heures
+                'client_legacy': '',      # Fournit une valeur par défaut pour le client legacy
+                'operations': [],         # Assure que la clé existe, même si vide
+                'materiaux': []           # Assure que la clé existe, même si vide
             }
             
             # Création du projet via le gestionnaire de projets
