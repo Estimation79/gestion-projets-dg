@@ -1665,7 +1665,7 @@ def get_system_stats():
 # ========================
 
 def show_portal_home():
-    """Affiche la page d'accueil du portail avec classes CSS - MODIFIÉ avec Pièces Jointes"""
+    """Affiche la page d'accueil du portail avec classes CSS - SIMPLIFIÉ sans statistiques"""
     # Header principal
     current_time = datetime.now().strftime("%H:%M")
     current_date = datetime.now().strftime("%d/%m/%Y")
@@ -1730,65 +1730,8 @@ def show_portal_home():
             st.session_state.app_mode = "admin_auth"
             st.rerun()
 
-    # Statistiques système
-    stats = get_system_stats()
-
-    st.markdown("---")
-    st.markdown("### 📊 État du Système DG Inc.")
-
-    st.markdown(f"""
-    <div class="status-grid">
-        <div class="status-card">
-            <div class="status-number">{stats['projets']}</div>
-            <div class="status-label">Projets Actifs</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats['employes']}</div>
-            <div class="status-label">Employés ERP</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats['entreprises']}</div>
-            <div class="status-label">Entreprises</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats['postes']}</div>
-            <div class="status-label">Postes Travail</div>
-        </div>
-        <div class="status-card">
-            <div class="status-number">{stats.get('formulaires', 120)}</div>
-            <div class="status-label">Formulaires</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Modules disponibles
-    st.markdown("---")
-    st.markdown("### 🔧 Modules Actifs")
-
-    modules_status = [
-        ("📊 Base de Données ERP", ERP_DATABASE_AVAILABLE),
-        ("🤝 CRM", CRM_AVAILABLE),
-        ("👥 Employés", EMPLOYEES_AVAILABLE),
-        ("⏱️ TimeTracker Pro", TIMETRACKER_AVAILABLE),
-        ("📑 Formulaires", FORMULAIRES_AVAILABLE),
-        ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE),
-        ("🏭 Production Unifié", PRODUCTION_MANAGEMENT_AVAILABLE),
-        ("🔄 Kanban Unifié", KANBAN_AVAILABLE),
-        ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE),
-        ("📎 Pièces Jointes", ATTACHMENTS_AVAILABLE)  # NOUVEAU
-    ]
-
-    modules_col1, modules_col2, modules_col3 = st.columns(3)
-
-    for i, (module_name, is_available) in enumerate(modules_status):
-        target_col = [modules_col1, modules_col2, modules_col3][i % 3]
-        with target_col:
-            if is_available:
-                st.success(f"✅ {module_name}")
-            else:
-                st.error(f"❌ {module_name}")
-
     # Footer
+    st.markdown("---")
     st.markdown("""
     <div class="portal-footer">
         <h4>🏭 ERP Production DG Inc.</h4>
@@ -1803,6 +1746,11 @@ def show_portal_home():
                 👨‍💼 <strong>Admins:</strong> ERP complet avec architecture moderne<br>
                 🏗️ Version refactorisée • ✅ Production Ready • 🎯 Module Unifié • 🔄 Kanban Projets + Opérations<br>
                 📎 <strong>NOUVEAU:</strong> Gestion complète des pièces jointes par projet
+            </small>
+        </div>
+        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); text-align: center;">
+            <small style="color: var(--text-color-muted); font-style: italic;">
+                💻 Développé par <strong>Sylvain Leduc</strong> • 2025
             </small>
         </div>
     </div>
