@@ -3572,7 +3572,7 @@ def show_kanban_legacy():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_project_modal():
-    """Affichage des détails d'un projet dans un expander - MODIFIÉ avec Pièces Jointes"""
+    """Affichage des détails d'un projet dans un expander - MODIFIÉ sans Sous-tâches et Matériaux"""
     if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
         return
 
@@ -3613,68 +3613,14 @@ def show_project_modal():
             st.markdown("##### 📝 Description")
             st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
 
-        # NOUVEAU : Onglets avec Pièces Jointes
+        # MODIFIÉ : Onglets simplifiés - uniquement Opérations et Pièces Jointes
         if ATTACHMENTS_AVAILABLE:
-            tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations", "📎 Pièces Jointes"])
+            tabs_mod = st.tabs(["🔧 Opérations", "📎 Pièces Jointes"])
         else:
-            tabs_mod = st.tabs(["📝 Sous-tâches", "📦 Matériaux", "🔧 Opérations"])
+            tabs_mod = st.tabs(["🔧 Opérations"])
 
-        # Onglet Sous-tâches (inchangé)
+        # Onglet Opérations (maintenant à l'indice 0)
         with tabs_mod[0]:
-            sts_mod = proj_mod.get('sous_taches', [])
-            if not sts_mod:
-                st.info("Aucune sous-tâche définie.")
-            else:
-                for st_item in sts_mod:
-                    st_color = {
-                        'À FAIRE': 'orange',
-                        'EN COURS': 'var(--primary-color)',
-                        'TERMINÉ': 'var(--success-color)'
-                    }.get(st_item.get('statut', 'À FAIRE'), 'var(--text-color-muted)')
-
-                    st.markdown(f"""
-                    <div class='info-card' style='border-left:4px solid {st_color};margin-top:0.5rem;'>
-                        <h5 style='margin:0 0 0.3rem 0;'>ST{st_item.get('id')} - {st_item.get('nom', 'N/A')}</h5>
-                        <p style='margin:0 0 0.3rem 0;'>🚦 {st_item.get('statut', 'N/A')}</p>
-                        <p style='margin:0;'>📅 {st_item.get('date_debut', 'N/A')} → {st_item.get('date_fin', 'N/A')}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-        # Onglet Matériaux (inchangé)
-        with tabs_mod[1]:
-            mats_mod = proj_mod.get('materiaux', [])
-            if not mats_mod:
-                st.info("Aucun matériau défini.")
-            else:
-                total_c_mod = 0
-                for mat in mats_mod:
-                    q, p_u = mat.get('quantite', 0), mat.get('prix_unitaire', 0)
-                    tot = q * p_u
-                    total_c_mod += tot
-                    fournisseur_html = ""
-                    if mat.get("fournisseur"):
-                        fournisseur_html = f"<p style='margin:0.3rem 0 0 0;font-size:0.9em;'>🏪 {mat.get('fournisseur', 'N/A')}</p>"
-
-                    st.markdown(f"""
-                    <div class='info-card' style='margin-top:0.5rem;'>
-                        <h5 style='margin:0 0 0.3rem 0;'>{mat.get('code', 'N/A')} - {mat.get('designation', 'N/A')}</h5>
-                        <div style='display:flex;justify-content:space-between;font-size:0.9em;'>
-                            <span>📊 {q} {mat.get('unite', '')}</span>
-                            <span>💳 {format_currency(p_u)}</span>
-                            <span>💰 {format_currency(tot)}</span>
-                        </div>
-                        {fournisseur_html}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                st.markdown(f"""
-                <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
-                    <h5 style='color:var(--primary-color-darker);margin:0;'>💰 Coût Total Mat.: {format_currency(total_c_mod)}</h5>
-                </div>
-                """, unsafe_allow_html=True)
-
-        # Onglet Opérations (inchangé)
-        with tabs_mod[2]:
             ops_mod = proj_mod.get('operations', [])
             if not ops_mod:
                 st.info("Aucune opération définie.")
@@ -3708,9 +3654,9 @@ def show_project_modal():
                 </div>
                 """, unsafe_allow_html=True)
 
-        # NOUVEAU : Onglet Pièces Jointes
+        # Onglet Pièces Jointes (maintenant à l'indice 1)
         if ATTACHMENTS_AVAILABLE:
-            with tabs_mod[3]:
+            with tabs_mod[1]:
                 show_attachments_tab_in_project_modal(proj_mod)
 
         st.markdown("---")
