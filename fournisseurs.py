@@ -95,24 +95,41 @@ class GestionnaireFournisseurs:
     def get_all_fournisseurs(self) -> List[Dict]:
         """Récupère tous les fournisseurs avec leurs statistiques et company_id"""
         try:
-            # Requête modifiée pour inclure explicitement company_id
+            # Requête simplifiée pour éviter les problèmes de GROUP BY
             query = '''
-                SELECT f.*, c.nom, c.secteur, c.adresse, c.site_web,
-                       COUNT(form.id) as nombre_commandes,
-                       COALESCE(SUM(form.montant_total), 0) as montant_total_commandes
+                SELECT f.*, c.nom, c.secteur, c.adresse, c.site_web
                 FROM fournisseurs f
                 JOIN companies c ON f.company_id = c.id
-                LEFT JOIN formulaires form ON c.id = form.company_id 
-                    AND form.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')
-                GROUP BY f.id, f.company_id, c.nom, c.secteur, c.adresse, c.site_web,
-                         f.code_fournisseur, f.categorie_produits, f.delai_livraison_moyen,
-                         f.conditions_paiement, f.evaluation_qualite, f.contact_commercial,
-                         f.contact_technique, f.certifications, f.notes_evaluation,
-                         f.date_creation, f.date_modification
                 ORDER BY c.nom
             '''
             rows = self.db.execute_query(query)
-            return [dict(row) for row in rows] if rows else []
+            fournisseurs = [dict(row) for row in rows] if rows else []
+            
+            # Ajouter les statistiques de commande séparément pour éviter les conflits
+            for fournisseur in fournisseurs:
+                try:
+                    stats_query = '''
+                        SELECT 
+                            COUNT(form.id) as nombre_commandes,
+                            COALESCE(SUM(form.montant_total), 0) as montant_total_commandes
+                        FROM formulaires form
+                        WHERE form.company_id = ?
+                        AND form.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')
+                    '''
+                    stats_result = self.db.execute_query(stats_query, (fournisseur['company_id'],))
+                    if stats_result:
+                        stats = dict(stats_result[0])
+                        fournisseur.update(stats)
+                    else:
+                        fournisseur['nombre_commandes'] = 0
+                        fournisseur['montant_total_commandes'] = 0.0
+                except Exception as stats_error:
+                    print(f"Erreur stats pour fournisseur {fournisseur.get('id')}: {stats_error}")
+                    fournisseur['nombre_commandes'] = 0
+                    fournisseur['montant_total_commandes'] = 0.0
+            
+            return fournisseurs
+            
         except Exception as e:
             print(f"Erreur dans get_all_fournisseurs: {e}")
             # Fallback: récupération simple avec company_id garanti
@@ -733,6 +750,22 @@ def render_create_demande_prix_form(gestionnaire):
             st.write("**Premier fournisseur (exemple):**")
             st.json(fournisseurs[0])
             st.write("**Clés disponibles:**", list(fournisseurs[0].keys()))
+            
+            # Vérifier si la colonne est_actif existe encore
+            if 'est_actif' in fournisseurs[0]:
+                st.warning("⚠️ La colonne 'est_actif' existe encore dans les données")
+                if st.button("🔧 Forcer le nettoyage de la DB", key="force_cleanup_ba"):
+                    gestionnaire._cleanup_database()
+                    st.success("Nettoyage forcé terminé - Rechargez la page")
+                    st.rerun()
+            
+            # Vérifier si la colonne est_actif existe encore
+            if 'est_actif' in fournisseurs[0]:
+                st.warning("⚠️ La colonne 'est_actif' existe encore dans les données")
+                if st.button("🔧 Forcer le nettoyage de la DB", key="force_cleanup_dp"):
+                    gestionnaire._cleanup_database()
+                    st.success("Nettoyage forcé terminé - Rechargez la page")
+                    st.rerun()
     
     if not fournisseurs:
         st.warning("⚠️ Aucun fournisseur disponible.")
@@ -920,30 +953,63 @@ def render_create_demande_prix_form(gestionnaire):
                     st.rerun()
                     return
                 
-                formulaire_data = {
-                    'type_formulaire': 'DEMANDE_PRIX',
-                    'numero_document': numero_dp,
-                    'company_id': selected_fournisseur['company_id'],
-                    'employee_id': 1,  # À adapter selon l'utilisateur connecté
-                    'statut': 'VALIDÉ' if submitted else 'BROUILLON',
-                    'priorite': priorite,
-                    'date_echeance': date_echeance.isoformat(),
-                    'notes': notes,
-                    'metadonnees_json': json.dumps({
-                        'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
-                        'type_document': 'demande_prix'
-                    })
-                }
+                # DEBUG AVANCÉ - Diagnostic du problème de contrainte
+                company_id = selected_fournisseur['company_id']
+                fournisseur_id = selected_fournisseur.get('id')
                 
-                formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.dp_lines)
+                with st.expander("🔍 DIAGNOSTIC CONTRAINTE", expanded=True):
+                    st.write(f"**Fournisseur sélectionné:** {selected_fournisseur.get('nom')}")
+                    st.write(f"**Fournisseur ID:** {fournisseur_id}")
+                    st.write(f"**Company ID récupéré:** {company_id}")
+                    
+                    # Vérifier si la company existe
+                    check_company = gestionnaire.db.execute_query("SELECT id, nom FROM companies WHERE id = ?", (company_id,))
+                    if check_company:
+                        st.success(f"✅ Company trouvée: {check_company[0]['nom']} (ID: {check_company[0]['id']})")
+                    else:
+                        st.error(f"❌ Company ID {company_id} n'existe PAS dans la table companies!")
+                    
+                    # Vérifier si le fournisseur existe
+                    check_fournisseur = gestionnaire.db.execute_query("SELECT id, company_id FROM fournisseurs WHERE id = ?", (fournisseur_id,))
+                    if check_fournisseur:
+                        st.success(f"✅ Fournisseur trouvé: ID {check_fournisseur[0]['id']}, Company ID: {check_fournisseur[0]['company_id']}")
+                    else:
+                        st.error(f"❌ Fournisseur ID {fournisseur_id} n'existe PAS!")
+                    
+                    # Lister toutes les companies disponibles
+                    all_companies = gestionnaire.db.execute_query("SELECT id, nom FROM companies ORDER BY nom")
+                    st.write("**Companies disponibles:**")
+                    for comp in all_companies:
+                        st.write(f"- ID {comp['id']}: {comp['nom']}")
                 
-                if formulaire_id:
-                    action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
-                    st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
-                    st.session_state.dp_lines = []  # Vider les lignes
-                    st.rerun()
+                # Continuer avec la création si les vérifications passent
+                if check_company:
+                    formulaire_data = {
+                        'type_formulaire': 'DEMANDE_PRIX',
+                        'numero_document': numero_dp,
+                        'company_id': company_id,
+                        'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                        'statut': 'VALIDÉ' if submitted else 'BROUILLON',
+                        'priorite': priorite,
+                        'date_echeance': date_echeance.isoformat(),
+                        'notes': notes,
+                        'metadonnees_json': json.dumps({
+                            'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
+                            'type_document': 'demande_prix'
+                        })
+                    }
+                    
+                    formulaire_id = gestionnaire.create_formulaire_with_lines(formulaire_data, st.session_state.dp_lines)
+                    
+                    if formulaire_id:
+                        action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
+                        st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
+                        st.session_state.dp_lines = []  # Vider les lignes
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de la création de la demande.")
                 else:
-                    st.error("❌ Erreur lors de la création de la demande.")
+                    st.error("❌ Impossible de créer la demande - problème de contrainte détecté ci-dessus.")
 
 def render_create_bon_achat_form(gestionnaire):
     """Formulaire de création de Bon d'Achat - VERSION CORRIGÉE"""
