@@ -1,10 +1,4 @@
 # app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
-# VERSION REFACTORISÉE : Module Production Unifié intégré
-# Architecture : Portail → Authentification → ERP Production DG Inc. COMPLET
-# ARCHITECTURE UNIFIÉE : TimeTracker Pro + Postes de Travail fusionnés
-# CHECKPOINT 6 : TIMETRACKER PRO UNIFIÉ AVEC BTS INTÉGRÉS
-# GESTION PROJETS COMPLÈTE : CRUD + Actions en lot + Recherche avancée
-# NOUVEAU : SYSTÈME DE PIÈCES JOINTES INTÉGRÉ
 
 import streamlit as st
 import pandas as pd
