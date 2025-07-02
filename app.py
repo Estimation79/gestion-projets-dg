@@ -4162,7 +4162,7 @@ print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot +
 print("✅ Fonctionnalité ID projet personnalisé intégrée")
 print("✅ Module Kanban unifié intégré avec fallback")
 print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
-print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation"), '')
+print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
