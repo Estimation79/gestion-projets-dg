@@ -1895,7 +1895,7 @@ def init_erp_system():
         st.session_state.erp_db = ERPDatabase(db_path)
         
         # NOUVELLE MIGRATION : Support IDs alphanumériques
-        migrate_projects_table_for_alphanumeric_ids(st.session_state.erp_db)
+        force_recreate_projects_table_with_text_id(st.session_state.erp_db)
         
         st.session_state.migration_completed = True
 
