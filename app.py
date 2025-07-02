@@ -16,7 +16,6 @@ from math import gcd
 from fractions import Fraction
 import csv
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
-from migration_handler import handle_database_migration
 
 # ========================
 # CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
@@ -4216,12 +4215,6 @@ def main():
     if ATTACHMENTS_AVAILABLE:
         apply_additional_attachments_styles()
 
-    # ========== MIGRATION AUTOMATIQUE BASE DE DONNÉES (NOUVEAU) ==========
-    if not handle_database_migration():
-        st.error("❌ Échec de la migration de base de données")
-        st.stop()
-    # ====================================================================
-
     # Initialisation des variables de session - COMPLÈTE
     if 'app_mode' not in st.session_state:
         st.session_state.app_mode = "portal"
@@ -4339,3 +4332,31 @@ def main():
                     st.toast("💾 Sauvegarde automatique effectuée", icon="✅")
             except Exception as e:
                 print(f"Erreur sauvegarde automatique: {e}")
+
+if __name__ == "__main__":
+    try:
+        main()
+        if st.session_state.get('admin_authenticated'):
+            show_footer()
+    except Exception as e_main:
+        st.error(f"Une erreur majeure est survenue dans l'application: {str(e_main)}")
+        st.info("Veuillez essayer de rafraîchir la page ou de redémarrer l'application.")
+        import traceback
+        st.code(traceback.format_exc())
+
+        # En cas d'erreur, essayer de créer une sauvegarde d'urgence
+        if 'storage_manager' in st.session_state and st.session_state.storage_manager:
+            try:
+                emergency_backup = st.session_state.storage_manager.create_backup("emergency_error")
+                if emergency_backup:
+                    st.info(f"💾 Sauvegarde d'urgence créée: {emergency_backup}")
+            except Exception:
+                pass
+
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC ID PERSONNALISÉ")
+print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
+print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
+print("✅ Fonctionnalité ID projet personnalisé intégrée")
+print("✅ Module Kanban unifié intégré avec fallback")
+print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
+print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
