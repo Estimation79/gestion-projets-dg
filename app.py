@@ -1739,6 +1739,130 @@ def migrate_projects_table_for_alphanumeric_ids(db):
             db.execute_update("DROP TABLE IF EXISTS projects_new")
         except:
             pass
+
+def force_recreate_projects_table_with_text_id(db):
+    """Solution de contournement : Recréer complètement la table projects avec ID TEXT"""
+    try:
+        print("🚨 SOLUTION FORCÉE : Recréation complète de la table projects")
+        
+        # 1. Sauvegarder toutes les données existantes
+        print("💾 Sauvegarde des données existantes...")
+        existing_projects = []
+        try:
+            projects_data = db.execute_query("SELECT * FROM projects")
+            if projects_data:
+                existing_projects = [dict(row) for row in projects_data]
+                print(f"📊 {len(existing_projects)} projets à sauvegarder")
+        except Exception as e:
+            print(f"⚠️ Erreur lecture projets existants: {e}")
+        
+        # 2. Supprimer complètement l'ancienne table
+        print("🗑️ Suppression de l'ancienne table...")
+        db.execute_update("DROP TABLE IF EXISTS projects")
+        
+        # 3. Créer la nouvelle table avec ID TEXT
+        print("🏗️ Création de la nouvelle table...")
+        db.execute_update("""
+            CREATE TABLE projects (
+                id TEXT PRIMARY KEY,
+                nom_projet TEXT NOT NULL,
+                client_company_id INTEGER,
+                client_nom_cache TEXT,
+                client_legacy TEXT,
+                statut TEXT DEFAULT 'À FAIRE',
+                priorite TEXT DEFAULT 'MOYEN',
+                tache TEXT,
+                date_soumis TEXT,
+                date_prevu TEXT,
+                bd_ft_estime REAL DEFAULT 0,
+                prix_estime REAL DEFAULT 0,
+                description TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (client_company_id) REFERENCES companies(id)
+            )
+        """)
+        
+        # 4. Restaurer les données avec ID converti en TEXT
+        if existing_projects:
+            print("📥 Restauration des données...")
+            for project in existing_projects:
+                try:
+                    # Convertir l'ID en string
+                    project_id = str(project.get('id', ''))
+                    
+                    db.execute_update("""
+                        INSERT INTO projects 
+                        (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                         statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
+                         prix_estime, description, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        project_id,
+                        project.get('nom_projet', ''),
+                        project.get('client_company_id'),
+                        project.get('client_nom_cache', ''),
+                        project.get('client_legacy', ''),
+                        project.get('statut', 'À FAIRE'),
+                        project.get('priorite', 'MOYEN'),
+                        project.get('tache', ''),
+                        project.get('date_soumis', ''),
+                        project.get('date_prevu', ''),
+                        project.get('bd_ft_estime', 0),
+                        project.get('prix_estime', 0),
+                        project.get('description', ''),
+                        project.get('created_at', 'CURRENT_TIMESTAMP'),
+                        project.get('updated_at', 'CURRENT_TIMESTAMP')
+                    ))
+                except Exception as restore_error:
+                    print(f"⚠️ Erreur restauration projet {project.get('id')}: {restore_error}")
+            
+            print(f"✅ {len(existing_projects)} projets restaurés")
+        
+        # 5. Nettoyer les tables liées (optionnel - supprimer les références orphelines)
+        print("🧹 Nettoyage des tables liées...")
+        try:
+            # Supprimer les assignations orphelines
+            db.execute_update("""
+                DELETE FROM project_assignments 
+                WHERE project_id NOT IN (SELECT id FROM projects)
+            """)
+            
+            # Supprimer les opérations orphelines  
+            db.execute_update("""
+                DELETE FROM operations 
+                WHERE project_id IS NOT NULL 
+                AND project_id NOT IN (SELECT id FROM projects)
+            """)
+            
+            # Supprimer les matériaux orphelins
+            db.execute_update("""
+                DELETE FROM materials 
+                WHERE project_id IS NOT NULL 
+                AND project_id NOT IN (SELECT id FROM projects)
+            """)
+            
+            print("✅ Tables liées nettoyées")
+        except Exception as cleanup_error:
+            print(f"⚠️ Erreur nettoyage: {cleanup_error}")
+        
+        # 6. Vérification finale
+        final_check = db.execute_query("PRAGMA table_info(projects)")
+        for column in final_check:
+            if column['name'] == 'id':
+                print(f"🎉 SUCCÈS: Colonne ID maintenant de type {column['type']}")
+                break
+        
+        restored_count = len(db.execute_query("SELECT id FROM projects") or [])
+        print(f"📊 Projets dans la nouvelle table: {restored_count}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Erreur solution forcée: {e}")
+        import traceback
+        print(f"📋 Traceback: {traceback.format_exc()}")
+        return False
             
 def init_erp_system():
     """Initialise le système ERP complet - MODIFIÉ avec Pièces Jointes et Support IDs Alphanumériques"""
