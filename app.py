@@ -1987,7 +1987,7 @@ def show_erp_main():
         available_pages["📅 Calendrier"] = "calendrier"
         # NOUVEAU : Utilisation du module Kanban unifié
         if KANBAN_AVAILABLE:
-            available_pages["🔄 Kanban Unifié"] = "kanban"
+            available_pages["🔄 Kanban"] = "kanban"
         else:
             available_pages["🔄 Kanban"] = "kanban"
 
