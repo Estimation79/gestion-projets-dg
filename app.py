@@ -2860,7 +2860,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID personnalisé - VERSION COMPLÈTE CORRIGÉE"""
+    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе - VERSION COMPLÈTE"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -2873,33 +2873,37 @@ def render_create_project_form(gestionnaire, crm_manager):
         _init_base_data_if_empty()
         st.rerun()
 
-    # CORRECTION PRINCIPALE : Section ID du projet AVANT le formulaire pour permettre la mise à jour en temps réel
+    # Section ID du projet AVANT le formulaire pour permettre la mise à jour en temps réel
     st.markdown("#### 🆔 Numérotation du Projet")
     
     id_choice = st.radio(
         "Choisissez le mode de numérotation:",
         ["🤖 Automatique (recommandé)", "✏️ Numéro personnalisé"],
-        help="Automatique: Le système attribue automatiquement le prochain numéro disponible. Personnalisé: Vous choisissez le numéro.",
+        help="Automatique: Le système attribue automatiquement le prochain numéro disponible. Personnalisé: Vous choisissez le numéro (exemples: 25-125, PRJ-001, 2025-001, etc.).",
         key="project_id_choice"
     )
     
     custom_project_id = None
     if id_choice == "✏️ Numéro personnalisé":
-        custom_project_id = st.number_input(
+        custom_project_id = st.text_input(
             "Numéro de projet personnalisé:",
-            min_value=1,
-            max_value=999999,
-            value=gestionnaire.next_id,
-            step=1,
-            help="Entrez un numéro unique pour ce projet. Le système vérifiera qu'il n'existe pas déjà.",
+            value="",
+            placeholder="Ex: 25-125, PRJ-001, 2025-001...",
+            help="Entrez un identifiant unique pour ce projet. Peut contenir lettres, chiffres et tirets.",
             key="custom_project_id_input"
         )
         
-        # Vérification en temps réel si l'ID existe
-        if custom_project_id and gestionnaire.check_project_id_exists(custom_project_id):
-            st.error(f"❌ Le projet #{custom_project_id} existe déjà ! Choisissez un autre numéro.")
-        elif custom_project_id:
-            st.success(f"✅ Le numéro #{custom_project_id} est disponible.")
+        # Validation en temps réel si l'ID est saisi
+        if custom_project_id:
+            # Validation du format
+            if not _validate_project_id_format(custom_project_id):
+                st.error("❌ Format invalide ! Utilisez uniquement lettres, chiffres et tirets (-, _). Ex: 25-125, PRJ-001")
+            elif gestionnaire.check_project_id_exists(custom_project_id):
+                st.error(f"❌ Le projet #{custom_project_id} existe déjà ! Choisissez un autre identifiant.")
+            else:
+                st.success(f"✅ L'identifiant #{custom_project_id} est disponible.")
+        elif custom_project_id == "":
+            st.info("💡 Saisissez votre identifiant personnalisé (ex: 25-125, PRJ-001)")
     else:
         st.info(f"📋 Le prochain numéro automatique sera: **#{gestionnaire.next_id}**")
     
@@ -2969,8 +2973,13 @@ def render_create_project_form(gestionnaire, crm_manager):
                 st.error("Client (entreprise ou nom direct) obligatoire.")
             elif d_fin < d_debut:
                 st.error("Date fin < date début.")
-            elif id_choice == "✏️ Numéro personnalisé" and (not custom_project_id or gestionnaire.check_project_id_exists(custom_project_id)):
-                st.error("Numéro de projet personnalisé invalide ou déjà existant.")
+            elif id_choice == "✏️ Numéro personnalisé" and (not custom_project_id or not _validate_project_id_format(custom_project_id) or gestionnaire.check_project_id_exists(custom_project_id)):
+                if not custom_project_id:
+                    st.error("Numéro de projet personnalisé requis.")
+                elif not _validate_project_id_format(custom_project_id):
+                    st.error("Format d'ID invalide. Utilisez lettres, chiffres et tirets uniquement.")
+                else:
+                    st.error("Numéro de projet déjà existant.")
             else:
                 # Validation clés étrangères (inchangé)
                 client_company_id = None
@@ -3021,7 +3030,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                 }
 
                 try:
-                    # MODIFICATION PRINCIPALE : Passer l'ID personnalisé
+                    # MODIFICATION PRINCIPALE : Passer l'ID personnalisé (maintenant alphanumériqueе)
                     final_custom_id = custom_project_id if id_choice == "✏️ Numéro personnalisé" else None
                     pid = gestionnaire.ajouter_projet(data, custom_id=final_custom_id)
 
@@ -3038,7 +3047,7 @@ def render_create_project_form(gestionnaire, crm_manager):
 
                         # Message de succès adapté
                         if id_choice == "✏️ Numéro personnalisé":
-                            st.success(f"✅ Projet #{pid} créé avec le numéro personnalisé choisi et {len(employes_valides)} employé(s) assigné(s) !")
+                            st.success(f"✅ Projet #{pid} créé avec l'identifiant personnalisé choisi et {len(employes_valides)} employé(s) assigné(s) !")
                         else:
                             st.success(f"✅ Projet #{pid} créé automatiquement avec {len(employes_valides)} employé(s) assigné(s) !")
                             
@@ -3055,6 +3064,18 @@ def render_create_project_form(gestionnaire, crm_manager):
             st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _validate_project_id_format(project_id):
+    """Valide le format d'un ID de projet personnalisé"""
+    import re
+    if not project_id:
+        return False
+    
+    # Autoriser lettres, chiffres, tirets et underscore
+    # Longueur entre 1 et 50 caractères
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    return bool(re.match(pattern, project_id.strip()))
     
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
     """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE"""
