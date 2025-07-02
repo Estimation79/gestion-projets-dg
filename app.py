@@ -1210,6 +1210,11 @@ class GestionnaireProjetSQL:
         except Exception:
             return True  # En cas d'erreur, considérer comme existant pour éviter les conflits
 
+    @property
+    def projets(self):
+        """Propriété pour maintenir compatibilité avec l'ancien code"""
+        return self.get_all_projects()
+
     def ajouter_projet(self, projet_data, custom_id=None):
         """
         Ajoute un nouveau projet en SQLite avec support ID alphanumériqueе
