@@ -9,6 +9,7 @@
 # NOUVELLE VERSION : Ajout dropdown Fournisseur/Sous-traitant simple
 # VERSION PDF : Intégration complète export PDF professionnel
 # VERSION SUPPRESSION : Fonctionnalité complète de suppression sécurisée des BT
+# VERSION KANBAN : Synchronisation automatique avec la table operations pour le Kanban
 
 import streamlit as st
 import pandas as pd
@@ -32,6 +33,132 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def _synchroniser_bt_operations(bt_id: int, db):
+    """
+    Synchronise les lignes d'un Bon de Travail avec la table 'operations'.
+    Cette fonction est CRUCIALE pour que le Kanban et d'autres modules
+    puissent voir à quels postes de travail un BT est assigné.
+    """
+    try:
+        # Récupérer les informations du BT depuis la table formulaires
+        bt_result = db.execute_query('''
+            SELECT f.*, p.id as project_id_found
+            FROM formulaires f
+            LEFT JOIN projects p ON f.project_id = p.id
+            WHERE f.id = ? AND f.type_formulaire = 'BON_TRAVAIL'
+        ''', (bt_id,))
+        
+        if not bt_result:
+            logger.warning(f"BT #{bt_id} non trouvé pour synchronisation")
+            return
+        
+        bt_data = dict(bt_result[0])
+        project_id = bt_data.get('project_id')
+        
+        if not project_id:
+            logger.warning(f"Le BT #{bt_id} n'est pas lié à un projet. Impossible de créer des opérations.")
+            return
+
+        # Récupérer les tâches (lignes avec sequence_ligne < 1000)
+        tasks_result = db.execute_query('''
+            SELECT * FROM formulaire_lignes 
+            WHERE formulaire_id = ? AND sequence_ligne < 1000
+            ORDER BY sequence_ligne
+        ''', (bt_id,))
+        
+        if not tasks_result:
+            logger.info(f"Aucune tâche trouvée pour le BT #{bt_id}")
+            return
+
+        # Supprimer les anciennes opérations liées à ce BT pour éviter les doublons
+        db.execute_query("DELETE FROM operations WHERE formulaire_bt_id = ?", (bt_id,))
+        logger.info(f"Anciennes opérations pour BT #{bt_id} purgées avant synchronisation.")
+        
+        operations_creees = 0
+        
+        for task in tasks_result:
+            task_data = dict(task)
+            
+            # Récupérer les données de la tâche depuis le JSON stocké dans notes_ligne
+            task_details = {}
+            try:
+                task_details = json.loads(task_data.get('notes_ligne', '{}'))
+            except json.JSONDecodeError:
+                pass
+
+            operation_name = task_details.get('operation')
+            if not operation_name:
+                continue # Ignorer les lignes sans poste/opération défini
+
+            # Chercher le work_center_id correspondant au nom de l'opération
+            wc_result = db.execute_query('''
+                SELECT id FROM work_centers WHERE nom = ? LIMIT 1
+            ''', (operation_name,))
+            
+            work_center_id = wc_result[0]['id'] if wc_result else None
+            
+            if not work_center_id:
+                logger.warning(f"Poste de travail '{operation_name}' non trouvé pour synchronisation")
+                continue
+
+            # Préparer les données pour la nouvelle opération
+            operation_data = {
+                'project_id': project_id,
+                'work_center_id': work_center_id,
+                'formulaire_bt_id': bt_id,
+                'sequence_number': task_data.get('sequence_ligne', 1),
+                'nom_operation': operation_name,
+                'description': task_details.get('description', ''),
+                'temps_estime': task_data.get('prix_unitaire', 0.0), # Heures prévues sont dans prix_unitaire
+                'ressource': task_details.get('assigned_to', ''),
+                'statut': _convertir_statut_bt_vers_operation(task_details.get('status', 'pending')),
+                'date_debut_prevue': task_details.get('start_date', ''),
+                'date_fin_prevue': task_details.get('end_date', ''),
+                'notes': task_details.get('description', '')
+            }
+
+            # Insérer la nouvelle opération
+            op_id = db.execute_insert('''
+                INSERT INTO operations 
+                (project_id, work_center_id, formulaire_bt_id, sequence_number, nom_operation, 
+                 description, temps_estime, ressource, statut, date_debut_prevue, date_fin_prevue, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                operation_data['project_id'],
+                operation_data['work_center_id'],
+                operation_data['formulaire_bt_id'],
+                operation_data['sequence_number'],
+                operation_data['nom_operation'],
+                operation_data['description'],
+                operation_data['temps_estime'],
+                operation_data['ressource'],
+                operation_data['statut'],
+                operation_data['date_debut_prevue'],
+                operation_data['date_fin_prevue'],
+                operation_data['notes']
+            ))
+            
+            if op_id:
+                operations_creees += 1
+        
+        if operations_creees > 0:
+            logger.info(f"✅ {operations_creees} opération(s) synchronisée(s) pour le BT #{bt_id}.")
+            st.toast(f"🔄 {operations_creees} opération(s) synchronisée(s) pour le Kanban.", icon="✅")
+
+    except Exception as e:
+        logger.error(f"Erreur critique lors de la synchronisation des opérations du BT #{bt_id}: {e}")
+        st.error(f"Erreur de synchronisation Kanban: {e}")
+
+def _convertir_statut_bt_vers_operation(statut_bt: str) -> str:
+    """Convertit un statut de tâche BT vers un statut d'opération"""
+    conversion = {
+        'pending': 'À FAIRE',
+        'in-progress': 'EN COURS',
+        'completed': 'TERMINÉ',
+        'on-hold': 'EN PAUSE'
+    }
+    return conversion.get(statut_bt, 'À FAIRE')
+
 class GestionnaireBonsTravail:
     """
     Gestionnaire principal pour les Bons de Travail
@@ -41,6 +168,7 @@ class GestionnaireBonsTravail:
     NOUVELLE VERSION avec support fournisseurs/sous-traitants
     VERSION PDF avec export professionnel
     VERSION SUPPRESSION avec suppression sécurisée complète
+    VERSION KANBAN avec synchronisation automatique
     """
     
     def __init__(self, db):
@@ -181,6 +309,7 @@ class GestionnaireBonsTravail:
         Sauvegarde un bon de travail dans la base
         VERSION CORRIGÉE : Conditions de sauvegarde améliorées
         MODIFIÉ : Support des fournisseurs dans les tâches et matériaux
+        VERSION KANBAN : Synchronisation automatique avec table operations
         """
         try:
             # Créer le formulaire principal
@@ -293,6 +422,10 @@ class GestionnaireBonsTravail:
             ''', (bt_id, f"Bon de Travail créé par {form_data.get('created_by', 'Utilisateur')}"))
             
             logger.info(f"Bon de Travail {formulaire_data['numero_document']} sauvegardé avec ID {bt_id}")
+
+            # NOUVEAU : Synchronisation automatique avec le Kanban
+            _synchroniser_bt_operations(bt_id, self.db)
+
             return bt_id
             
         except Exception as e:
@@ -304,6 +437,7 @@ class GestionnaireBonsTravail:
         Met à jour un bon de travail existant dans la base
         NOUVELLE FONCTION : Gestion des modifications BT
         MODIFIÉ : Support des fournisseurs
+        VERSION KANBAN : Synchronisation automatique avec table operations
         """
         try:
             # Mettre à jour le formulaire principal
@@ -410,6 +544,10 @@ class GestionnaireBonsTravail:
             ''', (bt_id, f"Bon de Travail modifié par {form_data.get('created_by', 'Utilisateur')}"))
             
             logger.info(f"Bon de Travail {form_data['numero_document']} (ID: {bt_id}) mis à jour avec succès")
+
+            # NOUVEAU : Synchronisation automatique avec le Kanban
+            _synchroniser_bt_operations(bt_id, self.db)
+
             return True
             
         except Exception as e:
@@ -420,6 +558,7 @@ class GestionnaireBonsTravail:
         """
         Supprime complètement un bon de travail et toutes ses données associées
         NOUVELLE FONCTION : Suppression sécurisée avec nettoyage complet
+        VERSION KANBAN : Suppression des opérations synchronisées
         """
         try:
             # Vérifier que le BT existe
@@ -449,7 +588,13 @@ class GestionnaireBonsTravail:
                 WHERE formulaire_bt_id = ?
             ''', (bt_id,))
             
-            # 4. Supprimer le formulaire principal
+            # 4. NOUVEAU : Supprimer les opérations synchronisées avec le Kanban
+            self.db.execute_query('''
+                DELETE FROM operations 
+                WHERE formulaire_bt_id = ?
+            ''', (bt_id,))
+            
+            # 5. Supprimer le formulaire principal
             result = self.db.execute_query('''
                 DELETE FROM formulaires 
                 WHERE id = ? AND type_formulaire = 'BON_TRAVAIL'
@@ -468,6 +613,7 @@ class GestionnaireBonsTravail:
         """
         Analyse l'impact de la suppression d'un BT
         NOUVELLE FONCTION : Analyse des dépendances avant suppression
+        VERSION KANBAN : Inclut les opérations synchronisées
         """
         try:
             # Récupérer les informations du BT
@@ -495,6 +641,12 @@ class GestionnaireBonsTravail:
                 WHERE formulaire_id = ?
             ''', (bt_id,))
             
+            # NOUVEAU : Compter les opérations Kanban synchronisées
+            operations_count = self.db.execute_query('''
+                SELECT COUNT(*) as count FROM operations 
+                WHERE formulaire_bt_id = ?
+            ''', (bt_id,))
+            
             impact = {
                 'exists': True,
                 'bt_info': {
@@ -507,13 +659,17 @@ class GestionnaireBonsTravail:
                 'timetracker_sessions': timetracker_count[0]['count'] if timetracker_count else 0,
                 'timetracker_hours': timetracker_count[0]['total_hours'] if timetracker_count else 0,
                 'timetracker_cost': timetracker_count[0]['total_cost'] if timetracker_count else 0,
-                'validations_count': validations_count[0]['count'] if validations_count else 0
+                'validations_count': validations_count[0]['count'] if validations_count else 0,
+                'operations_count': operations_count[0]['count'] if operations_count else 0
             }
             
             # Évaluer le niveau de risque
             if impact['timetracker_sessions'] > 0:
                 impact['risk_level'] = 'HIGH'
                 impact['risk_message'] = "⚠️ ATTENTION: Ce BT contient des données TimeTracker (heures pointées)"
+            elif impact['operations_count'] > 0:
+                impact['risk_level'] = 'MEDIUM'
+                impact['risk_message'] = f"⚠️ Ce BT est synchronisé avec le Kanban ({impact['operations_count']} opération(s))"
             elif impact['lignes_count'] > 5:
                 impact['risk_level'] = 'MEDIUM'
                 impact['risk_message'] = "⚠️ Ce BT contient plusieurs tâches/matériaux"
@@ -1745,6 +1901,7 @@ def show_bt_actions():
     """
     Boutons d'action pour le BT
     VERSION FINALE : Support complet de la modification des BT + Export PDF intégré
+    VERSION KANBAN : Notification de synchronisation
     """
     st.markdown("---")
     
@@ -1804,6 +1961,7 @@ def show_bt_actions():
                     success = gestionnaire.update_bon_travail(form_data['id'], form_data)
                     if success:
                         st.success(f"✅ Bon de Travail {form_data['numero_document']} modifié avec succès!")
+                        st.info("🔄 Synchronisation automatique avec le Kanban effectuée")
                         
                         # Recharger le BT modifié
                         try:
@@ -1825,6 +1983,7 @@ def show_bt_actions():
                     bt_id = gestionnaire.save_bon_travail(form_data)
                     if bt_id:
                         st.success(f"✅ Bon de Travail {form_data['numero_document']} créé avec succès!")
+                        st.info("🔄 Synchronisation automatique avec le Kanban effectuée")
                         
                         # Recharger le BT au lieu de réinitialiser
                         try:
@@ -1876,6 +2035,7 @@ def show_bt_delete_confirmation():
     """
     Affiche la boîte de dialogue de confirmation de suppression
     NOUVELLE FONCTION : Interface de confirmation sécurisée
+    VERSION KANBAN : Inclut les opérations synchronisées
     """
     if not st.session_state.bt_confirm_delete:
         return
@@ -1920,6 +2080,7 @@ def show_bt_delete_confirmation():
             **⚠️ DONNÉES QUI SERONT SUPPRIMÉES :**
             - **{impact['lignes_count']} tâche(s)/matériau(x)**
             - **{impact['timetracker_sessions']} session(s) TimeTracker** ({impact['timetracker_hours']:.1f}h, {impact['timetracker_cost']:,.0f}$)
+            - **{impact['operations_count']} opération(s) Kanban synchronisée(s)**
             - **{impact['validations_count']} validation(s)/historique**
             
             {impact['risk_message']}
@@ -1937,6 +2098,7 @@ def show_bt_delete_confirmation():
             
             **Données qui seront supprimées :**
             - {impact['lignes_count']} tâche(s)/matériau(x)
+            - {impact['operations_count']} opération(s) Kanban
             - {impact['validations_count']} validation(s)
             
             {impact['risk_message']}
@@ -1947,7 +2109,7 @@ def show_bt_delete_confirmation():
             
             **Bon de Travail :** {bt_info['numero_document']} - {bt_info['project_name']}
             
-            **Données à supprimer :** {impact['lignes_count']} ligne(s)
+            **Données à supprimer :** {impact['lignes_count']} ligne(s), {impact['operations_count']} opération(s) Kanban
             
             {impact['risk_message']}
             """)
@@ -1991,6 +2153,7 @@ def show_bt_delete_confirmation():
                 # Procéder à la suppression
                 if gestionnaire.delete_bon_travail(bt_id):
                     st.success(f"✅ Bon de Travail {bt_info['numero_document']} supprimé avec succès !")
+                    st.info("🔄 Toutes les données associées (TimeTracker, opérations Kanban) ont été supprimées")
                     
                     # Nettoyer les variables de session
                     st.session_state.bt_confirm_delete = None
@@ -2914,6 +3077,7 @@ def show_production_management_page():
     VERSION FINALE : Support complet de la modification des BT + Types numériques harmonisés
     VERSION PDF : Export PDF professionnel intégré
     VERSION SUPPRESSION : Fonctionnalité complète de suppression sécurisée des BT
+    VERSION KANBAN : Synchronisation automatique avec le Kanban intégrée
     """
     
     # Appliquer les styles DG
@@ -3023,6 +3187,7 @@ def show_production_management_page():
         <p><strong>🏭 Desmarais & Gagné Inc.</strong> - Système de Gestion Production</p>
         <p>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 Interface intégrée ERP Production</p>
         <p><em>Mode actuel: {'📋 Bons de Travail' if main_mode == 'bt' else '🏭 Postes de Travail'}</em></p>
+        {f'<p><strong>🔄 Synchronisation Kanban:</strong> {"✅ Automatique" if main_mode == "bt" else "N/A"}</p>' if main_mode == 'bt' else ''}
         {f'<p><strong>📄 Export PDF:</strong> {"✅ Disponible" if PDF_EXPORT_AVAILABLE else "❌ Non disponible"}</p>' if main_mode == 'bt' else ''}
     </div>
     """, unsafe_allow_html=True)
