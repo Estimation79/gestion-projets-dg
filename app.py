@@ -2860,7 +2860,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID personnalisé"""
+    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID personnalisé - VERSION COMPLÈTE CORRIGÉE"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -2873,37 +2873,40 @@ def render_create_project_form(gestionnaire, crm_manager):
         _init_base_data_if_empty()
         st.rerun()
 
-    with st.form("create_form", clear_on_submit=True):
-        
-        # NOUVEAU : Section ID du projet
-        st.markdown("#### 🆔 Numérotation du Projet")
-        
-        id_choice = st.radio(
-            "Choisissez le mode de numérotation:",
-            ["🤖 Automatique (recommandé)", "✏️ Numéro personnalisé"],
-            help="Automatique: Le système attribue automatiquement le prochain numéro disponible. Personnalisé: Vous choisissez le numéro."
+    # CORRECTION PRINCIPALE : Section ID du projet AVANT le formulaire pour permettre la mise à jour en temps réel
+    st.markdown("#### 🆔 Numérotation du Projet")
+    
+    id_choice = st.radio(
+        "Choisissez le mode de numérotation:",
+        ["🤖 Automatique (recommandé)", "✏️ Numéro personnalisé"],
+        help="Automatique: Le système attribue automatiquement le prochain numéro disponible. Personnalisé: Vous choisissez le numéro.",
+        key="project_id_choice"
+    )
+    
+    custom_project_id = None
+    if id_choice == "✏️ Numéro personnalisé":
+        custom_project_id = st.number_input(
+            "Numéro de projet personnalisé:",
+            min_value=1,
+            max_value=999999,
+            value=gestionnaire.next_id,
+            step=1,
+            help="Entrez un numéro unique pour ce projet. Le système vérifiera qu'il n'existe pas déjà.",
+            key="custom_project_id_input"
         )
         
-        custom_project_id = None
-        if id_choice == "✏️ Numéro personnalisé":
-            custom_project_id = st.number_input(
-                "Numéro de projet personnalisé:",
-                min_value=1,
-                max_value=999999,
-                value=gestionnaire.next_id,
-                step=1,
-                help="Entrez un numéro unique pour ce projet. Le système vérifiera qu'il n'existe pas déjà."
-            )
-            
-            # Vérification en temps réel si l'ID existe
-            if custom_project_id and gestionnaire.check_project_id_exists(custom_project_id):
-                st.error(f"❌ Le projet #{custom_project_id} existe déjà ! Choisissez un autre numéro.")
-            elif custom_project_id:
-                st.success(f"✅ Le numéro #{custom_project_id} est disponible.")
-        else:
-            st.info(f"📋 Le prochain numéro automatique sera: **#{gestionnaire.next_id}**")
-        
-        st.markdown("---")
+        # Vérification en temps réel si l'ID existe
+        if custom_project_id and gestionnaire.check_project_id_exists(custom_project_id):
+            st.error(f"❌ Le projet #{custom_project_id} existe déjà ! Choisissez un autre numéro.")
+        elif custom_project_id:
+            st.success(f"✅ Le numéro #{custom_project_id} est disponible.")
+    else:
+        st.info(f"📋 Le prochain numéro automatique sera: **#{gestionnaire.next_id}**")
+    
+    st.markdown("---")
+
+    # MAINTENANT le formulaire pour les autres champs
+    with st.form("create_form", clear_on_submit=True):
         
         # Reste du formulaire (inchangé)
         fc1, fc2 = st.columns(2)
@@ -3052,7 +3055,7 @@ def render_create_project_form(gestionnaire, crm_manager):
             st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
-
+    
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
     """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
