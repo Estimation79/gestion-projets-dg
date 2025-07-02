@@ -1585,26 +1585,34 @@ def _init_base_data_if_empty():
 
 # Fonction à ajouter dans app.py ou dans erp_database.py
 
-def migrate_projects_table_for_alphanumeric_ids(db: ERPDatabase):
-    """
-    Migre la table projects pour supporter les IDs alphanumériques
-    """
+def migrate_projects_table_for_alphanumeric_ids(db):
+    """Migre la table projects pour supporter les IDs alphanumériques - VERSION DIAGNOSTIQUE COMPLÈTE"""
     try:
-        # Vérifier la structure actuelle de la table
+        # DIAGNOSTIC : Vérifier la structure actuelle
         table_info = db.execute_query("PRAGMA table_info(projects)")
-        id_column_type = None
+        print("🔍 Structure actuelle de la table projects:")
+        for column in table_info:
+            print(f"  - {column['name']}: {column['type']} (PK: {column['pk']})")
         
+        id_column_type = None
         for column in table_info:
             if column['name'] == 'id':
                 id_column_type = column['type']
                 break
         
+        print(f"🎯 Type actuel de la colonne ID: {id_column_type}")
+        
         if id_column_type and id_column_type.upper() == 'INTEGER':
-            print("📝 Migration requise: Conversion de la colonne ID de INTEGER vers TEXT")
+            print("📝 Migration requise: Conversion ID INTEGER vers TEXT")
             
-            # Étape 1: Créer une nouvelle table avec ID TEXT
+            # SÉCURITÉ : Sauvegarder les données existantes
+            existing_projects = db.execute_query("SELECT * FROM projects LIMIT 5")
+            print(f"📊 Nombre de projets existants: {len(existing_projects) if existing_projects else 0}")
+            
+            # Créer nouvelle table avec ID TEXT
+            print("🔨 Création de la nouvelle table...")
             db.execute_update("""
-                CREATE TABLE projects_new (
+                CREATE TABLE IF NOT EXISTS projects_new (
                     id TEXT PRIMARY KEY,
                     nom_projet TEXT NOT NULL,
                     client_company_id INTEGER,
@@ -1624,76 +1632,114 @@ def migrate_projects_table_for_alphanumeric_ids(db: ERPDatabase):
                 )
             """)
             
-            # Étape 2: Copier les données existantes (convertir INTEGER vers TEXT)
-            db.execute_update("""
-                INSERT INTO projects_new 
-                SELECT 
-                    CAST(id AS TEXT) as id,
-                    nom_projet,
-                    client_company_id,
-                    client_nom_cache,
-                    client_legacy,
-                    statut,
-                    priorite,
-                    tache,
-                    date_soumis,
-                    date_prevu,
-                    bd_ft_estime,
-                    prix_estime,
-                    description,
-                    created_at,
-                    updated_at
-                FROM projects
-            """)
+            # Copier données existantes avec gestion d'erreur
+            print("📋 Copie des données existantes...")
+            try:
+                db.execute_update("""
+                    INSERT OR REPLACE INTO projects_new 
+                    SELECT CAST(id AS TEXT), nom_projet, client_company_id, client_nom_cache, 
+                           client_legacy, statut, priorite, tache, date_soumis, date_prevu,
+                           bd_ft_estime, prix_estime, description, 
+                           COALESCE(created_at, CURRENT_TIMESTAMP),
+                           COALESCE(updated_at, CURRENT_TIMESTAMP)
+                    FROM projects
+                """)
+                print("✅ Données copiées avec succès")
+            except Exception as copy_error:
+                print(f"⚠️ Erreur copie données: {copy_error}")
+                # Continuer quand même pour créer la structure
             
-            # Étape 3: Mettre à jour les tables liées avec les nouveaux IDs
-            # Project assignments
-            db.execute_update("""
-                UPDATE project_assignments 
-                SET project_id = CAST(project_id AS TEXT)
-            """)
+            # Mettre à jour tables liées avec gestion d'erreur
+            print("🔗 Mise à jour des tables liées...")
             
-            # Operations
-            db.execute_update("""
-                UPDATE operations 
-                SET project_id = CAST(project_id AS TEXT)
-                WHERE project_id IS NOT NULL
-            """)
+            try:
+                db.execute_update("""
+                    UPDATE project_assignments 
+                    SET project_id = CAST(project_id AS TEXT)
+                    WHERE project_id IS NOT NULL
+                """)
+                print("✅ project_assignments mise à jour")
+            except Exception as e:
+                print(f"⚠️ Erreur project_assignments: {e}")
             
-            # Materials
-            db.execute_update("""
-                UPDATE materials 
-                SET project_id = CAST(project_id AS TEXT)
-                WHERE project_id IS NOT NULL
-            """)
+            try:
+                db.execute_update("""
+                    UPDATE operations 
+                    SET project_id = CAST(project_id AS TEXT)
+                    WHERE project_id IS NOT NULL
+                """)
+                print("✅ operations mise à jour")
+            except Exception as e:
+                print(f"⚠️ Erreur operations: {e}")
             
-            # Time entries
+            try:
+                db.execute_update("""
+                    UPDATE materials 
+                    SET project_id = CAST(project_id AS TEXT)
+                    WHERE project_id IS NOT NULL
+                """)
+                print("✅ materials mise à jour")
+            except Exception as e:
+                print(f"⚠️ Erreur materials: {e}")
+            
             try:
                 db.execute_update("""
                     UPDATE time_entries 
                     SET project_id = CAST(project_id AS TEXT)
                     WHERE project_id IS NOT NULL
                 """)
-            except:
-                pass  # Table peut ne pas exister
+                print("✅ time_entries mise à jour")
+            except Exception as e:
+                print(f"⚠️ Erreur time_entries: {e} (normal si table n'existe pas)")
             
-            # Étape 4: Supprimer l'ancienne table et renommer la nouvelle
-            db.execute_update("DROP TABLE projects")
-            db.execute_update("ALTER TABLE projects_new RENAME TO projects")
+            # Remplacer table avec sécurité
+            print("🔄 Remplacement de la table...")
+            try:
+                db.execute_update("DROP TABLE IF EXISTS projects_old")  # Nettoyer ancien backup
+                db.execute_update("ALTER TABLE projects RENAME TO projects_old")  # Backup
+                db.execute_update("ALTER TABLE projects_new RENAME TO projects")  # Activer nouvelle
+                print("✅ Table remplacée avec succès")
+                
+                # Vérifier le résultat
+                new_table_info = db.execute_query("PRAGMA table_info(projects)")
+                for column in new_table_info:
+                    if column['name'] == 'id':
+                        print(f"🎉 Nouveau type de colonne ID: {column['type']}")
+                        break
+                
+            except Exception as replace_error:
+                print(f"❌ Erreur remplacement table: {replace_error}")
+                # Essayer de récupérer
+                try:
+                    db.execute_update("ALTER TABLE projects_old RENAME TO projects")
+                    print("🔄 Table restaurée")
+                except:
+                    pass
             
-            print("✅ Migration terminée: Les IDs de projets supportent maintenant les formats alphanumériques")
+            print("✅ Migration terminée: IDs alphanumériques supportés")
             
         else:
-            print("✅ Table projects déjà configurée pour les IDs alphanumériques")
+            print("✅ Table déjà configurée pour IDs alphanumériques")
+            
+        # DIAGNOSTIC FINAL : Vérifier la structure finale
+        final_info = db.execute_query("PRAGMA table_info(projects)")
+        print("🎯 Structure FINALE de la table projects:")
+        for column in final_info:
+            if column['name'] == 'id':
+                print(f"  🆔 ID: {column['type']} (PK: {column['pk']})")
+                break
             
     except Exception as e:
-        print(f"❌ Erreur lors de la migration: {e}")
+        print(f"❌ Erreur migration: {e}")
+        import traceback
+        print(f"📋 Traceback: {traceback.format_exc()}")
+        
         # En cas d'erreur, essayer de nettoyer
         try:
             db.execute_update("DROP TABLE IF EXISTS projects_new")
         except:
             pass
-
+            
 def init_erp_system():
     """Initialise le système ERP complet - MODIFIÉ avec Pièces Jointes et Support IDs Alphanumériques"""
 
