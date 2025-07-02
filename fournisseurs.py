@@ -80,41 +80,36 @@ class GestionnaireFournisseurs:
             print(f"Info: Nettoyage DB pas nécessaire ou erreur: {e}")
     
     def get_all_fournisseurs(self) -> List[Dict]:
-        """Récupère tous les fournisseurs avec leurs statistiques et company_id"""
+        """
+        Récupère tous les fournisseurs avec leurs statistiques et company_id.
+        VERSION CORRIGÉE ET ROBUSTE : Utilise des sous-requêtes pour éviter les GROUP BY complexes.
+        Garantit que seuls les fournisseurs liés à une entreprise valide sont retournés.
+        """
         try:
-            # Requête modifiée pour inclure explicitement company_id
             query = '''
-                SELECT f.*, c.nom, c.secteur, c.adresse, c.site_web,
-                       COUNT(form.id) as nombre_commandes,
-                       COALESCE(SUM(form.montant_total), 0) as montant_total_commandes
+                SELECT 
+                    f.*,
+                    c.nom, 
+                    c.secteur, 
+                    c.adresse, 
+                    c.site_web,
+                    (SELECT COUNT(form.id) 
+                     FROM formulaires form 
+                     WHERE form.company_id = f.company_id 
+                       AND form.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')) as nombre_commandes,
+                    (SELECT COALESCE(SUM(form.montant_total), 0) 
+                     FROM formulaires form 
+                     WHERE form.company_id = f.company_id 
+                       AND form.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')) as montant_total_commandes
                 FROM fournisseurs f
                 JOIN companies c ON f.company_id = c.id
-                LEFT JOIN formulaires form ON c.id = form.company_id 
-                    AND form.type_formulaire IN ('BON_ACHAT', 'BON_COMMANDE')
-                GROUP BY f.id, f.company_id, c.nom, c.secteur, c.adresse, c.site_web,
-                         f.code_fournisseur, f.categorie_produits, f.delai_livraison_moyen,
-                         f.conditions_paiement, f.evaluation_qualite, f.contact_commercial,
-                         f.contact_technique, f.certifications, f.notes_evaluation,
-                         f.date_creation, f.date_modification
                 ORDER BY c.nom
             '''
             rows = self.db.execute_query(query)
             return [dict(row) for row in rows] if rows else []
         except Exception as e:
-            print(f"Erreur dans get_all_fournisseurs: {e}")
-            # Fallback: récupération simple avec company_id garanti
-            try:
-                fallback_query = '''
-                    SELECT f.*, c.nom
-                    FROM fournisseurs f
-                    JOIN companies c ON f.company_id = c.id
-                    ORDER BY c.nom
-                '''
-                rows = self.db.execute_query(fallback_query)
-                return [dict(row) for row in rows] if rows else []
-            except Exception as e2:
-                st.error(f"Erreur récupération fournisseurs: {e2}")
-                return []
+            st.error(f"Erreur critique lors de la récupération des fournisseurs : {e}")
+            return []
     
     def get_fournisseur_by_id(self, fournisseur_id: int) -> Dict:
         """Récupère un fournisseur par ID avec détails complets"""
