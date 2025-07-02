@@ -2986,7 +2986,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе - VERSION COMPLÈTE"""
+    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе - VERSION FINALE COMPLÈTE"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -3190,7 +3190,6 @@ def render_create_project_form(gestionnaire, crm_manager):
             st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 def _validate_project_id_format(project_id):
     """Valide le format d'un ID de projet personnalisé"""
