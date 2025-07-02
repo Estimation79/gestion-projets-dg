@@ -3229,7 +3229,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
                 elif ',' in prix_str and '.' in prix_str and prix_str.find('.') > prix_str.find(','):
