@@ -1,3 +1,5 @@
+# production_management.py - Gestion des Bons de Travail & Postes - Desmarais & Gagné Inc.
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -101,10 +103,11 @@ def debug_bt_kanban_integration(db):
     with debug_tab3:
         st.markdown("### 🔗 Opérations Synchronisées avec le Kanban")
         try:
+            # CORRECTION: Requête adaptée aux colonnes réelles
             operations = db.execute_query('''
-                SELECT o.id, o.formulaire_bt_id, o.nom_operation, o.work_center_id, 
+                SELECT o.id, o.formulaire_bt_id, o.work_center_id, 
                        f.numero_document, wc.nom as work_center_nom,
-                       o.statut, o.temps_estime
+                       o.statut, o.temps_estime, o.description
                 FROM operations o
                 LEFT JOIN formulaires f ON o.formulaire_bt_id = f.id
                 LEFT JOIN work_centers wc ON o.work_center_id = wc.id
@@ -119,14 +122,14 @@ def debug_bt_kanban_integration(db):
                         current_bt = op['numero_document']
                         st.markdown(f"#### ✅ BT: {current_bt}")
                     
-                    st.markdown(f"- **Opération:** `{op['nom_operation']}` → **Poste:** `{op['work_center_nom']}` (ID: {op['work_center_id']}) - Statut: {op['statut']} - {op['temps_estime']}h")
+                    st.markdown(f"- **Description:** `{op['description']}` → **Poste:** `{op['work_center_nom']}` (ID: {op['work_center_id']}) - Statut: {op['statut']} - {op['temps_estime']}h")
                 
                 st.success(f"✅ {len(operations)} opération(s) synchronisée(s) trouvée(s). Ces BT devraient apparaître dans le Kanban !")
             else:
-                st.error("❌ **PROBLÈME IDENTIFIÉ : Aucune opération synchronisée trouvée !**")
+                st.error("❌ **PROBLÈME : Aucune opération synchronisée trouvée !**")
                 st.markdown("**Ceci explique pourquoi vos BT n'apparaissent pas dans les bonnes colonnes du Kanban.**")
                 st.markdown("**Solutions :**")
-                st.markdown("1. Modifiez un BT existant pour déclencher la synchronisation")
+                st.markdown("1. Cliquez sur 'Re-synchroniser tous les BT' ci-dessous")
                 st.markdown("2. Créez un nouveau BT avec les noms exacts des postes")
                 st.markdown("3. Vérifiez que les noms d'opérations correspondent exactement aux noms des postes")
                 
@@ -166,9 +169,17 @@ def debug_bt_kanban_integration(db):
                 st.error(f"Erreur nettoyage : {e}")
     
     with action_col3:
-        if st.button("📊 Stats Synchronisation", key="debug_sync_stats"):
+        if st.button("📊 Vérifier Structure DB", key="debug_check_structure"):
             try:
-                # Statistiques de synchronisation
+                # Vérifier la structure de la table operations
+                columns = db.execute_query("PRAGMA table_info(operations)")
+                st.markdown("**Colonnes table operations:**")
+                for col in columns:
+                    st.markdown(f"- `{col['name']}` ({col['type']})")
+                    
+                st.markdown("---")
+                
+                # Stats de synchronisation améliorées
                 total_bts = db.execute_query("SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'")[0]['count']
                 total_operations = db.execute_query("SELECT COUNT(*) as count FROM operations WHERE formulaire_bt_id IS NOT NULL")[0]['count']
                 bts_with_ops = db.execute_query("SELECT COUNT(DISTINCT formulaire_bt_id) as count FROM operations WHERE formulaire_bt_id IS NOT NULL")[0]['count']
@@ -180,9 +191,9 @@ def debug_bt_kanban_integration(db):
                 if total_bts > 0:
                     sync_rate = (bts_with_ops / total_bts) * 100
                     st.metric("Taux synchronisation", f"{sync_rate:.1f}%")
-                
+                    
             except Exception as e:
-                st.error(f"Erreur stats : {e}")
+                st.error(f"Erreur : {e}")
 
 def show_debug_page():
     """Page de debug temporaire"""
@@ -194,8 +205,7 @@ def show_debug_page():
 def _synchroniser_bt_operations(bt_id: int, db):
     """
     Synchronise les lignes d'un Bon de Travail avec la table 'operations'.
-    Cette fonction est CRUCIALE pour que le Kanban et d'autres modules
-    puissent voir à quels postes de travail un BT est assigné.
+    VERSION CORRIGÉE : Adaptation à la structure réelle de la base de données
     """
     try:
         # Récupérer les informations du BT depuis la table formulaires
@@ -259,41 +269,29 @@ def _synchroniser_bt_operations(bt_id: int, db):
                 logger.warning(f"Poste de travail '{operation_name}' non trouvé pour synchronisation")
                 continue
 
-            # Préparer les données pour la nouvelle opération
-            operation_data = {
-                'project_id': project_id,
-                'work_center_id': work_center_id,
-                'formulaire_bt_id': bt_id,
-                'sequence_number': task_data.get('sequence_ligne', 1),
-                'nom_operation': operation_name,
-                'description': task_details.get('description', ''),
-                'temps_estime': task_data.get('prix_unitaire', 0.0), # Heures prévues sont dans prix_unitaire
-                'ressource': task_details.get('assigned_to', ''),
-                'statut': _convertir_statut_bt_vers_operation(task_details.get('status', 'pending')),
-                'date_debut_prevue': task_details.get('start_date', ''),
-                'date_fin_prevue': task_details.get('end_date', ''),
-                'notes': task_details.get('description', '')
-            }
-
-            # Insérer la nouvelle opération
+            # CORRECTION: Adapter aux colonnes réelles de votre base
+            # Insérer la nouvelle opération avec les colonnes qui existent
             op_id = db.execute_insert('''
                 INSERT INTO operations 
-                (project_id, work_center_id, formulaire_bt_id, sequence_number, nom_operation, 
-                 description, temps_estime, ressource, statut, date_debut_prevue, date_fin_prevue, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (project_id, work_center_id, formulaire_bt_id, sequence_number, 
+                 description, temps_estime, ressource, statut, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                operation_data['project_id'],
-                operation_data['work_center_id'],
-                operation_data['formulaire_bt_id'],
-                operation_data['sequence_number'],
-                operation_data['nom_operation'],
-                operation_data['description'],
-                operation_data['temps_estime'],
-                operation_data['ressource'],
-                operation_data['statut'],
-                operation_data['date_debut_prevue'],
-                operation_data['date_fin_prevue'],
-                operation_data['notes']
+                project_id,
+                work_center_id,
+                bt_id,
+                task_data.get('sequence_ligne', 1),
+                f"{operation_name} - {task_details.get('description', '')}",
+                task_data.get('prix_unitaire', 0.0),  # Heures prévues
+                task_details.get('assigned_to', ''),
+                _convertir_statut_bt_vers_operation(task_details.get('status', 'pending')),
+                json.dumps({
+                    'operation_source': operation_name,
+                    'bt_task_description': task_details.get('description', ''),
+                    'fournisseur': task_details.get('fournisseur', '-- Interne --'),
+                    'date_debut_prevue': task_details.get('start_date', ''),
+                    'date_fin_prevue': task_details.get('end_date', '')
+                })
             ))
             
             if op_id:
