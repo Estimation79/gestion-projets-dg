@@ -1170,13 +1170,12 @@ def handle_batch_actions():
                     st.rerun()
 
 # ========================
-# GESTIONNAIRE PROJETS SQLite (ORIGINAL)
+# GESTIONNAIRE PROJETS SQLite AVEC ID PERSONNALISÉ
 # ========================
 
 class GestionnaireProjetSQL:
     """
-    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite au lieu de JSON
-    Remplace GestionnaireProjetIA pour une architecture unifiée - VERSION CORRIGÉE
+    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite avec support ID personnalisé
     """
 
     def __init__(self, db: ERPDatabase):
@@ -1195,6 +1194,14 @@ class GestionnaireProjetSQL:
         except Exception as e:
             st.error(f"Erreur initialisation next_id: {e}")
             self.next_id = 10000
+
+    def check_project_id_exists(self, project_id):
+        """Vérifie si un ID de projet existe déjà"""
+        try:
+            result = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE id = ?", (project_id,))
+            return result and result[0]['count'] > 0
+        except Exception:
+            return True  # En cas d'erreur, considérer comme existant pour éviter les conflits
 
     @property
     def projets(self):
@@ -1249,10 +1256,36 @@ class GestionnaireProjetSQL:
             st.error(f"Erreur récupération projets: {e}")
             return []
 
-    def ajouter_projet(self, projet_data):
-        """Ajoute un nouveau projet en SQLite - VERSION CORRIGÉE avec validation FK"""
+    def ajouter_projet(self, projet_data, custom_id=None):
+        """
+        Ajoute un nouveau projet en SQLite avec support ID personnalisé
+        
+        Args:
+            projet_data: Données du projet
+            custom_id: ID personnalisé optionnel (None = auto-incrémentation)
+        """
         try:
-            project_id = self.next_id
+            # Déterminer l'ID du projet
+            if custom_id is not None:
+                # Validation de l'ID personnalisé
+                try:
+                    project_id = int(custom_id)
+                    if project_id <= 0:
+                        raise ValueError("L'ID doit être un nombre positif")
+                except (ValueError, TypeError):
+                    raise ValueError("L'ID doit être un nombre entier positif")
+                
+                # Vérifier que l'ID n'existe pas déjà
+                if self.check_project_id_exists(project_id):
+                    raise ValueError(f"Le projet #{project_id} existe déjà")
+                
+                # Ajuster next_id si nécessaire
+                if project_id >= self.next_id:
+                    self.next_id = project_id + 1
+            else:
+                # Utiliser l'auto-incrémentation
+                project_id = self.next_id
+                self.next_id += 1
 
             # VALIDATION PRÉALABLE des clés étrangères
             if projet_data.get('client_company_id'):
@@ -1293,10 +1326,10 @@ class GestionnaireProjetSQL:
                 projet_data.get('client_legacy', ''),
                 projet_data.get('statut', 'À FAIRE'),
                 projet_data.get('priorite', 'MOYEN'),
-                projet_data['tache'],          # <-- Accès direct risqué
+                projet_data['tache'],
                 projet_data.get('date_soumis'),
                 projet_data.get('date_prevu'),
-                bd_ft_estime,                  # <-- Variable calculée à partir de la clé
+                bd_ft_estime,
                 prix_estime,
                 projet_data.get('description')
             ))
@@ -1308,7 +1341,6 @@ class GestionnaireProjetSQL:
                     (project_id, emp_id, 'Membre équipe')
                 )
 
-            self.next_id += 1
             return project_id
 
         except ValueError as ve:
@@ -1578,7 +1610,7 @@ def init_erp_system():
             except Exception as e:
                 print(f"⚠️ Erreur sauvegarde de démarrage: {e}")
 
-    # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite
+    # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite avec ID personnalisé
     if ERP_DATABASE_AVAILABLE and 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
 
@@ -1955,7 +1987,7 @@ def show_erp_main():
         available_pages["📅 Calendrier"] = "calendrier"
         # NOUVEAU : Utilisation du module Kanban unifié
         if KANBAN_AVAILABLE:
-            available_pages["🔄 Kanban Unifié"] = "kanban"
+            available_pages["🔄 Kanban"] = "kanban"
         else:
             available_pages["🔄 Kanban"] = "kanban"
 
@@ -2828,7 +2860,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - VERSION CORRIGÉE avec validation FK"""
+    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID personnalisé"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -2842,11 +2874,43 @@ def render_create_project_form(gestionnaire, crm_manager):
         st.rerun()
 
     with st.form("create_form", clear_on_submit=True):
+        
+        # NOUVEAU : Section ID du projet
+        st.markdown("#### 🆔 Numérotation du Projet")
+        
+        id_choice = st.radio(
+            "Choisissez le mode de numérotation:",
+            ["🤖 Automatique (recommandé)", "✏️ Numéro personnalisé"],
+            help="Automatique: Le système attribue automatiquement le prochain numéro disponible. Personnalisé: Vous choisissez le numéro."
+        )
+        
+        custom_project_id = None
+        if id_choice == "✏️ Numéro personnalisé":
+            custom_project_id = st.number_input(
+                "Numéro de projet personnalisé:",
+                min_value=1,
+                max_value=999999,
+                value=gestionnaire.next_id,
+                step=1,
+                help="Entrez un numéro unique pour ce projet. Le système vérifiera qu'il n'existe pas déjà."
+            )
+            
+            # Vérification en temps réel si l'ID existe
+            if custom_project_id and gestionnaire.check_project_id_exists(custom_project_id):
+                st.error(f"❌ Le projet #{custom_project_id} existe déjà ! Choisissez un autre numéro.")
+            elif custom_project_id:
+                st.success(f"✅ Le numéro #{custom_project_id} est disponible.")
+        else:
+            st.info(f"📋 Le prochain numéro automatique sera: **#{gestionnaire.next_id}**")
+        
+        st.markdown("---")
+        
+        # Reste du formulaire (inchangé)
         fc1, fc2 = st.columns(2)
         with fc1:
             nom = st.text_input("Nom *:")
 
-            # CORRECTION CRITIQUE : Récupérer entreprises depuis SQLite
+            # Récupérer entreprises depuis SQLite
             try:
                 entreprises_db = st.session_state.erp_db.execute_query("SELECT id, nom FROM companies ORDER BY nom")
                 liste_entreprises_crm_form = [("", "Sélectionner ou laisser vide")] + [(e['id'], e['nom']) for e in entreprises_db]
@@ -2874,7 +2938,7 @@ def render_create_project_form(gestionnaire, crm_manager):
 
         desc = st.text_area("Description:")
 
-        # Assignation d'employés avec validation
+        # Assignation d'employés (inchangé)
         employes_assignes = []
         if gestionnaire_employes.employes:
             st.markdown("##### 👥 Assignation d'Employés")
@@ -2895,20 +2959,21 @@ def render_create_project_form(gestionnaire, crm_manager):
             cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
 
         if submit:
-            # VALIDATION RENFORCÉE
+            # VALIDATION RENFORCÉE incluant l'ID personnalisé
             if not nom:
                 st.error("Nom du projet obligatoire.")
             elif not selected_entreprise_id_form and not client_nom_direct_form:
                 st.error("Client (entreprise ou nom direct) obligatoire.")
             elif d_fin < d_debut:
                 st.error("Date fin < date début.")
+            elif id_choice == "✏️ Numéro personnalisé" and (not custom_project_id or gestionnaire.check_project_id_exists(custom_project_id)):
+                st.error("Numéro de projet personnalisé invalide ou déjà existant.")
             else:
-                # VALIDATION CLÉS ÉTRANGÈRES
+                # Validation clés étrangères (inchangé)
                 client_company_id = None
                 client_nom_cache_val = ""
 
                 if selected_entreprise_id_form:
-                    # Vérifier que l'entreprise existe
                     company_check = st.session_state.erp_db.execute_query(
                         "SELECT nom FROM companies WHERE id = ?",
                         (selected_entreprise_id_form,)
@@ -2922,7 +2987,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                 elif client_nom_direct_form:
                     client_nom_cache_val = client_nom_direct_form
 
-                # Validation employés assignés
+                # Validation employés assignés (inchangé)
                 employes_valides = []
                 if employes_assignes:
                     for emp_id in employes_assignes:
@@ -2938,7 +3003,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                 # DONNÉES PROJET VALIDÉES
                 data = {
                     'nom_projet': nom,
-                    'client_company_id': client_company_id,  # NULL si client direct
+                    'client_company_id': client_company_id,
                     'client_nom_cache': client_nom_cache_val,
                     'client_legacy': client_nom_direct_form if not selected_entreprise_id_form else "",
                     'statut': statut,
@@ -2953,10 +3018,12 @@ def render_create_project_form(gestionnaire, crm_manager):
                 }
 
                 try:
-                    pid = gestionnaire.ajouter_projet(data)
+                    # MODIFICATION PRINCIPALE : Passer l'ID personnalisé
+                    final_custom_id = custom_project_id if id_choice == "✏️ Numéro personnalisé" else None
+                    pid = gestionnaire.ajouter_projet(data, custom_id=final_custom_id)
 
                     if pid:
-                        # Mettre à jour les assignations des employés
+                        # Mettre à jour les assignations des employés (inchangé)
                         if employes_valides:
                             for emp_id in employes_valides:
                                 employe = gestionnaire_employes.get_employe_by_id(emp_id)
@@ -2966,7 +3033,12 @@ def render_create_project_form(gestionnaire, crm_manager):
                                         projets_existants.append(pid)
                                         gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
 
-                        st.success(f"✅ Projet #{pid} créé avec {len(employes_valides)} employé(s) assigné(s) !")
+                        # Message de succès adapté
+                        if id_choice == "✏️ Numéro personnalisé":
+                            st.success(f"✅ Projet #{pid} créé avec le numéro personnalisé choisi et {len(employes_valides)} employé(s) assigné(s) !")
+                        else:
+                            st.success(f"✅ Projet #{pid} créé automatiquement avec {len(employes_valides)} employé(s) assigné(s) !")
+                            
                         st.session_state.show_create_project = False
                         st.rerun()
                     else:
@@ -2974,7 +3046,6 @@ def render_create_project_form(gestionnaire, crm_manager):
 
                 except Exception as e:
                     st.error(f"❌ Erreur création projet: {str(e)}")
-                    st.info("💡 Vérifiez que les données de base sont initialisées (entreprises, employés)")
 
         if cancel:
             st.session_state.show_create_project = False
@@ -3051,7 +3122,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -3958,9 +4029,10 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC ID PERSONNALISÉ")
 print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
 print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
+print("✅ Fonctionnalité ID projet personnalisé intégrée")
 print("✅ Module Kanban unifié intégré avec fallback")
 print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
 print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
