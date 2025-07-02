@@ -1,4 +1,4 @@
-# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré et Numérotation Manuelle
+# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
 
 import streamlit as st
 import pandas as pd
@@ -1170,13 +1170,13 @@ def handle_batch_actions():
                     st.rerun()
 
 # ========================
-# GESTIONNAIRE PROJETS SQLite (MODIFIÉ AVEC NUMÉROTATION MANUELLE)
+# GESTIONNAIRE PROJETS SQLite (ORIGINAL)
 # ========================
 
 class GestionnaireProjetSQL:
     """
     NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite au lieu de JSON
-    Remplace GestionnaireProjetIA pour une architecture unifiée - VERSION CORRIGÉE AVEC NUMÉROTATION MANUELLE
+    Remplace GestionnaireProjetIA pour une architecture unifiée - VERSION CORRIGÉE
     """
 
     def __init__(self, db: ERPDatabase):
@@ -1195,36 +1195,6 @@ class GestionnaireProjetSQL:
         except Exception as e:
             st.error(f"Erreur initialisation next_id: {e}")
             self.next_id = 10000
-
-    def _is_project_id_exists(self, project_id):
-        """Vérifie si un numéro de projet existe déjà"""
-        try:
-            result = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE id = ?", (project_id,))
-            return result and result[0]['count'] > 0
-        except Exception:
-            return False
-
-    def _validate_custom_project_id(self, custom_id):
-        """Valide un numéro de projet personnalisé"""
-        if not custom_id:
-            return None, None
-        
-        # Nettoyer l'ID personnalisé
-        custom_id = str(custom_id).strip()
-        
-        # Vérifier si c'est un numéro
-        try:
-            numeric_id = int(custom_id)
-            if numeric_id <= 0:
-                return None, "Le numéro de projet doit être positif"
-        except ValueError:
-            return None, "Le numéro de projet doit être un nombre entier"
-        
-        # Vérifier si le numéro existe déjà
-        if self._is_project_id_exists(numeric_id):
-            return None, f"Le numéro de projet #{numeric_id} est déjà utilisé"
-        
-        return numeric_id, None
 
     @property
     def projets(self):
@@ -1280,21 +1250,9 @@ class GestionnaireProjetSQL:
             return []
 
     def ajouter_projet(self, projet_data):
-        """Ajoute un nouveau projet en SQLite - VERSION CORRIGÉE avec validation FK et numérotation manuelle"""
+        """Ajoute un nouveau projet en SQLite - VERSION CORRIGÉE avec validation FK"""
         try:
-            # NOUVEAU : Gestion de la numérotation manuelle
-            custom_project_id = projet_data.get('custom_project_id')
-            
-            if custom_project_id:
-                # Utiliser le numéro personnalisé après validation
-                validated_id, error_msg = self._validate_custom_project_id(custom_project_id)
-                if error_msg:
-                    st.error(f"❌ Erreur numérotation: {error_msg}")
-                    return None
-                project_id = validated_id
-            else:
-                # Utiliser la numérotation automatique
-                project_id = self.next_id
+            project_id = self.next_id
 
             # VALIDATION PRÉALABLE des clés étrangères
             if projet_data.get('client_company_id'):
@@ -1335,10 +1293,10 @@ class GestionnaireProjetSQL:
                 projet_data.get('client_legacy', ''),
                 projet_data.get('statut', 'À FAIRE'),
                 projet_data.get('priorite', 'MOYEN'),
-                projet_data['tache'],
+                projet_data['tache'],          # <-- Accès direct risqué
                 projet_data.get('date_soumis'),
                 projet_data.get('date_prevu'),
-                bd_ft_estime,
+                bd_ft_estime,                  # <-- Variable calculée à partir de la clé
                 prix_estime,
                 projet_data.get('description')
             ))
@@ -1350,10 +1308,7 @@ class GestionnaireProjetSQL:
                     (project_id, emp_id, 'Membre équipe')
                 )
 
-            # NOUVEAU : Ne mettre à jour next_id que si on a utilisé la numérotation automatique
-            if not custom_project_id:
-                self.next_id += 1
-
+            self.next_id += 1
             return project_id
 
         except ValueError as ve:
@@ -2873,7 +2828,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - VERSION CORRIGÉE avec validation FK et numérotation manuelle"""
+    """FORMULAIRE CRÉATION PROJET - VERSION CORRIGÉE avec validation FK"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -2887,26 +2842,6 @@ def render_create_project_form(gestionnaire, crm_manager):
         st.rerun()
 
     with st.form("create_form", clear_on_submit=True):
-        # NOUVEAU : Champ pour numéro personnalisé
-        st.markdown("#### 🔢 Numérotation")
-        custom_number_col, auto_number_col = st.columns(2)
-        
-        with custom_number_col:
-            custom_project_id = st.text_input(
-                "Numéro personnalisé (optionnel):",
-                placeholder="Ex: 20250001, DG-2025-001",
-                help="Laissez vide pour génération automatique"
-            )
-        
-        with auto_number_col:
-            if custom_project_id:
-                st.info(f"🎯 Utilisation du numéro: **{custom_project_id}**")
-            else:
-                next_auto_id = gestionnaire.next_id
-                st.info(f"🔄 Numéro automatique: **#{next_auto_id}**")
-
-        st.markdown("---")
-        
         fc1, fc2 = st.columns(2)
         with fc1:
             nom = st.text_input("Nom *:")
@@ -3000,10 +2935,9 @@ def render_create_project_form(gestionnaire, crm_manager):
                         else:
                             st.warning(f"Employé ID {emp_id} non trouvé - ignoré")
 
-                # NOUVEAU : Ajouter le numéro personnalisé aux données
+                # DONNÉES PROJET VALIDÉES
                 data = {
                     'nom_projet': nom,
-                    'custom_project_id': custom_project_id if custom_project_id.strip() else None,
                     'client_company_id': client_company_id,  # NULL si client direct
                     'client_nom_cache': client_nom_cache_val,
                     'client_legacy': client_nom_direct_form if not selected_entreprise_id_form else "",
@@ -3032,12 +2966,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                                         projets_existants.append(pid)
                                         gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
 
-                        # Message de succès avec indication du type de numérotation
-                        if custom_project_id:
-                            st.success(f"✅ Projet #{pid} créé avec numéro personnalisé et {len(employes_valides)} employé(s) assigné(s) !")
-                        else:
-                            st.success(f"✅ Projet #{pid} créé avec numérotation automatique et {len(employes_valides)} employé(s) assigné(s) !")
-                        
+                        st.success(f"✅ Projet #{pid} créé avec {len(employes_valides)} employé(s) assigné(s) !")
                         st.session_state.show_create_project = False
                         st.rerun()
                     else:
@@ -3122,7 +3051,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -3621,7 +3550,7 @@ def show_kanban_legacy():
                         st.session_state.show_project_modal = True
                         st.rerun()
                 with col2:
-                    # NOUVEAU : Bouton création BT dans Kanban - REDIRECTION vers TimeTracker Pro
+                    # NOUVEAU : Bouton création BT dans Kanban - REDIRECTION vers 
                     if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
                         st.session_state.timetracker_redirect_to_bt = True
                         st.session_state.formulaire_project_preselect = pk['id']
@@ -4029,10 +3958,9 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT FINAL - MIGRATION APP.PY TERMINÉE avec NUMÉROTATION MANUELLE")
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
 print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
 print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
 print("✅ Module Kanban unifié intégré avec fallback")
 print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
-print("✅ NOUVEAU: Numérotation manuelle pour projets et devis implémentée")
-print("🚀 Prêt pour tests et validation complète")
+print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
