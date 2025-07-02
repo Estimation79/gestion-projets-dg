@@ -1,4 +1,9 @@
 # timetracker_unified.py - Système de Pointage sur Opérations pour ERP Production DG Inc.
+# VERSION OPÉRATIONS UNIQUEMENT - Pointage granulaire sur opérations des Bons de Travail
+# Utilise directement erp_database.py pour un punch spécialisé et efficace
+# Support complet du pointage sur opérations et tâches BT depuis formulaire_lignes
+# NOUVEAU: Gestion d'historique en mode administrateur avec suppressions sécurisées
+# NOUVEAU: Interface double - Mode Superviseur et Mode Employé
 
 import streamlit as st
 import pandas as pd
@@ -2623,6 +2628,10 @@ def show_timetracker_unified_interface():
     
     st.markdown("### ⏱️ TimeTracker Unifié - Pointage sur Opérations")
     
+    # Initialiser l'authentification superviseur
+    if 'supervisor_authenticated' not in st.session_state:
+        st.session_state.supervisor_authenticated = False
+    
     # Sélecteur de mode utilisateur
     col_mode1, col_mode2 = st.columns(2)
     
@@ -2643,6 +2652,53 @@ def show_timetracker_unified_interface():
     
     # Afficher l'interface selon le mode sélectionné
     if user_mode == "superviseur":
+        # Vérification de l'authentification superviseur
+        if not st.session_state.supervisor_authenticated:
+            st.markdown("---")
+            st.markdown("#### 🔐 Authentification Superviseur")
+            st.warning("🔒 **Accès Restreint** - Authentification requise pour le mode superviseur")
+            
+            col_auth1, col_auth2 = st.columns(2)
+            
+            with col_auth1:
+                supervisor_password = st.text_input(
+                    "Mot de passe superviseur:", 
+                    type="password", 
+                    key="supervisor_password",
+                    placeholder="Entrez le mot de passe superviseur"
+                )
+            
+            with col_auth2:
+                st.markdown("")  # Espacement
+                if st.button("🔓 Se connecter comme Superviseur", type="primary"):
+                    # Mot de passe superviseur - À changer en production !
+                    if supervisor_password == "supervisor123":
+                        st.session_state.supervisor_authenticated = True
+                        st.success("✅ Authentification superviseur réussie")
+                        st.rerun()
+                    else:
+                        st.error("❌ Mot de passe superviseur incorrect")
+            
+            # Afficher les infos d'authentification
+            with st.expander("💡 Informations d'authentification"):
+                st.info("**Mot de passe superviseur de démo:** supervisor123")
+                st.caption("🔒 En production, utilisez un mot de passe sécurisé et implémentez un système d'authentification plus robuste.")
+            
+            return
+        
+        # Interface superviseur authentifiée
+        col_status1, col_status2 = st.columns([3, 1])
+        
+        with col_status1:
+            st.success("🔓 **Connecté en mode Superviseur** - Accès complet autorisé")
+        
+        with col_status2:
+            if st.button("🔒 Se déconnecter", key="supervisor_logout"):
+                st.session_state.supervisor_authenticated = False
+                st.rerun()
+        
+        st.markdown("---")
+        
         # Mode superviseur - Interface complète avec tous les employés
         tab_operations, tab_history_op, tab_stats_op, tab_admin = st.tabs([
             "🔧 Pointage Opérations", "📊 Historique", "📈 Statistiques", "⚙️ Administration"
@@ -2661,7 +2717,7 @@ def show_timetracker_unified_interface():
             show_admin_interface(tt)
     
     else:
-        # Mode employé - Interface simplifiée
+        # Mode employé - Interface simplifiée (pas d'authentification requise)
         tab_employee_punch, tab_employee_history = st.tabs([
             "👤 Mon Pointage", "📊 Mon Historique"
         ])
