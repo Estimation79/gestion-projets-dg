@@ -1,4 +1,4 @@
-# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
+# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré et Numéros Projets Personnalisés
 
 import streamlit as st
 import pandas as pd
@@ -192,6 +192,25 @@ def apply_additional_project_styles():
     .project-stats h5 {
         margin: 0;
         font-weight: 600;
+    }
+    
+    /* Style pour le champ numéro projet personnalisé */
+    .custom-number-field {
+        background: #f0f9ff;
+        border: 2px solid #0ea5e9;
+        border-radius: 6px;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    
+    .auto-number-info {
+        background: #f0fdf4;
+        border: 1px solid #22c55e;
+        border-radius: 6px;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+        color: #15803d;
+        font-size: 0.9em;
     }
     
     @media (max-width: 768px) {
@@ -616,6 +635,14 @@ def get_client_display_name(project, crm_manager):
         client_display_name = project.get('client_legacy', 'N/A')
     return client_display_name
 
+def get_project_display_number(project):
+    """Récupère le numéro d'affichage du projet (personnalisé ou auto)"""
+    numero_projet = project.get('numero_projet')
+    if numero_projet and numero_projet.strip():
+        return numero_projet
+    else:
+        return f"#{project.get('id', '?')}"
+
 def get_status_color(status):
     """Retourne la couleur associée au statut"""
     colors = {
@@ -645,9 +672,11 @@ def duplicate_project(gestionnaire, original_project):
         new_project_data['nom_projet'] = f"COPIE - {original_project.get('nom_projet', 'N/A')}"
         new_project_data['statut'] = 'À FAIRE'
         
-        # Supprimer l'ID pour forcer une nouvelle création
+        # Supprimer l'ID et numéro projet pour forcer une nouvelle création
         if 'id' in new_project_data:
             del new_project_data['id']
+        if 'numero_projet' in new_project_data:
+            del new_project_data['numero_projet']  # Forcer numérotation auto pour la copie
         
         # Ajuster les dates
         today = datetime.now().date()
@@ -657,7 +686,7 @@ def duplicate_project(gestionnaire, original_project):
         # Créer le nouveau projet
         new_id = gestionnaire.ajouter_projet(new_project_data)
         if new_id:
-            st.success(f"✅ Projet #{new_id} créé par duplication !")
+            st.success(f"✅ Projet {get_project_display_number({'id': new_id})} créé par duplication !")
         else:
             st.error("❌ Erreur lors de la duplication")
     except Exception as e:
@@ -670,8 +699,10 @@ def export_projects_to_csv(projects, crm_manager):
         export_data = []
         for p in projects:
             client_name = get_client_display_name(p, crm_manager)
+            project_number = get_project_display_number(p)
             
             export_data.append({
+                'Numéro': project_number,
                 'ID': p.get('id', ''),
                 'Nom du Projet': p.get('nom_projet', ''),
                 'Client': client_name,
@@ -687,7 +718,7 @@ def export_projects_to_csv(projects, crm_manager):
         
         # Créer le fichier CSV en mémoire
         output = io.StringIO()
-        fieldnames = ['ID', 'Nom du Projet', 'Client', 'Statut', 'Priorité', 'Type de Tâche', 
+        fieldnames = ['Numéro', 'ID', 'Nom du Projet', 'Client', 'Statut', 'Priorité', 'Type de Tâche', 
                      'Date de Soumission', 'Date Prévue', 'BD-FT Estimé (h)', 'Prix Estimé', 'Description']
         
         writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -783,7 +814,8 @@ def advanced_project_search(projects, search_term, crm_manager):
             str(p.get('statut', '')),
             str(p.get('priorite', '')),
             get_client_display_name(p, crm_manager),
-            str(p.get('id', ''))
+            str(p.get('id', '')),
+            str(p.get('numero_projet', ''))  # NOUVEAU : Inclure le numéro personnalisé dans la recherche
         ]
         
         # Recherche dans les opérations et matériaux
@@ -838,7 +870,7 @@ def show_projects_detailed_view(projects, crm_manager):
     selected_ids = st.multiselect(
         "Sélectionner des projets:",
         options=[p.get('id') for p in projects],
-        format_func=lambda x: f"#{x} - {next((p.get('nom_projet', 'N/A') for p in projects if p.get('id') == x), 'N/A')}",
+        format_func=lambda x: f"{get_project_display_number(next((p for p in projects if p.get('id') == x), {}))} - {next((p.get('nom_projet', 'N/A') for p in projects if p.get('id') == x), 'N/A')}",
         key="batch_select_detailed"
     )
     
@@ -876,6 +908,7 @@ def show_projects_detailed_view(projects, crm_manager):
     # Affichage des projets
     for i, p in enumerate(projects):
         client_display_name = get_client_display_name(p, crm_manager)
+        project_number = get_project_display_number(p)
         
         # Carte projet
         statut_color = get_status_color(p.get('statut', 'N/A'))
@@ -888,7 +921,7 @@ def show_projects_detailed_view(projects, crm_manager):
         <div class="project-card" style="border-left-color: {statut_color};">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div style="flex: 1;">
-                    <h4>{selected_indicator}#{p.get('id')} - {p.get('nom_projet', 'N/A')}</h4>
+                    <h4>{selected_indicator}{project_number} - {p.get('nom_projet', 'N/A')}</h4>
                     <p><strong>👤 Client:</strong> {client_display_name}</p>
                     <p><strong>📝 Description:</strong> {(p.get('description', 'Aucune description'))[:100]}{'...' if len(p.get('description', '')) > 100 else ''}</p>
                 </div>
@@ -954,10 +987,11 @@ def show_projects_detailed_view(projects, crm_manager):
         st.markdown("---")
 
 def show_projects_table_view(projects, crm_manager):
-    """Vue tableau compacte avec ordre personnalisé : ID, Statut, Priorité, Tâche, No.Projet, Nom, Client, Description, Prix, Début, Durée, Fin, Adresse"""
+    """Vue tableau compacte avec ordre personnalisé : Numéro, Statut, Priorité, Tâche, Nom, Client, Description, Prix, Début, Durée, Fin, Adresse"""
     df_data = []
     for p in projects:
         client_display_name = get_client_display_name(p, crm_manager)
+        project_number = get_project_display_number(p)
         
         # Calcul de la durée en jours
         duree_jours = "N/A"
@@ -981,11 +1015,10 @@ def show_projects_table_view(projects, crm_manager):
                 pass
         
         df_data.append({
-            '🆔 ID': p.get('id', '?'),
+            '📋 Numéro': project_number,
             '🚦 Statut': p.get('statut', 'N/A'),
             '⭐ Priorité': p.get('priorite', 'N/A'),
             '🏷️ Tâche': p.get('tache', 'N/A'),
-            '📋 No. Projet': f"PRJ-{p.get('id', '?')}",
             '📝 Nom Projet': p.get('nom_projet', 'N/A')[:35] + ('...' if len(p.get('nom_projet', '')) > 35 else ''),
             '👤 Client': client_display_name[:25] + ('...' if len(client_display_name) > 25 else ''),
             '📄 Description': (p.get('description', 'N/A')[:40] + ('...' if len(p.get('description', '')) > 40 else '')) if p.get('description') else 'N/A',
@@ -1004,10 +1037,10 @@ def show_projects_table_view(projects, crm_manager):
         use_container_width=True, 
         height=400,
         column_config={
-            "🆔 ID": st.column_config.NumberColumn(
-                "🆔 ID",
-                help="Identifiant unique du projet",
-                width="small",
+            "📋 Numéro": st.column_config.TextColumn(
+                "📋 Numéro",
+                help="Numéro du projet (personnalisé ou automatique)",
+                width="medium",
             ),
             "🚦 Statut": st.column_config.TextColumn(
                 "🚦 Statut",
@@ -1052,12 +1085,13 @@ def show_projects_card_view(projects, crm_manager):
             if i + j < len(projects):
                 p = projects[i + j]
                 client_name = get_client_display_name(p, crm_manager)
+                project_number = get_project_display_number(p)
                 statut_color = get_status_color(p.get('statut', 'N/A'))
                 
                 with col:
                     st.markdown(f"""
                     <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; border-left: 4px solid {statut_color};">
-                        <h5 style="margin: 0 0 0.5rem 0; color: #1e40af;">#{p.get('id')} - {p.get('nom_projet', 'N/A')[:25]}{'...' if len(p.get('nom_projet', '')) > 25 else ''}</h5>
+                        <h5 style="margin: 0 0 0.5rem 0; color: #1e40af;">{project_number} - {p.get('nom_projet', 'N/A')[:25]}{'...' if len(p.get('nom_projet', '')) > 25 else ''}</h5>
                         <p style="margin: 0.25rem 0; font-size: 0.9em;">👤 {client_name[:20]}{'...' if len(client_name) > 20 else ''}</p>
                         <p style="margin: 0.25rem 0; font-size: 0.9em;">🚦 {p.get('statut', 'N/A')} | ⭐ {p.get('priorite', 'N/A')}</p>
                         <p style="margin: 0.25rem 0; font-size: 0.9em;">💰 {format_currency(p.get('prix_estime', 0))}</p>
@@ -1148,7 +1182,8 @@ def handle_batch_actions():
             # Afficher la liste des projets à supprimer
             projects_to_delete = [p for p in gestionnaire.projets if p.get('id') in selected_ids]
             for p in projects_to_delete:
-                st.markdown(f"- **#{p.get('id')}** - {p.get('nom_projet', 'N/A')}")
+                project_number = get_project_display_number(p)
+                st.markdown(f"- **{project_number}** - {p.get('nom_projet', 'N/A')}")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1170,19 +1205,34 @@ def handle_batch_actions():
                     st.rerun()
 
 # ========================
-# GESTIONNAIRE PROJETS SQLite (ORIGINAL)
+# GESTIONNAIRE PROJETS SQLite (MODIFIÉ POUR NUMÉROS PERSONNALISÉS)
 # ========================
 
 class GestionnaireProjetSQL:
     """
     NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite au lieu de JSON
-    Remplace GestionnaireProjetIA pour une architecture unifiée - VERSION CORRIGÉE
+    MODIFIÉ pour supporter les numéros de projets personnalisés
     """
 
     def __init__(self, db: ERPDatabase):
         self.db = db
         self.next_id = 10000  # Commence à 10000 pour professionnalisme
         self._init_next_id()
+        self._ensure_numero_projet_column()
+
+    def _ensure_numero_projet_column(self):
+        """S'assurer que la colonne numero_projet existe"""
+        try:
+            # Vérifier si la colonne existe
+            result = self.db.execute_query("PRAGMA table_info(projects)")
+            columns = [row['name'] for row in result]
+            
+            if 'numero_projet' not in columns:
+                # Ajouter la colonne si elle n'existe pas
+                self.db.execute_update("ALTER TABLE projects ADD COLUMN numero_projet TEXT")
+                print("✅ Colonne numero_projet ajoutée à la table projects")
+        except Exception as e:
+            print(f"⚠️ Erreur lors de l'ajout de la colonne numero_projet: {e}")
 
     def _init_next_id(self):
         """Initialise le prochain ID basé sur les projets existants"""
@@ -1195,6 +1245,21 @@ class GestionnaireProjetSQL:
         except Exception as e:
             st.error(f"Erreur initialisation next_id: {e}")
             self.next_id = 10000
+
+    def numero_projet_exists(self, numero_projet):
+        """Vérifie si un numéro de projet existe déjà"""
+        try:
+            if not numero_projet or not numero_projet.strip():
+                return False
+            
+            result = self.db.execute_query(
+                "SELECT COUNT(*) as count FROM projects WHERE numero_projet = ?",
+                (numero_projet.strip(),)
+            )
+            return result and result[0]['count'] > 0
+        except Exception as e:
+            print(f"Erreur vérification numéro projet: {e}")
+            return False
 
     @property
     def projets(self):
@@ -1250,8 +1315,16 @@ class GestionnaireProjetSQL:
             return []
 
     def ajouter_projet(self, projet_data):
-        """Ajoute un nouveau projet en SQLite - VERSION CORRIGÉE avec validation FK"""
+        """Ajoute un nouveau projet en SQLite - MODIFIÉ pour numéros personnalisés"""
         try:
+            # Récupérer le numéro personnalisé s'il existe
+            numero_projet_personnalise = projet_data.get('numero_projet', '').strip()
+            
+            # Validation du numéro personnalisé
+            if numero_projet_personnalise:
+                if self.numero_projet_exists(numero_projet_personnalise):
+                    raise ValueError(f"Le numéro de projet '{numero_projet_personnalise}' existe déjà")
+            
             project_id = self.next_id
 
             # VALIDATION PRÉALABLE des clés étrangères
@@ -1273,13 +1346,13 @@ class GestionnaireProjetSQL:
                 if not emp_exists or emp_exists[0]['count'] == 0:
                     raise ValueError(f"Employé ID {emp_id} n'existe pas")
 
-            # Insérer projet principal avec gestion NULL
+            # Insérer projet principal avec gestion NULL et numéro personnalisé
             query = '''
                 INSERT INTO projects
-                (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                (id, numero_projet, nom_projet, client_company_id, client_nom_cache, client_legacy,
                  statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
                  prix_estime, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             '''
 
             prix_estime = float(str(projet_data.get('prix_estime', 0)).replace('$', '').replace(',', '')) if projet_data.get('prix_estime') else 0
@@ -1287,16 +1360,17 @@ class GestionnaireProjetSQL:
 
             self.db.execute_update(query, (
                 project_id,
+                numero_projet_personnalise if numero_projet_personnalise else None,  # NOUVEAU : Stocker le numéro personnalisé
                 projet_data['nom_projet'],
                 projet_data.get('client_company_id'),
                 projet_data.get('client_nom_cache'),
                 projet_data.get('client_legacy', ''),
                 projet_data.get('statut', 'À FAIRE'),
                 projet_data.get('priorite', 'MOYEN'),
-                projet_data['tache'],          # <-- Accès direct risqué
+                projet_data['tache'],
                 projet_data.get('date_soumis'),
                 projet_data.get('date_prevu'),
-                bd_ft_estime,                  # <-- Variable calculée à partir de la clé
+                bd_ft_estime,
                 prix_estime,
                 projet_data.get('description')
             ))
@@ -1319,23 +1393,37 @@ class GestionnaireProjetSQL:
             return None
 
     def modifier_projet(self, projet_id, projet_data_update):
-        """Modifie un projet existant"""
+        """Modifie un projet existant - MODIFIÉ pour numéros personnalisés"""
         try:
+            # Validation du numéro personnalisé si modifié
+            if 'numero_projet' in projet_data_update:
+                nouveau_numero = projet_data_update['numero_projet'].strip() if projet_data_update['numero_projet'] else ''
+                if nouveau_numero:
+                    # Vérifier si le numéro n'est pas déjà utilisé par un autre projet
+                    result = self.db.execute_query(
+                        "SELECT COUNT(*) as count FROM projects WHERE numero_projet = ? AND id != ?",
+                        (nouveau_numero, projet_id)
+                    )
+                    if result and result[0]['count'] > 0:
+                        raise ValueError(f"Le numéro de projet '{nouveau_numero}' est déjà utilisé")
+                
             # Préparer les champs à mettre à jour
             update_fields = []
             params = []
 
             for field, value in projet_data_update.items():
-                if field in ['nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
+                if field in ['numero_projet', 'nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
                            'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
                            'bd_ft_estime', 'prix_estime', 'description']:
                     update_fields.append(f"{field} = ?")
 
-                    # Traitement spécial pour les prix
+                    # Traitement spécial pour les prix et numéro projet
                     if field == 'prix_estime':
                         value = float(str(value).replace('$', '').replace(',', '')) if value else 0
                     elif field == 'bd_ft_estime':
                         value = float(value) if value else 0
+                    elif field == 'numero_projet':
+                        value = value.strip() if value else None
 
                     params.append(value)
 
@@ -1358,6 +1446,9 @@ class GestionnaireProjetSQL:
 
             return True
 
+        except ValueError as ve:
+            st.error(f"Erreur validation: {ve}")
+            return False
         except Exception as e:
             st.error(f"Erreur modification projet: {e}")
             return False
@@ -1711,7 +1802,7 @@ def show_portal_home():
                 ERP complet avec authentification sécurisée
             </div>
             <ul class="access-features">
-                <li>📋 Gestion projets</li>
+                <li>📋 Gestion projets (numéros personnalisés)</li>
                 <li>🤝 CRM complet</li>
                 <li>📑 Formulaires DG</li>
                 <li>🏪 Fournisseurs</li>
@@ -2182,7 +2273,7 @@ def show_erp_main():
         st.sidebar.warning("⚠️ Module Kanban - Version interne")
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés<br/>🏭 Module Production Unifié"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés<br/>🏭 Module Production Unifié<br/>📋 Numéros Projets Personnalisés"
 
     # NOUVEAU : Indication module Kanban dans footer sidebar
     if KANBAN_AVAILABLE:
@@ -2613,7 +2704,8 @@ def show_dashboard():
             st.markdown("<div class='info-card'>", unsafe_allow_html=True)
             rc1, rc2, rc3, rc4 = st.columns([3, 2, 2, 1])
             with rc1:
-                st.markdown(f"**#{p.get('id')} - {p.get('nom_projet', 'Sans nom')}**")
+                project_number = get_project_display_number(p)
+                st.markdown(f"**{project_number} - {p.get('nom_projet', 'Sans nom')}**")
                 st.caption(f"📝 {p.get('description', 'N/A')[:100]}...")
             with rc2:
                 client_display_name = p.get('client_nom_cache', 'N/A')
@@ -2652,7 +2744,7 @@ def show_dashboard():
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
-    """Liste des projets avec fonctionnalités CRUD complètes - VERSION FINALE"""
+    """Liste des projets avec fonctionnalités CRUD complètes - VERSION FINALE avec numéros personnalisés"""
     
     # Appliquer les styles CSS supplémentaires
     apply_additional_project_styles()
@@ -2721,7 +2813,7 @@ def show_liste_projets():
             with search_col:
                 recherche = st.text_input(
                     "🔍 Recherche globale:", 
-                    placeholder="Nom, client, description, ID...",
+                    placeholder="Nom, client, description, ID, numéro...",
                     value=st.session_state.get('project_search_term', ''),
                     key="project_search_input"
                 )
@@ -2828,7 +2920,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - VERSION CORRIGÉE avec validation FK"""
+    """FORMULAIRE CRÉATION PROJET - VERSION AVEC NUMÉROS PERSONNALISÉS"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -2842,6 +2934,44 @@ def render_create_project_form(gestionnaire, crm_manager):
         st.rerun()
 
     with st.form("create_form", clear_on_submit=True):
+        # NOUVEAU : Section Numérotation
+        st.markdown("#### 🔢 Numérotation du Projet")
+        
+        col_num1, col_num2 = st.columns([1, 2])
+        with col_num1:
+            mode_numerotation = st.radio(
+                "Mode de numérotation:",
+                ["🤖 Automatique", "✏️ Personnalisé"],
+                index=0,
+                key="numero_mode_create"
+            )
+        
+        with col_num2:
+            if mode_numerotation == "✏️ Personnalisé":
+                st.markdown('<div class="custom-number-field">', unsafe_allow_html=True)
+                numero_personnalise = st.text_input(
+                    "Numéro personnalisé:",
+                    placeholder="Ex: 2024-DG-001, SPECIAL-123, etc.",
+                    key="numero_personnalise_create",
+                    help="Format libre: lettres, chiffres, tirets autorisés"
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Validation en temps réel
+                if numero_personnalise:
+                    if gestionnaire.numero_projet_exists(numero_personnalise):
+                        st.error(f"❌ Le numéro '{numero_personnalise}' existe déjà")
+                    else:
+                        st.success(f"✅ Numéro '{numero_personnalise}' disponible")
+            else:
+                numero_personnalise = ""
+                next_auto_id = gestionnaire.next_id
+                st.markdown(f'<div class="auto-number-info">📋 Prochain numéro automatique: <strong>#{next_auto_id}</strong></div>', unsafe_allow_html=True)
+
+        st.markdown("---")
+        
+        # Informations principales du projet
+        st.markdown("#### 📋 Informations du Projet")
         fc1, fc2 = st.columns(2)
         with fc1:
             nom = st.text_input("Nom *:")
@@ -2902,6 +3032,8 @@ def render_create_project_form(gestionnaire, crm_manager):
                 st.error("Client (entreprise ou nom direct) obligatoire.")
             elif d_fin < d_debut:
                 st.error("Date fin < date début.")
+            elif mode_numerotation == "✏️ Personnalisé" and numero_personnalise and gestionnaire.numero_projet_exists(numero_personnalise):
+                st.error(f"Le numéro '{numero_personnalise}' existe déjà.")
             else:
                 # VALIDATION CLÉS ÉTRANGÈRES
                 client_company_id = None
@@ -2937,6 +3069,7 @@ def render_create_project_form(gestionnaire, crm_manager):
 
                 # DONNÉES PROJET VALIDÉES
                 data = {
+                    'numero_projet': numero_personnalise if mode_numerotation == "✏️ Personnalisé" and numero_personnalise else "",  # NOUVEAU
                     'nom_projet': nom,
                     'client_company_id': client_company_id,  # NULL si client direct
                     'client_nom_cache': client_nom_cache_val,
@@ -2966,7 +3099,9 @@ def render_create_project_form(gestionnaire, crm_manager):
                                         projets_existants.append(pid)
                                         gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
 
-                        st.success(f"✅ Projet #{pid} créé avec {len(employes_valides)} employé(s) assigné(s) !")
+                        # Message de succès avec numéro d'affichage approprié
+                        numero_affichage = numero_personnalise if numero_personnalise else f"#{pid}"
+                        st.success(f"✅ Projet {numero_affichage} créé avec {len(employes_valides)} employé(s) assigné(s) !")
                         st.session_state.show_create_project = False
                         st.rerun()
                     else:
@@ -2983,13 +3118,63 @@ def render_create_project_form(gestionnaire, crm_manager):
     st.markdown("</div>", unsafe_allow_html=True)
 
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
-    """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE"""
+    """Formulaire d'édition de projet - VERSION AVEC NUMÉROS PERSONNALISÉS"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.markdown(f"### ✏️ Modifier Projet #{project_data.get('id')}")
+    st.markdown(f"### ✏️ Modifier Projet {get_project_display_number(project_data)}")
 
     with st.form("edit_form", clear_on_submit=True):
+        # NOUVEAU : Section Numérotation pour modification
+        st.markdown("#### 🔢 Numérotation du Projet")
+        
+        current_numero_personnalise = project_data.get('numero_projet', '')
+        has_custom_number = bool(current_numero_personnalise and current_numero_personnalise.strip())
+        
+        col_num1, col_num2 = st.columns([1, 2])
+        with col_num1:
+            if has_custom_number:
+                mode_numerotation = st.radio(
+                    "Mode de numérotation:",
+                    ["✏️ Personnalisé", "🤖 Convertir vers automatique"],
+                    index=0,
+                    key="numero_mode_edit"
+                )
+            else:
+                mode_numerotation = st.radio(
+                    "Mode de numérotation:",
+                    ["🤖 Automatique", "✏️ Personnalisé"],
+                    index=0,
+                    key="numero_mode_edit"
+                )
+        
+        with col_num2:
+            if mode_numerotation == "✏️ Personnalisé":
+                st.markdown('<div class="custom-number-field">', unsafe_allow_html=True)
+                numero_personnalise = st.text_input(
+                    "Numéro personnalisé:",
+                    value=current_numero_personnalise,
+                    placeholder="Ex: 2024-DG-001, SPECIAL-123, etc.",
+                    key="numero_personnalise_edit",
+                    help="Format libre: lettres, chiffres, tirets autorisés"
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Validation en temps réel
+                if numero_personnalise and numero_personnalise != current_numero_personnalise:
+                    if gestionnaire.numero_projet_exists(numero_personnalise):
+                        st.error(f"❌ Le numéro '{numero_personnalise}' existe déjà")
+                    else:
+                        st.success(f"✅ Numéro '{numero_personnalise}' disponible")
+            else:
+                numero_personnalise = ""
+                current_id = project_data.get('id')
+                st.markdown(f'<div class="auto-number-info">📋 Numéro automatique actuel: <strong>#{current_id}</strong></div>', unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # Informations principales du projet
+        st.markdown("#### 📋 Informations du Projet")
         fc1, fc2 = st.columns(2)
 
         with fc1:
@@ -3051,7 +3236,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -3100,6 +3285,8 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
                 st.error("Nom du projet et Client obligatoires.")
             elif d_fin < d_debut:
                 st.error("Date fin < date début.")
+            elif mode_numerotation == "✏️ Personnalisé" and numero_personnalise and numero_personnalise != current_numero_personnalise and gestionnaire.numero_projet_exists(numero_personnalise):
+                st.error(f"Le numéro '{numero_personnalise}' existe déjà.")
             else:
                 # Détermination du nom du client pour cache
                 client_nom_cache_val = ""
@@ -3112,6 +3299,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
 
                 # Préparation des données de mise à jour
                 update_data = {
+                    'numero_projet': numero_personnalise if mode_numerotation == "✏️ Personnalisé" else "",  # NOUVEAU
                     'nom_projet': nom,
                     'client_company_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
                     'client_nom_cache': client_nom_cache_val,
@@ -3151,7 +3339,9 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
                                         projets_existants.append(project_data['id'])
                                         gestionnaire_employes.modifier_employe(emp_id, {'projets_assignes': projets_existants})
 
-                    st.success(f"✅ Projet #{project_data['id']} modifié avec succès !")
+                    # Message de succès avec numéro d'affichage approprié
+                    numero_affichage = numero_personnalise if numero_personnalise else f"#{project_data['id']}"
+                    st.success(f"✅ Projet {numero_affichage} modifié avec succès !")
                     st.session_state.show_edit_project = False
                     st.session_state.edit_project_data = None
                     st.rerun()
@@ -3173,14 +3363,15 @@ def render_delete_confirmation(gestionnaire):
     project = next((p for p in gestionnaire.projets if p.get('id') == project_id), None)
 
     if project:
-        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer le projet **#{project.get('id')} - {project.get('nom_projet', 'N/A')}** ?")
+        project_number = get_project_display_number(project)
+        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer le projet **{project_number} - {project.get('nom_projet', 'N/A')}** ?")
         st.markdown("Cette action est **irréversible** et supprimera toutes les données associées (opérations, matériaux, assignations).")
 
         dcol1, dcol2 = st.columns(2)
         with dcol1:
             if st.button("🗑️ Confirmer Suppression", use_container_width=True):
                 if gestionnaire.supprimer_projet(project_id):
-                    st.success(f"✅ Projet #{project_id} supprimé avec succès !")
+                    st.success(f"✅ Projet {project_number} supprimé avec succès !")
                     st.session_state.show_delete_confirmation = False
                     st.session_state.delete_project_id = None
                     st.rerun()
@@ -3268,8 +3459,9 @@ def show_gantt():
                 elif client_display_name_gantt == 'N/A':
                     client_display_name_gantt = p.get('client_legacy', 'N/A')
 
+                project_number = get_project_display_number(p)
                 gantt_data.append({
-                    'Projet': f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}",
+                    'Projet': f"{project_number} - {p.get('nom_projet', 'N/A')}",
                     'Début': s_date,
                     'Fin': e_date,
                     'Client': client_display_name_gantt,
@@ -3366,12 +3558,15 @@ def show_calendrier():
             if client_display_name_cal == 'N/A':
                  client_display_name_cal = p.get('client_legacy', 'N/A')
 
+            project_number = get_project_display_number(p)
+
             if s_date_obj:
                 if s_date_obj not in events_by_date:
                     events_by_date[s_date_obj] = []
                 events_by_date[s_date_obj].append({
                     'type': '🚀 Début',
                     'projet': p.get('nom_projet', 'N/A'),
+                    'numero': project_number,
                     'id': p.get('id'),
                     'client': client_display_name_cal,
                     'color_class': 'event-type-debut'
@@ -3382,6 +3577,7 @@ def show_calendrier():
                 events_by_date[e_date_obj].append({
                     'type': '🏁 Fin',
                     'projet': p.get('nom_projet', 'N/A'),
+                    'numero': project_number,
                     'id': p.get('id'),
                     'client': client_display_name_cal,
                     'color_class': 'event-type-fin'
@@ -3415,7 +3611,7 @@ def show_calendrier():
                 events_html = ""
                 if day_date_obj in events_by_date:
                     for event in events_by_date[day_date_obj]:
-                        events_html += f"<div class='calendar-event-item {event['color_class']}' title='{event['projet']}'>{event['type']} P#{event['id']}</div>"
+                        events_html += f"<div class='calendar-event-item {event['color_class']}' title='{event['projet']}'>{event['type']} {event['numero']}</div>"
 
                 cell_html = f"""
                 <div class='{' '.join(day_classes)}'>
@@ -3448,7 +3644,7 @@ def show_kanban_legacy():
 
     # Logique de filtrage
     with st.expander("🔍 Filtres", expanded=False):
-        recherche = st.text_input("Rechercher par nom, client...", key="kanban_search")
+        recherche = st.text_input("Rechercher par nom, client, numéro...", key="kanban_search")
 
     projets_filtres = gestionnaire.projets
     if recherche:
@@ -3457,6 +3653,7 @@ def show_kanban_legacy():
             p for p in projets_filtres if
             terme in str(p.get('nom_projet', '')).lower() or
             terme in str(p.get('client_nom_cache', '')).lower() or
+            terme in str(p.get('numero_projet', '')).lower() or
             (p.get('client_company_id') and crm_manager.get_entreprise_by_id(p.get('client_company_id')) and terme in crm_manager.get_entreprise_by_id(p.get('client_company_id')).get('nom', '').lower()) or
             terme in str(p.get('client_legacy', '')).lower()
         ]
@@ -3478,9 +3675,10 @@ def show_kanban_legacy():
     if st.session_state.dragged_project_id:
         proj_dragged = next((p for p in gestionnaire.projets if p['id'] == st.session_state.dragged_project_id), None)
         if proj_dragged:
+            project_number = get_project_display_number(proj_dragged)
             st.markdown(f"""
             <div class="kanban-drag-indicator">
-                🔄 Déplacement en cours: <strong>#{proj_dragged['id']} - {proj_dragged['nom_projet']}</strong>
+                🔄 Déplacement en cours: <strong>{project_number} - {proj_dragged['nom_projet']}</strong>
             </div>
             """, unsafe_allow_html=True)
             if st.sidebar.button("❌ Annuler le déplacement", use_container_width=True):
@@ -3532,10 +3730,12 @@ def show_kanban_legacy():
                 elif client_display_name_kanban == 'N/A':
                     client_display_name_kanban = pk.get('client_legacy', 'N/A')
 
+                project_number = get_project_display_number(pk)
+
                 # Affichage de la carte
                 st.markdown(f"""
                 <div class='kanban-card' style='border-left-color:{card_borders_k.get(prio_k, 'var(--border-color)')};'>
-                    <div class='kanban-card-title'>#{pk.get('id')} - {pk.get('nom_projet', 'N/A')}</div>
+                    <div class='kanban-card-title'>{project_number} - {pk.get('nom_projet', 'N/A')}</div>
                     <div class='kanban-card-info'>👤 {client_display_name_kanban}</div>
                     <div class='kanban-card-info'>{prio_icons_k.get(prio_k, '⚪')} {prio_k}</div>
                     <div class='kanban-card-info'>💰 {format_currency(pk.get('prix_estime', 0))}</div>
@@ -3572,25 +3772,27 @@ def show_kanban_legacy():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_project_modal():
-    """Affichage des détails d'un projet dans un expander - MODIFIÉ avec opérations complètes BT incluses"""
+    """Affichage des détails d'un projet dans un expander - MODIFIÉ avec opérations complètes BT incluses et numéros personnalisés"""
     if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
         return
 
     proj_mod = st.session_state.selected_project
+    project_number = get_project_display_number(proj_mod)
 
-    with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')}", expanded=True):
+    with st.expander(f"📁 Détails Projet {project_number} - {proj_mod.get('nom_projet', 'N/A')}", expanded=True):
         if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
             st.session_state.show_project_modal = False
             st.rerun()
 
         st.markdown("---")
 
-        # Informations principales (inchangé)
+        # Informations principales (modifié pour inclure le numéro personnalisé)
         mc1, mc2 = st.columns(2)
         with mc1:
             st.markdown(f"""
             <div class='info-card'>
                 <h4>📋 {proj_mod.get('nom_projet', 'N/A')}</h4>
+                <p><strong>🔢 Numéro:</strong> {project_number}</p>
                 <p><strong>👤 Client:</strong> {proj_mod.get('client_nom_cache', 'N/A')}</p>
                 <p><strong>🚦 Statut:</strong> {proj_mod.get('statut', 'N/A')}</p>
                 <p><strong>⭐ Priorité:</strong> {proj_mod.get('priorite', 'N/A')}</p>
@@ -3807,7 +4009,7 @@ def show_footer():
 # ========================
 
 def main():
-    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ"""
+    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ avec numéros personnalisés"""
 
     # NOUVEAU : Charger le CSS externe en priorité
     css_loaded = load_external_css()
@@ -3958,9 +4160,11 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE")
-print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
-print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
-print("✅ Module Kanban unifié intégré avec fallback")
-print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
-print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
+print("🎯 CHECKPOINT FINAL - NUMÉROS PROJETS PERSONNALISÉS INTÉGRÉS")
+print("✅ Modification de GestionnaireProjetSQL pour supporter les numéros personnalisés")
+print("✅ Formulaires de création et modification mis à jour")
+print("✅ Interface utilisateur avec validation en temps réel")
+print("✅ Fonctions utilitaires mises à jour (affichage, recherche, export)")
+print("✅ Styles CSS ajoutés pour l'interface de numérotation")
+print("✅ Gestion des doublons et validation complète")
+print("🚀 PRÊT POUR DÉPLOIEMENT - Version complète avec numéros personnalisés")
