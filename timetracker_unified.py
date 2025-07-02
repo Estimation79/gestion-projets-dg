@@ -1,8 +1,4 @@
 # timetracker_unified.py - Système de Pointage sur Opérations pour ERP Production DG Inc.
-# VERSION OPÉRATIONS UNIQUEMENT - Pointage granulaire sur opérations des Bons de Travail
-# Utilise directement erp_database.py pour un punch spécialisé et efficace
-# Support complet du pointage sur opérations et tâches BT depuis formulaire_lignes
-# NOUVEAU: Gestion d'historique en mode administrateur avec suppressions sécurisées
 
 import streamlit as st
 import pandas as pd
@@ -24,6 +20,7 @@ class TimeTrackerUnified:
     Support complet des tâches BT depuis formulaire_lignes
     Avec méthodes de diagnostic intégrées
     NOUVEAU: Gestion administrative avec suppression d'historique
+    NOUVEAU: Interface double - Mode Superviseur et Mode Employé
     """
     
     def __init__(self, db):
@@ -1656,48 +1653,15 @@ class TimeTrackerUnified:
             return 0
 
 # =========================================================================
-# INTERFACE STREAMLIT PRINCIPALE - MODE OPÉRATIONS UNIQUEMENT
-# =========================================================================
-
-def show_timetracker_unified_interface():
-    """Interface principale du TimeTracker unifié - MODE OPÉRATIONS UNIQUEMENT"""
-    
-    if 'timetracker_unified' not in st.session_state:
-        st.error("❌ TimeTracker non initialisé")
-        return
-    
-    tt = st.session_state.timetracker_unified
-    
-    st.markdown("### ⏱️ TimeTracker Unifié - Pointage sur Opérations")
-    st.info("🔧 **Pointage granulaire sur les opérations spécifiques des Bons de Travail**")
-    
-    # Onglets pour le mode opérations
-    tab_operations, tab_history_op, tab_stats_op, tab_admin = st.tabs([
-        "🔧 Pointage Opérations", "📊 Historique", "📈 Statistiques", "⚙️ Administration"
-    ])
-    
-    with tab_operations:
-        show_operation_punch_interface(tt)
-    
-    with tab_history_op:
-        show_history_interface_operations(tt)
-    
-    with tab_stats_op:
-        show_operation_statistics_interface(tt)
-    
-    with tab_admin:
-        show_admin_interface(tt)
-
-# =========================================================================
-# INTERFACES MODE OPÉRATIONS - POINTAGE GRANULAIRE
+# INTERFACES MODE SUPERVISEUR - INTERFACE COMPLÈTE ORIGINALE
 # =========================================================================
 
 def show_operation_punch_interface(tt):
-    """Interface de pointage avancée avec sélection d'opérations"""
+    """Interface de pointage avancée avec sélection d'opérations - Version Superviseur/Admin"""
     
     st.markdown("#### 🔧 Pointage sur Opérations")
     
-    # Section employés actifs avec opérations
+    # Section employés actifs avec opérations (TOUS les employés - Version Superviseur)
     active_employees = tt.get_active_employees_with_operations()
     if active_employees:
         st.markdown("##### 🟢 Employés Pointés sur Opérations")
@@ -1834,6 +1798,270 @@ def show_operation_punch_interface(tt):
                     st.rerun()
                 else:
                     st.error("❌ Erreur pointage sortie")
+
+# =========================================================================
+# INTERFACES MODE EMPLOYÉ - INTERFACE FILTRÉE NOUVELLE
+# =========================================================================
+
+def show_employee_punch_interface(tt):
+    """Interface de pointage spécifique aux EMPLOYÉS - Vue filtrée par employé sélectionné"""
+    
+    st.markdown("#### 👤 Interface Employé - Pointage sur Opérations")
+    st.info("🔧 **Interface simplifiée pour les employés** - Pointage granulaire sur opérations")
+    
+    # Section sélection employé d'abord
+    st.markdown("##### 👤 Sélection Employé")
+    
+    employees = tt.get_all_employees()
+    if not employees:
+        st.warning("Aucun employé trouvé")
+        return
+    
+    employee_options = {emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees}
+    selected_employee_id = st.selectbox(
+        "👤 Sélectionner Employé:",
+        options=list(employee_options.keys()),
+        format_func=lambda x: employee_options[x],
+        key="employee_punch_op_employee_select"
+    )
+    
+    # Section employé pointé (seulement celui sélectionné)
+    active_employees = tt.get_active_employees_with_operations()
+    selected_active_employee = [emp for emp in active_employees if emp['id'] == selected_employee_id]
+    
+    if selected_active_employee:
+        st.markdown("##### 🟢 Votre Pointage Actuel")
+        
+        emp = selected_active_employee[0]
+        col1, col2, col3, col4 = st.columns([3, 4, 2, 2])
+        
+        with col1:
+            st.write(f"**{emp['name']}**")
+            st.caption(emp['poste'])
+        
+        with col2:
+            # Affichage hiérarchique de l'opération
+            if emp['bt_numero']:
+                st.write(f"📋 **BT {emp['bt_numero']}**")
+                st.caption(f"Projet: {emp['nom_projet']}")
+            else:
+                st.write(f"📋 **{emp['nom_projet']}**")
+            
+            if emp['operation_description']:
+                st.write(f"🔧 **Op.{emp['sequence_number']:02d}:** {emp['operation_description']}")
+                if emp['work_center_name']:
+                    st.caption(f"🏭 {emp['work_center_name']}")
+            else:
+                st.caption("Opération générale")
+            
+            st.caption(f"Depuis: {emp['punch_in'][:16]}")
+        
+        with col3:
+            st.metric("Heures", f"{emp['hours_worked']:.1f}h")
+        
+        with col4:
+            if st.button("🔴 Pointer Sortie", key=f"employee_out_op_{emp['id']}", use_container_width=True, type="primary"):
+                notes = st.text_input(f"Notes sortie:", key=f"employee_notes_out_op_{emp['id']}")
+                if tt.punch_out(emp['id'], notes):
+                    st.success(f"✅ Pointage terminé !")
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur pointage sortie")
+        
+        st.markdown("---")
+    
+    # Section nouveau pointage sur opération
+    st.markdown("##### ➕ Nouveau Pointage sur Opération")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.info(f"👤 **Employé sélectionné:** {employee_options[selected_employee_id]}")
+    
+    with col2:
+        # Sélection hiérarchique : Projet/BT puis Opération
+        operations_hierarchy = tt.get_available_operations_hierarchical()
+        
+        if not operations_hierarchy:
+            st.warning("Aucune opération disponible")
+            return
+        
+        # Premier niveau : Projet/BT
+        project_bt_options = list(operations_hierarchy.keys())
+        selected_project_bt = st.selectbox(
+            "📋 Sélectionner Projet/BT:",
+            options=project_bt_options,
+            key="employee_punch_op_project_bt_select"
+        )
+    
+    # Deuxième niveau : Opération
+    if selected_project_bt and selected_project_bt in operations_hierarchy:
+        available_operations = operations_hierarchy[selected_project_bt]
+        
+        if available_operations:
+            operation_options = {op['id']: op['display_name'] for op in available_operations}
+            selected_operation_id = st.selectbox(
+                "🔧 Sélectionner Opération:",
+                options=list(operation_options.keys()),
+                format_func=lambda x: operation_options[x],
+                key="employee_punch_op_operation_select"
+            )
+            
+            # Afficher les détails de l'opération sélectionnée
+            selected_op_details = next((op for op in available_operations if op['id'] == selected_operation_id), None)
+            if selected_op_details:
+                col_det1, col_det2, col_det3 = st.columns(3)
+                col_det1.metric("Temps Estimé", f"{selected_op_details['temps_estime']:.1f}h")
+                col_det2.metric("Poste", selected_op_details['work_center'] or "N/A")
+                col_det3.metric("Statut", selected_op_details['statut'])
+        else:
+            st.warning("Aucune opération disponible pour ce projet/BT")
+            return
+    else:
+        st.warning("Sélectionnez un projet/BT")
+        return
+    
+    # Notes et action
+    notes = st.text_input("📝 Notes (optionnel):", key="employee_punch_op_notes")
+    
+    col_btn1, col_btn2 = st.columns(2)
+    
+    with col_btn1:
+        if st.button("🟢 Pointer sur Opération", use_container_width=True, type="primary"):
+            # Vérifier si l'employé est déjà pointé
+            active_punch = tt.get_active_punch(selected_employee_id)
+            if active_punch:
+                current_op = active_punch.get('operation_description', 'Tâche générale')
+                st.error(f"❌ {employee_options[selected_employee_id].split(' (')[0]} est déjà pointé sur: {current_op}")
+            else:
+                entry_id = tt.punch_in_operation(selected_employee_id, selected_operation_id, notes)
+                if entry_id:
+                    st.success(f"✅ Pointage sur opération démarré ! ID: {entry_id}")
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors du pointage sur opération")
+    
+    with col_btn2:
+        if st.button("🔴 Pointer Sortie", use_container_width=True):
+            active_punch = tt.get_active_punch(selected_employee_id)
+            if not active_punch:
+                st.error(f"❌ {employee_options[selected_employee_id].split(' (')[0]} n'est pas pointé")
+            else:
+                if tt.punch_out(selected_employee_id, notes):
+                    st.success("✅ Pointage terminé !")
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur pointage sortie")
+
+def show_employee_history_interface(tt):
+    """Interface d'historique simplifiée pour les employés"""
+    
+    st.markdown("#### 📊 Mon Historique de Pointages")
+    
+    # Sélection employé
+    employees = tt.get_all_employees()
+    if not employees:
+        st.warning("Aucun employé trouvé")
+        return
+    
+    employee_options = {emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees}
+    selected_employee_id = st.selectbox(
+        "👤 Sélectionner Employé:",
+        options=list(employee_options.keys()),
+        format_func=lambda x: employee_options[x],
+        key="employee_hist_select"
+    )
+    
+    # Filtres simples
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        days_filter = st.selectbox("📅 Période:", [7, 14, 30], index=1, key="employee_hist_days")
+    
+    with col2:
+        show_operations_only = st.checkbox("🔧 Opérations seulement", value=True, key="employee_hist_ops_only")
+    
+    # Récupérer l'historique pour cet employé uniquement
+    history = tt.get_punch_history(selected_employee_id, days_filter)
+    
+    # Filtrer pour opérations seulement si demandé
+    if show_operations_only:
+        history = [h for h in history if h.get('operation_description')]
+    
+    if not history:
+        st.info(f"Aucun pointage trouvé pour {employee_options[selected_employee_id].split(' (')[0]}")
+        return
+    
+    # Résumé personnel
+    total_sessions = len(history)
+    completed_sessions = len([h for h in history if h['punch_out'] is not None])
+    total_hours = sum(h['total_hours'] or 0 for h in history)
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Mes Sessions", total_sessions)
+    col2.metric("Terminées", completed_sessions)
+    col3.metric("Mes Heures", f"{total_hours:.1f}h")
+    
+    # Tableau simplifié
+    st.markdown("##### 📋 Mes Pointages")
+    
+    df_data = []
+    for h in history:
+        # Formatage pour employé
+        if h['operation_description']:
+            task_display = f"Op.{h['sequence_number']:02d}: {h['operation_description']}"
+            if h['work_center_name']:
+                task_display += f" ({h['work_center_name']})"
+        else:
+            task_display = "Tâche générale"
+        
+        project_display = f"{h['nom_projet']}"
+        if h['bt_numero']:
+            project_display += f" - BT {h['bt_numero']}"
+        
+        # Statut et durée
+        if h['punch_out'] is None and h['punch_in']:
+            try:
+                start_time = datetime.fromisoformat(h['punch_in'])
+                current_duration = (datetime.now() - start_time).total_seconds() / 3600
+                status = f"🟢 En cours"
+                hours_display = f"{current_duration:.1f}h"
+            except:
+                status = "🟢 En cours"
+                hours_display = "En cours"
+        else:
+            status = "✅ Terminé"
+            hours_display = f"{h['total_hours']:.1f}h" if h['total_hours'] else "0h"
+        
+        df_data.append({
+            'Date': h['date_travail'],
+            'Statut': status,
+            'Projet': project_display,
+            'Opération': task_display,
+            'Début': h['punch_in'][-8:-3] if h['punch_in'] else 'N/A',
+            'Fin': h['punch_out'][-8:-3] if h['punch_out'] else 'En cours',
+            'Durée': hours_display,
+            'Notes': h['notes'] or ''
+        })
+    
+    if df_data:
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Bouton export personnel
+        if st.button("📥 Exporter Mon Historique", use_container_width=True):
+            csv = df.to_csv(index=False)
+            employee_name = employee_options[selected_employee_id].split(' (')[0].replace(' ', '_')
+            st.download_button(
+                label="💾 Télécharger CSV",
+                data=csv,
+                file_name=f"historique_{employee_name}_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+
+# =========================================================================
+# INTERFACES COMMUNES - SUPERVISEUR ET EMPLOYÉ
+# =========================================================================
 
 def show_history_interface_operations(tt):
     """Interface d'historique adaptée pour les opérations"""
@@ -2069,7 +2297,7 @@ def show_operation_statistics_interface(tt):
         st.info("Aucune opération disponible pour les statistiques")
 
 # =========================================================================
-# INTERFACE ADMINISTRATEUR - NOUVELLE SECTION
+# INTERFACE ADMINISTRATEUR - SECTION SUPERVISEUR SEULEMENT
 # =========================================================================
 
 def show_admin_interface(tt):
@@ -2381,9 +2609,86 @@ def show_admin_interface(tt):
                         st.write(f"- {erreur}")
 
 # =========================================================================
+# INTERFACE PRINCIPALE UNIFIÉE - AVEC SÉLECTEUR DE MODE
+# =========================================================================
+
+def show_timetracker_unified_interface():
+    """Interface principale du TimeTracker unifié - Choix entre mode Superviseur et Employé"""
+    
+    if 'timetracker_unified' not in st.session_state:
+        st.error("❌ TimeTracker non initialisé")
+        return
+    
+    tt = st.session_state.timetracker_unified
+    
+    st.markdown("### ⏱️ TimeTracker Unifié - Pointage sur Opérations")
+    
+    # Sélecteur de mode utilisateur
+    col_mode1, col_mode2 = st.columns(2)
+    
+    with col_mode1:
+        user_mode = st.radio(
+            "👥 Choisir le mode d'interface:",
+            options=["superviseur", "employee"],
+            format_func=lambda x: "🔧 Superviseur/Admin (voir tous les employés)" if x == "superviseur" else "👤 Employé (vue personnelle)",
+            key="timetracker_user_mode",
+            horizontal=True
+        )
+    
+    with col_mode2:
+        if user_mode == "superviseur":
+            st.info("🔧 **Mode Superviseur** - Gestion complète avec vue sur tous les employés pointés")
+        else:
+            st.info("👤 **Mode Employé** - Interface simplifiée avec vue filtrée par employé sélectionné")
+    
+    # Afficher l'interface selon le mode sélectionné
+    if user_mode == "superviseur":
+        # Mode superviseur - Interface complète avec tous les employés
+        tab_operations, tab_history_op, tab_stats_op, tab_admin = st.tabs([
+            "🔧 Pointage Opérations", "📊 Historique", "📈 Statistiques", "⚙️ Administration"
+        ])
+        
+        with tab_operations:
+            show_operation_punch_interface(tt)
+        
+        with tab_history_op:
+            show_history_interface_operations(tt)
+        
+        with tab_stats_op:
+            show_operation_statistics_interface(tt)
+        
+        with tab_admin:
+            show_admin_interface(tt)
+    
+    else:
+        # Mode employé - Interface simplifiée
+        tab_employee_punch, tab_employee_history = st.tabs([
+            "👤 Mon Pointage", "📊 Mon Historique"
+        ])
+        
+        with tab_employee_punch:
+            show_employee_punch_interface(tt)
+        
+        with tab_employee_history:
+            # Interface historique simplifiée pour employés
+            show_employee_history_interface(tt)
+
+# =========================================================================
 # FONCTION PRINCIPALE D'AFFICHAGE
 # =========================================================================
 
 def show_timetracker_unified_interface_main():
-    """Point d'entrée principal pour l'interface (appelé depuis app.py)"""
+    """
+    Point d'entrée principal pour l'interface (appelé depuis app.py)
+    
+    NOUVELLES FONCTIONNALITÉS:
+    - Mode Superviseur: Interface complète avec vue sur tous les employés pointés
+    - Mode Employé: Interface simplifiée avec vue filtrée par employé sélectionné
+    
+    Fonctions disponibles:
+    - show_timetracker_unified_interface(): Interface principale avec sélecteur de mode
+    - show_operation_punch_interface(): Interface superviseur (tous les employés)
+    - show_employee_punch_interface(): Interface employé (vue filtrée)
+    - show_employee_history_interface(): Historique simplifié pour employés
+    """
     show_timetracker_unified_interface()
