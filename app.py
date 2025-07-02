@@ -1175,7 +1175,7 @@ def handle_batch_actions():
 
 class GestionnaireProjetSQL:
     """
-    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite avec support ID personnalisé
+    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite avec support ID alphanumériqueе
     """
 
     def __init__(self, db: ERPDatabase):
@@ -1184,38 +1184,205 @@ class GestionnaireProjetSQL:
         self._init_next_id()
 
     def _init_next_id(self):
-        """Initialise le prochain ID basé sur les projets existants"""
+        """Initialise le prochain ID numérique basé sur les projets existants"""
         try:
-            result = self.db.execute_query("SELECT MAX(id) as max_id FROM projects")
-            if result and result[0]['max_id']:
-                self.next_id = max(result[0]['max_id'] + 1, 10000)
+            # Pour les IDs automatiques, on cherche le plus grand ID numérique
+            result = self.db.execute_query("""
+                SELECT id FROM projects 
+                WHERE id GLOB '[0-9]*' 
+                ORDER BY CAST(id AS INTEGER) DESC 
+                LIMIT 1
+            """)
+            if result and result[0]['id']:
+                max_numeric_id = int(result[0]['id'])
+                self.next_id = max(max_numeric_id + 1, 10000)
             else:
                 self.next_id = 10000
         except Exception as e:
-            st.error(f"Erreur initialisation next_id: {e}")
+            print(f"Erreur initialisation next_id: {e}")
             self.next_id = 10000
 
     def check_project_id_exists(self, project_id):
-        """Vérifie si un ID de projet existe déjà"""
+        """Vérifie si un ID de projet existe déjà (alphanumériqueе ou numérique)"""
         try:
-            result = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE id = ?", (project_id,))
+            result = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE id = ?", (str(project_id),))
             return result and result[0]['count'] > 0
         except Exception:
             return True  # En cas d'erreur, considérer comme existant pour éviter les conflits
 
-    @property
-    def projets(self):
-        """Propriété pour maintenir compatibilité avec l'ancien code"""
-        return self.get_all_projects()
+    def ajouter_projet(self, projet_data, custom_id=None):
+        """
+        Ajoute un nouveau projet en SQLite avec support ID alphanumériqueе
+        
+        Args:
+            projet_data: Données du projet
+            custom_id: ID personnalisé optionnel (peut être alphanumériqueе)
+        """
+        try:
+            # Déterminer l'ID du projet
+            if custom_id is not None:
+                # Validation de l'ID personnalisé (alphanumériqueе)
+                project_id = str(custom_id).strip()
+                if not project_id:
+                    raise ValueError("L'ID ne peut pas être vide")
+                
+                # Vérifier que l'ID n'existe pas déjà
+                if self.check_project_id_exists(project_id):
+                    raise ValueError(f"Le projet #{project_id} existe déjà")
+                
+                # Si c'est un ID numérique, ajuster next_id si nécessaire
+                try:
+                    numeric_id = int(project_id)
+                    if numeric_id >= self.next_id:
+                        self.next_id = numeric_id + 1
+                except ValueError:
+                    # ID non numérique, pas besoin d'ajuster next_id
+                    pass
+            else:
+                # Utiliser l'auto-incrémentation numérique
+                project_id = str(self.next_id)
+                self.next_id += 1
+
+            # VALIDATION PRÉALABLE des clés étrangères
+            if projet_data.get('client_company_id'):
+                company_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM companies WHERE id = ?",
+                    (projet_data['client_company_id'],)
+                )
+                if not company_exists or company_exists[0]['count'] == 0:
+                    raise ValueError(f"Entreprise ID {projet_data['client_company_id']} n'existe pas")
+
+            # Validation employés assignés
+            employes_assignes = projet_data.get('employes_assignes', [])
+            for emp_id in employes_assignes:
+                emp_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM employees WHERE id = ?",
+                    (emp_id,)
+                )
+                if not emp_exists or emp_exists[0]['count'] == 0:
+                    raise ValueError(f"Employé ID {emp_id} n'existe pas")
+
+            # Insérer projet principal avec gestion NULL
+            # IMPORTANT: Utiliser l'ID comme TEXT pour supporter les formats alphanumériques
+            query = '''
+                INSERT INTO projects
+                (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                 statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
+                 prix_estime, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+
+            prix_estime = float(str(projet_data.get('prix_estime', 0)).replace('$', '').replace(',', '')) if projet_data.get('prix_estime') else 0
+            bd_ft_estime = float(projet_data.get('bd_ft_estime', 0)) if projet_data.get('bd_ft_estime') else 0
+
+            self.db.execute_update(query, (
+                project_id,  # Maintenant stocké comme TEXT
+                projet_data['nom_projet'],
+                projet_data.get('client_company_id'),
+                projet_data.get('client_nom_cache'),
+                projet_data.get('client_legacy', ''),
+                projet_data.get('statut', 'À FAIRE'),
+                projet_data.get('priorite', 'MOYEN'),
+                projet_data['tache'],
+                projet_data.get('date_soumis'),
+                projet_data.get('date_prevu'),
+                bd_ft_estime,
+                prix_estime,
+                projet_data.get('description')
+            ))
+
+            # Insérer assignations employés (validation déjà faite)
+            for emp_id in employes_assignes:
+                self.db.execute_update(
+                    "INSERT OR IGNORE INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
+                    (project_id, emp_id, 'Membre équipe')
+                )
+
+            return project_id
+
+        except ValueError as ve:
+            st.error(f"Erreur validation: {ve}")
+            return None
+        except Exception as e:
+            st.error(f"Erreur technique ajout projet: {e}")
+            return None
+
+    def modifier_projet(self, projet_id, projet_data_update):
+        """Modifie un projet existant (projet_id peut être alphanumériqueе)"""
+        try:
+            # Préparer les champs à mettre à jour
+            update_fields = []
+            params = []
+
+            for field, value in projet_data_update.items():
+                if field in ['nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
+                           'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
+                           'bd_ft_estime', 'prix_estime', 'description']:
+                    update_fields.append(f"{field} = ?")
+
+                    # Traitement spécial pour les prix
+                    if field == 'prix_estime':
+                        value = float(str(value).replace('$', '').replace(',', '')) if value else 0
+                    elif field == 'bd_ft_estime':
+                        value = float(value) if value else 0
+
+                    params.append(value)
+
+            if update_fields:
+                query = f"UPDATE projects SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                params.append(str(projet_id))  # Convertir en string pour compatibilité
+                self.db.execute_update(query, tuple(params))
+
+            # Mettre à jour assignations employés si fourni
+            if 'employes_assignes' in projet_data_update:
+                # Supprimer anciennes assignations
+                self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (str(projet_id),))
+
+                # Ajouter nouvelles assignations
+                for emp_id in projet_data_update['employes_assignes']:
+                    self.db.execute_update(
+                        "INSERT INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
+                        (str(projet_id), emp_id, 'Membre équipe')
+                    )
+
+            return True
+
+        except Exception as e:
+            st.error(f"Erreur modification projet: {e}")
+            return False
+
+    def supprimer_projet(self, projet_id):
+        """Supprime un projet et ses données associées (projet_id peut être alphanumériqueе)"""
+        try:
+            projet_id_str = str(projet_id)
+            # Supprimer en cascade (relations d'abord)
+            self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id_str,))
+            self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id_str,))
+            self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id_str,))
+            self.db.execute_update("DELETE FROM time_entries WHERE project_id = ?", (projet_id_str,))
+
+            # Supprimer le projet
+            self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id_str,))
+
+            return True
+
+        except Exception as e:
+            st.error(f"Erreur suppression projet: {e}")
+            return False
 
     def get_all_projects(self):
-        """Récupère tous les projets depuis SQLite"""
+        """Récupère tous les projets depuis SQLite (compatible IDs alphanumériques)"""
         try:
             query = '''
                 SELECT p.*, c.nom as client_nom_company
                 FROM projects p
                 LEFT JOIN companies c ON p.client_company_id = c.id
-                ORDER BY p.id DESC
+                ORDER BY 
+                    CASE 
+                        WHEN p.id GLOB '[0-9]*' THEN CAST(p.id AS INTEGER)
+                        ELSE 999999
+                    END DESC,
+                    p.id DESC
             '''
             rows = self.db.execute_query(query)
 
@@ -1255,162 +1422,6 @@ class GestionnaireProjetSQL:
         except Exception as e:
             st.error(f"Erreur récupération projets: {e}")
             return []
-
-    def ajouter_projet(self, projet_data, custom_id=None):
-        """
-        Ajoute un nouveau projet en SQLite avec support ID personnalisé
-        
-        Args:
-            projet_data: Données du projet
-            custom_id: ID personnalisé optionnel (None = auto-incrémentation)
-        """
-        try:
-            # Déterminer l'ID du projet
-            if custom_id is not None:
-                # Validation de l'ID personnalisé
-                try:
-                    project_id = int(custom_id)
-                    if project_id <= 0:
-                        raise ValueError("L'ID doit être un nombre positif")
-                except (ValueError, TypeError):
-                    raise ValueError("L'ID doit être un nombre entier positif")
-                
-                # Vérifier que l'ID n'existe pas déjà
-                if self.check_project_id_exists(project_id):
-                    raise ValueError(f"Le projet #{project_id} existe déjà")
-                
-                # Ajuster next_id si nécessaire
-                if project_id >= self.next_id:
-                    self.next_id = project_id + 1
-            else:
-                # Utiliser l'auto-incrémentation
-                project_id = self.next_id
-                self.next_id += 1
-
-            # VALIDATION PRÉALABLE des clés étrangères
-            if projet_data.get('client_company_id'):
-                company_exists = self.db.execute_query(
-                    "SELECT COUNT(*) as count FROM companies WHERE id = ?",
-                    (projet_data['client_company_id'],)
-                )
-                if not company_exists or company_exists[0]['count'] == 0:
-                    raise ValueError(f"Entreprise ID {projet_data['client_company_id']} n'existe pas")
-
-            # Validation employés assignés
-            employes_assignes = projet_data.get('employes_assignes', [])
-            for emp_id in employes_assignes:
-                emp_exists = self.db.execute_query(
-                    "SELECT COUNT(*) as count FROM employees WHERE id = ?",
-                    (emp_id,)
-                )
-                if not emp_exists or emp_exists[0]['count'] == 0:
-                    raise ValueError(f"Employé ID {emp_id} n'existe pas")
-
-            # Insérer projet principal avec gestion NULL
-            query = '''
-                INSERT INTO projects
-                (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
-                 statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
-                 prix_estime, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            '''
-
-            prix_estime = float(str(projet_data.get('prix_estime', 0)).replace('$', '').replace(',', '')) if projet_data.get('prix_estime') else 0
-            bd_ft_estime = float(projet_data.get('bd_ft_estime', 0)) if projet_data.get('bd_ft_estime') else 0
-
-            self.db.execute_update(query, (
-                project_id,
-                projet_data['nom_projet'],
-                projet_data.get('client_company_id'),
-                projet_data.get('client_nom_cache'),
-                projet_data.get('client_legacy', ''),
-                projet_data.get('statut', 'À FAIRE'),
-                projet_data.get('priorite', 'MOYEN'),
-                projet_data['tache'],
-                projet_data.get('date_soumis'),
-                projet_data.get('date_prevu'),
-                bd_ft_estime,
-                prix_estime,
-                projet_data.get('description')
-            ))
-
-            # Insérer assignations employés (validation déjà faite)
-            for emp_id in employes_assignes:
-                self.db.execute_update(
-                    "INSERT OR IGNORE INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
-                    (project_id, emp_id, 'Membre équipe')
-                )
-
-            return project_id
-
-        except ValueError as ve:
-            st.error(f"Erreur validation: {ve}")
-            return None
-        except Exception as e:
-            st.error(f"Erreur technique ajout projet: {e}")
-            return None
-
-    def modifier_projet(self, projet_id, projet_data_update):
-        """Modifie un projet existant"""
-        try:
-            # Préparer les champs à mettre à jour
-            update_fields = []
-            params = []
-
-            for field, value in projet_data_update.items():
-                if field in ['nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
-                           'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
-                           'bd_ft_estime', 'prix_estime', 'description']:
-                    update_fields.append(f"{field} = ?")
-
-                    # Traitement spécial pour les prix
-                    if field == 'prix_estime':
-                        value = float(str(value).replace('$', '').replace(',', '')) if value else 0
-                    elif field == 'bd_ft_estime':
-                        value = float(value) if value else 0
-
-                    params.append(value)
-
-            if update_fields:
-                query = f"UPDATE projects SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                params.append(projet_id)
-                self.db.execute_update(query, tuple(params))
-
-            # Mettre à jour assignations employés si fourni
-            if 'employes_assignes' in projet_data_update:
-                # Supprimer anciennes assignations
-                self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id,))
-
-                # Ajouter nouvelles assignations
-                for emp_id in projet_data_update['employes_assignes']:
-                    self.db.execute_update(
-                        "INSERT INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
-                        (projet_id, emp_id, 'Membre équipe')
-                    )
-
-            return True
-
-        except Exception as e:
-            st.error(f"Erreur modification projet: {e}")
-            return False
-
-    def supprimer_projet(self, projet_id):
-        """Supprime un projet et ses données associées"""
-        try:
-            # Supprimer en cascade (relations d'abord)
-            self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id,))
-            self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id,))
-            self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id,))
-            self.db.execute_update("DELETE FROM time_entries WHERE project_id = ?", (projet_id,))
-
-            # Supprimer le projet
-            self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id,))
-
-            return True
-
-        except Exception as e:
-            st.error(f"Erreur suppression projet: {e}")
-            return False
 
 # ========================
 # INITIALISATION ERP SYSTÈME (MODIFIÉ AVEC PIÈCES JOINTES)
@@ -1567,8 +1578,119 @@ def _init_base_data_if_empty():
     except Exception as e:
         print(f"Erreur initialisation données de base: {e}")
 
+# Fonction à ajouter dans app.py ou dans erp_database.py
+
+def migrate_projects_table_for_alphanumeric_ids(db: ERPDatabase):
+    """
+    Migre la table projects pour supporter les IDs alphanumériques
+    """
+    try:
+        # Vérifier la structure actuelle de la table
+        table_info = db.execute_query("PRAGMA table_info(projects)")
+        id_column_type = None
+        
+        for column in table_info:
+            if column['name'] == 'id':
+                id_column_type = column['type']
+                break
+        
+        if id_column_type and id_column_type.upper() == 'INTEGER':
+            print("📝 Migration requise: Conversion de la colonne ID de INTEGER vers TEXT")
+            
+            # Étape 1: Créer une nouvelle table avec ID TEXT
+            db.execute_update("""
+                CREATE TABLE projects_new (
+                    id TEXT PRIMARY KEY,
+                    nom_projet TEXT NOT NULL,
+                    client_company_id INTEGER,
+                    client_nom_cache TEXT,
+                    client_legacy TEXT,
+                    statut TEXT DEFAULT 'À FAIRE',
+                    priorite TEXT DEFAULT 'MOYEN',
+                    tache TEXT,
+                    date_soumis TEXT,
+                    date_prevu TEXT,
+                    bd_ft_estime REAL DEFAULT 0,
+                    prix_estime REAL DEFAULT 0,
+                    description TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (client_company_id) REFERENCES companies(id)
+                )
+            """)
+            
+            # Étape 2: Copier les données existantes (convertir INTEGER vers TEXT)
+            db.execute_update("""
+                INSERT INTO projects_new 
+                SELECT 
+                    CAST(id AS TEXT) as id,
+                    nom_projet,
+                    client_company_id,
+                    client_nom_cache,
+                    client_legacy,
+                    statut,
+                    priorite,
+                    tache,
+                    date_soumis,
+                    date_prevu,
+                    bd_ft_estime,
+                    prix_estime,
+                    description,
+                    created_at,
+                    updated_at
+                FROM projects
+            """)
+            
+            # Étape 3: Mettre à jour les tables liées avec les nouveaux IDs
+            # Project assignments
+            db.execute_update("""
+                UPDATE project_assignments 
+                SET project_id = CAST(project_id AS TEXT)
+            """)
+            
+            # Operations
+            db.execute_update("""
+                UPDATE operations 
+                SET project_id = CAST(project_id AS TEXT)
+                WHERE project_id IS NOT NULL
+            """)
+            
+            # Materials
+            db.execute_update("""
+                UPDATE materials 
+                SET project_id = CAST(project_id AS TEXT)
+                WHERE project_id IS NOT NULL
+            """)
+            
+            # Time entries
+            try:
+                db.execute_update("""
+                    UPDATE time_entries 
+                    SET project_id = CAST(project_id AS TEXT)
+                    WHERE project_id IS NOT NULL
+                """)
+            except:
+                pass  # Table peut ne pas exister
+            
+            # Étape 4: Supprimer l'ancienne table et renommer la nouvelle
+            db.execute_update("DROP TABLE projects")
+            db.execute_update("ALTER TABLE projects_new RENAME TO projects")
+            
+            print("✅ Migration terminée: Les IDs de projets supportent maintenant les formats alphanumériques")
+            
+        else:
+            print("✅ Table projects déjà configurée pour les IDs alphanumériques")
+            
+    except Exception as e:
+        print(f"❌ Erreur lors de la migration: {e}")
+        # En cas d'erreur, essayer de nettoyer
+        try:
+            db.execute_update("DROP TABLE IF EXISTS projects_new")
+        except:
+            pass
+
 def init_erp_system():
-    """Initialise le système ERP complet - MODIFIÉ avec Pièces Jointes"""
+    """Initialise le système ERP complet - MODIFIÉ avec Pièces Jointes et Support IDs Alphanumériques"""
 
     # NOUVEAU : Initialisation du gestionnaire de stockage persistant AVANT tout
     if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
@@ -1596,6 +1718,10 @@ def init_erp_system():
     # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec chemin configuré
     if ERP_DATABASE_AVAILABLE and 'erp_db' not in st.session_state:
         st.session_state.erp_db = ERPDatabase(db_path)
+        
+        # NOUVELLE MIGRATION : Support IDs alphanumériques
+        migrate_projects_table_for_alphanumeric_ids(st.session_state.erp_db)
+        
         st.session_state.migration_completed = True
 
         # AJOUT CRITIQUE : Initialiser données de base si vides - RÉSOUT ERREURS FK
@@ -1661,7 +1787,7 @@ def init_erp_system():
         except Exception as e:
             print(f"Erreur initialisation TimeTracker Pro: {e}")
             st.session_state.timetracker_unified = None
-
+            
 def get_system_stats():
     """Récupère les statistiques système"""
     try:
