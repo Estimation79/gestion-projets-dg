@@ -3374,6 +3374,632 @@ def show_production_management_page():
     </div>
     """, unsafe_allow_html=True)
 
+class GestionnaireInventaireSQL:
+    """
+    Gestionnaire d'inventaire unifié pour le module Production
+    NOUVELLE CLASSE : Gestion complète de l'inventaire avec base SQLite
+    """
+    
+    def __init__(self, db):
+        self.db = db
+        self.init_inventory_table()
+        self.init_session_state()
+    
+    def init_inventory_table(self):
+        """Initialise la table inventory si elle n'existe pas"""
+        try:
+            self.db.execute_update('''
+                CREATE TABLE IF NOT EXISTS inventory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code_article TEXT UNIQUE NOT NULL,
+                    nom_article TEXT NOT NULL,
+                    description TEXT,
+                    categorie TEXT DEFAULT 'MATIERE_PREMIERE',
+                    unite_mesure TEXT DEFAULT 'pcs',
+                    quantite_stock REAL DEFAULT 0,
+                    quantite_minimale REAL DEFAULT 0,
+                    quantite_maximale REAL DEFAULT 0,
+                    prix_unitaire REAL DEFAULT 0,
+                    fournisseur_principal TEXT,
+                    localisation TEXT,
+                    statut TEXT DEFAULT 'ACTIF',
+                    date_derniere_entree TEXT,
+                    date_derniere_sortie TEXT,
+                    notes TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            logger.info("✅ Table inventory initialisée")
+        except Exception as e:
+            logger.error(f"Erreur initialisation table inventory: {e}")
+    
+    def init_session_state(self):
+        """Initialise les variables de session pour l'inventaire"""
+        if 'inventory_action' not in st.session_state:
+            st.session_state.inventory_action = 'list'
+        if 'inventory_selected_id' not in st.session_state:
+            st.session_state.inventory_selected_id = None
+        if 'inventory_filter_category' not in st.session_state:
+            st.session_state.inventory_filter_category = 'TOUS'
+        if 'inventory_filter_status' not in st.session_state:
+            st.session_state.inventory_filter_status = 'ACTIF'
+    
+    def get_all_inventory(self) -> List[Dict]:
+        """Récupère tous les articles d'inventaire"""
+        try:
+            results = self.db.execute_query('''
+                SELECT * FROM inventory 
+                ORDER BY nom_article
+            ''')
+            return [dict(row) for row in results] if results else []
+        except Exception as e:
+            logger.error(f"Erreur récupération inventaire: {e}")
+            return []
+    
+    def add_inventory_item(self, item_data: Dict) -> Optional[int]:
+        """Ajoute un nouvel article à l'inventaire"""
+        try:
+            item_id = self.db.execute_insert('''
+                INSERT INTO inventory 
+                (code_article, nom_article, description, categorie, unite_mesure,
+                 quantite_stock, quantite_minimale, quantite_maximale, prix_unitaire,
+                 fournisseur_principal, localisation, statut, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                item_data['code_article'],
+                item_data['nom_article'],
+                item_data.get('description', ''),
+                item_data.get('categorie', 'MATIERE_PREMIERE'),
+                item_data.get('unite_mesure', 'pcs'),
+                item_data.get('quantite_stock', 0),
+                item_data.get('quantite_minimale', 0),
+                item_data.get('quantite_maximale', 0),
+                item_data.get('prix_unitaire', 0),
+                item_data.get('fournisseur_principal', ''),
+                item_data.get('localisation', ''),
+                item_data.get('statut', 'ACTIF'),
+                item_data.get('notes', '')
+            ))
+            
+            if item_id:
+                logger.info(f"Article {item_data['nom_article']} ajouté avec ID {item_id}")
+            
+            return item_id
+            
+        except Exception as e:
+            logger.error(f"Erreur ajout article: {e}")
+            return None
+    
+    def update_inventory_item(self, item_id: int, item_data: Dict) -> bool:
+        """Met à jour un article d'inventaire"""
+        try:
+            self.db.execute_update('''
+                UPDATE inventory 
+                SET code_article = ?, nom_article = ?, description = ?, categorie = ?,
+                    unite_mesure = ?, quantite_stock = ?, quantite_minimale = ?, 
+                    quantite_maximale = ?, prix_unitaire = ?, fournisseur_principal = ?,
+                    localisation = ?, statut = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (
+                item_data['code_article'],
+                item_data['nom_article'],
+                item_data.get('description', ''),
+                item_data.get('categorie', 'MATIERE_PREMIERE'),
+                item_data.get('unite_mesure', 'pcs'),
+                item_data.get('quantite_stock', 0),
+                item_data.get('quantite_minimale', 0),
+                item_data.get('quantite_maximale', 0),
+                item_data.get('prix_unitaire', 0),
+                item_data.get('fournisseur_principal', ''),
+                item_data.get('localisation', ''),
+                item_data.get('statut', 'ACTIF'),
+                item_data.get('notes', ''),
+                item_id
+            ))
+            
+            logger.info(f"Article ID {item_id} mis à jour")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour article {item_id}: {e}")
+            return False
+    
+    def delete_inventory_item(self, item_id: int) -> bool:
+        """Supprime un article d'inventaire"""
+        try:
+            self.db.execute_update('DELETE FROM inventory WHERE id = ?', (item_id,))
+            logger.info(f"Article ID {item_id} supprimé")
+            return True
+        except Exception as e:
+            logger.error(f"Erreur suppression article {item_id}: {e}")
+            return False
+    
+    def get_inventory_by_id(self, item_id: int) -> Optional[Dict]:
+        """Récupère un article par son ID"""
+        try:
+            result = self.db.execute_query('SELECT * FROM inventory WHERE id = ?', (item_id,))
+            return dict(result[0]) if result else None
+        except Exception as e:
+            logger.error(f"Erreur récupération article {item_id}: {e}")
+            return None
+    
+    def get_low_stock_items(self) -> List[Dict]:
+        """Récupère les articles en stock faible"""
+        try:
+            results = self.db.execute_query('''
+                SELECT * FROM inventory 
+                WHERE quantite_stock <= quantite_minimale AND statut = 'ACTIF'
+                ORDER BY (quantite_stock / NULLIF(quantite_minimale, 0)) ASC
+            ''')
+            return [dict(row) for row in results] if results else []
+        except Exception as e:
+            logger.error(f"Erreur récupération stock faible: {e}")
+            return []
+    
+    def get_inventory_statistics(self) -> Dict:
+        """Récupère les statistiques d'inventaire"""
+        try:
+            stats = {}
+            
+            # Statistiques de base
+            base_stats = self.db.execute_query('''
+                SELECT 
+                    COUNT(*) as total_articles,
+                    COUNT(CASE WHEN statut = 'ACTIF' THEN 1 END) as articles_actifs,
+                    COUNT(CASE WHEN quantite_stock <= quantite_minimale THEN 1 END) as stock_faible,
+                    COALESCE(SUM(quantite_stock * prix_unitaire), 0) as valeur_totale,
+                    COALESCE(AVG(prix_unitaire), 0) as prix_moyen
+                FROM inventory
+            ''')
+            
+            if base_stats:
+                stats.update(dict(base_stats[0]))
+            
+            # Répartition par catégorie
+            cat_stats = self.db.execute_query('''
+                SELECT categorie, COUNT(*) as count, SUM(quantite_stock * prix_unitaire) as valeur
+                FROM inventory
+                GROUP BY categorie
+                ORDER BY count DESC
+            ''')
+            
+            stats['by_category'] = {}
+            for row in cat_stats:
+                stats['by_category'][row['categorie']] = {
+                    'count': row['count'],
+                    'valeur': row['valeur'] or 0
+                }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur statistiques inventaire: {e}")
+            return {}
+
+# === FONCTIONS D'AFFICHAGE INVENTAIRE À AJOUTER ===
+
+def show_inventory_list():
+    """Affiche la liste des articles d'inventaire"""
+    inventory_manager = st.session_state.inventory_manager_sql
+    
+    st.markdown("### 📦 Liste Inventaire")
+    
+    # Récupérer tous les articles
+    articles = inventory_manager.get_all_inventory()
+    
+    if not articles:
+        st.info("📦 Aucun article en inventaire. Ajoutez votre premier article !")
+        if st.button("➕ Ajouter le premier article", type="primary"):
+            st.session_state.inv_action_mode = "Ajouter Article"
+            st.rerun()
+        return
+    
+    # Filtres
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    
+    with filter_col1:
+        categories = ['TOUS'] + sorted(list(set(a['categorie'] for a in articles)))
+        category_filter = st.selectbox("Catégorie:", categories)
+    
+    with filter_col2:
+        statuts = ['TOUS', 'ACTIF', 'INACTIF']
+        status_filter = st.selectbox("Statut:", statuts)
+    
+    with filter_col3:
+        search_term = st.text_input("🔍 Rechercher:", placeholder="Code, nom...")
+    
+    # Appliquer filtres
+    filtered_articles = articles
+    if category_filter != 'TOUS':
+        filtered_articles = [a for a in filtered_articles if a['categorie'] == category_filter]
+    if status_filter != 'TOUS':
+        filtered_articles = [a for a in filtered_articles if a['statut'] == status_filter]
+    if search_term:
+        search_lower = search_term.lower()
+        filtered_articles = [
+            a for a in filtered_articles 
+            if search_lower in a['code_article'].lower() 
+            or search_lower in a['nom_article'].lower()
+        ]
+    
+    st.markdown(f"**{len(filtered_articles)} article(s) trouvé(s)**")
+    
+    # Affichage en tableau
+    if filtered_articles:
+        df_data = []
+        for article in filtered_articles:
+            # Indicateur stock faible
+            stock_indicator = "🔴" if article['quantite_stock'] <= article['quantite_minimale'] else "🟢"
+            
+            df_data.append({
+                'Stock': stock_indicator,
+                'Code': article['code_article'],
+                'Nom': article['nom_article'],
+                'Catégorie': article['categorie'],
+                'Qté Stock': f"{article['quantite_stock']} {article['unite_mesure']}",
+                'Qté Min': f"{article['quantite_minimale']} {article['unite_mesure']}",
+                'Prix Unit.': f"{article['prix_unitaire']:.2f}$",
+                'Valeur': f"{(article['quantite_stock'] * article['prix_unitaire']):.2f}$",
+                'Fournisseur': article['fournisseur_principal'][:20] if article['fournisseur_principal'] else 'N/A',
+                'Statut': article['statut']
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Actions en lot
+        st.markdown("#### ⚡ Actions Rapides")
+        action_col1, action_col2, action_col3 = st.columns(3)
+        
+        with action_col1:
+            if st.button("📋 Export CSV", use_container_width=True):
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    "⬇️ Télécharger",
+                    csv_data,
+                    f"inventaire_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    "text/csv"
+                )
+        
+        with action_col2:
+            if st.button("⚠️ Stock Faible", use_container_width=True):
+                low_stock = inventory_manager.get_low_stock_items()
+                if low_stock:
+                    st.warning(f"⚠️ {len(low_stock)} article(s) en stock faible !")
+                    for item in low_stock[:5]:  # Afficher les 5 premiers
+                        st.markdown(f"- **{item['nom_article']}:** {item['quantite_stock']}/{item['quantite_minimale']} {item['unite_mesure']}")
+                else:
+                    st.success("✅ Aucun article en stock faible")
+        
+        with action_col3:
+            if st.button("📊 Statistiques", use_container_width=True):
+                stats = inventory_manager.get_inventory_statistics()
+                if stats:
+                    st.markdown("**📊 Résumé Inventaire:**")
+                    st.markdown(f"- Total articles: {stats.get('total_articles', 0)}")
+                    st.markdown(f"- Valeur totale: {stats.get('valeur_totale', 0):,.2f}$")
+                    st.markdown(f"- Stock faible: {stats.get('stock_faible', 0)} articles")
+
+def show_inventory_form(article_data=None):
+    """Formulaire d'ajout/modification d'article"""
+    inventory_manager = st.session_state.inventory_manager_sql
+    is_edit = article_data is not None
+    
+    st.markdown(f"### {'✏️ Modifier Article' if is_edit else '➕ Nouvel Article'}")
+    
+    with st.form("inventory_form"):
+        # Informations de base
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            code_article = st.text_input(
+                "Code Article *:",
+                value=article_data.get('code_article', '') if is_edit else '',
+                placeholder="Ex: MTL-001"
+            )
+            
+            nom_article = st.text_input(
+                "Nom Article *:",
+                value=article_data.get('nom_article', '') if is_edit else '',
+                placeholder="Ex: Tôle acier 2mm"
+            )
+            
+            categories = ['MATIERE_PREMIERE', 'PRODUIT_FINI', 'COMPOSANT', 'OUTIL', 'CONSOMMABLE']
+            cat_index = categories.index(article_data['categorie']) if is_edit and article_data.get('categorie') in categories else 0
+            categorie = st.selectbox("Catégorie *:", categories, index=cat_index)
+            
+            unites = ['pcs', 'kg', 'm', 'm2', 'm3', 'l', 'h']
+            unit_index = unites.index(article_data['unite_mesure']) if is_edit and article_data.get('unite_mesure') in unites else 0
+            unite_mesure = st.selectbox("Unité:", unites, index=unit_index)
+        
+        with col2:
+            quantite_stock = st.number_input(
+                "Quantité en Stock:",
+                value=float(article_data.get('quantite_stock', 0)) if is_edit else 0.0,
+                min_value=0.0,
+                step=1.0
+            )
+            
+            quantite_minimale = st.number_input(
+                "Quantité Minimale:",
+                value=float(article_data.get('quantite_minimale', 0)) if is_edit else 0.0,
+                min_value=0.0,
+                step=1.0
+            )
+            
+            quantite_maximale = st.number_input(
+                "Quantité Maximale:",
+                value=float(article_data.get('quantite_maximale', 0)) if is_edit else 0.0,
+                min_value=0.0,
+                step=1.0
+            )
+            
+            prix_unitaire = st.number_input(
+                "Prix Unitaire ($):",
+                value=float(article_data.get('prix_unitaire', 0)) if is_edit else 0.0,
+                min_value=0.0,
+                step=0.01
+            )
+        
+        # Informations supplémentaires
+        description = st.text_area(
+            "Description:",
+            value=article_data.get('description', '') if is_edit else '',
+            placeholder="Description détaillée de l'article"
+        )
+        
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            fournisseur_principal = st.text_input(
+                "Fournisseur Principal:",
+                value=article_data.get('fournisseur_principal', '') if is_edit else '',
+                placeholder="Nom du fournisseur principal"
+            )
+        
+        with col4:
+            localisation = st.text_input(
+                "Localisation:",
+                value=article_data.get('localisation', '') if is_edit else '',
+                placeholder="Ex: Entrepôt A - Rangée 3"
+            )
+        
+        notes = st.text_area(
+            "Notes:",
+            value=article_data.get('notes', '') if is_edit else '',
+            placeholder="Notes additionnelles"
+        )
+        
+        # Statut (seulement en mode édition)
+        if is_edit:
+            statuts = ['ACTIF', 'INACTIF']
+            statut_index = statuts.index(article_data['statut']) if article_data.get('statut') in statuts else 0
+            statut = st.selectbox("Statut:", statuts, index=statut_index)
+        else:
+            statut = 'ACTIF'
+        
+        # Boutons
+        col_submit, col_cancel = st.columns(2)
+        
+        with col_submit:
+            submitted = st.form_submit_button(
+                "💾 Sauvegarder" if is_edit else "➕ Ajouter Article",
+                use_container_width=True,
+                type="primary"
+            )
+        
+        with col_cancel:
+            cancelled = st.form_submit_button("❌ Annuler", use_container_width=True)
+        
+        if submitted:
+            # Validation
+            if not code_article or not nom_article:
+                st.error("❌ Code et nom d'article obligatoires")
+                return
+            
+            # Données de l'article
+            item_data = {
+                'code_article': code_article,
+                'nom_article': nom_article,
+                'description': description,
+                'categorie': categorie,
+                'unite_mesure': unite_mesure,
+                'quantite_stock': quantite_stock,
+                'quantite_minimale': quantite_minimale,
+                'quantite_maximale': quantite_maximale,
+                'prix_unitaire': prix_unitaire,
+                'fournisseur_principal': fournisseur_principal,
+                'localisation': localisation,
+                'statut': statut,
+                'notes': notes
+            }
+            
+            try:
+                if is_edit:
+                    success = inventory_manager.update_inventory_item(
+                        st.session_state.inventory_selected_id,
+                        item_data
+                    )
+                    if success:
+                        st.success(f"✅ Article {nom_article} modifié avec succès !")
+                        st.session_state.inv_action_mode = "Voir Liste"
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de la modification")
+                else:
+                    item_id = inventory_manager.add_inventory_item(item_data)
+                    if item_id:
+                        st.success(f"✅ Article {nom_article} ajouté avec succès ! ID: {item_id}")
+                        st.session_state.inv_action_mode = "Voir Liste"
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de l'ajout")
+            except Exception as e:
+                st.error(f"❌ Erreur: {e}")
+        
+        if cancelled:
+            st.session_state.inv_action_mode = "Voir Liste"
+            st.rerun()
+
+# === MISE À JOUR DE LA FONCTION PRINCIPALE ===
+
+def show_production_management_page():
+    """
+    FONCTION MISE À JOUR : Inclut maintenant le module inventaire complet
+    """
+    
+    # Appliquer les styles DG
+    apply_dg_styles()
+    
+    # Initialiser les gestionnaires
+    if 'gestionnaire_bt' not in st.session_state:
+        if 'erp_db' in st.session_state:
+            st.session_state.gestionnaire_bt = GestionnaireBonsTravail(st.session_state.erp_db)
+        else:
+            st.error("❌ Base de données ERP non disponible")
+            return
+    
+    if 'gestionnaire_postes' not in st.session_state:
+        if 'erp_db' in st.session_state:
+            st.session_state.gestionnaire_postes = GestionnairePostes(st.session_state.erp_db)
+        else:
+            st.error("❌ Base de données ERP non disponible")
+            return
+    
+    # NOUVEAU : Initialiser le gestionnaire d'inventaire
+    if 'inventory_manager_sql' not in st.session_state:
+        if 'erp_db' in st.session_state:
+            st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
+        else:
+            st.error("❌ Base de données ERP non disponible")
+            return
+    
+    # Afficher l'en-tête DG
+    show_dg_header()
+    
+    # Navigation principale MISE À JOUR
+    st.markdown('<div class="dg-nav-container">', unsafe_allow_html=True)
+    
+    if 'main_mode' not in st.session_state:
+        st.session_state.main_mode = 'bt'
+    
+    nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7 = st.columns(7)
+    
+    with nav_col1:
+        if st.button("🔧 Bons de Travail", use_container_width=True, 
+                     type="primary" if st.session_state.main_mode == 'bt' else "secondary"):
+            st.session_state.main_mode = 'bt'
+            st.session_state.bt_mode = 'create'
+            st.rerun()
+    
+    with nav_col2:
+        if st.button("🏭 Postes de Travail", use_container_width=True,
+                     type="primary" if st.session_state.main_mode == 'postes' else "secondary"):
+            st.session_state.main_mode = 'postes'
+            st.session_state.wc_action = 'list'
+            st.rerun()
+    
+    with nav_col3:
+        if st.button("📦 Inventaire", use_container_width=True,
+                     type="primary" if st.session_state.main_mode == 'inventaire' else "secondary"):
+            st.session_state.main_mode = 'inventaire'
+            st.session_state.inv_action_mode = 'Voir Liste'
+            st.rerun()
+    
+    with nav_col4:
+        if st.button("📋 Gestion", use_container_width=True):
+            if st.session_state.main_mode == 'bt':
+                st.session_state.bt_mode = 'manage'
+            elif st.session_state.main_mode == 'inventaire':
+                st.session_state.inv_action_mode = 'Voir Liste'
+            else:
+                st.session_state.wc_action = 'list'
+            st.rerun()
+    
+    with nav_col5:
+        if st.button("📊 Statistiques", use_container_width=True):
+            if st.session_state.main_mode == 'bt':
+                st.session_state.bt_mode = 'stats'
+            elif st.session_state.main_mode == 'inventaire':
+                # Afficher stats inventaire
+                pass
+            else:
+                st.session_state.wc_action = 'stats'
+            st.rerun()
+    
+    with nav_col6:
+        if st.button("⏱️ TimeTracker Pro", use_container_width=True):
+            st.session_state.page_redirect = "timetracker_pro_page"
+            st.rerun()
+    
+    with nav_col7:
+        if st.button("🔍 DEBUG Kanban", use_container_width=True,
+                     type="primary" if st.session_state.main_mode == 'debug' else "secondary"):
+            st.session_state.main_mode = 'debug'
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Affichage selon le mode principal
+    main_mode = st.session_state.get('main_mode', 'bt')
+    
+    if main_mode == 'inventaire':
+        # NOUVEAU : Mode Inventaire
+        st.markdown("### 📦 Gestion Inventaire DG Inc.")
+        
+        # Navigation inventaire
+        inv_nav_col1, inv_nav_col2, inv_nav_col3 = st.columns(3)
+        
+        with inv_nav_col1:
+            if st.button("📋 Liste Articles", use_container_width=True,
+                         type="primary" if st.session_state.inv_action_mode == "Voir Liste" else "secondary"):
+                st.session_state.inv_action_mode = "Voir Liste"
+                st.rerun()
+        
+        with inv_nav_col2:
+            if st.button("➕ Ajouter Article", use_container_width=True,
+                         type="primary" if st.session_state.inv_action_mode == "Ajouter Article" else "secondary"):
+                st.session_state.inv_action_mode = "Ajouter Article"
+                st.session_state.inventory_selected_id = None
+                st.rerun()
+        
+        with inv_nav_col3:
+            if st.button("📊 Analytics", use_container_width=True):
+                stats = st.session_state.inventory_manager_sql.get_inventory_statistics()
+                if stats:
+                    st.markdown("#### 📊 Statistiques Inventaire")
+                    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                    
+                    with stat_col1:
+                        st.metric("Total Articles", stats.get('total_articles', 0))
+                    with stat_col2:
+                        st.metric("Articles Actifs", stats.get('articles_actifs', 0))
+                    with stat_col3:
+                        st.metric("Stock Faible", stats.get('stock_faible', 0))
+                    with stat_col4:
+                        st.metric("Valeur Totale", f"{stats.get('valeur_totale', 0):,.2f}$")
+        
+        # Affichage selon l'action
+        if st.session_state.inv_action_mode == "Voir Liste":
+            show_inventory_list()
+        elif st.session_state.inv_action_mode == "Ajouter Article":
+            show_inventory_form()
+        elif st.session_state.inv_action_mode == "Modifier Article":
+            if st.session_state.inventory_selected_id:
+                article_data = st.session_state.inventory_manager_sql.get_inventory_by_id(
+                    st.session_state.inventory_selected_id
+                )
+                if article_data:
+                    show_inventory_form(article_data)
+                else:
+                    st.error("❌ Article non trouvé")
+                    st.session_state.inv_action_mode = "Voir Liste"
+                    st.rerun()
+            else:
+                st.session_state.inv_action_mode = "Voir Liste"
+                st.rerun()
+    
 # Point d'entrée principal
 if __name__ == "__main__":
     show_production_management_page()
