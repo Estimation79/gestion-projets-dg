@@ -2330,17 +2330,6 @@ def show_erp_main():
     if etape_actuelle:
         st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:8px;border-radius:5px;text-align:center;margin-bottom:1rem;'><small><strong>Étape:</strong> {etape_actuelle}</small></div>", unsafe_allow_html=True)
 
-    # GESTION SIDEBAR SELON CONTEXTE - MISE À JOUR pour module unifié
-    if page_to_show_val == "production_management":
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Production Unifié</h4>", unsafe_allow_html=True)
-        st.session_state.inv_action_mode = st.sidebar.radio(
-            "Mode Inventaire:",
-            ["Voir Liste", "Ajouter Article", "Modifier Article"],
-            key="inv_action_mode_selector",
-            index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.get('inv_action_mode', "Voir Liste"))
-        )
-
     st.sidebar.markdown("---")
 
     # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
@@ -3374,7 +3363,7 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}
     return bool(re.match(pattern, project_id.strip()))
     
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
@@ -3446,7 +3435,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -4230,7 +4219,6 @@ def main():
         'edit_project_data': None, 'show_delete_confirmation': False,
         'delete_project_id': None, 'selected_date': datetime.now().date(),
         'welcome_seen': False,
-        'inv_action_mode': "Voir Liste",
         'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
         'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
         'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
@@ -4359,4 +4347,5 @@ print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot +
 print("✅ Fonctionnalité ID projet personnalisé intégrée")
 print("✅ Module Kanban unifié intégré avec fallback")
 print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
+print("✅ SUPPRESSION Mode Inventaire dans sidebar terminée")
 print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
