@@ -1757,27 +1757,33 @@ def show_bt_form_section():
 
 def show_tasks_section():
     """
-    Section des tâches et opérations - VERSION DG avec postes spécifiques
+    Section des tâches et opérations
     VERSION CORRIGÉE : Validation visuelle améliorée + Types numériques corrigés
     NOUVELLE VERSION : Ajout dropdown Fournisseur/Sous-traitant
+    VERSION DG INC : Postes de travail standardisés DG Inc.
     """
     form_data = st.session_state.bt_current_form_data
     gestionnaire = st.session_state.gestionnaire_bt
     
     st.markdown("### 📋 Tâches et Opérations")
     
-    # Operations disponibles - NOUVELLE LISTE DG
+    # Operations disponibles (en fonction des postes de travail)
     try:
-        # Récupérer les postes depuis la base de données
+        # Récupérer les postes de travail disponibles
         postes = st.session_state.erp_db.execute_query(
             "SELECT nom FROM work_centers WHERE statut = 'ACTIF' ORDER BY nom"
         )
         operation_options = [''] + [poste['nom'] for poste in postes]
     except:
-        # Fallback avec les postes DG par défaut
-        dg_centers = get_dg_work_centers()
-        operation_options = [''] + [f"{code} - {data['nom']} ({data['type']})" 
-                                   for code, data in dg_centers.items()]
+        operation_options = [
+            '', '1000 - Général', '1001 - Temps Bureau', '1002 - Programmation', 
+            '1003 - Réception', '1004 - Scie', '1005 - Cisaille', '1006 - Poinçonnage',
+            '1007 - Laser', '1008 - Cintrage/Roulage', '1009 - Pliage', '1010 - Punch Press',
+            '1011 - Soudure MIG', '1012 - Robot Soudage', '1013 - Ébavurage', '1014 - Press Drill',
+            '1015 - Filetage', '1016 - Fraisage', '1017 - Peinture', '1018 - Galvanisation',
+            '1019 - Placage/Passivation', '1020 - Polissage', '1021 - Manutention', 
+            '1022 - Assemblage', '1023 - Inspection', '1024 - Emballage', '1025 - Expédition'
+        ]
     
     # NOUVEAU : Récupérer les fournisseurs actifs
     fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs()
