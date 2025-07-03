@@ -1,0 +1,975 @@
+-- ========================================
+-- SCRIPT COMPLET BASE DE DONNÉES ERP
+-- Version intégrée avec données commerciales
+-- ========================================
+
+PRAGMA foreign_keys = ON;
+
+-- ========================================
+-- 1. CRÉATION DES TABLES PRINCIPALES
+-- ========================================
+
+-- Table des employés (modifiée pour inclure les nouveaux)
+CREATE TABLE employees (
+    id INTEGER PRIMARY KEY,
+    prenom TEXT NOT NULL,
+    nom TEXT NOT NULL,
+    email TEXT UNIQUE,
+    telephone TEXT,
+    poste TEXT,
+    departement TEXT,
+    statut TEXT DEFAULT 'ACTIF',
+    type_contrat TEXT DEFAULT 'CDI',
+    date_embauche DATE,
+    salaire REAL,
+    manager_id INTEGER,
+    charge_travail INTEGER DEFAULT 80,
+    notes TEXT,
+    photo_url TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (manager_id) REFERENCES employees(id)
+);
+
+-- Table des compétences employés
+CREATE TABLE employee_competences (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER,
+    nom_competence TEXT,
+    niveau TEXT,
+    certifie BOOLEAN DEFAULT FALSE,
+    date_obtention DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+);
+
+-- Table des entreprises (enrichie)
+CREATE TABLE companies (
+    id INTEGER PRIMARY KEY,
+    nom TEXT NOT NULL,
+    secteur TEXT,
+    adresse TEXT,
+    site_web TEXT,
+    contact_principal_id INTEGER,
+    notes TEXT,
+    type_company TEXT DEFAULT 'CLIENT',
+    is_prospect BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table des contacts
+CREATE TABLE contacts (
+    id INTEGER PRIMARY KEY,
+    prenom TEXT NOT NULL,
+    nom_famille TEXT NOT NULL,
+    email TEXT,
+    telephone TEXT,
+    company_id INTEGER,
+    role_poste TEXT,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+);
+
+-- Table des projets (enrichie avec données commerciales)
+CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    nom_projet TEXT NOT NULL,
+    client_company_id INTEGER,
+    client_nom_cache TEXT,
+    client_legacy TEXT,
+    statut TEXT DEFAULT 'À FAIRE',
+    priorite TEXT DEFAULT 'MOYEN',
+    tache TEXT,
+    date_soumis TEXT,
+    date_prevu TEXT,
+    date_debut_reel DATE,
+    date_fin_reel DATE,
+    bd_ft_estime REAL DEFAULT 0,
+    prix_estime REAL DEFAULT 0,
+    description TEXT,
+    -- Nouvelles colonnes commerciales
+    vendeur_id INTEGER,
+    responsable_id INTEGER,
+    numero_pme TEXT,
+    numero_po TEXT,
+    suivi_soumission TEXT,
+    date_recu DATE,
+    date_promis DATE,
+    date_livree DATE,
+    suivie_vente TEXT,
+    montant_soumissionne REAL,
+    notes_commerciales TEXT,
+    numero_job_commercial TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_company_id) REFERENCES companies(id),
+    FOREIGN KEY (vendeur_id) REFERENCES employees(id),
+    FOREIGN KEY (responsable_id) REFERENCES employees(id)
+);
+
+-- Table des anciens projets (conservée pour compatibilité)
+CREATE TABLE projects_old (
+    id INTEGER PRIMARY KEY,
+    nom_projet TEXT NOT NULL,
+    client_company_id INTEGER,
+    client_contact_id INTEGER,
+    client_nom_cache TEXT,
+    client_legacy TEXT,
+    statut TEXT DEFAULT 'À FAIRE',
+    priorite TEXT DEFAULT 'MOYEN',
+    tache TEXT,
+    date_soumis DATE,
+    date_prevu DATE,
+    date_debut_reel DATE,
+    date_fin_reel DATE,
+    bd_ft_estime REAL,
+    prix_estime REAL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_company_id) REFERENCES companies(id),
+    FOREIGN KEY (client_contact_id) REFERENCES contacts(id)
+);
+
+-- Table des centres de travail
+CREATE TABLE work_centers (
+    id INTEGER PRIMARY KEY,
+    nom TEXT NOT NULL UNIQUE,
+    departement TEXT,
+    categorie TEXT,
+    type_machine TEXT,
+    capacite_theorique REAL,
+    operateurs_requis INTEGER,
+    cout_horaire REAL,
+    competences_requises TEXT,
+    statut TEXT DEFAULT 'ACTIF',
+    localisation TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table des formulaires
+CREATE TABLE formulaires (
+    id INTEGER PRIMARY KEY,
+    type_formulaire TEXT NOT NULL CHECK(type_formulaire IN 
+        ('BON_TRAVAIL', 'BON_ACHAT', 'BON_COMMANDE', 'DEMANDE_PRIX', 'ESTIMATION')),
+    numero_document TEXT UNIQUE NOT NULL,
+    project_id INTEGER,
+    company_id INTEGER,
+    employee_id INTEGER,
+    statut TEXT DEFAULT 'BROUILLON' CHECK(statut IN 
+        ('BROUILLON', 'VALIDÉ', 'ENVOYÉ', 'APPROUVÉ', 'TERMINÉ', 'ANNULÉ')),
+    priorite TEXT DEFAULT 'NORMAL' CHECK(priorite IN ('NORMAL', 'URGENT', 'CRITIQUE')),
+    date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    date_echeance DATE,
+    date_validation TIMESTAMP,
+    montant_total REAL DEFAULT 0.0,
+    notes TEXT,
+    metadonnees_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects_old(id),
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+);
+
+-- Table des lignes de formulaires
+CREATE TABLE formulaire_lignes (
+    id INTEGER PRIMARY KEY,
+    formulaire_id INTEGER NOT NULL,
+    sequence_ligne INTEGER NOT NULL,
+    description TEXT NOT NULL,
+    code_article TEXT,
+    quantite REAL NOT NULL DEFAULT 0,
+    unite TEXT DEFAULT 'UN',
+    prix_unitaire REAL DEFAULT 0.0,
+    montant_ligne REAL DEFAULT 0.0,
+    reference_materiau INTEGER,
+    reference_operation INTEGER,
+    notes_ligne TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (formulaire_id) REFERENCES formulaires(id) ON DELETE CASCADE
+);
+
+-- Table des validations de formulaires
+CREATE TABLE formulaire_validations (
+    id INTEGER PRIMARY KEY,
+    formulaire_id INTEGER NOT NULL,
+    employee_id INTEGER,
+    type_validation TEXT NOT NULL CHECK(type_validation IN 
+        ('CREATION', 'MODIFICATION', 'VALIDATION', 'APPROBATION', 'ENVOI', 'CHANGEMENT_STATUT', 'ANNULATION', 'TERMINAISON')),
+    ancien_statut TEXT,
+    nouveau_statut TEXT,
+    commentaires TEXT,
+    date_validation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    signature_digitale TEXT,
+    FOREIGN KEY (formulaire_id) REFERENCES formulaires(id) ON DELETE CASCADE,
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+);
+
+-- Table des opérations
+CREATE TABLE operations (
+    id INTEGER PRIMARY KEY,
+    project_id TEXT,
+    work_center_id INTEGER,
+    formulaire_bt_id INTEGER,
+    sequence_number INTEGER,
+    description TEXT,
+    temps_estime REAL,
+    ressource TEXT,
+    statut TEXT DEFAULT 'À FAIRE',
+    poste_travail TEXT,
+    operation_legacy_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (work_center_id) REFERENCES work_centers(id),
+    FOREIGN KEY (formulaire_bt_id) REFERENCES formulaires(id) ON DELETE SET NULL
+);
+
+-- Table des matériaux
+CREATE TABLE materials (
+    id INTEGER PRIMARY KEY,
+    project_id TEXT,
+    material_legacy_id INTEGER,
+    code_materiau TEXT,
+    designation TEXT,
+    quantite REAL,
+    unite TEXT,
+    prix_unitaire REAL,
+    fournisseur TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- Table des fournisseurs
+CREATE TABLE fournisseurs (
+    id INTEGER PRIMARY KEY,
+    company_id INTEGER NOT NULL,
+    code_fournisseur TEXT UNIQUE,
+    categorie_produits TEXT,
+    delai_livraison_moyen INTEGER,
+    conditions_paiement TEXT DEFAULT '30 jours net',
+    evaluation_qualite INTEGER DEFAULT 5,
+    contact_commercial TEXT,
+    contact_technique TEXT,
+    certifications TEXT,
+    notes_evaluation TEXT,
+    est_actif BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+);
+
+-- Table des entrées de temps
+CREATE TABLE time_entries (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER,
+    project_id INTEGER,
+    operation_id INTEGER,
+    formulaire_bt_id INTEGER,
+    punch_in TIMESTAMP,
+    punch_out TIMESTAMP,
+    total_hours REAL,
+    hourly_rate REAL,
+    total_cost REAL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES employees(id),
+    FOREIGN KEY (project_id) REFERENCES projects_old(id),
+    FOREIGN KEY (operation_id) REFERENCES operations(id),
+    FOREIGN KEY (formulaire_bt_id) REFERENCES formulaires(id)
+);
+
+-- Table des assignations de projets
+CREATE TABLE project_assignments (
+    project_id INTEGER,
+    employee_id INTEGER,
+    role_projet TEXT,
+    date_assignation DATE DEFAULT CURRENT_DATE,
+    PRIMARY KEY (project_id, employee_id),
+    FOREIGN KEY (project_id) REFERENCES projects_old(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+);
+
+-- Table des assignations BT
+CREATE TABLE bt_assignations (
+    id INTEGER PRIMARY KEY,
+    bt_id INTEGER,
+    employe_id INTEGER,
+    date_assignation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    statut TEXT DEFAULT 'ASSIGNÉ',
+    notes_assignation TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (bt_id) REFERENCES formulaires(id),
+    FOREIGN KEY (employe_id) REFERENCES employees(id)
+);
+
+-- Table des réservations de postes BT
+CREATE TABLE bt_reservations_postes (
+    id INTEGER PRIMARY KEY,
+    bt_id INTEGER,
+    work_center_id INTEGER,
+    date_reservation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    date_prevue DATE,
+    date_liberation TIMESTAMP,
+    statut TEXT DEFAULT 'RÉSERVÉ',
+    notes_reservation TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (bt_id) REFERENCES formulaires(id),
+    FOREIGN KEY (work_center_id) REFERENCES work_centers(id)
+);
+
+-- Table de l'avancement BT
+CREATE TABLE bt_avancement (
+    id INTEGER PRIMARY KEY,
+    bt_id INTEGER NOT NULL,
+    operation_id INTEGER,
+    pourcentage_realise REAL DEFAULT 0.0,
+    temps_reel REAL DEFAULT 0.0,
+    date_debut_reel TIMESTAMP,
+    date_fin_reel TIMESTAMP,
+    notes_avancement TEXT,
+    updated_by INTEGER,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (bt_id) REFERENCES formulaires(id) ON DELETE CASCADE,
+    FOREIGN KEY (operation_id) REFERENCES operations(id),
+    FOREIGN KEY (updated_by) REFERENCES employees(id)
+);
+
+-- Table des items d'inventaire
+CREATE TABLE inventory_items (
+    id INTEGER PRIMARY KEY,
+    nom TEXT NOT NULL,
+    type_produit TEXT,
+    quantite_imperial TEXT,
+    quantite_metric REAL,
+    limite_minimale_imperial TEXT,
+    limite_minimale_metric REAL,
+    quantite_reservee_imperial TEXT,
+    quantite_reservee_metric REAL,
+    statut TEXT,
+    description TEXT,
+    notes TEXT,
+    fournisseur_principal TEXT,
+    code_interne TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table de l'historique d'inventaire
+CREATE TABLE inventory_history (
+    id INTEGER PRIMARY KEY,
+    inventory_item_id INTEGER,
+    action TEXT,
+    quantite_avant TEXT,
+    quantite_apres TEXT,
+    notes TEXT,
+    employee_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+);
+
+-- Table des interactions
+CREATE TABLE interactions (
+    id INTEGER PRIMARY KEY,
+    contact_id INTEGER,
+    company_id INTEGER,
+    type_interaction TEXT,
+    date_interaction DATETIME,
+    resume TEXT,
+    details TEXT,
+    resultat TEXT,
+    suivi_prevu DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+);
+
+-- Table des approvisionnements
+CREATE TABLE approvisionnements (
+    id INTEGER PRIMARY KEY,
+    formulaire_id INTEGER,
+    fournisseur_id INTEGER,
+    statut_livraison TEXT DEFAULT 'EN_ATTENTE' CHECK(statut_livraison IN 
+        ('EN_ATTENTE', 'CONFIRMÉ', 'EN_PRODUCTION', 'EXPÉDIÉ', 'LIVRÉ', 'ANNULÉ')),
+    date_commande DATE,
+    date_livraison_prevue DATE,
+    date_livraison_reelle DATE,
+    numero_bon_livraison TEXT,
+    quantite_commandee REAL,
+    quantite_livree REAL,
+    notes_livraison TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (formulaire_id) REFERENCES formulaires(id),
+    FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
+);
+
+-- Table des attachments de projets
+CREATE TABLE project_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    original_filename TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    file_type TEXT NOT NULL,
+    file_extension TEXT,
+    category TEXT NOT NULL,
+    description TEXT,
+    file_path TEXT NOT NULL,
+    file_hash TEXT,
+    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    uploaded_by TEXT,
+    is_active BOOLEAN DEFAULT 1,
+    download_count INTEGER DEFAULT 0,
+    preview_count INTEGER DEFAULT 0,
+    FOREIGN KEY (project_id) REFERENCES projects_old (id) ON DELETE CASCADE
+);
+
+-- Table des templates de formulaires
+CREATE TABLE formulaire_templates (
+    id INTEGER PRIMARY KEY,
+    type_formulaire TEXT NOT NULL,
+    nom_template TEXT NOT NULL,
+    description TEXT,
+    template_json TEXT,
+    est_actif BOOLEAN DEFAULT TRUE,
+    created_by INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES employees(id)
+);
+
+-- Table des pièces jointes de formulaires
+CREATE TABLE formulaire_pieces_jointes (
+    id INTEGER PRIMARY KEY,
+    formulaire_id INTEGER NOT NULL,
+    nom_fichier TEXT NOT NULL,
+    type_fichier TEXT,
+    taille_fichier INTEGER,
+    chemin_fichier TEXT,
+    description TEXT,
+    uploaded_by INTEGER,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (formulaire_id) REFERENCES formulaires(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploaded_by) REFERENCES employees(id)
+);
+
+-- Table de version du schéma
+CREATE TABLE schema_version (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version INTEGER NOT NULL,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    description TEXT
+);
+
+-- ========================================
+-- 2. INSERTION DES DONNÉES EXISTANTES
+-- ========================================
+
+-- Insertion des employés existants + nouveaux
+INSERT INTO employees (id, prenom, nom, email, telephone, poste, departement, statut, type_contrat, date_embauche, salaire, manager_id, charge_travail, notes, created_at, updated_at) VALUES
+(1, 'Denis', 'Jetté', 'ingenierie@dg-inc.qc.ca', '450-372-9630', 'Dessinateur', 'INGÉNIERIE', 'ACTIF', 'CDI', '2015-01-20', NULL, NULL, 80, 'Dessinateur senior, expert AutoCAD - Badge ID: 434', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(2, 'Martin', 'Beauregard', 'mbeauregard@dg-inc.qc.ca', '450-372-9630', 'Contremaître/Superviseur', 'DIRECTION', 'ACTIF', 'CDI', '2012-05-01', NULL, NULL, 80, 'Contremaître principal, responsable production - Badge ID: 149', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(3, 'Williams Cédrick', 'Kengne Tzoeu', 'williams.kengne@dg-inc.qc.ca', '450-372-9630', 'Soudeur', 'PRODUCTION', 'ACTIF', 'CDI', '2021-01-15', NULL, NULL, 80, 'Soudeur junior en formation avancée', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(4, 'Martin', 'Leduc', 'martin.leduc@dg-inc.qc.ca', '450-372-9630', 'Journalier', 'PRODUCTION', 'ACTIF', 'CDI', '2019-05-20', NULL, NULL, 80, 'Journalier expérimenté, polyvalent', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(5, 'Roxanne', 'Lanctôt', 'roxanne.lanctot@dg-inc.qc.ca', '450-372-9630', 'Qualité/Réception', 'QUALITÉ', 'ACTIF', 'CDI', '2017-09-01', NULL, NULL, 80, 'Responsable qualité et réception matériaux', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(6, 'Samuel', 'Turcotte', 'samuel.turcotte@dg-inc.qc.ca', '450-372-9630', 'Journalier', 'PRODUCTION', 'ACTIF', 'CDI', '2022-03-10', NULL, NULL, 80, 'Journalier récent, apprentissage rapide', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(7, 'Éric', 'Brisebois', 'eric.brisebois@dg-inc.qc.ca', '450-372-9630', 'Soudeur', 'PRODUCTION', 'ACTIF', 'CDI', '2016-04-15', NULL, NULL, 80, 'Soudeur senior, mentor pour juniors', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(8, 'Jovick', 'Desmarais', 'jovick.desmarais@dg-inc.qc.ca', '450-372-9630', 'Développement des affaires', 'COMMERCIAL', 'ACTIF', 'CDI', '2014-06-01', NULL, NULL, 80, 'Développement commercial et relations clients', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(9, 'Sylvain', 'Leduc', 'sylvain.leduc@dg-inc.qc.ca', '450-372-9630', 'Estimateur et intégration ERP', 'COMMERCIAL', 'ACTIF', 'CDI', '2013-09-15', NULL, NULL, 80, 'Expert estimation et système ERP', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(10, 'Myriam', 'Girouard', 'myriam.girouard@dg-inc.qc.ca', '450-372-9630', 'Adjointe administrative', 'ADMINISTRATION', 'ACTIF', 'CDI', '2018-02-01', NULL, NULL, 80, 'Gestion administrative et coordination', '2025-06-25 20:49:21', '2025-06-25 20:49:21'),
+(11, 'Cindy', 'Julien', 'cindy.julien@dg-inc.qc.ca', '450-372-9630', 'Marketing et web', 'ADMINISTRATION', 'ACTIF', 'CDI', '2020-11-10', NULL, NULL, 80, 'Responsable marketing digital et web', '2025-06-25 20:49:21', '2025-06-25 20:49:21'),
+-- Nouveaux employés pour le commerce
+(12, 'Raphael', 'B', 'raph@dg-inc.qc.ca', '450-372-9630', 'Assistant commercial', 'COMMERCIAL', 'ACTIF', 'CDI', '2020-01-01', NULL, 8, 80, 'Assistant commercial et support technique', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(13, 'Matilde', 'M', 'matilde@dg-inc.qc.ca', '450-372-9630', 'Support commercial', 'COMMERCIAL', 'ACTIF', 'CDI', '2021-01-01', NULL, 8, 80, 'Support commercial et suivi clients', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(14, 'Yannick', 'D', 'yannick@dg-inc.qc.ca', '450-372-9630', 'Technicien', 'PRODUCTION', 'ACTIF', 'CDI', '2019-01-01', NULL, 2, 80, 'Technicien production et support', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(15, 'Kathleen', 'K', 'kathleen@dg-inc.qc.ca', '450-372-9630', 'Administration', 'ADMINISTRATION', 'ACTIF', 'CDI', '2020-01-01', NULL, 10, 80, 'Administration et support', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(16, 'Yves', 'Y', 'yves@dg-inc.qc.ca', '450-372-9630', 'Estimation', 'COMMERCIAL', 'ACTIF', 'CDI', '2018-01-01', NULL, 9, 80, 'Estimateur et analyse technique', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Insertion des compétences employés (échantillon)
+INSERT INTO employee_competences (employee_id, nom_competence, niveau, certifie, created_at) VALUES
+(1, 'AutoCAD', 'EXPERT', 0, '2025-06-25 20:49:20'),
+(1, 'SolidWorks', 'AVANCÉ', 0, '2025-06-25 20:49:20'),
+(1, 'Dessin technique', 'EXPERT', 0, '2025-06-25 20:49:20'),
+(7, 'Soudage GMAW (MIG)', 'AVANCÉ', 0, '2025-06-25 20:49:20'),
+(7, 'Soudage GTAW (TIG)', 'INTERMÉDIAIRE', 0, '2025-06-25 20:49:20'),
+(8, 'Service client', 'EXPERT', 0, '2025-06-25 20:49:20'),
+(8, 'Négociation', 'AVANCÉ', 0, '2025-06-25 20:49:20'),
+(9, 'Estimation projets', 'EXPERT', 0, '2025-06-25 20:49:20'),
+(9, 'ERP/MRP', 'EXPERT', 0, '2025-06-25 20:49:20');
+
+-- Insertion des entreprises existantes + nouvelles
+INSERT INTO companies (id, nom, secteur, adresse, site_web, notes, type_company, is_prospect, created_at, updated_at) VALUES
+(1, 'AeroSpace Ltd', 'Aéronautique', '789 Ave. Aviation, Mirabel, QC', 'www.aerospace.com', 'Pièces aéronautiques', 'CLIENT', FALSE, '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(2, 'AutoTech Corp.', 'Automobile', '123 Rue Industrielle, Montréal, QC', 'www.autotech.com', 'Client métallurgie automobile', 'CLIENT', FALSE, '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(3, 'CBR Laser', NULL, NULL, NULL, NULL, 'FOURNISSEUR', FALSE, '2025-06-25 16:50:43', '2025-06-25 16:50:43'),
+(4, 'Acier Leroux', NULL, NULL, NULL, NULL, 'FOURNISSEUR', FALSE, '2025-06-26 20:28:39', '2025-06-26 20:28:39'),
+(5, 'Acier Ménard', NULL, NULL, NULL, NULL, 'FOURNISSEUR', FALSE, '2025-06-26 20:29:04', '2025-06-26 20:29:04'),
+(6, 'Acier Bouchard', NULL, NULL, NULL, NULL, 'FOURNISSEUR', FALSE, '2025-06-26 20:28:52', '2025-06-26 20:28:52'),
+(7, 'Client_zero', NULL, NULL, NULL, NULL, 'CLIENT', FALSE, '2025-07-01 15:22:21', '2025-07-01 15:22:21'),
+(8, 'Robot Cnc', NULL, NULL, NULL, NULL, 'FOURNISSEUR', FALSE, '2025-06-25 16:50:33', '2025-06-25 16:50:33'),
+(9, 'Doucet Machineries', NULL, NULL, NULL, NULL, 'CLIENT', FALSE, '2025-06-27 16:53:30', '2025-06-27 16:53:30'),
+(10, 'Abb Laser', NULL, NULL, NULL, NULL, 'CLIENT', FALSE, '2025-06-27 16:53:58', '2025-06-27 16:53:58'),
+-- Nouveaux clients du paste.txt
+(11, 'ABB Électrification Canada Inc.', 'Électrique', NULL, NULL, 'Client majeur équipements électriques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(12, 'Pattison ID', 'Signalisation', NULL, NULL, 'Mobilier urbain et signalisation', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(13, 'AG&G', 'Métallurgie', NULL, NULL, 'Accessoires et crochets', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(14, 'Vic Mobilier de Magasins', 'Commerce', NULL, NULL, 'Mobilier commercial', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(15, 'Roll Out Racks', 'Entreposage', NULL, NULL, 'Systèmes de stockage', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(16, 'Ventec Canada Inc', 'Ventilation', NULL, NULL, 'Équipements de ventilation', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(17, 'Univerco (1978) Inc.', 'Industriel', NULL, NULL, 'Équipements industriels', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(18, 'Robotfly System', 'Robotique', NULL, NULL, 'Systèmes robotiques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(19, 'AlumaSafway (QC)', 'Échafaudage', NULL, NULL, 'Échafaudages et sécurité', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(20, 'Enseicom', 'Mobilier urbain', NULL, NULL, 'Mobilier urbain et bancs', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(21, 'Plastiques Yamaska', 'Plastique', NULL, NULL, 'Transformation plastiques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(22, 'Hydro-Mobile', 'Aluminium', NULL, NULL, 'Échafaudages aluminium', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(23, 'Safway Atlantic', 'Échafaudage', NULL, NULL, 'Échafaudages industriels', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(24, 'Abnex -T&B Cable Tray Canada Ltd.', 'Électrique', NULL, NULL, 'Chemins de câbles', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(25, 'Ville de Granby', 'Municipal', NULL, NULL, 'Municipalité', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(26, 'Rig Craftor', 'Pétrole', NULL, NULL, 'Équipements pétroliers', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(27, 'Premier Tech Eau et Environnement', 'Environnement', NULL, NULL, 'Traitement des eaux', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(28, 'Elevabec', 'Élévation', NULL, NULL, 'Équipements élévation', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(29, 'Les brasseurs GMT', 'Alimentaire', NULL, NULL, 'Brasserie', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(30, 'Les Aciers JP', 'Acier', NULL, NULL, 'Distribution acier', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(31, 'Mecan Hydro', 'Hydraulique', NULL, NULL, 'Systèmes hydrauliques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(32, 'Acier J.P.', 'Acier', NULL, NULL, 'Fabrication acier', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(33, 'Circul-Aire', 'HVAC', NULL, NULL, 'Systèmes de ventilation', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(34, 'Groupe Tremblay', 'Construction', NULL, NULL, 'Construction et signalisation', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(35, 'Élite Présentoirs de Magasins', 'Commerce', NULL, NULL, 'Présentoirs commerciaux', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(36, 'Conception PR', 'Design', NULL, NULL, 'Conception et design', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(37, 'Industrie Prométal', 'Métallurgie', NULL, NULL, 'Transformation métaux', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(38, 'ArcelorMittal Contrecoeur', 'Sidérurgie', NULL, NULL, 'Aciérie', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(39, 'Équiparc', 'Parcs', NULL, NULL, 'Équipements de parcs', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(40, 'Maximus', 'Industriel', NULL, NULL, 'Équipements industriels', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(41, 'Automacad', 'Automatisation', NULL, NULL, 'Systèmes automatisés', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(42, 'Nomad Walls', 'Construction', NULL, NULL, 'Murs d''escalade', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(43, 'Hydro-Québec', 'Énergie', NULL, NULL, 'Société d''état électricité', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(44, 'Fédico Inc.', 'Distribution', NULL, NULL, 'Distribution industrielle', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(45, 'Parata Systems, LLC', 'Pharmaceutique', NULL, NULL, 'Systèmes pharmaceutiques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(46, 'Transport Bourassa', 'Transport', NULL, NULL, 'Transport routier', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(47, 'Planiform', 'Métallurgie', NULL, NULL, 'Pièces métalliques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(48, 'EMB LASER', 'Découpe', NULL, NULL, 'Découpe laser', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(49, 'Groupe Sarramax', 'Ventilation', NULL, NULL, 'Systèmes ventilation', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(50, 'Continental Conveyor Ont.', 'Convoyage', NULL, NULL, 'Systèmes de convoyage', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(51, 'Prometal', 'Métallurgie', NULL, NULL, 'Fabrication métallique', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(52, 'Metriplus', 'Mesure', NULL, NULL, 'Instruments de mesure', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(53, 'Société de Contrôle Johnson Canada S.E.C.', 'Sécurité', NULL, NULL, 'Systèmes de sécurité incendie', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(54, 'Verbom', 'Logistique', NULL, NULL, 'Solutions logistiques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(55, 'Elcargo', 'Transport', NULL, NULL, 'Solutions de transport', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(56, 'Berlie-Falco', 'Emboutissage', NULL, NULL, 'Emboutissage métaux', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(57, 'Épiq machinery', 'Machinerie', NULL, NULL, 'Équipements industriels', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(58, 'EBM Laser', 'Découpe', NULL, NULL, 'Services de découpe laser', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(59, 'UCEL', 'Électrique', NULL, NULL, 'Composants électriques', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(60, 'Cresswell industries', 'Industriel', NULL, NULL, 'Équipements industriels', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(61, 'Artopex', 'Mobilier', NULL, NULL, 'Mobilier de bureau', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(62, 'Desmarais & Gagné inc', 'Métallurgie', NULL, NULL, 'Notre entreprise - projets internes', 'CLIENT', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Insertion des contacts existants
+INSERT INTO contacts (id, prenom, nom_famille, email, telephone, company_id, role_poste, created_at, updated_at) VALUES
+(1, 'Jean', 'Dubois', 'j.dubois@autotech.com', '514-555-0101', 2, 'Directeur Technique', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(2, 'Marie', 'Tremblay', 'm.tremblay@batitech.ca', '418-555-0202', 1, 'Ingénieure Projet', '2025-06-25 20:49:20', '2025-06-25 20:49:20'),
+(3, 'David', 'Johnson', 'd.johnson@aerospace.com', '450-555-0303', 1, 'Responsable Achats', '2025-06-25 20:49:20', '2025-06-25 20:49:20');
+
+-- Insertion des centres de travail existants
+INSERT INTO work_centers (id, nom, departement, categorie, type_machine, capacite_theorique, operateurs_requis, cout_horaire, statut, created_at) VALUES
+(1, '1001 - Temps Bureau (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 50, 'ACTIF', '2025-06-27 18:04:41'),
+(2, '1002 - Programmation (Int.)', 'PRODUCTION', 'CNC', NULL, 40, 1, 65, 'ACTIF', '2025-06-25 20:49:20'),
+(3, '1003 - Réception (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 35, 'ACTIF', '2025-06-25 20:49:20'),
+(4, '1004 - Scie (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 45, 'ACTIF', '2025-06-27 15:44:58'),
+(5, '1005 - Cisaille (Int.)', 'PRODUCTION', 'ROBOTIQUE', NULL, 40, 1, 55, 'ACTIF', '2025-06-27 15:46:06'),
+(6, '1006 - Poinçonnage (Int.)', 'PRODUCTION', 'CNC', NULL, 40, 1, 60, 'ACTIF', '2025-06-27 15:46:33'),
+(7, '1007 - Laser (Ext.)', 'PRODUCTION', 'ROBOTIQUE', NULL, 40, 1, 75, 'ACTIF', '2025-06-27 16:05:27'),
+(8, '1008 - Cintrage/Roulage (Ext.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 55, 'ACTIF', '2025-06-27 15:44:26'),
+(9, '1009 - Pliage (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 50, 'ACTIF', '2025-06-27 15:47:03'),
+(10, '1010 - Punch Press (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 55, 'ACTIF', '2025-06-27 16:03:13'),
+(11, '1011 - Soudure MIG (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 65, 'ACTIF', '2025-06-27 16:03:53'),
+(12, '1012 - Robot Soudage (Int.)', 'PRODUCTION', 'ROBOTIQUE', NULL, 40, 1, 80, 'ACTIF', '2025-06-27 16:04:29'),
+(13, '1013 - Ébavurage (Int.)', 'PRODUCTION', 'ROBOTIQUE', NULL, 40, 1, 45, 'ACTIF', '2025-06-27 17:55:52'),
+(14, '1014 - Press Drill (Int.)', 'PRODUCTION', 'ROBOTIQUE', NULL, 40, 1, 55, 'ACTIF', '2025-06-27 18:05:43'),
+(15, '1015 - Filetage (Int.)', 'PRODUCTION', 'ROBOTIQUE', NULL, 40, 1, 50, 'ACTIF', '2025-06-27 18:05:57'),
+(16, '1016 - Fraisage (Ext.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 70, 'ACTIF', '2025-06-27 18:06:13'),
+(17, '1017 - Peinture (Ext.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 45, 'ACTIF', '2025-06-27 16:07:32'),
+(18, '1018 - Galvanisation (Ext.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 40, 'ACTIF', '2025-06-27 16:10:30'),
+(19, '1019 - Placage/Passivation (Ext.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 50, 'ACTIF', '2025-06-27 16:06:35'),
+(20, '1020 - Polissage (Ext.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 45, 'ACTIF', '2025-06-27 18:06:31'),
+(21, '1021 - Manutention (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 35, 'ACTIF', '2025-06-27 17:52:37'),
+(22, '1022 - Assemblage (Int.)', 'PRODUCTION', 'ASSEMBLAGE', NULL, 40, 2, 60, 'ACTIF', '2025-06-27 17:59:01'),
+(23, '1023 - Inspection (Int.)', 'PRODUCTION', 'INSPECTION', NULL, 40, 1, 55, 'ACTIF', '2025-06-27 17:53:36'),
+(24, '1024 - Emballage (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 35, 'ACTIF', '2025-06-27 17:53:55'),
+(25, '1025 - Expédition (Int.)', 'PRODUCTION', 'TRANSPORT', NULL, 40, 1, 40, 'ACTIF', '2025-06-27 17:54:05'),
+(26, '1000 - Général (Int.)', 'PRODUCTION', 'MANUEL', NULL, 40, 1, 45, 'ACTIF', '2025-07-01 17:27:43');
+
+-- Insertion des projets anciens (existants)
+INSERT INTO projects_old (id, nom_projet, client_company_id, client_nom_cache, client_legacy, statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime, prix_estime, description, created_at, updated_at) VALUES
+(10005, 'Projet - Devis EST-2025-002', 9, 'Doucet Machineries', NULL, 'EN ATTENTE', 'NORMAL', 'PROJET_CLIENT', '2025-07-01', '2025-08-30', 0, 0, 'Projet créé automatiquement suite à l''acceptation du devis EST-2025-002.
+
+Notes du devis:', '2025-07-01 17:50:08', '2025-07-02 14:42:27'),
+(10006, 'Projet - Devis EST-2025-003', 10, 'Abb', NULL, 'À FAIRE', 'NORMAL', 'PROJET_CLIENT', '2025-07-02', '2025-08-31', 0, 0, 'Projet créé automatiquement suite à l''acceptation du devis EST-2025-003.
+
+Notes du devis:', '2025-07-02 14:41:47', '2025-07-02 14:41:47'),
+(10007, 'Test 20250702', 10, 'Abb', NULL, 'À FAIRE', 'BAS', 'ESTIMATION', '2025-07-02', '2025-08-01', 0, 0, 'Projet estimation pour Abb', '2025-07-02 18:45:01', '2025-07-02 18:45:01');
+
+-- Insertion des formulaires existants
+INSERT INTO formulaires (id, type_formulaire, numero_document, project_id, company_id, employee_id, statut, priorite, date_creation, date_echeance, montant_total, notes, metadonnees_json, created_at, updated_at) VALUES
+(1, 'ESTIMATION', 'EST-2025-002', 10005, 9, NULL, 'APPROUVÉ', 'NORMAL', '2025-07-01 17:49:49', '2025-07-07', 0, NULL, '{"type_reel": "DEVIS", "type_devis": "STANDARD", "tva_applicable": true, "taux_tva": 14.975, "devise": "CAD", "validite_jours": 30, "created_by_module": "CRM_DEVIS", "compatibility_mode": true}', '2025-07-01 17:49:49', '2025-07-02 20:59:49'),
+(2, 'BON_TRAVAIL', 'BT-2025-001', 10005, 9, NULL, 'BROUILLON', 'NORMAL', '2025-07-01 18:23:56', '2025-07-08', 1.6, NULL, '{"project_id": 10005, "project_name": "Projet - Devis EST-2025-002", "client_name": "Doucet Machineries", "client_company_id": 9, "project_manager": "Jovick Desmarais", "start_date": "2025-07-01", "safety_notes": "", "quality_requirements": "", "created_by": "Utilisateur"}', '2025-07-01 18:23:56', '2025-07-02 20:59:49'),
+(3, 'BON_TRAVAIL', 'BT-TEST-001', NULL, NULL, NULL, 'VALIDÉ', 'URGENT', '2025-07-02 13:53:46', NULL, 0, 'Fabrication châssis', NULL, '2025-07-02 13:53:46', '2025-07-02 20:59:49'),
+(4, 'BON_TRAVAIL', 'BT-TEST-002', NULL, NULL, NULL, 'VALIDÉ', 'NORMAL', '2025-07-02 13:53:46', NULL, 0, 'Usinage pièces précision', NULL, '2025-07-02 13:53:46', '2025-07-02 20:59:49'),
+(5, 'BON_TRAVAIL', 'BT-TEST-003', NULL, NULL, NULL, 'VALIDÉ', 'CRITIQUE', '2025-07-02 13:53:46', NULL, 0, 'Assemblage final', NULL, '2025-07-02 13:53:46', '2025-07-02 20:59:49'),
+(6, 'BON_TRAVAIL', 'BT-2025-002', 10005, 9, NULL, 'BROUILLON', 'NORMAL', '2025-07-02 14:10:33', '2025-07-09', 0, NULL, '{"project_id": 10005, "project_name": "Projet - Devis EST-2025-002", "client_name": "Doucet Machineries", "client_company_id": 9, "project_manager": "Sylvain Leduc", "start_date": "2025-07-02", "safety_notes": "", "quality_requirements": "", "created_by": "Utilisateur"}', '2025-07-02 14:10:33', '2025-07-02 20:59:49');
+
+-- Insertion des lignes de formulaires
+INSERT INTO formulaire_lignes (formulaire_id, sequence_ligne, description, quantite, unite, prix_unitaire, montant_ligne, created_at) VALUES
+(1, 1, 'Attache de serre 10" (T de serre)', 1, 'UN', 0, 0, '2025-07-01 17:49:49'),
+(2, 1, '1001 - Temps Bureau (Int.)', 1, 'UN', 0.3333, 0.3333, '2025-07-01 18:23:56'),
+(2, 2, '1000 - Général (Int.)', 1, 'UN', 0.4166, 0.4166, '2025-07-01 18:23:56'),
+(2, 3, '1004 - Scie (Int.)', 1, 'UN', 0.3666, 0.3666, '2025-07-01 18:23:56'),
+(2, 4, '1012 - Robot Soudage (Int.)', 1, 'UN', 0.5, 0.5, '2025-07-01 18:23:56'),
+(6, 1, '1001 - Temps Bureau (Int.)', 1, 'UN', 0, 0, '2025-07-02 14:10:33'),
+(6, 2, '1002 - Programmation (Int.)', 1, 'UN', 0, 0, '2025-07-02 14:10:33'),
+(6, 3, '1006 - Poinçonnage (Int.)', 1, 'UN', 0, 0, '2025-07-02 14:10:33');
+
+-- Insertion des validations de formulaires
+INSERT INTO formulaire_validations (formulaire_id, employee_id, type_validation, ancien_statut, nouveau_statut, commentaires, date_validation) VALUES
+(1, NULL, 'CREATION', NULL, NULL, 'Devis créé: EST-2025-002 (mode compatibilité)', '2025-07-01 17:49:49'),
+(1, NULL, 'CHANGEMENT_STATUT', 'BROUILLON', 'APPROUVÉ', 'Changement automatique de statut', '2025-07-01 17:50:08'),
+(1, NULL, 'CHANGEMENT_STATUT', NULL, NULL, 'Statut changé de BROUILLON vers APPROUVÉ. Approuvé via interface', '2025-07-01 17:50:08'),
+(1, NULL, 'TERMINAISON', NULL, NULL, 'Devis transformé en Projet #10005.', '2025-07-01 17:50:08'),
+(2, NULL, 'CREATION', NULL, NULL, 'Bon de Travail créé par Utilisateur', '2025-07-01 18:23:56'),
+(6, NULL, 'CREATION', NULL, NULL, 'Bon de Travail créé par Utilisateur', '2025-07-02 14:10:33'),
+(6, NULL, 'CHANGEMENT_STATUT', NULL, NULL, 'Statut changé de APPROUVÉ vers APPROUVÉ. Approuvé via interface', '2025-07-02 14:41:16');
+
+-- Insertion des projets commerciaux (nouveaux avec données complètes du paste.txt)
+INSERT INTO projects (id, nom_projet, client_company_id, vendeur_id, responsable_id, numero_job_commercial, numero_pme, numero_po, description, suivi_soumission, date_recu, date_promis, date_livree, montant_soumissionne, notes_commerciales, statut, priorite, created_at, updated_at) VALUES
+-- Projets 25-011 à 25-020
+('25-011', '60 000x Ground plate non galvanisé #GP1016-3', 11, 8, 8, '25-011', '2767', NULL, '60 000x Ground plate non galvanisé #GP1016-3', 'REF soumission 24-400', '2024-12-03', NULL, NULL, 125400.00, 'REF soumission 24-400', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-012', 'Block Center Post Connector', 12, NULL, NULL, '25-012', NULL, NULL, '165x MOD24001-P0009 - Block Center Post Connector Bloc ALU 1.375" x 3.228"', 'Non Soumissionné', '2025-01-06', NULL, NULL, NULL, 'Attente confirmation client si ajouts, modif 24-397 ou ??', 'EN COURS', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-013', 'Lot de crochets divers', 13, 8, 8, '25-013', '2827', 'DES5093', '500x Crochet double 4" + 700x Crochet double 6" + 300x Crochet vélo trussloc + 400x Crochet boyau flexible + 400x Crochet simple 6"', 'Commande Directe', '2024-12-19', NULL, NULL, 4869.00, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-014', '200x MR448-2-NP', 14, 8, 8, '25-014', '2828', '54096', '200x MR448-2-NP', 'Obtenu', '2025-01-06', '2025-01-07', '2025-01-07', 14894.00, 'Entré comme OBT Ref PME 2828 - RaphB', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-015', '1152x CO1018', 11, 8, 8, '25-015', '2830', '177995', '1152x CO1018', 'Commande Directe', '2025-01-08', NULL, NULL, 8087.04, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-016', '624x CT1018', 11, 8, 8, '25-016', '2830', '177995', '624x CT1018', 'Commande Directe', '2025-01-08', NULL, NULL, 4985.76, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-017', '351x PL7418', 11, 8, 8, '25-017', '2831', '177995', '351x PL7418', 'Commande Directe', '2025-01-08', NULL, NULL, 3341.52, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-018', '500x #090-015181008', 14, 8, 8, '25-018', NULL, NULL, '500x #090-015181008', 'Non Soumissionné', '2025-01-09', NULL, NULL, NULL, 'Suivi à faire par JD, Pas retour client, classé No quote', 'ANNULÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-019', 'Lot de pièces découpé - plié', 14, 8, 8, '25-019', NULL, NULL, 'Lot de pièces découpé - plié', 'Non Soumissionné', '2025-01-09', NULL, NULL, NULL, 'Suivi à faire par JD, Pas retour client, classé No quote', 'ANNULÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-020', 'Modification de bac de ground plate', 11, 8, 8, '25-020', '2832', NULL, 'Modification de bac de ground plate', 'Envoyé en attente de réponse', '2025-01-06', '2025-01-10', '2025-01-10', 1689.20, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+
+-- Projets 25-021 à 25-040
+('25-021', 'Mini Bench + Standard Brown Slats', 12, 12, 8, '25-021', '2836', NULL, '25x G10D0388 Mini Bench + 25x G13D0202 Standard Brown Slats + Powdercoat Silver Sparkle ZM11S51', 'Envoyé en attente de réponse', '2025-01-10', '2025-01-19', '2025-02-04', 41276.25, 'Revision 2 - 12 FEV 2025 avec Transport', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-022', 'Lot de Boites de carton', 13, NULL, NULL, '25-022', NULL, NULL, 'Lot de Boites de carton', 'Non Obtenu', '2025-01-10', '2025-01-14', '2025-01-14', 1077.50, '', 'PERDU', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-023', 'Bus Shelter OLRT - Formed Panels', 12, 12, 8, '25-023', '2843', '765974', 'Bus Shelter OLRT - Formed Panels - 17 Types - 464 531 Pièces Total', 'Obtenu', '2025-01-10', '2025-01-20', '2025-01-29', 46754.55, 'Dessins Révisés + Qtés selon Courriel Lia Salinitri 23 JAN 2025 Non-Monté dans PME', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-024', 'Roll Out Racks - BASE', 15, 12, 8, '25-024', '2840', '5858,5913,5914', 'BASE - PO5858, 5913 et 5914 JOB #1de3 - Peinture RAL5005 Bleu Sécurité Incluse', 'Commande Directe', '2025-01-13', '2025-01-14', '2025-01-17', 140403.24, 'Livraisons échelonnées: 18 FEV, 04 MARS, AVRIL', 'TERMINÉ', 'CRITIQUE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-025', 'FOI 10x BP3018', 11, 8, 8, '25-025', '2837', NULL, 'FOI 10x BP3018', 'Envoyé en attente de réponse', '2025-01-13', '2025-01-20', '2025-01-20', 855.90, '', 'EN COURS', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-026', 'Plaque Renfort End Kit G3', 16, NULL, NULL, '25-026', '2834', NULL, '198x 1200950_R3 Plaque Renfort End Kit G3 2007 Rev 3', 'Commande Directe', '2025-01-14', '2025-01-14', NULL, 11091.96, 'Requis pour le 13 MR 2025 pas avant', 'EN COURS', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-027', 'Lot pièces soudure robotisée', 17, 8, 12, '25-027', '2847', NULL, '100x 15740.1A + 215x 15740.2A + 30x 15741.1A + 30x 15741.2A + 100x? 10318A Soudure Robotisée', 'Non Soumissionné', '2025-01-13', '2025-01-20', NULL, NULL, 'LASER JIT + CBR Reçu, NO QUOTE ALM, CARPO $$$$$! Monté dans PME Sans USI', 'ANNULÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-028', 'Chassis XNERGY', 18, 8, 8, '25-028', '2842', NULL, '2x 497001-200-01_RevA Chassis XNERGY', 'Non Obtenu', '2025-01-14', '2025-01-16', '2025-01-23', 43884.98, 'Matériaux Est + Recu RaphB - Temps par Yves. Suivi #1 Pas de retour client. Suivi Tel Mathilde = Non Obtenu on était 25-30% trop cher', 'PERDU', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-029', 'Structure Toit Coté NEXRUN', 18, 8, 8, '25-029', NULL, NULL, '1x 495002-310-01-1_RevA Structure Toit Coté NEXRUN 38''x10''x5''', 'Non Soumissionné', '2025-01-14', '2025-01-23', NULL, NULL, 'en évaluation Kathleen et Yannick. No Quote Jovick - 25-028 Non Obtenu on était 25-30% trop cher', 'ANNULÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-030', 'Panneaux Formés acier satin', 13, 8, 8, '25-030', '2833', NULL, '200x 62595_Panne 1798 Acier Satin 22Ga (.034") + 200x 61119B Acier Satin 22Ga (.034") - Panneaux Formés', 'Envoyé en attente de réponse', '2025-01-13', '2025-01-16', '2025-01-15', 2792.00, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+
+-- Projets 25-031 à 25-050 (continuation)
+('25-031', 'Strut à couper pour bracket', 11, 8, 8, '25-031', '2850', NULL, 'Lot de strut à couper pour bracket PCT63470-003- + 005+006 400/Mois', 'Non Soumissionné', '2025-01-17', '2025-01-24', NULL, NULL, 'Monté dans PME en Template tel que demandé 29 JA 25 / Non soumissionné, le client voulais un plan B seulement. JD', 'ANNULÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-032', 'CAP VERTICAL MONTANT DOUBLE', 14, 8, 12, '25-032', '2841', '54190', '500x VC11060 + 200x VC11048 + 200x VC11196 + 50x VC11172 + 600x VC11184 - CAP VERTICAL MONTANT DOUBLE', 'Commande Directe', '2025-01-10', NULL, '2025-01-24', 18051.00, 'Requis pour le 5 FEV 2025 PO 0$ @ CONFIRMER Env en Attente le 24 JAN 2025', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-033', 'Cabinets cages', 13, 8, 12, '25-033', '2848,2849', NULL, 'DES5100 - 25x Cabinets 20 lbs cage base24 unités (PME 2848) + 25x Cabinets pour réservoir de Propane (PME 2849)', 'Envoyé en attente de réponse', '2025-01-16', '2025-01-23', '2025-02-10', 28957.00, 'REF 22-110/PME 1965 AGG_CAB20-CAGE-BASE-24 REF 22-238/PME 2051 AGG_CAB20-CAGE-HAUT-3', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-034', 'Cassettes URCT', 15, 8, 8, '25-034', '2839', NULL, '300x Cassettes URCT-A001-240W88D-01', 'Envoyé en attente de réponse', '2025-01-17', NULL, '2025-01-22', 1689220.50, 'Montant = Total S2839 PME 2 Options + Trans', 'EN COURS', 'CRITIQUE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-035', 'Plaque Métallique 400cc Avant-Ultra', 21, 8, 8, '25-035', NULL, '15743', '5000x 04-0176 - Plaque Métallique 400cc Avant-Ultra', 'Commande Directe', '2025-01-17', NULL, NULL, 3340.00, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-036', 'Crochets divers CRO-S/D/V/H', 13, 8, 12, '25-036', '2863', NULL, '250x 500x 750x 1000x CRO-S4 / CRO-S6 / CRO-D4 + 200x 400x 750x 1000x CRO-V / CRO-H', 'Liste de prix', '2025-01-20', '2025-01-27', '2025-02-20', 49207.80, 'Liste de crochets et quantités voulues reçue le 3 FEV 2025', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-037', 'Plaque Métallique 200cc Arr-Ultra', 21, 8, 8, '25-037', NULL, '15744', '4000x 04-0179 - Plaque Métallique 200cc Arr-Ultra', 'Commande Directe', '2025-01-17', NULL, NULL, 2980.00, '', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-038', 'MOD24001 mensuel', 12, 8, 8, '25-038', '2852', NULL, 'MOD24001-A0100 = 10 unités par mois + MOD24001-A0109 = 3 unités par mois', 'Envoyé en attente de réponse', '2025-01-21', '2025-01-28', '2025-01-30', 240656.66, '', 'EN COURS', 'CRITIQUE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-039', 'Cages M2MA complets', 22, 8, 8, '25-039', '2844', '86918', '20x Lots de Pièces pour Cages M2MA complets', 'Obtenu', '2025-01-22', '2025-01-27', '2025-01-24', 134525.60, '', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-040', 'ECHL-SR + SR-A00020', 15, NULL, NULL, '25-040', '2845', '5883', '2x ECHL-SR-96H60D-01 + 10x SR-A00020-60D-01 RAL 5005 PO 5883', 'Commande Directe', '2025-01-20', '2025-01-24', '2025-01-24', 3347.93, 'Requis pour le 19 FEV 2025 PO 0$ @ CONFIRMER ENV en ATT le 24 JAN 2025', 'TERMINÉ', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+
+-- Projets 25-041 à 25-080 (continuation avec données importantes)
+('25-074', '60 000x Ground plate galvanisé', 11, 8, 8, '25-074', '2767', NULL, '60 000x Ground plate galvanisé #GP1016-1', 'Obtenu', '2025-02-18', '2025-02-18', '2025-02-18', 416400.00, '', 'TERMINÉ', 'CRITIQUE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-155', '72x Cassettes UCRT-A0001-120W60D', 15, 8, 8, '25-155', '2915', '6276', '72x Cassettes UCRT-A0001-120W60D', 'Obtenu', '2025-04-01', '2025-04-04', '2025-04-10', 83254.32, '', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-157', 'Cages transport transformateur', 43, 13, 8, '25-157', NULL, NULL, '20x cages de transport pour transformateur + 14x base de transformateur', 'Envoyé en attente de réponse', '2025-04-02', '2025-04-16', '2025-04-16', 186998.46, 'temps et analyse par Yves', 'EN COURS', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-186', '8000x GP09141P', 11, 8, 8, '25-186', '2932', NULL, '8000x GP09141P', 'Obtenu', '2025-04-30', '2025-05-06', '2025-05-02', 67440.00, '', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-234', '8100x 1149-03-A002', 47, 8, 8, '25-234', '2973', '22219', '8100x 1149-03-A002', 'Obtenu', '2025-06-06', '2025-06-20', '2025-06-20', 347895.00, '', 'TERMINÉ', 'CRITIQUE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-235', '810x 1149-03-A003', 47, 8, 8, '25-235', '2974', '22219', '810x 1149-03-A003', 'Obtenu', '2025-06-06', '2025-06-20', '2025-06-20', 34206.30, '', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-236', '810x 1149-03-A005', 47, 8, 8, '25-236', '2975', '22219', '810x 1149-03-A005', 'Obtenu', '2025-06-06', '2025-06-20', '2025-06-20', 28309.50, '', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-242', '5265x 1149-04-A003', 47, 8, 8, '25-242', '2972', '22219', '5265x 1149-04-A003', 'Obtenu', '2025-06-09', '2025-06-20', '2025-06-20', 107563.95, '', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-243', '4860x 1149-04-A004', 47, 8, 8, '25-243', '2971', '22219', '4860x 1149-04-A004', 'Obtenu', '2025-06-09', '2025-06-20', '2025-06-20', 136031.40, '', 'TERMINÉ', 'ÉLEVÉ', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+
+-- Projets en cours et futurs
+('25-271', '50x UCRT-A001-144W48D-F42', 15, 8, 8, '25-271', NULL, NULL, '50x UCRT-A001-144W48D-F42', 'En cours', '2025-06-27', '2025-07-01', NULL, NULL, '', 'EN COURS', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-272', '33x UCRT-A001-120W60D-F42', 15, 8, 8, '25-272', NULL, NULL, '33x UCRT-A001-120W60D-F42 (restant selon nesting)', 'En cours', '2025-06-27', '2025-07-01', NULL, NULL, '', 'EN COURS', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+('25-273', '33x UCRT-A001-120W48D-F42', 15, 8, 8, '25-273', NULL, NULL, '33x UCRT-A001-120W48D-F42 (restant selon nesting)', 'En cours', '2025-06-27', '2025-07-01', NULL, NULL, '', 'EN COURS', 'NORMAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Insertion des assignations de projets
+INSERT INTO project_assignments (project_id, employee_id, role_projet, date_assignation) VALUES
+(10005, 8, 'Membre équipe', '2025-07-01'),
+(10005, 9, 'Membre équipe', '2025-07-02');
+
+-- Insertion des assignations BT
+INSERT INTO bt_assignations (bt_id, employe_id, date_assignation, statut, created_at) VALUES
+(3, 1, '2025-07-02 13:53:46', 'ASSIGNÉ', '2025-07-02 13:53:46'),
+(4, 2, '2025-07-02 13:53:46', 'ASSIGNÉ', '2025-07-02 13:53:46'),
+(5, 3, '2025-07-02 13:53:46', 'ASSIGNÉ', '2025-07-02 13:53:46');
+
+-- Insertion des réservations de postes BT
+INSERT INTO bt_reservations_postes (bt_id, work_center_id, date_prevue, statut, notes_reservation, created_at) VALUES
+(3, 3, '2025-07-03', 'RÉSERVÉ', 'Réservation test pour 1003 - Réception (Int.)', '2025-07-02 13:53:46'),
+(4, 2, '2025-07-03', 'RÉSERVÉ', 'Réservation test pour 1002 - Programmation (Int.)', '2025-07-02 13:53:46'),
+(5, 8, '2025-07-03', 'RÉSERVÉ', 'Réservation test pour 1008 - Cintrage/Roulage (Ext.)', '2025-07-02 13:53:46');
+
+-- Insertion des entrées de temps (échantillon)
+INSERT INTO time_entries (employee_id, project_id, operation_id, formulaire_bt_id, punch_in, punch_out, total_hours, hourly_rate, total_cost, created_at) VALUES
+(1, 10005, NULL, 2, '2025-07-01 20:08:37', '2025-07-02 15:25:56', 19.29, 65, 1253.85, '2025-07-01 20:08:37'),
+(2, 10005, NULL, 2, '2025-07-01 20:07:47', '2025-07-02 15:25:55', 19.30, 55, 1061.50, '2025-07-01 20:07:47'),
+(3, 10005, NULL, 2, '2025-07-02 14:14:06', '2025-07-02 14:34:41', 0.34, 60, 20.40, '2025-07-02 14:14:06'),
+(7, 10005, NULL, 2, '2025-07-01 20:08:00', '2025-07-02 11:32:28', 15.41, 65, 1001.65, '2025-07-01 20:08:00'),
+(8, 10005, NULL, 2, '2025-07-01 20:08:27', '2025-07-02 15:27:53', 19.32, 70, 1352.40, '2025-07-01 20:08:27');
+
+-- Insertion des attachments de projets
+INSERT INTO project_attachments (project_id, filename, original_filename, file_size, file_type, file_extension, category, file_path, file_hash, upload_date, uploaded_by) VALUES
+(10005, 'PRJ10005_20250701_175130_999f8ead_2411923-05_CES20250603_2.pdf', '2411923-05_CES20250603_2.pdf', 229829, 'application/pdf', '.pdf', 'DOCUMENT', 'data/attachments/2025/07/PRJ10005_20250701_175130_999f8ead_2411923-05_CES20250603_2.pdf', '871e143c2cbad26b654417cf851af585', '2025-07-01 17:51:30', 'admin'),
+(10005, 'PRJ10005_20250701_211001_f973b3ed_BT_BT-2025-001_Projet_-_Devis_EST-2_20250701.pdf', 'BT_BT-2025-001_Projet - Devis EST-2_20250701.pdf', 27755, 'application/pdf', '.pdf', 'DOCUMENT', 'data/attachments/2025/07/PRJ10005_20250701_211001_f973b3ed_BT_BT-2025-001_Projet_-_Devis_EST-2_20250701.pdf', '98d5d774958e87fda376bac844d772af', '2025-07-01 21:10:01', 'admin');
+
+-- Insertion version du schéma
+INSERT INTO schema_version (version, description) VALUES 
+(4, 'Schema upgraded to version 4'),
+(5, 'Schema upgraded to version 5'),
+(6, 'Schema upgraded to version 6');
+
+-- ========================================
+-- 3. CRÉATION DES INDEX POUR OPTIMISATION
+-- ========================================
+
+-- Index existants
+CREATE INDEX IF NOT EXISTS idx_employees_departement ON employees(departement);
+CREATE INDEX IF NOT EXISTS idx_employees_statut ON employees(statut);
+CREATE INDEX IF NOT EXISTS idx_companies_type ON companies(type_company);
+CREATE INDEX IF NOT EXISTS idx_companies_secteur ON companies(secteur);
+CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id);
+CREATE INDEX IF NOT EXISTS idx_competences_employee ON employee_competences(employee_id);
+CREATE INDEX IF NOT EXISTS idx_projects_priorite ON projects_old(priorite);
+CREATE INDEX IF NOT EXISTS idx_projects_client ON projects_old(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_formulaires_type ON formulaires(type_formulaire);
+CREATE INDEX IF NOT EXISTS idx_formulaires_statut ON formulaires(statut);
+CREATE INDEX IF NOT EXISTS idx_formulaires_project ON formulaires(project_id);
+CREATE INDEX IF NOT EXISTS idx_formulaires_company ON formulaires(company_id);
+CREATE INDEX IF NOT EXISTS idx_formulaires_employee ON formulaires(employee_id);
+CREATE INDEX IF NOT EXISTS idx_formulaires_numero ON formulaires(numero_document);
+CREATE INDEX IF NOT EXISTS idx_formulaires_date ON formulaires(date_creation);
+CREATE INDEX IF NOT EXISTS idx_formulaires_priorite ON formulaires(priorite);
+CREATE INDEX IF NOT EXISTS idx_formulaires_echeance ON formulaires(date_echeance);
+CREATE INDEX IF NOT EXISTS idx_time_entries_employee ON time_entries(employee_id);
+CREATE INDEX IF NOT EXISTS idx_time_entries_project ON time_entries(project_id);
+CREATE INDEX IF NOT EXISTS idx_time_entries_bt ON time_entries(formulaire_bt_id);
+CREATE INDEX IF NOT EXISTS idx_work_centers_nom ON work_centers(nom);
+CREATE INDEX IF NOT EXISTS idx_work_centers_departement ON work_centers(departement);
+CREATE INDEX IF NOT EXISTS idx_work_centers_statut ON work_centers(statut);
+CREATE INDEX IF NOT EXISTS idx_work_centers_categorie ON work_centers(categorie);
+
+-- Nouveaux index pour les données commerciales
+CREATE INDEX IF NOT EXISTS idx_projects_vendeur ON projects(vendeur_id);
+CREATE INDEX IF NOT EXISTS idx_projects_responsable ON projects(responsable_id);
+CREATE INDEX IF NOT EXISTS idx_projects_job_commercial ON projects(numero_job_commercial);
+CREATE INDEX IF NOT EXISTS idx_projects_pme ON projects(numero_pme);
+CREATE INDEX IF NOT EXISTS idx_projects_montant ON projects(montant_soumissionne);
+CREATE INDEX IF NOT EXISTS idx_projects_suivi ON projects(suivi_soumission);
+CREATE INDEX IF NOT EXISTS idx_projects_statut_new ON projects(statut);
+CREATE INDEX IF NOT EXISTS idx_projects_priorite_new ON projects(priorite);
+CREATE INDEX IF NOT EXISTS idx_projects_client_new ON projects(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_projects_dates ON projects(date_recu, date_promis, date_livree);
+
+-- Index pour opérations et matériaux
+CREATE INDEX IF NOT EXISTS idx_operations_project ON operations(project_id);
+CREATE INDEX IF NOT EXISTS idx_operations_work_center ON operations(work_center_id);
+CREATE INDEX IF NOT EXISTS idx_operations_bt ON operations(formulaire_bt_id);
+CREATE INDEX IF NOT EXISTS idx_materials_project ON materials(project_id);
+CREATE INDEX IF NOT EXISTS idx_fournisseurs_company ON fournisseurs(company_id);
+CREATE INDEX IF NOT EXISTS idx_fournisseurs_code ON fournisseurs(code_fournisseur);
+
+-- ========================================
+-- 4. CRÉATION DES VUES D'ANALYSE
+-- ========================================
+
+-- Vue pour le pipeline commercial
+CREATE VIEW IF NOT EXISTS view_pipeline_commercial AS
+SELECT 
+    p.id,
+    p.numero_job_commercial,
+    p.nom_projet,
+    c.nom as client_nom,
+    c.secteur as client_secteur,
+    e1.prenom || ' ' || e1.nom as vendeur_nom,
+    e2.prenom || ' ' || e2.nom as responsable_nom,
+    p.suivi_soumission,
+    p.montant_soumissionne,
+    p.date_recu,
+    p.date_promis,
+    p.date_livree,
+    p.statut,
+    p.priorite,
+    p.numero_pme,
+    p.numero_po,
+    p.notes_commerciales,
+    CASE 
+        WHEN p.statut = 'TERMINÉ' AND p.montant_soumissionne > 0 THEN 'GAGNÉ'
+        WHEN p.suivi_soumission LIKE '%Non Obtenu%' OR p.statut = 'PERDU' THEN 'PERDU'
+        WHEN p.suivi_soumission LIKE '%Obtenu%' THEN 'GAGNÉ'
+        WHEN p.suivi_soumission LIKE '%En attente%' THEN 'EN_ATTENTE'
+        WHEN p.suivi_soumission LIKE '%Commande Directe%' THEN 'GAGNÉ'
+        WHEN p.statut = 'ANNULÉ' THEN 'ANNULÉ'
+        ELSE 'EN_COURS'
+    END as statut_commercial,
+    CASE 
+        WHEN p.date_promis IS NOT NULL AND p.date_promis < DATE('now') AND p.statut != 'TERMINÉ' THEN 'RETARD'
+        WHEN p.date_promis IS NOT NULL AND p.date_promis <= DATE('now', '+7 days') AND p.statut != 'TERMINÉ' THEN 'URGENT'
+        ELSE 'NORMAL'
+    END as urgence_livraison
+FROM projects p
+LEFT JOIN companies c ON p.client_company_id = c.id
+LEFT JOIN employees e1 ON p.vendeur_id = e1.id
+LEFT JOIN employees e2 ON p.responsable_id = e2.id
+WHERE p.numero_job_commercial IS NOT NULL
+ORDER BY p.date_recu DESC;
+
+-- Vue pour le CA par vendeur
+CREATE VIEW IF NOT EXISTS view_ca_vendeurs AS
+SELECT 
+    e.id as vendeur_id,
+    e.prenom || ' ' || e.nom as vendeur,
+    e.departement,
+    COUNT(p.id) as nb_projets_total,
+    COUNT(CASE WHEN p.statut = 'TERMINÉ' OR p.suivi_soumission LIKE '%Obtenu%' THEN 1 END) as nb_projets_gagnes,
+    COUNT(CASE WHEN p.suivi_soumission LIKE '%Non Obtenu%' OR p.statut = 'PERDU' THEN 1 END) as nb_projets_perdus,
+    COUNT(CASE WHEN p.statut IN ('EN COURS', 'À FAIRE') THEN 1 END) as nb_projets_en_cours,
+    SUM(CASE WHEN p.statut = 'TERMINÉ' OR p.suivi_soumission LIKE '%Obtenu%' THEN COALESCE(p.montant_soumissionne, 0) ELSE 0 END) as ca_realise,
+    SUM(COALESCE(p.montant_soumissionne, 0)) as ca_potentiel_total,
+    AVG(CASE WHEN p.montant_soumissionne > 0 THEN p.montant_soumissionne END) as montant_moyen,
+    MAX(p.montant_soumissionne) as plus_gros_contrat,
+    MIN(CASE WHEN p.montant_soumissionne > 0 THEN p.montant_soumissionne END) as plus_petit_contrat,
+    CASE 
+        WHEN COUNT(p.id) > 0 THEN 
+            ROUND((COUNT(CASE WHEN p.statut = 'TERMINÉ' OR p.suivi_soumission LIKE '%Obtenu%' THEN 1 END) * 100.0 / COUNT(p.id)), 2)
+        ELSE 0 
+    END as taux_reussite_pct
+FROM employees e
+LEFT JOIN projects p ON e.id = p.vendeur_id
+WHERE e.departement = 'COMMERCIAL' OR p.vendeur_id IS NOT NULL
+GROUP BY e.id, e.prenom, e.nom, e.departement
+ORDER BY ca_realise DESC;
+
+-- Vue pour les top clients
+CREATE VIEW IF NOT EXISTS view_top_clients AS
+SELECT 
+    c.id as client_id,
+    c.nom as client_nom,
+    c.secteur,
+    c.type_company,
+    COUNT(p.id) as nb_projets,
+    SUM(CASE WHEN p.statut = 'TERMINÉ' OR p.suivi_soumission LIKE '%Obtenu%' THEN COALESCE(p.montant_soumissionne, 0) ELSE 0 END) as ca_realise,
+    SUM(COALESCE(p.montant_soumissionne, 0)) as ca_potentiel,
+    AVG(CASE WHEN p.montant_soumissionne > 0 THEN p.montant_soumissionne END) as montant_moyen_projet,
+    MAX(p.date_recu) as derniere_commande,
+    MIN(p.date_recu) as premiere_commande,
+    COUNT(CASE WHEN p.date_recu >= DATE('now', '-12 months') THEN 1 END) as projets_12_derniers_mois
+FROM companies c
+LEFT JOIN projects p ON c.id = p.client_company_id
+WHERE c.type_company = 'CLIENT' AND (p.id IS NOT NULL OR c.is_prospect = FALSE)
+GROUP BY c.id, c.nom, c.secteur, c.type_company
+HAVING nb_projets > 0
+ORDER BY ca_realise DESC;
+
+-- Vue pour l'analyse mensuelle
+CREATE VIEW IF NOT EXISTS view_analyse_mensuelle AS
+SELECT 
+    strftime('%Y-%m', p.date_recu) as mois,
+    COUNT(p.id) as nb_projets,
+    COUNT(CASE WHEN p.statut = 'TERMINÉ' OR p.suivi_soumission LIKE '%Obtenu%' THEN 1 END) as nb_gagnes,
+    COUNT(CASE WHEN p.suivi_soumission LIKE '%Non Obtenu%' OR p.statut = 'PERDU' THEN 1 END) as nb_perdus,
+    SUM(CASE WHEN p.statut = 'TERMINÉ' OR p.suivi_soumission LIKE '%Obtenu%' THEN COALESCE(p.montant_soumissionne, 0) ELSE 0 END) as ca_realise,
+    SUM(COALESCE(p.montant_soumissionne, 0)) as ca_potentiel,
+    ROUND(AVG(CASE WHEN p.montant_soumissionne > 0 THEN p.montant_soumissionne END), 2) as montant_moyen
+FROM projects p
+WHERE p.numero_job_commercial IS NOT NULL AND p.date_recu IS NOT NULL
+GROUP BY strftime('%Y-%m', p.date_recu)
+ORDER BY mois DESC;
+
+-- Vue projets complets (mise à jour pour nouvelle table projects)
+CREATE VIEW IF NOT EXISTS view_projects_complets_new AS
+SELECT 
+    p.*,
+    c.nom as client_company_nom,
+    c.secteur as client_secteur,
+    c.type_company as client_type,
+    e1.prenom || ' ' || e1.nom as vendeur_nom,
+    e2.prenom || ' ' || e2.nom as responsable_nom,
+    COUNT(DISTINCT o.id) as nombre_operations,
+    COUNT(DISTINCT m.id) as nombre_materiaux,
+    COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux_total,
+    COALESCE(SUM(o.temps_estime), 0) as temps_total_estime
+FROM projects p
+LEFT JOIN companies c ON p.client_company_id = c.id
+LEFT JOIN employees e1 ON p.vendeur_id = e1.id
+LEFT JOIN employees e2 ON p.responsable_id = e2.id
+LEFT JOIN operations o ON p.id = o.project_id
+LEFT JOIN materials m ON p.id = m.project_id
+GROUP BY p.id;
+
+-- ========================================
+-- 5. CRÉATION DES TRIGGERS
+-- ========================================
+
+-- Trigger pour mise à jour automatique des montants
+CREATE TRIGGER IF NOT EXISTS trigger_update_formulaire_montant_insert
+AFTER INSERT ON formulaire_lignes
+FOR EACH ROW
+BEGIN
+    UPDATE formulaire_lignes 
+    SET montant_ligne = NEW.quantite * NEW.prix_unitaire
+    WHERE id = NEW.id;
+    
+    UPDATE formulaires 
+    SET montant_total = (
+        SELECT COALESCE(SUM(quantite * prix_unitaire), 0) 
+        FROM formulaire_lignes 
+        WHERE formulaire_id = NEW.formulaire_id
+    ),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = NEW.formulaire_id;
+END;
+
+-- Trigger pour la validation automatique des statuts
+CREATE TRIGGER IF NOT EXISTS trigger_auto_log_status_change
+AFTER UPDATE OF statut ON formulaires
+FOR EACH ROW
+WHEN OLD.statut != NEW.statut
+BEGIN
+    INSERT INTO formulaire_validations (formulaire_id, type_validation, ancien_statut, nouveau_statut, commentaires)
+    VALUES (NEW.id, 'CHANGEMENT_STATUT', OLD.statut, NEW.statut, 'Changement automatique de statut');
+END;
+
+-- Trigger pour la mise à jour des timestamps
+CREATE TRIGGER IF NOT EXISTS trigger_projects_updated_at
+AFTER UPDATE ON projects
+FOR EACH ROW
+BEGIN
+    UPDATE projects 
+    SET updated_at = CURRENT_TIMESTAMP 
+    WHERE id = NEW.id;
+END;
+
+-- ========================================
+-- 6. STATISTIQUES FINALES
+-- ========================================
+
+-- Comptage des données insérées
+SELECT 'Employés total' as type, COUNT(*) as nombre FROM employees
+UNION ALL
+SELECT 'Entreprises total', COUNT(*) FROM companies
+UNION ALL
+SELECT 'Projets commerciaux', COUNT(*) FROM projects WHERE numero_job_commercial IS NOT NULL
+UNION ALL
+SELECT 'Projets avec CA', COUNT(*) FROM projects WHERE montant_soumissionne > 0
+UNION ALL
+SELECT 'CA total réalisé', PRINTF('%.2f $', SUM(montant_soumissionne)) FROM projects WHERE statut = 'TERMINÉ'
+UNION ALL
+SELECT 'CA potentiel total', PRINTF('%.2f $', SUM(montant_soumissionne)) FROM projects WHERE montant_soumissionne > 0;
+
+-- ========================================
+-- FIN DU SCRIPT COMPLET
+-- ========================================
+
+COMMIT;
