@@ -22,6 +22,140 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ================== FONCTIONS DG WORK CENTERS ==================
+
+def get_dg_work_centers():
+    """Retourne la liste complète des postes de travail Desmarais & Gagné"""
+    return {
+        '1000': {'nom': 'Général', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'MANUEL'},
+        '1001': {'nom': 'Temps Bureau', 'type': 'Int.', 'departement': 'COMMERCIAL', 'categorie': 'BUREAU'},
+        '1002': {'nom': 'Programmation', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'CNC'},
+        '1003': {'nom': 'Réception', 'type': 'Int.', 'departement': 'LOGISTIQUE', 'categorie': 'TRANSPORT'},
+        '1004': {'nom': 'Scie', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1005': {'nom': 'Cisaille', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1006': {'nom': 'Poinçonnage', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1007': {'nom': 'Laser', 'type': 'Ext.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1008': {'nom': 'Cintrage/Roulage', 'type': 'Ext.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1009': {'nom': 'Pliage', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1010': {'nom': 'Punch Press', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1011': {'nom': 'Soudure MIG', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'ASSEMBLAGE'},
+        '1012': {'nom': 'Robot Soudage', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'ROBOTIQUE'},
+        '1013': {'nom': 'Ébavurage', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'FINITION'},
+        '1014': {'nom': 'Press Drill', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1015': {'nom': 'Filetage', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1016': {'nom': 'Fraisage', 'type': 'Ext.', 'departement': 'PRODUCTION', 'categorie': 'USINAGE'},
+        '1017': {'nom': 'Peinture', 'type': 'Ext.', 'departement': 'PRODUCTION', 'categorie': 'FINITION'},
+        '1018': {'nom': 'Galvanisation', 'type': 'Ext.', 'departement': 'PRODUCTION', 'categorie': 'FINITION'},
+        '1019': {'nom': 'Placage/Passivation', 'type': 'Ext.', 'departement': 'PRODUCTION', 'categorie': 'FINITION'},
+        '1020': {'nom': 'Polissage', 'type': 'Ext.', 'departement': 'PRODUCTION', 'categorie': 'FINITION'},
+        '1021': {'nom': 'Manutention', 'type': 'Int.', 'departement': 'LOGISTIQUE', 'categorie': 'TRANSPORT'},
+        '1022': {'nom': 'Assemblage', 'type': 'Int.', 'departement': 'PRODUCTION', 'categorie': 'ASSEMBLAGE'},
+        '1023': {'nom': 'Inspection', 'type': 'Int.', 'departement': 'QUALITE', 'categorie': 'INSPECTION'},
+        '1024': {'nom': 'Emballage', 'type': 'Int.', 'departement': 'LOGISTIQUE', 'categorie': 'TRANSPORT'},
+        '1025': {'nom': 'Expédition', 'type': 'Int.', 'departement': 'LOGISTIQUE', 'categorie': 'TRANSPORT'}
+    }
+
+def initialize_dg_work_centers(db):
+    """Initialise les postes de travail DG dans la base de données"""
+    try:
+        dg_centers = get_dg_work_centers()
+        postes_crees = 0
+        
+        for code, data in dg_centers.items():
+            # Vérifier si le poste existe déjà
+            existing = db.execute_query(
+                "SELECT id FROM work_centers WHERE nom = ?", 
+                (f"{code} - {data['nom']}")
+            )
+            
+            if not existing:
+                # Créer le poste
+                work_center_data = {
+                    'nom': f"{code} - {data['nom']}",
+                    'departement': data['departement'],
+                    'categorie': data['categorie'],
+                    'type_machine': f"Poste {data['nom']} - {data['type']}",
+                    'capacite_theorique': 8.0,
+                    'operateurs_requis': 1,
+                    'cout_horaire': 75.0 if data['type'] == 'Int.' else 100.0,  # Coût plus élevé pour externe
+                    'competences_requises': f"Compétences requises pour {data['nom']}",
+                    'statut': 'ACTIF',
+                    'localisation': 'Atelier Principal' if data['type'] == 'Int.' else 'Sous-traitant'
+                }
+                
+                poste_id = db.execute_insert('''
+                    INSERT INTO work_centers 
+                    (nom, departement, categorie, type_machine, capacite_theorique, 
+                     operateurs_requis, cout_horaire, competences_requises, statut, localisation)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    work_center_data['nom'],
+                    work_center_data['departement'], 
+                    work_center_data['categorie'],
+                    work_center_data['type_machine'],
+                    work_center_data['capacite_theorique'],
+                    work_center_data['operateurs_requis'],
+                    work_center_data['cout_horaire'],
+                    work_center_data['competences_requises'],
+                    work_center_data['statut'],
+                    work_center_data['localisation']
+                ))
+                
+                if poste_id:
+                    logger.info(f"Poste DG créé: {code} - {data['nom']} (ID: {poste_id})")
+                    postes_crees += 1
+                else:
+                    logger.error(f"Erreur création poste: {code} - {data['nom']}")
+            else:
+                logger.info(f"Poste DG existe déjà: {code} - {data['nom']}")
+        
+        if postes_crees > 0:
+            logger.info(f"Initialisation DG: {postes_crees} nouveaux postes créés")
+                
+    except Exception as e:
+        logger.error(f"Erreur initialisation postes DG: {e}")
+
+def migrate_to_dg_work_centers(db):
+    """Migre les anciens postes vers les nouveaux postes DG"""
+    
+    st.markdown("#### 🔄 Migration vers les Postes DG")
+    
+    # Bouton de migration dans l'interface debug
+    if st.button("🔄 Migrer vers les postes DG", key="migrate_work_centers_btn"):
+        try:
+            # Option pour archiver les anciens postes
+            if st.checkbox("⚠️ Archiver les anciens postes (non-DG)", key="archive_old_centers"):
+                old_centers = db.execute_query("SELECT id, nom FROM work_centers WHERE statut = 'ACTIF'")
+                dg_codes = list(get_dg_work_centers().keys())
+                
+                for center in old_centers:
+                    # Vérifier si ce n'est pas déjà un poste DG
+                    is_dg_center = any(dg_code in center['nom'] for dg_code in dg_codes)
+                    
+                    if not is_dg_center:
+                        # Archiver l'ancien poste
+                        db.execute_query(
+                            "UPDATE work_centers SET statut = 'ARCHIVE' WHERE id = ?", 
+                            (center['id'],)
+                        )
+                        st.info(f"Poste archivé: {center['nom']}")
+            
+            # Initialiser les nouveaux postes DG
+            initialize_dg_work_centers(db)
+            
+            st.success("✅ Migration vers les postes DG terminée !")
+            
+        except Exception as e:
+            st.error(f"❌ Erreur migration: {e}")
+    
+    # Afficher les postes DG disponibles
+    st.markdown("##### 📋 Postes DG Standards")
+    dg_centers = get_dg_work_centers()
+    
+    for code, data in dg_centers.items():
+        status_icon = "🏠" if data['type'] == 'Int.' else "🏢"
+        st.markdown(f"- **{code}** - {data['nom']} ({data['type']}) {status_icon}")
+
 # ================== FONCTIONS DE DEBUG TEMPORAIRES ==================
 
 def debug_bt_kanban_integration(db):
@@ -31,7 +165,7 @@ def debug_bt_kanban_integration(db):
     """
     st.markdown("## 🔍 DEBUG - Intégration BT-Kanban")
     
-    debug_tab1, debug_tab2, debug_tab3 = st.tabs(["📋 Postes Disponibles", "🔧 BTs Existants", "🔗 Opérations Synchronisées"])
+    debug_tab1, debug_tab2, debug_tab3, debug_tab4 = st.tabs(["📋 Postes Disponibles", "🔧 BTs Existants", "🔗 Opérations Synchronisées", "🔄 Migration DG"])
     
     with debug_tab1:
         st.markdown("### 📋 Postes de Travail dans la Base")
@@ -135,6 +269,10 @@ def debug_bt_kanban_integration(db):
                 
         except Exception as e:
             st.error(f"Erreur : {e}")
+    
+    with debug_tab4:
+        # NOUVEAU : Onglet migration DG
+        migrate_to_dg_work_centers(db)
     
     # Section Actions Rapides
     st.markdown("---")
@@ -325,6 +463,7 @@ class GestionnaireBonsTravail:
     VERSION PDF avec export professionnel
     VERSION SUPPRESSION avec suppression sécurisée complète
     VERSION KANBAN avec synchronisation automatique
+    VERSION DG avec postes de travail spécifiques
     """
     
     def __init__(self, db):
@@ -407,7 +546,7 @@ class GestionnaireBonsTravail:
         }
     
     def get_fournisseurs_actifs(self) -> List[str]:
-        """Récupère la liste des fournisseurs actifs depuis la base de données"""
+        """Récupère la liste des fournisseurs actifs depuis la base de données - VERSION DG"""
         try:
             query = '''
                 SELECT c.nom as company_name, f.code_fournisseur
@@ -429,13 +568,15 @@ class GestionnaireBonsTravail:
             
         except Exception as e:
             logger.error(f"Erreur récupération fournisseurs: {e}")
-            # Fallback avec quelques fournisseurs par défaut
+            # Fallback avec fournisseurs par défaut basés sur les postes DG externes
             return [
-                'Metallurgie Québec Inc.',
-                'Soudage Spécialisé Ltée',
-                'Traitement Thermique DG',
-                'Usinage Précision Plus',
-                'Peinture Industrielle QC'
+                'Laser Précision Inc. (1007)',
+                'Cintrage Industriel QC (1008)', 
+                'Fraisage Spécialisé Ltée (1016)',
+                'Peinture Industrielle DG (1017)',
+                'Galvanisation Québec (1018)',
+                'Placage et Passivation Plus (1019)',
+                'Polissage Professionnel (1020)'
             ]
     
     def generate_bt_number(self) -> str:
@@ -1616,7 +1757,7 @@ def show_bt_form_section():
 
 def show_tasks_section():
     """
-    Section des tâches et opérations
+    Section des tâches et opérations - VERSION DG avec postes spécifiques
     VERSION CORRIGÉE : Validation visuelle améliorée + Types numériques corrigés
     NOUVELLE VERSION : Ajout dropdown Fournisseur/Sous-traitant
     """
@@ -1625,18 +1766,18 @@ def show_tasks_section():
     
     st.markdown("### 📋 Tâches et Opérations")
     
-    # Operations disponibles (en fonction des postes de travail)
+    # Operations disponibles - NOUVELLE LISTE DG
     try:
-        # Récupérer les postes de travail disponibles
+        # Récupérer les postes depuis la base de données
         postes = st.session_state.erp_db.execute_query(
             "SELECT nom FROM work_centers WHERE statut = 'ACTIF' ORDER BY nom"
         )
         operation_options = [''] + [poste['nom'] for poste in postes]
     except:
-        operation_options = [
-            '', 'Programmation CNC', 'Découpe plasma', 'Poinçonnage', 
-            'Soudage TIG', 'Assemblage', 'Meulage', 'Polissage', 'Emballage'
-        ]
+        # Fallback avec les postes DG par défaut
+        dg_centers = get_dg_work_centers()
+        operation_options = [''] + [f"{code} - {data['nom']} ({data['type']})" 
+                                   for code, data in dg_centers.items()]
     
     # NOUVEAU : Récupérer les fournisseurs actifs
     fournisseurs_actifs = gestionnaire.get_fournisseurs_actifs()
@@ -2730,14 +2871,14 @@ def show_work_center_form(poste_data=None):
             nom = st.text_input(
                 "Nom du poste *:", 
                 value=poste_data.get('nom', '') if is_edit else '',
-                placeholder="Ex: Robot ABB GMAW Station 1"
+                placeholder="Ex: 1000 - Général (Int.)"
             )
             
             departements = ['PRODUCTION', 'USINAGE', 'QUALITE', 'LOGISTIQUE', 'MAINTENANCE', 'COMMERCIAL']
             dept_index = departements.index(poste_data['departement']) if is_edit and poste_data.get('departement') in departements else 0
             departement = st.selectbox("Département *:", departements, index=dept_index)
             
-            categories = ['ROBOTIQUE', 'CNC', 'MANUEL', 'INSPECTION', 'ASSEMBLAGE', 'FINITION', 'TRANSPORT']
+            categories = ['ROBOTIQUE', 'CNC', 'MANUEL', 'INSPECTION', 'ASSEMBLAGE', 'FINITION', 'TRANSPORT', 'BUREAU', 'USINAGE']
             cat_index = categories.index(poste_data['categorie']) if is_edit and poste_data.get('categorie') in categories else 0
             categorie = st.selectbox("Catégorie *:", categories, index=cat_index)
         
@@ -2745,7 +2886,7 @@ def show_work_center_form(poste_data=None):
             type_machine = st.text_input(
                 "Type de machine:", 
                 value=poste_data.get('type_machine', '') if is_edit else '',
-                placeholder="Ex: Robot de soudage 6 axes"
+                placeholder="Ex: Poste Général - Int."
             )
             
             capacite_theorique = st.number_input(
@@ -2772,7 +2913,7 @@ def show_work_center_form(poste_data=None):
         with col3:
             cout_horaire = st.number_input(
                 "Coût horaire ($):", 
-                value=float(poste_data.get('cout_horaire', 50.0)) if is_edit else 50.0,
+                value=float(poste_data.get('cout_horaire', 75.0)) if is_edit else 75.0,
                 min_value=0.0, 
                 step=5.0
             )
@@ -2785,7 +2926,7 @@ def show_work_center_form(poste_data=None):
             localisation = st.text_input(
                 "Localisation:", 
                 value=poste_data.get('localisation', '') if is_edit else '',
-                placeholder="Ex: Atelier A - Zone 2"
+                placeholder="Ex: Atelier Principal"
             )
         
         # Compétences
@@ -2793,7 +2934,7 @@ def show_work_center_form(poste_data=None):
         competences_requises = st.text_area(
             "Compétences requises:", 
             value=poste_data.get('competences_requises', '') if is_edit else '',
-            placeholder="Ex: Soudage GMAW, Programmation Robot ABB, Lecture de plans",
+            placeholder="Ex: Compétences requises pour Général",
             height=100
         )
         
@@ -3242,6 +3383,7 @@ def show_production_management_page():
     VERSION PDF : Export PDF professionnel intégré
     VERSION SUPPRESSION : Fonctionnalité complète de suppression sécurisée des BT
     VERSION KANBAN : Synchronisation automatique avec le Kanban intégrée
+    VERSION DG : Postes de travail spécifiques Desmarais & Gagné avec initialisation automatique
     """
     
     # Appliquer les styles DG
@@ -3251,6 +3393,10 @@ def show_production_management_page():
     if 'gestionnaire_bt' not in st.session_state:
         if 'erp_db' in st.session_state:
             st.session_state.gestionnaire_bt = GestionnaireBonsTravail(st.session_state.erp_db)
+            
+            # NOUVEAU : Initialiser automatiquement les postes DG
+            initialize_dg_work_centers(st.session_state.erp_db)
+            
         else:
             st.error("❌ Base de données ERP non disponible")
             return
@@ -3360,7 +3506,7 @@ def show_production_management_page():
         footer_message = "📋 Bons de Travail"
         footer_color = "var(--text-color-light)"
     else:
-        footer_message = "🏭 Postes de Travail"
+        footer_message = "🏭 Postes de Travail DG"
         footer_color = "var(--text-color-light)"
     
     st.markdown(f"""
@@ -3370,6 +3516,7 @@ def show_production_management_page():
         <p><em>Mode actuel: {footer_message}</em></p>
         {f'<p><strong>🔄 Synchronisation Kanban:</strong> {"✅ Automatique" if main_mode == "bt" else "N/A"}</p>' if main_mode == 'bt' else ''}
         {f'<p><strong>📄 Export PDF:</strong> {"✅ Disponible" if PDF_EXPORT_AVAILABLE else "❌ Non disponible"}</p>' if main_mode == 'bt' else ''}
+        {f'<p><strong>🏭 Postes DG:</strong> {"✅ 26 postes standards initialisés" if main_mode == "postes" else "✅ Disponibles"}</p>'}
         {f'<p><strong>🔍 Debug:</strong> {"⚠️ Mode diagnostic actif" if main_mode == "debug" else "✅ Disponible"}</p>' if main_mode in ['bt', 'debug'] else ''}
     </div>
     """, unsafe_allow_html=True)
