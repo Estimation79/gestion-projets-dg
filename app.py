@@ -17,6 +17,80 @@ from fractions import Fraction
 import csv
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
 
+# app.py - AJOUTEZ CECI AU DÉBUT (après les imports, avant la configuration)
+
+import os
+import logging
+
+# Configuration du logging pour voir les messages
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def force_delete_db_on_startup():
+    """Supprime le fichier DB si la variable d'environnement est activée"""
+    if os.environ.get('FORCE_DELETE_DB') == 'true':
+        db_files = [
+            "erp_production_dg.db", 
+            "timetracker.db",
+        ]
+        
+        deleted_files = []
+        
+        for db_file in db_files:
+            if os.path.exists(db_file):
+                try:
+                    os.remove(db_file)
+                    deleted_files.append(db_file)
+                    logger.info(f"🗑️ {db_file} supprimé via FORCE_DELETE_DB")
+                    print(f"🗑️ {db_file} supprimé via FORCE_DELETE_DB")
+                except Exception as e:
+                    logger.error(f"❌ Erreur suppression {db_file}: {e}")
+                    print(f"❌ Erreur suppression {db_file}: {e}")
+        
+        # Supprimer tous les fichiers .db
+        import glob
+        for file in glob.glob("*.db"):
+            try:
+                if file not in deleted_files:  # Éviter les doublons
+                    os.remove(file)
+                    deleted_files.append(file)
+                    logger.info(f"🗑️ {file} supprimé via FORCE_DELETE_DB")
+                    print(f"🗑️ {file} supprimé via FORCE_DELETE_DB")
+            except Exception as e:
+                logger.error(f"❌ Erreur suppression {file}: {e}")
+                print(f"❌ Erreur suppression {file}: {e}")
+        
+        # Supprimer aussi les dossiers de backup
+        backup_dirs = ["backup_json"]
+        for backup_dir in backup_dirs:
+            if os.path.exists(backup_dir):
+                try:
+                    import shutil
+                    shutil.rmtree(backup_dir)
+                    logger.info(f"🗑️ Dossier {backup_dir} supprimé")
+                    print(f"🗑️ Dossier {backup_dir} supprimé")
+                except Exception as e:
+                    logger.error(f"❌ Erreur suppression {backup_dir}: {e}")
+                    print(f"❌ Erreur suppression {backup_dir}: {e}")
+        
+        if deleted_files:
+            logger.info(f"✅ Fichiers supprimés: {', '.join(deleted_files)}")
+            print(f"✅ Fichiers supprimés: {', '.join(deleted_files)}")
+        else:
+            logger.info("ℹ️ Aucun fichier DB trouvé à supprimer")
+            print("ℹ️ Aucun fichier DB trouvé à supprimer")
+
+# 🚨 APPEL DE LA FONCTION DE SUPPRESSION
+force_delete_db_on_startup()
+
+# Configuration de la page (votre code existant continue ici)
+st.set_page_config(
+    page_title="🚀 ERP Production DG Inc.",
+    page_icon="🏭",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # ========================
 # CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
 # ========================
