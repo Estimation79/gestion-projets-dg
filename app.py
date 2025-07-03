@@ -16,10 +16,6 @@ from math import gcd
 from fractions import Fraction
 import csv
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
-
-# app.py - AJOUTEZ CECI AU DÉBUT (après les imports, avant la configuration)
-
-import os
 import logging
 
 # Configuration du logging pour voir les messages
