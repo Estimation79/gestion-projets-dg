@@ -1229,7 +1229,7 @@ class GestionnaireCRM:
     def on_devis_accepte(self, devis_id: int):
         """
         Actions à effectuer quand un devis est accepté.
-        TRANSFORME LE DEVIS EN PROJET.
+        TRANSFORME LE DEVIS EN PROJET - VERSION CORRIGÉE
         """
         # Vérification 1: S'assurer que le gestionnaire de projets est disponible
         if not self.project_manager:
@@ -1249,7 +1249,7 @@ class GestionnaireCRM:
                 st.warning(f"ℹ️ Un projet (#{devis['project_id']}) est déjà lié à ce devis. Aucune action effectuée.")
                 return
 
-            # Préparation des données pour le nouveau projet
+            # Préparation des données pour le nouveau projet - VERSION CORRIGÉE
             project_data = {
                 'nom_projet': f"Projet - Devis {devis.get('numero_document', devis_id)}",
                 'client_company_id': devis.get('company_id'),
@@ -1261,7 +1261,8 @@ class GestionnaireCRM:
                 'date_soumis': datetime.now().strftime('%Y-%m-%d'),
                 'date_prevu': (datetime.now() + timedelta(days=60)).strftime('%Y-%m-%d'),
                 'employes_assignes': [devis.get('employee_id')] if devis.get('employee_id') else [],
-                # --- LIGNES À AJOUTER ---
+                
+                # --- LIGNES CORRIGÉES / AJOUTÉES ---
                 'tache': 'PROJET_CLIENT',  # Fournit une valeur par défaut pour la colonne 'tache'
                 'bd_ft_estime': 0.0,      # Fournit une valeur par défaut pour les heures
                 'client_legacy': '',      # Fournit une valeur par défaut pour le client legacy
@@ -1290,10 +1291,13 @@ class GestionnaireCRM:
                 st.success(f"✅ Devis transformé avec succès en Projet #{project_id} !")
                 st.balloons()
             else:
-                st.error("❌ Échec de la création du projet. La transformation a été annulée.")
+                # Si ajouter_projet retourne None, c'est qu'il y a eu une erreur affichée dans la console.
+                st.error("❌ Échec de la création du projet. La transformation a été annulée. Vérifiez la console pour les détails.")
 
         except Exception as e:
             st.error(f"Erreur lors de la transformation du devis en projet: {e}")
+            import traceback
+            st.code(traceback.format_exc())
     
     def on_devis_expire(self, devis_id: int):
         """Actions à effectuer quand un devis expire"""
