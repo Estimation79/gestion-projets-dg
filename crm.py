@@ -55,6 +55,9 @@ class GestionnaireCRM:
             return
             
         try:
+            # D'abord, vérifier et mettre à jour la structure de la table companies
+            self._ensure_companies_table_structure()
+            
             # Vérifier si des données existent déjà
             companies = self.db.execute_query("SELECT COUNT(*) as count FROM companies")
             contacts = self.db.execute_query("SELECT COUNT(*) as count FROM contacts")
@@ -63,6 +66,59 @@ class GestionnaireCRM:
                 self._create_demo_data_sqlite()
         except Exception as e:
             st.error(f"Erreur initialisation données démo CRM: {e}")
+    
+    def _ensure_companies_table_structure(self):
+        """Vérifie et ajoute les colonnes d'adresse structurées si nécessaire"""
+        if not self.use_sqlite:
+            return
+        
+        try:
+            # Vérifier la structure actuelle de la table companies
+            columns_info = self.db.execute_query("PRAGMA table_info(companies)")
+            existing_columns = [col['name'] for col in columns_info]
+            
+            # Colonnes d'adresse à ajouter si elles n'existent pas
+            required_address_columns = {
+                'ville': 'TEXT',
+                'province': 'TEXT', 
+                'code_postal': 'TEXT',
+                'pays': 'TEXT'
+            }
+            
+            # Ajouter les colonnes manquantes
+            for column_name, column_type in required_address_columns.items():
+                if column_name not in existing_columns:
+                    alter_query = f"ALTER TABLE companies ADD COLUMN {column_name} {column_type}"
+                    self.db.execute_update(alter_query)
+                    st.info(f"✅ Colonne '{column_name}' ajoutée à la table companies")
+            
+            # Vérifier si le champ 'adresse' existe, sinon le renommer/traiter
+            if 'adresse' not in existing_columns:
+                # Si pas de colonne adresse du tout, l'ajouter
+                self.db.execute_update("ALTER TABLE companies ADD COLUMN adresse TEXT")
+                st.info("✅ Colonne 'adresse' ajoutée à la table companies")
+        
+        except Exception as e:
+            st.warning(f"Attention lors de la mise à jour de la structure: {e}")
+            # En cas d'erreur, continuer quand même
+    
+    def debug_database_structure(self):
+        """Fonction de diagnostic pour vérifier la structure de la base de données"""
+        if not self.use_sqlite:
+            return "Mode JSON - pas de structure SQLite à vérifier"
+        
+        try:
+            # Informations sur la table companies
+            columns_info = self.db.execute_query("PRAGMA table_info(companies)")
+            
+            debug_info = {
+                'colonnes_companies': [{'nom': col['name'], 'type': col['type']} for col in columns_info],
+                'nombre_entreprises': len(self.get_all_companies()),
+            }
+            
+            return debug_info
+        except Exception as e:
+            return f"Erreur lors du diagnostic: {e}"
     
     def _init_devis_support(self):
         """Initialise le support des devis dans le système de formulaires avec mode compatibilité"""
@@ -383,31 +439,53 @@ class GestionnaireCRM:
         try:
             now_iso = datetime.now().isoformat()
             
-            query = '''
+            # Vérifier quelles colonnes existent dans la table
+            columns_info = self.db.execute_query("PRAGMA table_info(companies)")
+            existing_columns = [col['name'] for col in columns_info]
+            
+            # Construire la requête dynamiquement selon les colonnes disponibles
+            base_columns = ['nom', 'secteur', 'site_web', 'contact_principal_id', 'notes', 'created_at', 'updated_at']
+            address_columns = ['adresse', 'ville', 'province', 'code_postal', 'pays']
+            
+            # Colonnes à insérer
+            columns_to_insert = []
+            values_to_insert = []
+            placeholders = []
+            
+            # Ajouter les colonnes de base
+            for col in base_columns:
+                if col in existing_columns:
+                    columns_to_insert.append(col)
+                    if col == 'created_at' or col == 'updated_at':
+                        values_to_insert.append(now_iso)
+                    else:
+                        values_to_insert.append(data_entreprise.get(col))
+                    placeholders.append('?')
+            
+            # Ajouter les colonnes d'adresse si elles existent
+            for col in address_columns:
+                if col in existing_columns:
+                    columns_to_insert.append(col)
+                    values_to_insert.append(data_entreprise.get(col))
+                    placeholders.append('?')
+            
+            # Construire et exécuter la requête
+            query = f'''
                 INSERT INTO companies 
-                (nom, secteur, adresse, ville, province, code_postal, pays, site_web, contact_principal_id, notes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ({', '.join(columns_to_insert)})
+                VALUES ({', '.join(placeholders)})
             '''
             
-            company_id = self.db.execute_insert(query, (
-                data_entreprise.get('nom'),
-                data_entreprise.get('secteur'),
-                data_entreprise.get('adresse'),
-                data_entreprise.get('ville'),
-                data_entreprise.get('province'),
-                data_entreprise.get('code_postal'),
-                data_entreprise.get('pays'),
-                data_entreprise.get('site_web'),
-                data_entreprise.get('contact_principal_id'),
-                data_entreprise.get('notes'),
-                now_iso,
-                now_iso
-            ))
+            company_id = self.db.execute_insert(query, tuple(values_to_insert))
+            
+            if company_id:
+                st.success(f"✅ Entreprise créée avec l'ID #{company_id}")
             
             return company_id
             
         except Exception as e:
             st.error(f"Erreur ajout entreprise: {e}")
+            st.error(f"Détails: Colonnes disponibles: {existing_columns if 'existing_columns' in locals() else 'Inconnues'}")
             return None
     
     def modifier_entreprise(self, id_entreprise, data_entreprise):
@@ -418,7 +496,11 @@ class GestionnaireCRM:
         try:
             now_iso = datetime.now().isoformat()
             
-            # Construire la requête dynamiquement selon les champs fournis
+            # Vérifier quelles colonnes existent dans la table
+            columns_info = self.db.execute_query("PRAGMA table_info(companies)")
+            existing_columns = [col['name'] for col in columns_info]
+            
+            # Construire la requête dynamiquement selon les champs fournis ET les colonnes disponibles
             update_fields = []
             params = []
             
@@ -436,19 +518,28 @@ class GestionnaireCRM:
             }
             
             for field, db_field in field_mapping.items():
-                if field in data_entreprise:
+                # Vérifier que le champ est dans les données ET que la colonne existe
+                if field in data_entreprise and db_field in existing_columns:
                     update_fields.append(f"{db_field} = ?")
                     params.append(data_entreprise[field])
             
             if update_fields:
-                update_fields.append("updated_at = ?")
-                params.append(now_iso)
+                # Ajouter updated_at si la colonne existe
+                if 'updated_at' in existing_columns:
+                    update_fields.append("updated_at = ?")
+                    params.append(now_iso)
+                
                 params.append(id_entreprise)
                 
                 query = f"UPDATE companies SET {', '.join(update_fields)} WHERE id = ?"
                 rows_affected = self.db.execute_update(query, tuple(params))
+                
+                if rows_affected > 0:
+                    st.success(f"✅ Entreprise #{id_entreprise} mise à jour")
+                
                 return rows_affected > 0
             
+            st.warning("Aucun champ valide à mettre à jour")
             return False
             
         except Exception as e:
@@ -2062,20 +2153,34 @@ def render_crm_entreprise_form(crm_manager: GestionnaireCRM, entreprise_data=Non
                         'contact_principal_id': contact_principal_id_e if contact_principal_id_e else None,
                         'notes': notes_e
                     }
+                    
+                    # Affichage de débogage
+                    with st.expander("🔍 Debug - Données à enregistrer", expanded=False):
+                        st.json(new_entreprise_data)
+                    
                     if entreprise_data:
-                        if crm_manager.modifier_entreprise(entreprise_data['id'], new_entreprise_data):
+                        # Mode modification
+                        success = crm_manager.modifier_entreprise(entreprise_data['id'], new_entreprise_data)
+                        if success:
                             st.success(f"Entreprise #{entreprise_data['id']} mise à jour en SQLite !")
+                            st.session_state.crm_action = None
+                            st.session_state.crm_selected_id = None
+                            st.rerun()
                         else:
                             st.error("Erreur lors de la modification SQLite.")
                     else:
+                        # Mode création
+                        st.info("Tentative de création de l'entreprise...")
                         new_id_e = crm_manager.ajouter_entreprise(new_entreprise_data)
                         if new_id_e:
                             st.success(f"Nouvelle entreprise #{new_id_e} ajoutée en SQLite !")
+                            st.balloons()
+                            st.session_state.crm_action = None
+                            st.session_state.crm_selected_id = None
+                            st.rerun()
                         else:
                             st.error("Erreur lors de la création SQLite.")
-                    st.session_state.crm_action = None
-                    st.session_state.crm_selected_id = None
-                    st.rerun()
+                            st.error("Vérifiez les logs ci-dessus pour plus de détails.")
 
 def render_crm_entreprise_details(crm_manager: GestionnaireCRM, projet_manager, entreprise_data):
     if not entreprise_data:
@@ -3100,6 +3205,11 @@ def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None)
     # Vérification du mode
     if crm_manager.use_sqlite:
         st.success("✅ Mode SQLite actif - Toutes les fonctionnalités disponibles")
+        
+        # Bouton de diagnostic (en développement)
+        if st.checkbox("🔍 Afficher diagnostic base de données"):
+            debug_info = crm_manager.debug_database_structure()
+            st.json(debug_info)
     else:
         st.warning("⚠️ Mode JSON (rétrocompatibilité) - Fonctionnalités devis limitées")
     
