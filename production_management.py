@@ -1148,7 +1148,7 @@ def show_main_navigation():
 
 def show_bt_navigation():
     """Navigation secondaire pour les BT"""
-    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
+    nav_col1, nav_col2, nav_col3 = st.columns(3)
     
     with nav_col1:
         if st.button("🔧 Nouveau Bon", use_container_width=True, 
@@ -1172,10 +1172,6 @@ def show_bt_navigation():
                      key="bt_nav_stats"):
             st.session_state.bt_mode = 'stats'
             st.rerun()
-    
-    with nav_col4:
-        if st.button("🔗 Opérations", use_container_width=True, key="bt_nav_operations"):
-            st.info("🔗 Lien vers module opérations en développement")
 
 def show_bt_form_section():
     """Section principale du formulaire BT avec auto-sélection client"""
@@ -2219,7 +2215,7 @@ def show_bt_management():
                     """)
                 
                 # Actions
-                action_detail_col1, action_detail_col2, action_detail_col3, action_detail_col4 = st.columns(4)
+                action_detail_col1, action_detail_col2, action_detail_col3 = st.columns(3)
                 
                 with action_detail_col1:
                     if st.button("👁️ Voir", key=f"view_{bon['id']}"):
@@ -2240,10 +2236,6 @@ def show_bt_management():
                             st.rerun()
                 
                 with action_detail_col3:
-                    if st.button("🔗 Opérations", key=f"op_{bon['id']}"):
-                        st.info("🔗 Lien vers vue Kanban en développement")
-                
-                with action_detail_col4:
                     # MISE À JOUR : Bouton suppression fonctionnel
                     if st.button("🗑️ Supprimer", key=f"del_{bon['id']}", type="secondary"):
                         st.session_state.bt_confirm_delete = bon['id']
