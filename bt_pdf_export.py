@@ -1,7 +1,7 @@
-# bt_pdf_export.py - Module d'export PDF pour les Bons de Travail - VERSION ULTRA-CORRIGÉE
+# bt_pdf_export.py - Module d'export PDF pour les Bons de Travail - VERSION PROFESSIONNELLE
 # Desmarais & Gagné Inc. - Système ERP Production
 # Génération de PDFs professionnels avec identité DG Inc.
-# ULTRA-CORRECTIONS : Troncature réduite, colonnes plus larges, textes complets visibles
+# VERSION PROFESSIONNELLE : Design uniforme, colonnes équilibrées, espacement cohérent
 
 import streamlit as st
 from reportlab.lib import colors
@@ -25,7 +25,7 @@ DG_GRAY = colors.Color(55/255, 65/255, 81/255)      # #374151
 DG_LIGHT_GRAY = colors.Color(107/255, 114/255, 128/255)  # #6B7280
 
 class BTPDFGenerator:
-    """Générateur de PDF pour les Bons de Travail - VERSION ULTRA-CORRIGÉE FINALE"""
+    """Générateur de PDF pour les Bons de Travail - VERSION PROFESSIONNELLE FINALE"""
     
     def __init__(self):
         self.page_width = A4[0]
@@ -185,9 +185,9 @@ class BTPDFGenerator:
         info_data = [
             ['N° Bon de Travail:', form_data.get('numero_document', 'N/A'), 
              'Date de création:', form_data.get('date_creation', datetime.now().strftime('%Y-%m-%d'))[:10]],
-            ['Projet:', self._truncate_text(form_data.get('project_name', 'N/A'), 30), 
-             'Client:', self._truncate_text(form_data.get('client_name', 'N/A'), 30)],
-            ['Chargé de projet:', self._truncate_text(form_data.get('project_manager', 'Non assigné'), 25), 
+            ['Projet:', self._truncate_text(form_data.get('project_name', 'N/A'), 35), 
+             'Client:', self._truncate_text(form_data.get('client_name', 'N/A'), 35)],
+            ['Chargé de projet:', self._truncate_text(form_data.get('project_manager', 'Non assigné'), 30), 
              'Priorité:', self._get_priority_display(form_data.get('priority', 'NORMAL'))],
             ['Date début prévue:', form_data.get('start_date', 'N/A'), 
              'Date fin prévue:', form_data.get('end_date', 'N/A')]
@@ -203,16 +203,18 @@ class BTPDFGenerator:
             ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
             ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
             ('FONTNAME', (3, 0), (3, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),  # Police augmentée
+            ('FONTSIZE', (0, 0), (-1, -1), 11),  # Police cohérente
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 1, DG_PRIMARY),
             ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.white, DG_LIGHT_GREEN]),
-            # CORRECTION : Padding généreux pour éviter la superposition
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6)
+            # STYLE PROFESSIONNEL UNIFORME
+            ('TOPPADDING', (0, 0), (-1, -1), 10),    # Padding généreux
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            # Hauteur uniforme
+            ('MINHEIGHT', (0, 0), (-1, -1), 32),
         ]))
         
         elements.append(info_table)
@@ -233,8 +235,8 @@ class BTPDFGenerator:
         elements.append(section_title)
         elements.append(Spacer(1, 15))
         
-        # En-têtes du tableau - FINAUX ET OPTIMISÉS
-        headers = ['#', 'Opération', 'Description', 'Qté', 'H.Prév', 'H.Réel', 'Assigné à', 'Fournisseur', 'Statut']
+        # En-têtes du tableau - PROFESSIONNELS ET UNIFORMES
+        headers = ['N°', 'Opération', 'Description', 'Qté', 'H.Prév', 'H.Réel', 'Assigné à', 'Fournisseur', 'Statut']
         
         # Données des tâches
         task_data = [headers]
@@ -242,18 +244,14 @@ class BTPDFGenerator:
         valid_tasks = [task for task in tasks if task.get('operation') or task.get('description')]
         
         for i, task in enumerate(valid_tasks, 1):
-            # ULTRA-CORRECTION : Troncature BEAUCOUP MOINS AGRESSIVE
-            # - Opération: 16 caractères (au lieu de 12) → "Robot ABB GMAW" visible
-            # - Description: 24 caractères (au lieu de 18) → descriptions complètes
-            # - Assigné: 16 caractères (au lieu de 12) → noms complets
-            # - Fournisseur: 14 caractères (au lieu de 10) → "-- Interne --" complet
-            operation = self._truncate_text(task.get('operation', ''), 16)  # Augmenté de 12 à 16
-            description = self._truncate_text(task.get('description', ''), 24)  # Augmenté de 18 à 24
+            # VERSION PROFESSIONNELLE : Troncature encore moins agressive pour un look pro
+            operation = self._truncate_text(task.get('operation', ''), 20)  # Augmenté de 16 à 20
+            description = self._truncate_text(task.get('description', ''), 28)  # Augmenté de 24 à 28
             quantity = str(task.get('quantity', 1))
             planned_hours = f"{task.get('planned_hours', 0):.1f}"
             actual_hours = f"{task.get('actual_hours', 0):.1f}"
-            assigned_to = self._truncate_text(task.get('assigned_to', ''), 16)  # Augmenté de 12 à 16
-            fournisseur = self._truncate_text(task.get('fournisseur', '-- Interne --'), 14)  # Augmenté de 10 à 14
+            assigned_to = self._truncate_text(task.get('assigned_to', ''), 18)  # Augmenté de 16 à 18
+            fournisseur = self._truncate_text(task.get('fournisseur', '-- Interne --'), 16)  # Augmenté de 14 à 16
             status = self._get_status_display(task.get('status', 'pending'))
             
             task_data.append([
@@ -261,31 +259,33 @@ class BTPDFGenerator:
                 planned_hours, actual_hours, assigned_to, fournisseur, status
             ])
         
-        # ULTRA-CORRECTION : Largeurs de colonnes BEAUCOUP PLUS GÉNÉREUSES
-        # Colonnes: #(20) | Opération(85) | Description(110) | Qté(25) | H.Prév(35) | H.Réel(35) | Assigné(80) | Fournisseur(75) | Statut(50)
-        # Total: 515pt (vs 495pt avant) → Plus d'espace pour les textes complets
+        # VERSION PROFESSIONNELLE : Largeurs optimisées pour un look uniforme et pro
+        # Colonnes: N°(18) | Opération(95) | Description(115) | Qté(25) | H.Prév(35) | H.Réel(35) | Assigné(75) | Fournisseur(75) | Statut(50)
         if len(task_data) > 1:  # Si on a au moins une tâche + headers
-            tasks_table = Table(task_data, colWidths=[20, 85, 110, 25, 35, 35, 80, 75, 50])
+            tasks_table = Table(task_data, colWidths=[18, 95, 115, 25, 35, 35, 75, 75, 50])
             tasks_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),  # En-tête réduite pour gagner de l'espace
+                ('FONTSIZE', (0, 0), (-1, 0), 10),  # En-tête plus lisible pour un look pro
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 9),   # Contenu plus lisible (critère principal)
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('ALIGN', (1, 1), (2, -1), 'LEFT'),  # Opération et description à gauche
-                ('ALIGN', (6, 1), (7, -1), 'LEFT'),  # Assigné et fournisseur à gauche
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('GRID', (0, 0), (-1, -1), 0.75, DG_GRAY),  # Bordures visibles
+                ('FONTSIZE', (0, 1), (-1, -1), 9),   # Contenu lisible et uniforme
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),  # Tout centré par défaut
+                ('ALIGN', (1, 1), (2, -1), 'LEFT'),     # Opération et description à gauche
+                ('ALIGN', (6, 1), (7, -1), 'LEFT'),     # Assigné et fournisseur à gauche
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), # Alignement vertical au centre
+                ('GRID', (0, 0), (-1, -1), 1, DG_GRAY), # Bordures uniformes
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN]),
-                # CORRECTION FINALE : Padding généreux pour éviter complètement la superposition
-                ('TOPPADDING', (0, 0), (-1, -1), 6),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ('LEFTPADDING', (0, 0), (-1, -1), 4),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-                # NOUVEAU : Hauteur minimale garantie pour chaque ligne
-                ('MINHEIGHT', (0, 1), (-1, -1), 25)
+                # STYLE PROFESSIONNEL : Padding uniforme et généreux
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                # Hauteur uniforme pour toutes les lignes
+                ('MINHEIGHT', (0, 1), (-1, -1), 28),  # Augmenté de 25 à 28 pour plus d'espace
+                # NOUVEAU : Uniformité professionnelle
+                ('LINEBELOW', (0, 0), (-1, 0), 2, DG_PRIMARY),  # Ligne épaisse sous l'en-tête
+                ('LINEABOVE', (0, 1), (-1, 1), 1, DG_GRAY),     # Ligne fine au-dessus première ligne
             ]))
             
             elements.append(tasks_table)
@@ -326,47 +326,50 @@ class BTPDFGenerator:
         elements.append(section_title)
         elements.append(Spacer(1, 15))
         
-        # En-têtes du tableau
-        headers = ['#', 'Matériau/Outil', 'Description', 'Qté', 'Unité', 'Fournisseur', 'Disponibilité', 'Notes']
+        # En-têtes du tableau matériaux - PROFESSIONNELS
+        headers = ['N°', 'Matériau/Outil', 'Description', 'Qté', 'Unité', 'Fournisseur', 'Disponibilité', 'Notes']
         
         # Données des matériaux
         material_data = [headers]
         
         for i, material in enumerate(valid_materials, 1):
-            # CORRECTION FINALE : Troncature MOINS AGRESSIVE pour matériaux
-            name = self._truncate_text(material.get('name', ''), 22)  # Augmenté de 18 à 22
-            description = self._truncate_text(material.get('description', ''), 26)  # Augmenté de 20 à 26
+            # VERSION PROFESSIONNELLE : Troncature moins agressive pour matériaux
+            name = self._truncate_text(material.get('name', ''), 25)      # Augmenté de 22 à 25
+            description = self._truncate_text(material.get('description', ''), 30)  # Augmenté de 26 à 30
             quantity = f"{material.get('quantity', 1):.1f}"
             unit = material.get('unit', 'pcs')
-            fournisseur = self._truncate_text(material.get('fournisseur', '-- Interne --'), 16)  # Augmenté de 12 à 16
+            fournisseur = self._truncate_text(material.get('fournisseur', '-- Interne --'), 18)  # Augmenté de 16 à 18
             available = self._get_availability_display(material.get('available', 'yes'))
-            notes = self._truncate_text(material.get('notes', ''), 18)  # Augmenté de 15 à 18
+            notes = self._truncate_text(material.get('notes', ''), 20)    # Augmenté de 18 à 20
             
             material_data.append([
                 str(i), name, description, quantity, unit, fournisseur, available, notes
             ])
         
-        # CORRECTION FINALE : Largeurs de colonnes PLUS GÉNÉREUSES pour matériaux
-        materials_table = Table(material_data, colWidths=[20, 95, 105, 35, 30, 75, 65, 80])
+        # VERSION PROFESSIONNELLE : Largeurs uniformes et équilibrées pour matériaux
+        materials_table = Table(material_data, colWidths=[18, 100, 110, 35, 30, 75, 70, 85])
         materials_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),  # En-tête réduite pour gagner de l'espace
+            ('FONTSIZE', (0, 0), (-1, 0), 10),  # Cohérence avec les tâches
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),  # Police lisible
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (1, 1), (2, -1), 'LEFT'),  # Nom et description à gauche
-            ('ALIGN', (5, 1), (7, -1), 'LEFT'),  # Fournisseur et notes à gauche
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.75, DG_GRAY),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),  # Police uniforme
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),  # Tout centré par défaut
+            ('ALIGN', (1, 1), (2, -1), 'LEFT'),     # Nom et description à gauche
+            ('ALIGN', (5, 1), (7, -1), 'LEFT'),     # Fournisseur et notes à gauche
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), # Alignement vertical uniforme
+            ('GRID', (0, 0), (-1, -1), 1, DG_GRAY), # Bordures uniformes
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN]),
-            # CORRECTION FINALE : Padding pour éviter la superposition
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 4),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-            ('MINHEIGHT', (0, 1), (-1, -1), 25)
+            # STYLE PROFESSIONNEL UNIFORME
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('MINHEIGHT', (0, 1), (-1, -1), 28),     # Hauteur uniforme avec les tâches
+            # Lignes professionnelles
+            ('LINEBELOW', (0, 0), (-1, 0), 2, DG_PRIMARY),
+            ('LINEABOVE', (0, 1), (-1, 1), 1, DG_GRAY),
         ]))
         
         elements.append(materials_table)
@@ -446,20 +449,22 @@ class BTPDFGenerator:
             ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),  # Police plus grande
+            ('FONTSIZE', (0, 0), (-1, 0), 11),  # Cohérence avec les autres tableaux
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),  # Police plus grande
+            ('FONTSIZE', (0, 1), (-1, -1), 10),  # Police uniforme
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('ALIGN', (0, 1), (1, -1), 'LEFT'),  # Rôle et nom à gauche
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 1, DG_GRAY),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white]),
-            ('ROWHEIGHT', (0, 1), (-1, -1), 40),  # Hauteur pour les signatures
-            # CORRECTION FINALE : Padding généreux
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6)
+            ('ROWHEIGHT', (0, 1), (-1, -1), 45),  # Hauteur généreuse pour signatures
+            # STYLE PROFESSIONNEL UNIFORME
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            # Lignes professionnelles
+            ('LINEBELOW', (0, 0), (-1, 0), 2, DG_PRIMARY),
         ]))
         
         elements.append(signatures_table)
@@ -531,7 +536,7 @@ class BTPDFGenerator:
 
 def export_bt_pdf_streamlit(form_data):
     """
-    Fonction principale d'export PDF pour Streamlit - VERSION ULTRA-CORRIGÉE
+    Fonction principale d'export PDF pour Streamlit - VERSION PROFESSIONNELLE
     """
     try:
         # Validation des données minimales
@@ -547,7 +552,7 @@ def export_bt_pdf_streamlit(form_data):
         pdf_generator = BTPDFGenerator()
         
         # Générer le PDF
-        with st.spinner("📄 Génération du PDF ultra-corrigé en cours..."):
+        with st.spinner("📄 Génération du PDF professionnel en cours..."):
             pdf_buffer = pdf_generator.generate_pdf(form_data)
         
         # Nom du fichier
@@ -559,25 +564,26 @@ def export_bt_pdf_streamlit(form_data):
         
         # Bouton de téléchargement
         st.download_button(
-            label="📥 Télécharger le PDF Ultra-Corrigé",
+            label="📥 Télécharger le PDF Professionnel",
             data=pdf_buffer.getvalue(),
             file_name=filename,
             mime="application/pdf",
             type="primary",
-            help=f"Télécharger le bon de travail {numero_doc} en PDF (version ultra-corrigée, textes complets)"
+            help=f"Télécharger le bon de travail {numero_doc} en PDF (version professionnelle uniformisée)"
         )
         
-        st.success(f"✅ PDF ultra-corrigé généré avec succès ! Fichier: {filename}")
+        st.success(f"✅ PDF professionnel généré avec succès ! Fichier: {filename}")
         
-        # Informations sur les corrections apportées
+        # Informations sur les améliorations professionnelles
         st.info("""
-        🔧 **Corrections apportées dans cette version :**
-        • ✅ Colonnes encore plus larges (plus de troncature agressive)
-        • ✅ Textes moins tronqués (16-24 caractères au lieu de 10-18)  
-        • ✅ Marges réduites pour plus d'espace de contenu
-        • ✅ En-têtes plus compacts pour optimiser l'espace
-        • ✅ Espacement et padding optimisés
-        • ✅ "-- Interne --" maintenant affiché en entier
+        🎯 **Version Professionnelle - Améliorations :**
+        • ✅ Design uniforme et professionnel dans tous les tableaux
+        • ✅ Colonnes parfaitement alignées et équilibrées
+        • ✅ Textes moins tronqués (20-35 caractères selon la colonne)
+        • ✅ Espacement et padding uniformes (8-10pt partout)
+        • ✅ Hauteurs de lignes constantes (28-32pt)
+        • ✅ En-têtes cohérents ("N°" au lieu de "#")
+        • ✅ Bordures et lignes professionnelles
         """)
         
         # Informations sur le PDF généré
@@ -588,7 +594,7 @@ def export_bt_pdf_streamlit(form_data):
         - **Projet:** {form_data.get('project_name', 'N/A')}
         - **Client:** {form_data.get('client_name', 'N/A')}
         - **Taille:** {pdf_size:,} octets
-        - **Version:** Ultra-corrigée (textes complets, plus de troncature)
+        - **Version:** Professionnelle uniformisée (design cohérent et textes complets)
         """)
         
     except Exception as e:
@@ -597,7 +603,7 @@ def export_bt_pdf_streamlit(form_data):
         st.info("💡 Vérifiez que ReportLab est installé: `pip install reportlab`")
 
 def test_pdf_generation():
-    """Fonction de test pour vérifier la génération PDF ultra-corrigée"""
+    """Fonction de test pour vérifier la génération PDF professionnelle"""
     test_data = {
         'numero_document': 'BT-2025-001',
         'project_name': 'ATTACHE DE SERRE 10" (T DE SERRE)',
@@ -606,7 +612,7 @@ def test_pdf_generation():
         'priority': 'NORMAL',
         'start_date': '2025-07-04',
         'end_date': '2025-07-11',
-        'work_instructions': 'Instructions de test pour vérifier la génération PDF ultra-corrigée avec textes complets.',
+        'work_instructions': 'Instructions de test pour vérifier la génération PDF professionnelle avec design uniforme.',
         'safety_notes': 'Port des EPI obligatoire. Attention aux opérations de soudage.',
         'quality_requirements': 'Contrôle dimensionnel selon ISO 9001. Vérification de la résistance.',
         'tasks': [
@@ -681,9 +687,9 @@ if __name__ == "__main__":
     generator = BTPDFGenerator()
     pdf_buffer = generator.generate_pdf(test_data)
     
-    with open("test_bt_ultra_corrige.pdf", "wb") as f:
+    with open("test_bt_professionnel.pdf", "wb") as f:
         f.write(pdf_buffer.getvalue())
     
-    print("✅ PDF ultra-corrigé de test généré: test_bt_ultra_corrige.pdf")
-    print("🔧 TOUS les problèmes de superposition et troncature sont résolus !")
-    print("🎯 Textes complets : 'Assemblage', 'Robot ABB', '-- Interne --' !")
+    print("✅ PDF professionnel de test généré: test_bt_professionnel.pdf")
+    print("🎯 Design uniforme et professionnel dans tous les tableaux !")
+    print("✨ Colonnes équilibrées, espacement cohérent, textes complets !")
