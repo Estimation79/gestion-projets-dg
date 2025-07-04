@@ -3827,7 +3827,7 @@ def show_kanban_legacy():
     ANCIENNE FONCTION KANBAN (renommée pour éviter conflit avec le module)
     Gardée comme fallback si le module kanban.py n'est pas disponible
     """
-    st.markdown("### 🔄 Vue Kanban (Style Planner)")
+    st.markdown("### 🔄 Vue Kanban")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
