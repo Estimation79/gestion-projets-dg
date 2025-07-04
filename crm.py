@@ -1,5 +1,5 @@
-# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION + SUPPRESSION ---
-# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis + Modification + Suppression
+# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + ADRESSES STRUCTURÉES ---
+# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis + Adresses Structurées
 
 import json
 import os
@@ -19,6 +19,7 @@ class GestionnaireCRM:
     Compatible avec ERPDatabase pour une architecture unifiée
     + SYSTÈME DEVIS INTÉGRÉ utilisant l'infrastructure formulaires existante
     + SUPPRESSION DE DEVIS avec sécurité et traçabilité
+    + ADRESSES STRUCTURÉES (adresse, ville, province, code_postal, pays)
     """
     
     def __init__(self, db=None, project_manager=None):
@@ -103,20 +104,24 @@ class GestionnaireCRM:
             self._devis_type_db = 'ESTIMATION'
     
     def _create_demo_data_sqlite(self):
-        """Crée des données de démonstration en SQLite"""
+        """Crée des données de démonstration en SQLite avec adresses structurées"""
         if not self.use_sqlite:
             return
             
         try:
             now_iso = datetime.now().isoformat()
             
-            # Créer entreprises de démonstration
+            # Créer entreprises de démonstration avec adresses structurées
             entreprises_demo = [
                 {
                     'id': 101,
                     'nom': 'TechCorp Inc.',
                     'secteur': 'Technologie',
-                    'adresse': '1 Rue de la Paix, Paris',
+                    'adresse': '123 Rue de la Paix',
+                    'ville': 'Paris',
+                    'province': 'Île-de-France',
+                    'code_postal': '75001',
+                    'pays': 'France',
                     'site_web': 'techcorp.com',
                     'notes': 'Client pour le projet E-commerce. Actif.'
                 },
@@ -124,7 +129,11 @@ class GestionnaireCRM:
                     'id': 102,
                     'nom': 'StartupXYZ',
                     'secteur': 'Logiciel',
-                    'adresse': 'Silicon Valley',
+                    'adresse': '456 Innovation Drive',
+                    'ville': 'San Francisco',
+                    'province': 'California',
+                    'code_postal': '94102',
+                    'pays': 'États-Unis',
                     'site_web': 'startup.xyz',
                     'notes': 'Client pour l\'app mobile. En phase de développement.'
                 },
@@ -132,7 +141,11 @@ class GestionnaireCRM:
                     'id': 103,
                     'nom': 'MegaCorp Ltd',
                     'secteur': 'Finance',
-                    'adresse': 'La Défense, Paris',
+                    'adresse': '789 Boulevard des Affaires',
+                    'ville': 'Montréal',
+                    'province': 'Québec',
+                    'code_postal': 'H3B 1A1',
+                    'pays': 'Canada',
                     'site_web': 'megacorp.com',
                     'notes': 'Projet CRM terminé. Potentiel pour maintenance.'
                 }
@@ -141,13 +154,17 @@ class GestionnaireCRM:
             for entreprise in entreprises_demo:
                 self.db.execute_update('''
                     INSERT OR REPLACE INTO companies 
-                    (id, nom, secteur, adresse, site_web, notes, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, nom, secteur, adresse, ville, province, code_postal, pays, site_web, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     entreprise['id'],
                     entreprise['nom'],
                     entreprise['secteur'],
                     entreprise['adresse'],
+                    entreprise['ville'],
+                    entreprise['province'],
+                    entreprise['code_postal'],
+                    entreprise['pays'],
                     entreprise['site_web'],
                     entreprise['notes'],
                     now_iso,
@@ -255,7 +272,7 @@ class GestionnaireCRM:
                     now_iso
                 ))
             
-            st.info("✅ Données de démonstration CRM créées en SQLite")
+            st.info("✅ Données de démonstration CRM créées en SQLite avec adresses structurées")
             
         except Exception as e:
             st.error(f"Erreur création données démo CRM: {e}")
@@ -300,7 +317,37 @@ class GestionnaireCRM:
         if not self.use_sqlite:
             self._interactions = value
 
-    # --- Méthodes SQLite pour Companies (Entreprises) ---
+    # --- Fonctions utilitaires pour adresses ---
+    def format_adresse_complete(self, entreprise_data):
+        """Formate une adresse complète à partir des champs séparés"""
+        if not entreprise_data:
+            return "N/A"
+        
+        parts = []
+        
+        # Adresse de rue
+        if entreprise_data.get('adresse'):
+            parts.append(entreprise_data['adresse'])
+        
+        # Ville, Province Code_postal
+        ville_province_postal = []
+        if entreprise_data.get('ville'):
+            ville_province_postal.append(entreprise_data['ville'])
+        if entreprise_data.get('province'):
+            ville_province_postal.append(entreprise_data['province'])
+        if entreprise_data.get('code_postal'):
+            ville_province_postal.append(entreprise_data['code_postal'])
+        
+        if ville_province_postal:
+            parts.append(', '.join(ville_province_postal))
+        
+        # Pays
+        if entreprise_data.get('pays'):
+            parts.append(entreprise_data['pays'])
+        
+        return '\n'.join(parts) if parts else "N/A"
+
+    # --- Méthodes SQLite pour Companies (Entreprises) avec adresses structurées ---
     def get_all_companies(self):
         """Récupère toutes les entreprises depuis SQLite"""
         if not self.use_sqlite:
@@ -319,6 +366,8 @@ class GestionnaireCRM:
                 company = dict(row)
                 # Mapping pour compatibilité interface
                 company['id'] = company['id']
+                # Ajouter l'adresse formatée pour l'affichage
+                company['adresse_complete'] = self.format_adresse_complete(company)
                 companies.append(company)
             
             return companies
@@ -327,7 +376,7 @@ class GestionnaireCRM:
             return []
     
     def ajouter_entreprise(self, data_entreprise):
-        """Ajoute une nouvelle entreprise en SQLite"""
+        """Ajoute une nouvelle entreprise en SQLite avec adresses structurées"""
         if not self.use_sqlite:
             return self._ajouter_entreprise_json(data_entreprise)
         
@@ -336,14 +385,18 @@ class GestionnaireCRM:
             
             query = '''
                 INSERT INTO companies 
-                (nom, secteur, adresse, site_web, contact_principal_id, notes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (nom, secteur, adresse, ville, province, code_postal, pays, site_web, contact_principal_id, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             '''
             
             company_id = self.db.execute_insert(query, (
                 data_entreprise.get('nom'),
                 data_entreprise.get('secteur'),
                 data_entreprise.get('adresse'),
+                data_entreprise.get('ville'),
+                data_entreprise.get('province'),
+                data_entreprise.get('code_postal'),
+                data_entreprise.get('pays'),
                 data_entreprise.get('site_web'),
                 data_entreprise.get('contact_principal_id'),
                 data_entreprise.get('notes'),
@@ -358,7 +411,7 @@ class GestionnaireCRM:
             return None
     
     def modifier_entreprise(self, id_entreprise, data_entreprise):
-        """Modifie une entreprise existante en SQLite"""
+        """Modifie une entreprise existante en SQLite avec adresses structurées"""
         if not self.use_sqlite:
             return self._modifier_entreprise_json(id_entreprise, data_entreprise)
         
@@ -373,6 +426,10 @@ class GestionnaireCRM:
                 'nom': 'nom',
                 'secteur': 'secteur', 
                 'adresse': 'adresse',
+                'ville': 'ville',
+                'province': 'province',
+                'code_postal': 'code_postal',
+                'pays': 'pays',
                 'site_web': 'site_web',
                 'contact_principal_id': 'contact_principal_id',
                 'notes': 'notes'
@@ -421,7 +478,11 @@ class GestionnaireCRM:
         
         try:
             rows = self.db.execute_query("SELECT * FROM companies WHERE id = ?", (id_entreprise,))
-            return dict(rows[0]) if rows else None
+            if rows:
+                company = dict(rows[0])
+                company['adresse_complete'] = self.format_adresse_complete(company)
+                return company
+            return None
         except Exception as e:
             st.error(f"Erreur récupération entreprise {id_entreprise}: {e}")
             return None
@@ -1078,15 +1139,14 @@ class GestionnaireCRM:
             # Récupérer le devis principal
             query = '''
                 SELECT f.*, 
-                       c.nom as client_nom, c.adresse as client_adresse,
+                       c.nom as client_nom, 
+                       c.adresse, c.ville, c.province, c.code_postal, c.pays,
                        co.prenom || ' ' || co.nom_famille as contact_nom, 
                        co.email as contact_email, co.telephone as contact_telephone,
                        e.prenom || ' ' || e.nom as responsable_nom,
                        p.nom_projet
                 FROM formulaires f
                 LEFT JOIN companies c ON f.company_id = c.id
-                -- CORRECTION: On joint les contacts via le contact principal de l'entreprise (c)
-                -- et non via l'employé du formulaire (f).
                 LEFT JOIN contacts co ON c.contact_principal_id = co.id
                 LEFT JOIN employees e ON f.employee_id = e.id
                 LEFT JOIN projects p ON f.project_id = p.id
@@ -1099,6 +1159,10 @@ class GestionnaireCRM:
                 return {}
             
             devis = dict(result[0])
+            
+            # Ajouter l'adresse complète formatée
+            if devis.get('client_nom'):
+                devis['client_adresse_complete'] = self.format_adresse_complete(devis)
             
             # Récupérer les lignes
             query_lignes = '''
@@ -1261,12 +1325,11 @@ class GestionnaireCRM:
                 'date_soumis': datetime.now().strftime('%Y-%m-%d'),
                 'date_prevu': (datetime.now() + timedelta(days=60)).strftime('%Y-%m-%d'),
                 'employes_assignes': [devis.get('employee_id')] if devis.get('employee_id') else [],
-                # --- LIGNES À AJOUTER ---
-                'tache': 'PROJET_CLIENT',  # Fournit une valeur par défaut pour la colonne 'tache'
-                'bd_ft_estime': 0.0,      # Fournit une valeur par défaut pour les heures
-                'client_legacy': '',      # Fournit une valeur par défaut pour le client legacy
-                'operations': [],         # Assure que la clé existe, même si vide
-                'materiaux': []           # Assure que la clé existe, même si vide
+                'tache': 'PROJET_CLIENT',
+                'bd_ft_estime': 0.0,
+                'client_legacy': '',
+                'operations': [],
+                'materiaux': []
             }
             
             # Création du projet via le gestionnaire de projets
@@ -1283,7 +1346,7 @@ class GestionnaireCRM:
                 # Enregistrer l'action dans l'historique du devis
                 self.enregistrer_validation_devis(
                     devis_id,
-                    devis.get('employee_id', 1), # Utilise l'ID de l'employé du devis ou 1 par défaut
+                    devis.get('employee_id', 1),
                     'TERMINAISON',
                     f"Devis transformé en Projet #{project_id}."
                 )
@@ -1298,8 +1361,6 @@ class GestionnaireCRM:
     def on_devis_expire(self, devis_id: int):
         """Actions à effectuer quand un devis expire"""
         try:
-            # Marquer comme expiré et éventuellement archiver
-            # Cette logique peut être étendue pour envoyer des notifications, etc.
             st.info(f"Le devis #{devis_id} est maintenant marqué comme expiré.")
             pass
         except Exception as e:
@@ -1394,7 +1455,7 @@ class GestionnaireCRM:
                 'en_attente': 0
             }
             
-            all_devis = self.get_all_devis() # Récupère tous les devis avec totaux calculés
+            all_devis = self.get_all_devis()
             
             stats['total_devis'] = len(all_devis)
             
@@ -1451,8 +1512,8 @@ class GestionnaireCRM:
             # Créer nouveau devis basé sur l'original
             nouveau_devis_data = {
                 'client_company_id': devis_original['company_id'],
-                'client_contact_id': devis_original.get('client_contact_id'), # Peut être None
-                'project_id': devis_original.get('project_id'), # Peut être None
+                'client_contact_id': devis_original.get('client_contact_id'),
+                'project_id': devis_original.get('project_id'),
                 'employee_id': employee_id,
                 'date_echeance': (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d'),
                 'notes': f"Copie de {devis_original['numero_document']} - {devis_original.get('notes', '')}",
@@ -1506,7 +1567,7 @@ class GestionnaireCRM:
         return max(item.get('id', 0) for item in entity_list) + 1
 
     def _initialiser_donnees_demo_crm(self):
-        """Initialise des données de démonstration JSON"""
+        """Initialise des données de démonstration JSON avec adresses structurées"""
         if self.use_sqlite:
             return
         
@@ -1517,9 +1578,9 @@ class GestionnaireCRM:
             {'id':3, 'prenom':'Claire', 'nom_famille':'Leroy', 'email':'claire.leroy@megacorp.com', 'telephone':'0708091011', 'entreprise_id':103, 'role':'Chef de projet CRM', 'notes':'Très organisée, demande des rapports réguliers.', 'date_creation': now_iso, 'date_modification': now_iso}
         ]
         self._entreprises = [
-            {'id':101, 'nom':'TechCorp Inc.', 'secteur':'Technologie', 'adresse':'1 Rue de la Paix, Paris', 'site_web':'techcorp.com', 'contact_principal_id':1, 'notes':'Client pour le projet E-commerce. Actif.', 'date_creation': now_iso, 'date_modification': now_iso},
-            {'id':102, 'nom':'StartupXYZ', 'secteur':'Logiciel', 'adresse':'Silicon Valley', 'site_web':'startup.xyz', 'contact_principal_id':2, 'notes':'Client pour l\'app mobile. En phase de développement.', 'date_creation': now_iso, 'date_modification': now_iso},
-            {'id':103, 'nom':'MegaCorp Ltd', 'secteur':'Finance', 'adresse':'La Défense, Paris', 'site_web':'megacorp.com', 'contact_principal_id':3, 'notes':'Projet CRM terminé. Potentiel pour maintenance.', 'date_creation': now_iso, 'date_modification': now_iso}
+            {'id':101, 'nom':'TechCorp Inc.', 'secteur':'Technologie', 'adresse':'123 Rue de la Paix', 'ville':'Paris', 'province':'Île-de-France', 'code_postal':'75001', 'pays':'France', 'site_web':'techcorp.com', 'contact_principal_id':1, 'notes':'Client pour le projet E-commerce. Actif.', 'date_creation': now_iso, 'date_modification': now_iso},
+            {'id':102, 'nom':'StartupXYZ', 'secteur':'Logiciel', 'adresse':'456 Innovation Drive', 'ville':'San Francisco', 'province':'California', 'code_postal':'94102', 'pays':'États-Unis', 'site_web':'startup.xyz', 'contact_principal_id':2, 'notes':'Client pour l\'app mobile. En phase de développement.', 'date_creation': now_iso, 'date_modification': now_iso},
+            {'id':103, 'nom':'MegaCorp Ltd', 'secteur':'Finance', 'adresse':'789 Boulevard des Affaires', 'ville':'Montréal', 'province':'Québec', 'code_postal':'H3B 1A1', 'pays':'Canada', 'site_web':'megacorp.com', 'contact_principal_id':3, 'notes':'Projet CRM terminé. Potentiel pour maintenance.', 'date_creation': now_iso, 'date_modification': now_iso}
         ]
         self._interactions = [
             {'id':1001, 'contact_id':1, 'entreprise_id':101, 'type':'Réunion', 'date_interaction': (datetime.now() - timedelta(days=10)).isoformat(), 'resume':'Kick-off projet E-commerce', 'details': 'Discussion des objectifs et du calendrier.', 'resultat':'Positif', 'suivi_prevu': (datetime.now() - timedelta(days=3)).isoformat()},
@@ -1533,7 +1594,7 @@ class GestionnaireCRM:
     def sauvegarder_donnees_crm(self):
         """Sauvegarde les données CRM en JSON (rétrocompatibilité)"""
         if self.use_sqlite:
-            return  # Pas de sauvegarde nécessaire avec SQLite
+            return
         
         try:
             data = {
@@ -1629,7 +1690,7 @@ class GestionnaireCRM:
         self.sauvegarder_donnees_crm()
         return True
 
-# --- Fonctions d'affichage Streamlit (INCHANGÉES - Interface préservée) ---
+# --- Fonctions d'affichage Streamlit avec adresses structurées ---
 
 def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
     st.subheader("👤 Liste des Contacts (SQLite)")
@@ -1770,17 +1831,17 @@ def render_crm_contact_form(crm_manager: GestionnaireCRM, contact_data=None):
                         'email': email,
                         'telephone': telephone,
                         'entreprise_id': entreprise_id if entreprise_id else None,
-                        'company_id': entreprise_id if entreprise_id else None,  # Compatibilité SQLite
+                        'company_id': entreprise_id if entreprise_id else None,
                         'role': role,
-                        'role_poste': role,  # Compatibilité SQLite
+                        'role_poste': role,
                         'notes': notes
                     }
-                    if contact_data:  # Modification
+                    if contact_data:
                         if crm_manager.modifier_contact(contact_data['id'], new_contact_data):
                             st.success(f"Contact #{contact_data['id']} mis à jour en SQLite !")
                         else:
                             st.error("Erreur lors de la modification SQLite.")
-                    else:  # Création
+                    else:
                         new_id = crm_manager.ajouter_contact(new_contact_data)
                         if new_id:
                             st.success(f"Nouveau contact #{new_id} ajouté en SQLite !")
@@ -1867,7 +1928,8 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
             e for e in filtered_entreprises if
             term_e in e.get('nom', '').lower() or
             term_e in e.get('secteur', '').lower() or
-            term_e in e.get('adresse', '').lower()
+            term_e in e.get('ville', '').lower() or
+            term_e in e.get('pays', '').lower()
         ]
 
     if filtered_entreprises:
@@ -1883,10 +1945,19 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
                                          if p.get('client_entreprise_id') == entreprise_item.get('id') or
                                          p.get('client_company_id') == entreprise_item.get('id')]
 
+            # Formater l'adresse pour l'affichage dans le tableau
+            ville_pays = []
+            if entreprise_item.get('ville'):
+                ville_pays.append(entreprise_item['ville'])
+            if entreprise_item.get('pays'):
+                ville_pays.append(entreprise_item['pays'])
+            ville_pays_str = ', '.join(ville_pays) if ville_pays else "N/A"
+
             entreprises_data_display.append({
                 "ID": entreprise_item.get('id'),
                 "Nom": entreprise_item.get('nom'),
                 "Secteur": entreprise_item.get('secteur'),
+                "Ville/Pays": ville_pays_str,
                 "Site Web": entreprise_item.get('site_web'),
                 "Contact Principal": nom_contact_principal,
                 "Projets Liés": ", ".join(projets_lies_entreprise) if projets_lies_entreprise else "-"
@@ -1940,7 +2011,18 @@ def render_crm_entreprise_form(crm_manager: GestionnaireCRM, entreprise_data=Non
         with st.form(key="crm_entreprise_form_in_expander", clear_on_submit=False):
             nom_e = st.text_input("Nom de l'entreprise *", value=entreprise_data.get('nom', '') if entreprise_data else "")
             secteur_e = st.text_input("Secteur d'activité", value=entreprise_data.get('secteur', '') if entreprise_data else "")
-            adresse_e = st.text_area("Adresse", value=entreprise_data.get('adresse', '') if entreprise_data else "")
+            
+            # Champs d'adresse structurés
+            st.markdown("**Adresse**")
+            col_addr1, col_addr2 = st.columns(2)
+            with col_addr1:
+                adresse_e = st.text_input("Adresse (rue, numéro)", value=entreprise_data.get('adresse', '') if entreprise_data else "")
+                province_e = st.text_input("Province/État", value=entreprise_data.get('province', '') if entreprise_data else "")
+                pays_e = st.text_input("Pays", value=entreprise_data.get('pays', '') if entreprise_data else "")
+            with col_addr2:
+                ville_e = st.text_input("Ville", value=entreprise_data.get('ville', '') if entreprise_data else "")
+                code_postal_e = st.text_input("Code postal", value=entreprise_data.get('code_postal', '') if entreprise_data else "")
+            
             site_web_e = st.text_input("Site Web", value=entreprise_data.get('site_web', '') if entreprise_data else "")
 
             contact_options_e = [("", "Aucun")] + [(c['id'], f"{c.get('prenom','')} {c.get('nom_famille','')}") for c in crm_manager.contacts]
@@ -1969,7 +2051,14 @@ def render_crm_entreprise_form(crm_manager: GestionnaireCRM, entreprise_data=Non
                     st.error("Le nom de l'entreprise est obligatoire.")
                 else:
                     new_entreprise_data = {
-                        'nom': nom_e, 'secteur': secteur_e, 'adresse': adresse_e, 'site_web': site_web_e,
+                        'nom': nom_e, 
+                        'secteur': secteur_e, 
+                        'adresse': adresse_e,
+                        'ville': ville_e,
+                        'province': province_e,
+                        'code_postal': code_postal_e,
+                        'pays': pays_e,
+                        'site_web': site_web_e,
                         'contact_principal_id': contact_principal_id_e if contact_principal_id_e else None,
                         'notes': notes_e
                     }
@@ -2003,9 +2092,11 @@ def render_crm_entreprise_details(crm_manager: GestionnaireCRM, projet_manager, 
         st.info(f"**ID:** {entreprise_data.get('id')}")
         st.write(f"**Secteur:** {entreprise_data.get('secteur', 'N/A')}")
         st.write(f"**Contact Principal:** {nom_contact_principal}")
-    with c2:
         st.write(f"**Site Web:** {entreprise_data.get('site_web', 'N/A')}")
-        st.write(f"**Adresse:** {entreprise_data.get('adresse', 'N/A')}")
+    with c2:
+        st.markdown("**Adresse complète:**")
+        adresse_complete = crm_manager.format_adresse_complete(entreprise_data)
+        st.text_area("adresse_display", value=adresse_complete, height=120, disabled=True, label_visibility="collapsed")
 
     st.markdown("**Notes:**")
     st.text_area("entreprise_detail_notes_display", value=entreprise_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
@@ -2227,10 +2318,10 @@ def render_crm_interaction_form(crm_manager: GestionnaireCRM, interaction_data=N
                     
                     new_interaction_data = {
                         'type': type_interaction,
-                        'type_interaction': type_interaction,  # Compatibilité SQLite
+                        'type_interaction': type_interaction,
                         'contact_id': contact_id if contact_id else None,
                         'entreprise_id': entreprise_id if entreprise_id else None,
-                        'company_id': entreprise_id if entreprise_id else None,  # Compatibilité SQLite
+                        'company_id': entreprise_id if entreprise_id else None,
                         'date_interaction': datetime_interaction.isoformat(),
                         'resume': resume,
                         'details': details,
@@ -2629,6 +2720,11 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
         st.write(f"**Date échéance:** {devis_data.get('date_echeance', 'N/A')}")
         st.write(f"**Projet lié:** {devis_data.get('nom_projet', 'Aucun')}")
 
+    # Adresse du client
+    if devis_data.get('client_adresse_complete'):
+        st.markdown("### 📍 Adresse du Client")
+        st.text_area("client_adresse_devis", value=devis_data['client_adresse_complete'], height=100, disabled=True, label_visibility="collapsed")
+
     # Totaux
     totaux = devis_data.get('totaux', {})
     st.markdown("### 💰 Totaux")
@@ -2999,7 +3095,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
     """Interface principale CRM avec support des devis et suppression"""
     
-    st.title("📋 Gestion CRM + Devis")
+    st.title("📋 Gestion CRM + Devis + Adresses Structurées")
     
     # Vérification du mode
     if crm_manager.use_sqlite:
@@ -3152,7 +3248,7 @@ def main_crm_interface(db_instance=None, project_manager_instance=None):
 def demo_crm_with_devis():
     """Démonstration du système CRM avec devis"""
     
-    st.title("🎯 Démonstration CRM + Devis")
+    st.title("🎯 Démonstration CRM + Devis + Adresses Structurées")
     
     # Note: En production, vous initialiseriez avec votre instance ERPDatabase réelle
     # from erp_database import ERPDatabase
@@ -3250,4 +3346,4 @@ if __name__ == "__main__":
         st.info("Lancement en mode démo JSON de secours.")
         demo_crm_with_devis()
 
-# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + MODIFICATION + SUPPRESSION COMPLÈTE ---
+# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + ADRESSES STRUCTURÉES COMPLÈTE ---
