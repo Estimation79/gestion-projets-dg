@@ -1,10 +1,4 @@
 # erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ + INTERFACE UNIFIÉE
-# ERP Production DG Inc. - Migration JSON → SQLite + Module Formulaires Complet + Corrections Intégrées
-# ÉTAPE 2 : Intégration TimeTracker ↔ Bons de Travail IMPLÉMENTÉE
-# ÉTAPE 3 : Module Production Unifié COMPLET
-# EXTENSION : Interface Unifiée TimeTracker + Postes de Travail COMPLÈTE
-# NOUVEAU : Intégration Operations ↔ Bons de Travail INTÉGRÉE
-# MISE À JOUR : Méthodes Communication TimeTracker Unifiées AJOUTÉES
 
 import sqlite3
 import json
@@ -4446,7 +4440,398 @@ class ERPDatabase:
         except Exception as e:
             logger.error(f"Erreur génération rapport mensuel: {e}")
             return {}
+# === AMÉLIORATIONS D'INTÉGRATION KANBAN ↔ ERP_DATABASE ===
 
+# 1. Méthodes à ajouter dans erp_database.py (classe ERPDatabase)
+
+def get_projets_for_kanban(self) -> List[Dict]:
+    """Récupère les projets formatés pour le Kanban avec toutes les jointures nécessaires"""
+    try:
+        query = '''
+            SELECT p.*, 
+                   c.nom as client_company_nom,
+                   c.secteur as client_secteur,
+                   COUNT(DISTINCT o.id) as nb_operations,
+                   COUNT(DISTINCT m.id) as nb_materiaux,
+                   COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux_estime
+            FROM projects p
+            LEFT JOIN companies c ON p.client_company_id = c.id
+            LEFT JOIN operations o ON p.id = o.project_id
+            LEFT JOIN materials m ON p.id = m.project_id
+            GROUP BY p.id
+            ORDER BY 
+                CASE p.priorite 
+                    WHEN 'ÉLEVÉ' THEN 1
+                    WHEN 'MOYEN' THEN 2
+                    WHEN 'BAS' THEN 3
+                    ELSE 4
+                END,
+                p.date_prevu ASC
+        '''
+        rows = self.execute_query(query)
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Erreur récupération projets pour kanban: {e}")
+        return []
+
+def update_project_status_for_kanban(self, project_id: int, new_status: str, employee_id: int = None) -> bool:
+    """Met à jour le statut d'un projet avec traçabilité (pour drag & drop kanban)"""
+    try:
+        # Récupérer l'ancien statut
+        old_status_result = self.execute_query("SELECT statut FROM projects WHERE id = ?", (project_id,))
+        if not old_status_result:
+            return False
+        
+        old_status = old_status_result[0]['statut']
+        
+        # Mettre à jour le statut
+        affected = self.execute_update(
+            "UPDATE projects SET statut = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (new_status, project_id)
+        )
+        
+        if affected > 0:
+            # Enregistrer dans l'historique si c'est un projet avec BT
+            bt_result = self.execute_query(
+                "SELECT id FROM formulaires WHERE project_id = ? AND type_formulaire = 'BON_TRAVAIL'",
+                (project_id,)
+            )
+            
+            if bt_result and employee_id:
+                for bt in bt_result:
+                    self.execute_insert(
+                        """INSERT INTO formulaire_validations 
+                           (formulaire_id, employee_id, type_validation, ancien_statut, nouveau_statut, commentaires)
+                           VALUES (?, ?, 'CHANGEMENT_STATUT_PROJET', ?, ?, ?)""",
+                        (bt['id'], employee_id, old_status, new_status, f"Projet déplacé via Kanban: {old_status} → {new_status}")
+                    )
+            
+            logger.info(f"✅ Statut projet #{project_id} mis à jour: {old_status} → {new_status}")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"Erreur mise à jour statut projet kanban: {e}")
+        return False
+
+def get_kanban_statistics(self) -> Dict[str, Any]:
+    """Statistiques spécialisées pour les vues Kanban"""
+    try:
+        stats = {
+            'projets': {
+                'par_statut': {},
+                'par_priorite': {},
+                'total': 0,
+                'ca_total': 0.0
+            },
+            'bts': {
+                'par_poste': {},
+                'par_statut': {},
+                'total_assignes': 0
+            },
+            'operations': {
+                'par_poste': {},
+                'par_statut': {},
+                'charge_totale': 0.0
+            }
+        }
+        
+        # Statistiques projets
+        projets_stats = self.execute_query('''
+            SELECT statut, priorite, COUNT(*) as count, SUM(prix_estime) as ca
+            FROM projects
+            GROUP BY statut, priorite
+        ''')
+        
+        for row in projets_stats:
+            statut, priorite = row['statut'], row['priorite']
+            count, ca = row['count'], row['ca'] or 0
+            
+            if statut not in stats['projets']['par_statut']:
+                stats['projets']['par_statut'][statut] = 0
+            stats['projets']['par_statut'][statut] += count
+            
+            if priorite not in stats['projets']['par_priorite']:
+                stats['projets']['par_priorite'][priorite] = 0
+            stats['projets']['par_priorite'][priorite] += count
+            
+            stats['projets']['total'] += count
+            stats['projets']['ca_total'] += ca
+        
+        # Statistiques BTs par postes
+        bt_postes_stats = self.execute_query('''
+            SELECT wc.nom as poste_nom, f.statut, COUNT(*) as count
+            FROM formulaires f
+            JOIN operations o ON f.id = o.formulaire_bt_id
+            JOIN work_centers wc ON o.work_center_id = wc.id
+            WHERE f.type_formulaire = 'BON_TRAVAIL'
+            GROUP BY wc.nom, f.statut
+        ''')
+        
+        for row in bt_postes_stats:
+            poste, statut, count = row['poste_nom'], row['statut'], row['count']
+            
+            if poste not in stats['bts']['par_poste']:
+                stats['bts']['par_poste'][poste] = 0
+            stats['bts']['par_poste'][poste] += count
+            
+            if statut not in stats['bts']['par_statut']:
+                stats['bts']['par_statut'][statut] = 0
+            stats['bts']['par_statut'][statut] += count
+        
+        # Statistiques opérations
+        ops_stats = self.execute_query('''
+            SELECT wc.nom as poste_nom, o.statut, COUNT(*) as count, SUM(o.temps_estime) as temps_total
+            FROM operations o
+            JOIN work_centers wc ON o.work_center_id = wc.id
+            GROUP BY wc.nom, o.statut
+        ''')
+        
+        for row in ops_stats:
+            poste, statut = row['poste_nom'], row['statut']
+            count, temps = row['count'], row['temps_total'] or 0
+            
+            if poste not in stats['operations']['par_poste']:
+                stats['operations']['par_poste'][poste] = {'count': 0, 'temps': 0.0}
+            stats['operations']['par_poste'][poste]['count'] += count
+            stats['operations']['par_poste'][poste]['temps'] += temps
+            
+            if statut not in stats['operations']['par_statut']:
+                stats['operations']['par_statut'][statut] = 0
+            stats['operations']['par_statut'][statut] += count
+            
+            stats['operations']['charge_totale'] += temps
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Erreur statistiques kanban: {e}")
+        return {}
+
+def reassign_operation_to_work_center(self, operation_id: int, new_work_center_name: str, employee_id: int = None) -> bool:
+    """Réassigne une opération à un nouveau poste de travail (pour drag & drop kanban)"""
+    try:
+        # Trouver le nouveau work_center_id
+        wc_result = self.execute_query(
+            "SELECT id FROM work_centers WHERE nom = ? AND statut = 'ACTIF'",
+            (new_work_center_name,)
+        )
+        
+        if not wc_result:
+            logger.error(f"Poste de travail '{new_work_center_name}' non trouvé ou inactif")
+            return False
+        
+        new_wc_id = wc_result[0]['id']
+        
+        # Récupérer l'ancienne assignation
+        old_assignment = self.execute_query(
+            "SELECT work_center_id, poste_travail FROM operations WHERE id = ?",
+            (operation_id,)
+        )
+        
+        if not old_assignment:
+            return False
+        
+        old_poste = old_assignment[0]['poste_travail']
+        
+        # Mettre à jour l'opération
+        affected = self.execute_update(
+            "UPDATE operations SET work_center_id = ?, poste_travail = ? WHERE id = ?",
+            (new_wc_id, new_work_center_name, operation_id)
+        )
+        
+        if affected > 0:
+            logger.info(f"✅ Opération #{operation_id} réassignée: {old_poste} → {new_work_center_name}")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"Erreur réassignation opération kanban: {e}")
+        return False
+
+def show_kanban_unified_improved():
+    """Version améliorée du Kanban utilisant uniquement erp_db"""
+    if 'erp_db' not in st.session_state:
+        st.error("⚠️ Base de données ERP non initialisée.")
+        return
+    
+    erp_db = st.session_state.erp_db
+    
+    # Interface de sélection de vue
+    st.markdown("### 🔄 Vue Kanban Unifiée - Version Améliorée")
+    
+    vue_kanban = st.radio(
+        "**Choisissez la vue:**",
+        ["📋 Projets par Statuts", "🏭 BTs par Postes", "⚙️ Opérations par Postes"],
+        horizontal=True,
+        key="kanban_vue_amelioree"
+    )
+    
+    try:
+        if vue_kanban == "📋 Projets par Statuts":
+            show_kanban_projets_improved(erp_db)
+        elif vue_kanban == "🏭 BTs par Postes":
+            show_kanban_bts_improved(erp_db)
+        else:
+            show_kanban_operations_improved(erp_db)
+            
+        # Afficher les statistiques unifiées
+        show_kanban_stats_unified(erp_db)
+        
+    except Exception as e:
+        st.error(f"❌ Erreur affichage Kanban: {e}")
+        logger.error(f"Erreur kanban unifié: {e}")
+
+def show_kanban_projets_improved(erp_db):
+    """Version améliorée de la vue projets"""
+    try:
+        # Utiliser la nouvelle méthode centralisée
+        projets = erp_db.get_projets_for_kanban()
+        
+        if not projets:
+            st.info("📋 Aucun projet trouvé.")
+            return
+        
+        # Organiser par statut
+        statuts = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON", "ANNULÉ"]
+        projets_par_statut = {statut: [] for statut in statuts}
+        
+        for projet in projets:
+            statut = projet.get('statut', 'À FAIRE')
+            if statut in projets_par_statut:
+                projets_par_statut[statut].append(projet)
+        
+        # Affichage en colonnes
+        colonnes = st.columns(len(statuts))
+        
+        for idx, statut in enumerate(statuts):
+            with colonnes[idx]:
+                st.markdown(f"**{statut}** ({len(projets_par_statut[statut])})")
+                
+                # Zone de dépôt pour drag & drop
+                if st.session_state.get('dragged_project_id'):
+                    if st.button(f"⬇️ Déposer ici", key=f"drop_{statut}"):
+                        project_id = st.session_state.dragged_project_id
+                        if erp_db.update_project_status_for_kanban(project_id, statut):
+                            st.success(f"✅ Projet déplacé vers {statut}")
+                            st.session_state.dragged_project_id = None
+                            st.rerun()
+                
+                # Afficher les projets
+                for projet in projets_par_statut[statut]:
+                    afficher_carte_projet_improved(projet, statut)
+        
+    except Exception as e:
+        st.error(f"Erreur vue projets: {e}")
+
+def afficher_carte_projet_improved(projet, statut):
+    """Carte projet améliorée avec plus d'informations"""
+    project_id = projet.get('id')
+    nom_projet = projet.get('nom_projet', 'N/A')
+    client_nom = projet.get('client_company_nom', 'Client non spécifié')
+    priorite = projet.get('priorite', 'MOYEN')
+    prix_estime = projet.get('prix_estime', 0)
+    nb_operations = projet.get('nb_operations', 0)
+    nb_materiaux = projet.get('nb_materiaux', 0)
+    
+    # Couleur selon priorité
+    couleur_priorite = {
+        'ÉLEVÉ': '#ef4444',
+        'MOYEN': '#f59e0b', 
+        'BAS': '#10b981'
+    }.get(priorite, '#6b7280')
+    
+    with st.container():
+        st.markdown(f"""
+        <div style='
+            border-left: 4px solid {couleur_priorite};
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        '>
+            <div style='font-weight: 600; color: #374151;'>#{project_id} - {nom_projet[:30]}{'...' if len(nom_projet) > 30 else ''}</div>
+            <div style='font-size: 0.85em; color: #6b7280; margin: 4px 0;'>👤 {client_nom}</div>
+            <div style='font-size: 0.85em; color: #6b7280; margin: 4px 0;'>💰 {prix_estime:,.0f}$</div>
+            <div style='font-size: 0.8em; color: #9ca3af;'>⚙️ {nb_operations} ops | 📦 {nb_materiaux} mat.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("👁️", key=f"view_{project_id}_{statut}", help="Voir détails"):
+                st.session_state.selected_project = projet
+                st.session_state.show_project_modal = True
+        with col2:
+            if st.button("➡️", key=f"move_{project_id}_{statut}", help="Déplacer"):
+                st.session_state.dragged_project_id = project_id
+                st.rerun()
+
+def show_kanban_stats_unified(erp_db):
+    """Affiche les statistiques unifiées en bas du Kanban"""
+    try:
+        stats = erp_db.get_kanban_statistics()
+        
+        if not stats:
+            return
+        
+        st.markdown("---")
+        st.markdown("### 📊 Statistiques Unifiées")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("**📋 Projets**")
+            st.metric("Total", stats['projets']['total'])
+            st.metric("CA Total", f"{stats['projets']['ca_total']:,.0f}$")
+            
+        with col2:
+            st.markdown("**🏭 Bons de Travail**")
+            total_bts = sum(stats['bts']['par_statut'].values())
+            st.metric("Total BTs", total_bts)
+            if stats['bts']['par_poste']:
+                poste_le_plus_charge = max(stats['bts']['par_poste'].items(), key=lambda x: x[1])
+                st.metric("Poste le + chargé", f"{poste_le_plus_charge[0]} ({poste_le_plus_charge[1]})")
+            
+        with col3:
+            st.markdown("**⚙️ Opérations**")
+            total_ops = sum(stats['operations']['par_statut'].values())
+            st.metric("Total Opérations", total_ops)
+            st.metric("Charge Totale", f"{stats['operations']['charge_totale']:.1f}h")
+        
+    except Exception as e:
+        st.error(f"Erreur statistiques: {e}")
+
+# 3. Configuration d'intégration pour app.py
+
+def setup_kanban_integration():
+    """Configure l'intégration Kanban dans l'application principale"""
+    if 'erp_db' not in st.session_state:
+        st.error("⚠️ ERPDatabase non initialisé")
+        return False
+    
+    # Vérifier que toutes les méthodes nécessaires existent
+    erp_db = st.session_state.erp_db
+    required_methods = [
+        'get_projets_for_kanban',
+        'update_project_status_for_kanban', 
+        'get_kanban_statistics',
+        'reassign_operation_to_work_center'
+    ]
+    
+    missing_methods = []
+    for method in required_methods:
+        if not hasattr(erp_db, method):
+            missing_methods.append(method)
+    
+    if missing_methods:
+        st.warning(f"⚠️ Méthodes manquantes dans ERPDatabase: {', '.join(missing_methods)}")
+        return False
+    
+    return True
 
 # Utilitaires pour conversion mesures impériales (préservation fonction existante)
 def convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_str: str) -> float:
@@ -4498,3 +4883,4 @@ def convertir_imperial_vers_metrique(mesure_imperial: str) -> float:
     """Convertit une mesure impériale en mètres"""
     pieds = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperial)
     return pieds * 0.3048  # 1 pied = 0.3048 mètres
+
