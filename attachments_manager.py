@@ -1,5 +1,5 @@
 # attachments_manager.py - Gestionnaire de Pièces Jointes pour Projets ERP DG Inc.
-# VERSION COMPLÈTE CORRIGÉE POUR RENDER PERSISTENT DISK
+# VERSION COMPLÈTE CORRIGÉE POUR RENDER PERSISTENT DISK + CLÉS BOUTONS UNIQUES
 
 import streamlit as st
 import os
@@ -17,7 +17,7 @@ import io
 class AttachmentsManager:
     """
     Gestionnaire de pièces jointes pour les projets ERP DG Inc.
-    VERSION CORRIGÉE pour utiliser le persistent disk Render
+    VERSION CORRIGÉE pour utiliser le persistent disk Render + clés boutons uniques
     """
     
     def __init__(self, db, storage_manager=None):
@@ -751,7 +751,7 @@ class AttachmentsManager:
 
 def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_id: int):
     """
-    Affiche l'aperçu d'un fichier dans une modal
+    Affiche l'aperçu d'un fichier dans une modal - CORRIGÉ avec clé unique
     """
     preview_data = attachments_manager.preview_attachment(attachment_id)
     
@@ -839,7 +839,7 @@ def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_
             st.error(f"Erreur lors de l'affichage du PDF: {e}")
             st.info("💡 Utilisez le bouton de téléchargement ci-dessous pour ouvrir le PDF")
         
-        # Bouton de téléchargement en secours
+        # Bouton de téléchargement en secours - CORRIGÉ avec clé unique
         download_result = attachments_manager.download_attachment(attachment_id)
         if download_result:
             file_content, original_filename, mime_type = download_result
@@ -848,7 +848,8 @@ def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_
                 data=file_content,
                 file_name=original_filename,
                 mime=mime_type,
-                use_container_width=True
+                use_container_width=True,
+                key=f"download_pdf_preview_{attachment_id}"  # CORRIGÉ: clé unique
             )
             
     elif preview_type == 'unsupported':
@@ -870,7 +871,7 @@ def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_
     col1, col2 = st.columns(2)
     
     with col1:
-        # Bouton de téléchargement
+        # Bouton de téléchargement - CORRIGÉ avec clé unique
         download_result = attachments_manager.download_attachment(attachment_id)
         if download_result:
             file_content, original_filename, mime_type = download_result
@@ -879,11 +880,13 @@ def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_
                 data=file_content,
                 file_name=original_filename,
                 mime=mime_type,
-                use_container_width=True
+                use_container_width=True,
+                key=f"download_preview_{attachment_id}"  # CORRIGÉ: clé unique
             )
     
     with col2:
-        if st.button("✖️ Fermer l'aperçu", use_container_width=True):
+        # CORRIGÉ: Clé unique pour le bouton de fermeture
+        if st.button("✖️ Fermer l'aperçu", use_container_width=True, key=f"close_preview_{attachment_id}"):
             if f'show_preview_{attachment_id}' in st.session_state:
                 del st.session_state[f'show_preview_{attachment_id}']
             st.rerun()
@@ -891,7 +894,7 @@ def show_file_preview_modal(attachments_manager: AttachmentsManager, attachment_
 
 def show_project_attachments_interface(attachments_manager: AttachmentsManager, project_id: int):
     """
-    Interface Streamlit pour gérer les pièces jointes d'un projet
+    Interface Streamlit pour gérer les pièces jointes d'un projet - CORRIGÉ avec clés uniques
     """
     st.markdown("### 📎 Pièces Jointes")
     
@@ -924,15 +927,18 @@ def show_project_attachments_interface(attachments_manager: AttachmentsManager, 
         uploaded_files = st.file_uploader(
             "Choisir des fichiers",
             accept_multiple_files=True,
-            help="Sélectionnez un ou plusieurs fichiers à attacher au projet"
+            help="Sélectionnez un ou plusieurs fichiers à attacher au projet",
+            key=f"file_uploader_{project_id}"  # CORRIGÉ: clé unique
         )
         
         description = st.text_input(
             "Description (optionnelle)",
-            placeholder="Ex: Plans d'exécution version finale"
+            placeholder="Ex: Plans d'exécution version finale",
+            key=f"file_description_{project_id}"  # CORRIGÉ: clé unique
         )
         
-        if uploaded_files and st.button("📤 Upload Fichiers", type="primary"):
+        # CORRIGÉ: Clé unique pour le bouton d'upload
+        if uploaded_files and st.button("📤 Upload Fichiers", type="primary", key=f"upload_files_{project_id}"):
             upload_success = 0
             upload_errors = 0
             
@@ -978,7 +984,8 @@ def show_project_attachments_interface(attachments_manager: AttachmentsManager, 
             count = len(attachments_by_category[cat])
             category_labels.append(f"{cat_info['icon']} {cat_info['label']} ({count})")
         
-        selected_tab = st.selectbox("Catégorie", category_labels)
+        # CORRIGÉ: Clé unique pour le selectbox
+        selected_tab = st.selectbox("Catégorie", category_labels, key=f"category_select_{project_id}")
         selected_category = categories[category_labels.index(selected_tab)]
         
         show_attachments_category(
@@ -989,7 +996,7 @@ def show_project_attachments_interface(attachments_manager: AttachmentsManager, 
 
 
 def show_attachments_category(attachments_manager: AttachmentsManager, category: str, attachments: List[Dict]):
-    """Affiche les pièces jointes d'une catégorie avec bouton d'aperçu"""
+    """Affiche les pièces jointes d'une catégorie avec bouton d'aperçu - CORRIGÉ avec clés uniques"""
     
     category_info = attachments_manager.categories.get(category, {'icon': '📎', 'label': category})
     st.markdown(f"#### {category_info['icon']} {category_info['label']} ({len(attachments)})")
@@ -1026,7 +1033,7 @@ def show_attachments_category(attachments_manager: AttachmentsManager, category:
                 # Boutons d'action
                 button_col1, button_col2, button_col3 = st.columns(3)
                 
-                # Bouton d'aperçu
+                # Bouton d'aperçu - CORRIGÉ avec clé unique
                 with button_col1:
                     file_ext = attachment['file_extension'].lower().lstrip('.')
                     can_preview = attachments_manager.is_file_previewable(file_ext)
@@ -1039,7 +1046,7 @@ def show_attachments_category(attachments_manager: AttachmentsManager, category:
                         st.button("🚫", key=f"no_preview_{attachment_id}", help="Aperçu non disponible", 
                                 disabled=True, use_container_width=True)
                 
-                # Bouton de téléchargement
+                # Bouton de téléchargement - CORRIGÉ avec clé unique
                 with button_col2:
                     download_result = attachments_manager.download_attachment(attachment_id)
                     if download_result:
@@ -1054,7 +1061,7 @@ def show_attachments_category(attachments_manager: AttachmentsManager, category:
                             use_container_width=True
                         )
                 
-                # Bouton de suppression
+                # Bouton de suppression - CORRIGÉ avec clé unique
                 with button_col3:
                     if st.button("🗑️", key=f"delete_{attachment_id}", help="Supprimer", use_container_width=True):
                         if attachments_manager.delete_attachment(attachment_id):
@@ -1068,9 +1075,9 @@ def show_attachments_category(attachments_manager: AttachmentsManager, category:
             st.markdown("---")
 
 
-# NOUVEAU : Fonctions d'administration et diagnostic
+# NOUVEAU : Fonctions d'administration et diagnostic - CORRIGÉES avec clés uniques
 def show_attachments_health_dashboard(attachments_manager):
-    """Affiche le tableau de bord de santé des pièces jointes"""
+    """Affiche le tableau de bord de santé des pièces jointes - CORRIGÉ avec clés uniques"""
     
     st.markdown("### 🏥 Diagnostic Pièces Jointes")
     
@@ -1118,7 +1125,10 @@ def show_attachments_health_dashboard(attachments_manager):
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🧹 Nettoyer Références Cassées", help="Supprime les références aux fichiers inexistants"):
+            # CORRIGÉ: Clé unique pour le bouton de nettoyage
+            if st.button("🧹 Nettoyer Références Cassées", 
+                        help="Supprime les références aux fichiers inexistants", 
+                        key="cleanup_broken_refs"):
                 try:
                     # Supprimer définitivement les références cassées
                     query = """
@@ -1138,7 +1148,10 @@ def show_attachments_health_dashboard(attachments_manager):
                     st.error(f"Erreur nettoyage: {e}")
         
         with col2:
-            if st.button("📊 Rapport Détaillé", help="Affiche la liste des fichiers perdus"):
+            # CORRIGÉ: Clé unique pour le bouton de rapport
+            if st.button("📊 Rapport Détaillé", 
+                        help="Affiche la liste des fichiers perdus", 
+                        key="detailed_report"):
                 try:
                     broken_files = attachments_manager.db.execute_query("""
                         SELECT original_filename, upload_date, project_id 
@@ -1178,9 +1191,10 @@ def show_attachments_tab_in_project_modal(project):
     else:
         st.error("ID du projet non valide")
 
-print("✅ AttachmentsManager VERSION COMPLÈTE CORRIGÉE pour Render Persistent Disk")
+print("✅ AttachmentsManager VERSION COMPLÈTE CORRIGÉE - CLÉS BOUTONS UNIQUES")
 print("📎 Fonctionnalités : Upload, Download, Aperçu, Catégorisation, Sécurité, Diagnostic")
 print("👁️ Types prévisualisables : Images, Texte, PDF, JSON, CSV, XML, Markdown")
 print("🔧 Correction : Utilisation automatique du persistent disk Render")
+print("🔑 NOUVEAU : Toutes les clés de boutons sont uniques pour éviter les conflits")
 print("🏥 Nouveau : Diagnostic de santé et migration automatique des fichiers")
 print("🔗 Prêt pour utilisation avec les variables d'environnement Render")
