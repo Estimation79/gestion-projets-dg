@@ -2751,13 +2751,16 @@ def show_employee_only_interface():
     """
     Interface dédiée aux employés UNIQUEMENT - pour "Interface Employé - DG Inc."
     
+    ⚠️ IMPORTANT: Cette fonction N'A PAS de sélecteur de mode
+    ✅ Affichage direct de l'interface employé sans choix
+    
     CARACTÉRISTIQUES:
-    - Pas de sélecteur de mode superviseur/employé
-    - Pas d'authentification superviseur
-    - Interface employé directe et simplifiée
-    - Vue filtrée par employé sélectionné
-    - Disposition verticale des menus
-    - Réinitialisation automatique après pointage
+    - ❌ PAS de sélecteur "👥 Choisir le mode d'interface"
+    - ❌ PAS d'authentification superviseur
+    - ✅ Interface employé directe et simplifiée
+    - ✅ Vue filtrée par employé sélectionné
+    - ✅ Disposition verticale des menus
+    - ✅ Réinitialisation automatique après pointage
     """
     
     if 'timetracker_unified' not in st.session_state:
@@ -2766,10 +2769,11 @@ def show_employee_only_interface():
     
     tt = st.session_state.timetracker_unified
     
+    # 🎯 INTERFACE EMPLOYÉ DIRECTE - PAS DE SÉLECTEUR DE MODE
     st.markdown("### ⏱️ TimeTracker - Interface Employé")
     st.info("👤 **Interface Employé** - Pointage granulaire sur opérations et suivi personnel")
     
-    # Interface employé seulement (pas de choix de mode)
+    # Interface employé seulement (AUCUN choix de mode affiché)
     tab_employee_punch, tab_employee_history = st.tabs([
         "👤 Mon Pointage", "📊 Mon Historique"
     ])
@@ -2786,7 +2790,15 @@ def show_employee_only_interface():
 
 def show_timetracker_unified_interface_main():
     """
-    Point d'entrée principal pour l'interface (appelé depuis app.py)
+    Point d'entrée principal pour l'interface ERP ADMINISTRATEUR
+    
+    ⚠️ CETTE FONCTION CONTIENT LE SÉLECTEUR DE MODE:
+    👥 Choisir le mode d'interface:
+    🔧 Superviseur/Admin (voir tous les employés)  👤 Employé (vue personnelle)
+    
+    UTILISATION DANS ERP ADMINISTRATEUR:
+    if st.session_state.current_view == "timetracker":
+        show_timetracker_unified_interface_main()  # 👈 Pour ERP Admin
     
     NOUVELLES FONCTIONNALITÉS:
     - Mode Superviseur: Interface complète avec vue sur tous les employés pointés
@@ -2811,9 +2823,40 @@ def show_employee_interface_main():
     """
     Point d'entrée spécifique pour "Interface Employé - DG Inc."
     
-    UTILISATION:
-    - À appeler depuis l'application "Interface Employé - DG Inc."
+    ⚠️ IMPORTANT: Cette fonction affiche DIRECTEMENT l'interface employé
+    ❌ SANS sélecteur de mode "👥 Choisir le mode d'interface"
+    
+    UTILISATION DANS "Interface Employé - DG Inc.":
+    if st.session_state.current_view == "timetracker":
+        show_employee_interface_main()  # 👈 UTILISEZ CETTE FONCTION
+    
+    ❌ NE PAS UTILISER: show_timetracker_unified_interface_main() 
+    (qui contient le sélecteur de mode)
+    
+    CARACTÉRISTIQUES:
     - Interface employé pure, sans mode superviseur
+    - Pas de sélecteur "👥 Choisir le mode d'interface"
+    - Accès direct aux onglets employé
     - Sécurisée et simplifiée pour les employés
     """
     show_employee_only_interface()
+
+# =========================================================================
+# 📋 RÉSUMÉ D'UTILISATION - QUELLE FONCTION APPELER OÙ ?
+# =========================================================================
+
+"""
+🏢 DANS VOTRE ERP ADMINISTRATEUR :
+   if st.session_state.current_view == "timetracker":
+       show_timetracker_unified_interface_main()  # ✅ Interface complète avec sélecteur de mode
+
+👤 DANS VOTRE INTERFACE EMPLOYÉ - DG Inc. :
+   if st.session_state.current_view == "timetracker":
+       show_employee_interface_main()  # ✅ Interface employé directe SANS sélecteur
+
+⚠️ IMPORTANT:
+- ERP Admin = show_timetracker_unified_interface_main() (AVEC sélecteur de mode)
+- Interface Employé = show_employee_interface_main() (SANS sélecteur de mode)
+
+❌ NE PAS mélanger les fonctions dans les mauvaises applications !
+"""
