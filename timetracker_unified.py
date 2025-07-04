@@ -1805,273 +1805,165 @@ def show_operation_punch_interface(tt):
 # =========================================================================
 
 def show_employee_punch_interface(tt):
-    """Interface de pointage spécifique aux EMPLOYÉS - Saisie directe par numéros"""
+    """Interface de pointage spécifique aux EMPLOYÉS - Vue filtrée par employé sélectionné"""
     
     st.markdown("#### 👤 Interface Employé - Pointage sur Opérations")
-    st.info("🔧 **Interface simplifiée pour les employés** - Saisie directe par numéros")
+    st.info("🔧 **Interface simplifiée pour les employés** - Pointage granulaire sur opérations")
     
-    # Section saisie directe (DISPOSITION VERTICALE)
-    st.markdown("##### 📝 Saisie Directe")
+    # Section sélection employé d'abord
+    st.markdown("##### 👤 Sélection Employé")
     
-    # Champ 1 : No. Employé (en haut)
-    employee_number = st.text_input(
-        "👤 No. Employé:",
-        placeholder="Ex: 001, 123",
-        key="employee_number_input"
-    )
-    
-    # Champ 2 : No. BT (au milieu)
-    bt_number = st.text_input(
-        "📋 No. BT:",
-        placeholder="Ex: BT-2025-001",
-        key="bt_number_input"
-    )
-    
-    # Champ 3 : No. Poste (en bas)
-    work_center_number = st.text_input(
-        "🏭 No. Poste:",
-        placeholder="Ex: 1001, CNC-01",
-        key="work_center_number_input"
-    )
-    
-    # Validation et récupération des informations
-    selected_employee_id = None
-    selected_bt_info = None
-    selected_work_center_info = None
-    
-    # 1. Vérifier l'employé
-    if employee_number:
-        # Chercher par numéro d'employé (ID ou code employé)
-        try:
-            # D'abord essayer par ID
-            if employee_number.isdigit():
-                emp_result = tt.db.execute_query(
-                    "SELECT id, prenom, nom, poste FROM employees WHERE id = ? AND statut = 'ACTIF'",
-                    (int(employee_number),)
-                )
-            else:
-                # Sinon chercher par code employé ou nom
-                emp_result = tt.db.execute_query(
-                    "SELECT id, prenom, nom, poste FROM employees WHERE (code_employe = ? OR prenom LIKE ? OR nom LIKE ?) AND statut = 'ACTIF'",
-                    (employee_number, f"%{employee_number}%", f"%{employee_number}%")
-                )
-            
-            if emp_result:
-                selected_employee_id = emp_result[0]['id']
-                employee_info = emp_result[0]
-                st.success(f"✅ Employé trouvé: {employee_info['prenom']} {employee_info['nom']} ({employee_info['poste']})")
-            else:
-                st.error(f"❌ Employé '{employee_number}' non trouvé")
-                
-        except Exception as e:
-            st.error(f"❌ Erreur recherche employé: {e}")
-    
-    # 2. Vérifier le BT
-    if bt_number:
-        try:
-            bt_result = tt.db.execute_query(
-                "SELECT id, numero_document, statut, project_id FROM formulaires WHERE numero_document = ? AND type_formulaire = 'BON_TRAVAIL'",
-                (bt_number,)
-            )
-            
-            if bt_result:
-                selected_bt_info = bt_result[0]
-                # Récupérer le nom du projet
-                if selected_bt_info['project_id']:
-                    project_result = tt.db.execute_query(
-                        "SELECT nom_projet FROM projects WHERE id = ?",
-                        (selected_bt_info['project_id'],)
-                    )
-                    project_name = project_result[0]['nom_projet'] if project_result else 'Projet Inconnu'
-                else:
-                    project_name = 'Projet Inconnu'
-                
-                st.success(f"✅ BT trouvé: {bt_number} - {project_name} (Statut: {selected_bt_info['statut']})")
-            else:
-                st.error(f"❌ BT '{bt_number}' non trouvé")
-                
-        except Exception as e:
-            st.error(f"❌ Erreur recherche BT: {e}")
-    
-    # 3. Vérifier le poste de travail
-    if work_center_number:
-        try:
-            # Chercher par ID ou nom du poste
-            if work_center_number.isdigit():
-                wc_result = tt.db.execute_query(
-                    "SELECT id, nom, code_poste, departement FROM work_centers WHERE id = ? AND statut = 'ACTIF'",
-                    (int(work_center_number),)
-                )
-            else:
-                wc_result = tt.db.execute_query(
-                    "SELECT id, nom, code_poste, departement FROM work_centers WHERE (code_poste = ? OR nom LIKE ?) AND statut = 'ACTIF'",
-                    (work_center_number, f"%{work_center_number}%")
-                )
-            
-            if wc_result:
-                selected_work_center_info = wc_result[0]
-                st.success(f"✅ Poste trouvé: {selected_work_center_info['nom']} ({selected_work_center_info['departement']})")
-            else:
-                st.error(f"❌ Poste '{work_center_number}' non trouvé")
-                
-        except Exception as e:
-            st.error(f"❌ Erreur recherche poste: {e}")
-    
-    # Vérifier si tous les champs sont remplis et valides
-    if not (employee_number and bt_number and work_center_number):
-        st.info("👆 Veuillez remplir tous les champs (No. Employé, No. BT, No. Poste)")
+    employees = tt.get_all_employees()
+    if not employees:
+        st.warning("Aucun employé trouvé")
         return
     
-    if not (selected_employee_id and selected_bt_info and selected_work_center_info):
-        st.warning("⚠️ Veuillez corriger les erreurs ci-dessus avant de continuer")
+    employee_options = {None: "-- Sélectionner un employé --"}
+    employee_options.update({emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees})
+    
+    selected_employee_id = st.selectbox(
+        "👤 Sélectionner Employé:",
+        options=list(employee_options.keys()),
+        format_func=lambda x: employee_options[x],
+        key="employee_punch_op_employee_select"
+    )
+    
+    # Si aucun employé sélectionné, arrêter ici
+    if selected_employee_id is None:
+        st.info("👆 Veuillez sélectionner un employé pour continuer")
         return
     
-    # Section employé pointé (seulement celui saisi)
-    if selected_employee_id:
-        active_employees = tt.get_active_employees_with_operations()
-        selected_active_employee = [emp for emp in active_employees if emp['id'] == selected_employee_id]
+    # Section employé pointé (seulement celui sélectionné)
+    active_employees = tt.get_active_employees_with_operations()
+    selected_active_employee = [emp for emp in active_employees if emp['id'] == selected_employee_id]
+    
+    if selected_active_employee:
+        st.markdown("##### 🟢 Votre Pointage Actuel")
         
-        if selected_active_employee:
-            st.markdown("##### 🟢 Votre Pointage Actuel")
+        emp = selected_active_employee[0]
+        col1, col2, col3, col4 = st.columns([3, 4, 2, 2])
+        
+        with col1:
+            st.write(f"**{emp['name']}**")
+            st.caption(emp['poste'])
+        
+        with col2:
+            # Affichage hiérarchique de l'opération
+            if emp['bt_numero']:
+                st.write(f"📋 **BT {emp['bt_numero']}**")
+                st.caption(f"Projet: {emp['nom_projet']}")
+            else:
+                st.write(f"📋 **{emp['nom_projet']}**")
             
-            emp = selected_active_employee[0]
-            col1, col2, col3, col4 = st.columns([3, 4, 2, 2])
+            if emp['operation_description']:
+                st.write(f"🔧 **Op.{emp['sequence_number']:02d}:** {emp['operation_description']}")
+                if emp['work_center_name']:
+                    st.caption(f"🏭 {emp['work_center_name']}")
+            else:
+                st.caption("Opération générale")
             
-            with col1:
-                st.write(f"**{emp['name']}**")
-                st.caption(emp['poste'])
-            
-            with col2:
-                # Affichage hiérarchique de l'opération
-                if emp['bt_numero']:
-                    st.write(f"📋 **BT {emp['bt_numero']}**")
-                    st.caption(f"Projet: {emp['nom_projet']}")
+            st.caption(f"Depuis: {emp['punch_in'][:16]}")
+        
+        with col3:
+            st.metric("Heures", f"{emp['hours_worked']:.1f}h")
+        
+        with col4:
+            if st.button("🔴 Pointer Sortie", key=f"employee_out_op_{emp['id']}", use_container_width=True, type="primary"):
+                notes = st.text_input(f"Notes sortie:", key=f"employee_notes_out_op_{emp['id']}")
+                if tt.punch_out(emp['id'], notes):
+                    st.success(f"✅ Pointage terminé !")
+                    # Réinitialiser la sélection d'employé
+                    st.session_state.pop("employee_punch_op_employee_select", None)
+                    st.rerun()
                 else:
-                    st.write(f"📋 **{emp['nom_projet']}**")
-                
-                if emp['operation_description']:
-                    st.write(f"🔧 **Op.{emp['sequence_number']:02d}:** {emp['operation_description']}")
-                    if emp['work_center_name']:
-                        st.caption(f"🏭 {emp['work_center_name']}")
-                else:
-                    st.caption("Opération générale")
-                
-                st.caption(f"Depuis: {emp['punch_in'][:16]}")
-            
-            with col3:
-                st.metric("Heures", f"{emp['hours_worked']:.1f}h")
-            
-            with col4:
-                if st.button("🔴 Pointer Sortie", key=f"employee_out_op_{emp['id']}", use_container_width=True, type="primary"):
-                    notes = st.text_input(f"Notes sortie:", key=f"employee_notes_out_op_{emp['id']}")
-                    if tt.punch_out(emp['id'], notes):
-                        st.success(f"✅ Pointage terminé !")
-                        # Réinitialiser tous les champs
-                        st.session_state.pop("employee_number_input", None)
-                        st.session_state.pop("bt_number_input", None)
-                        st.session_state.pop("work_center_number_input", None)
-                        st.rerun()
-                    else:
-                        st.error("❌ Erreur pointage sortie")
-            
-            st.markdown("---")
+                    st.error("❌ Erreur pointage sortie")
+        
+        st.markdown("---")
     
     # Section nouveau pointage sur opération
-    st.markdown("##### ➕ Nouveau Pointage")
+    st.markdown("##### ➕ Nouveau Pointage sur Opération")
     
-    # Récupérer les tâches disponibles pour ce BT
-    if selected_bt_info:
-        try:
-            # Chercher les tâches de ce BT
-            tasks_result = tt.db.execute_query('''
-                SELECT fl.id, fl.sequence_ligne, fl.description, fl.prix_unitaire
-                FROM formulaire_lignes fl
-                WHERE fl.formulaire_id = ? 
-                AND fl.sequence_ligne < 1000
-                AND fl.description IS NOT NULL 
-                AND fl.description != ''
-                AND fl.description != 'None'
-                ORDER BY fl.sequence_ligne
-            ''', (selected_bt_info['id'],))
+    # Affichage employé sélectionné (disposition verticale)
+    st.info(f"👤 **Employé sélectionné:** {employee_options[selected_employee_id]}")
+    
+    # Sélection hiérarchique : Projet/BT puis Opération (disposition verticale)
+    operations_hierarchy = tt.get_available_operations_hierarchical()
+    
+    if not operations_hierarchy:
+        st.warning("Aucune opération disponible")
+        return
+    
+    # Premier niveau : Projet/BT (disposition verticale)
+    project_bt_options = list(operations_hierarchy.keys())
+    selected_project_bt = st.selectbox(
+        "📋 Sélectionner Projet/BT:",
+        options=project_bt_options,
+        key="employee_punch_op_project_bt_select"
+    )
+    
+    # Deuxième niveau : Opération (disposition verticale)
+    if selected_project_bt and selected_project_bt in operations_hierarchy:
+        available_operations = operations_hierarchy[selected_project_bt]
+        
+        if available_operations:
+            operation_options = {op['id']: op['display_name'] for op in available_operations}
+            selected_operation_id = st.selectbox(
+                "🔧 Sélectionner Opération:",
+                options=list(operation_options.keys()),
+                format_func=lambda x: operation_options[x],
+                key="employee_punch_op_operation_select"
+            )
             
-            if tasks_result:
-                st.markdown("**📋 Tâches disponibles pour ce BT:**")
-                
-                # Afficher les tâches sous forme de tableau
-                task_data = []
-                for task in tasks_result:
-                    task_data.append({
-                        'Séq.': f"{task['sequence_ligne']:02d}",
-                        'Description': task['description'],
-                        'Temps Est.': f"{task['prix_unitaire'] or 0:.1f}h"
-                    })
-                
-                if task_data:
-                    df_tasks = pd.DataFrame(task_data)
-                    st.dataframe(df_tasks, use_container_width=True, hide_index=True)
-                
-                # Sélection de la tâche
-                task_options = {task['id']: f"{task['sequence_ligne']:02d}. {task['description']}" for task in tasks_result}
-                selected_task_id = st.selectbox(
-                    "🔧 Sélectionner la tâche:",
-                    options=list(task_options.keys()),
-                    format_func=lambda x: task_options[x],
-                    key="selected_task_for_punch"
-                )
-                
-            else:
-                st.warning(f"❌ Aucune tâche trouvée pour le BT {bt_number}")
-                return
-                
-        except Exception as e:
-            st.error(f"❌ Erreur récupération tâches: {e}")
+            # Afficher les détails de l'opération sélectionnée
+            selected_op_details = next((op for op in available_operations if op['id'] == selected_operation_id), None)
+            if selected_op_details:
+                col_det1, col_det2, col_det3 = st.columns(3)
+                col_det1.metric("Temps Estimé", f"{selected_op_details['temps_estime']:.1f}h")
+                col_det2.metric("Poste", selected_op_details['work_center'] or "N/A")
+                col_det3.metric("Statut", selected_op_details['statut'])
+        else:
+            st.warning("Aucune opération disponible pour ce projet/BT")
             return
+    else:
+        st.warning("Sélectionnez un projet/BT")
+        return
     
-    # Notes et actions
-    notes = st.text_input("📝 Notes (optionnel):", key="employee_punch_notes")
+    # Notes et action
+    notes = st.text_input("📝 Notes (optionnel):", key="employee_punch_op_notes")
     
     col_btn1, col_btn2 = st.columns(2)
     
     with col_btn1:
-        if st.button("🟢 Pointer Entrée", use_container_width=True, type="primary"):
+        if st.button("🟢 Pointer sur Opération", use_container_width=True, type="primary"):
             # Vérifier si l'employé est déjà pointé
             active_punch = tt.get_active_punch(selected_employee_id)
             if active_punch:
                 current_op = active_punch.get('operation_description', 'Tâche générale')
-                st.error(f"❌ L'employé est déjà pointé sur: {current_op}")
+                st.error(f"❌ {employee_options[selected_employee_id].split(' (')[0]} est déjà pointé sur: {current_op}")
             else:
-                # Créer l'ID d'opération factice pour la tâche BT (ID + 100000)
-                operation_id = selected_task_id + 100000
-                
-                entry_id = tt.punch_in_operation(selected_employee_id, operation_id, notes)
+                entry_id = tt.punch_in_operation(selected_employee_id, selected_operation_id, notes)
                 if entry_id:
-                    st.success(f"✅ Pointage démarré ! ID: {entry_id}")
-                    # Réinitialiser tous les champs
-                    st.session_state.pop("employee_number_input", None)
-                    st.session_state.pop("bt_number_input", None)
-                    st.session_state.pop("work_center_number_input", None)
-                    st.session_state.pop("selected_task_for_punch", None)
+                    st.success(f"✅ Pointage sur opération démarré ! ID: {entry_id}")
+                    # Réinitialiser la sélection d'employé
+                    st.session_state.pop("employee_punch_op_employee_select", None)
                     st.rerun()
                 else:
-                    st.error("❌ Erreur lors du pointage")
+                    st.error("❌ Erreur lors du pointage sur opération")
     
     with col_btn2:
         if st.button("🔴 Pointer Sortie", use_container_width=True):
             active_punch = tt.get_active_punch(selected_employee_id)
             if not active_punch:
-                st.error(f"❌ L'employé n'est pas pointé")
+                st.error(f"❌ {employee_options[selected_employee_id].split(' (')[0]} n'est pas pointé")
             else:
                 if tt.punch_out(selected_employee_id, notes):
                     st.success("✅ Pointage terminé !")
-                    # Réinitialiser tous les champs
-                    st.session_state.pop("employee_number_input", None)
-                    st.session_state.pop("bt_number_input", None)
-                    st.session_state.pop("work_center_number_input", None)
-                    st.session_state.pop("selected_task_for_punch", None)
+                    # Réinitialiser la sélection d'employé
+                    st.session_state.pop("employee_punch_op_employee_select", None)
                     st.rerun()
                 else:
                     st.error("❌ Erreur pointage sortie")
-                    
+
 def show_employee_history_interface(tt):
     """Interface d'historique simplifiée pour les employés"""
     
