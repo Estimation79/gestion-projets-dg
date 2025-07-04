@@ -22,186 +22,6 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ================== FONCTIONS DE DEBUG TEMPORAIRES ==================
-
-def debug_bt_kanban_integration(db):
-    """
-    Fonction de debug pour diagnostiquer le problème BT-Kanban
-    À supprimer une fois le problème résolu
-    """
-    st.markdown("## 🔍 DEBUG - Intégration BT-Kanban")
-    
-    debug_tab1, debug_tab2, debug_tab3 = st.tabs(["📋 Postes Disponibles", "🔧 BTs Existants", "🔗 Opérations Synchronisées"])
-    
-    with debug_tab1:
-        st.markdown("### 📋 Postes de Travail dans la Base")
-        try:
-            postes = db.execute_query("SELECT id, nom, statut FROM work_centers ORDER BY nom")
-            if postes:
-                st.markdown("**Postes disponibles :**")
-                for poste in postes:
-                    st.markdown(f"- **ID {poste['id']}:** `{poste['nom']}` (Statut: {poste['statut']})")
-                    
-                st.info("💡 **Important :** Utilisez exactement ces noms dans vos tâches BT pour que la synchronisation fonctionne !")
-            else:
-                st.warning("❌ Aucun poste de travail trouvé dans la base !")
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-    
-    with debug_tab2:
-        st.markdown("### 🔧 Bons de Travail et leurs Tâches")
-        try:
-            bts = db.execute_query('''
-                SELECT f.id, f.numero_document, f.project_id 
-                FROM formulaires f 
-                WHERE f.type_formulaire = 'BON_TRAVAIL' 
-                ORDER BY f.created_at DESC 
-                LIMIT 5
-            ''')
-            
-            if not bts:
-                st.warning("❌ Aucun Bon de Travail trouvé")
-                return
-                
-            for bt in bts:
-                st.markdown(f"#### BT: {bt['numero_document']} (ID: {bt['id']})")
-                
-                # Récupérer les tâches de ce BT
-                lignes = db.execute_query('''
-                    SELECT sequence_ligne, description, notes_ligne 
-                    FROM formulaire_lignes 
-                    WHERE formulaire_id = ? AND sequence_ligne < 1000
-                    ORDER BY sequence_ligne
-                ''', (bt['id'],))
-                
-                if lignes:
-                    for ligne in lignes:
-                        try:
-                            notes_data = json.loads(ligne.get('notes_ligne', '{}'))
-                            operation = notes_data.get('operation', 'N/A')
-                            description = notes_data.get('description', 'N/A')
-                            
-                            # Indicateur de correspondance
-                            poste_exists = db.execute_query("SELECT id FROM work_centers WHERE nom = ?", (operation,))
-                            match_icon = "✅" if poste_exists else "❌"
-                            
-                            st.markdown(f"- **Tâche {ligne['sequence_ligne']}:** {match_icon} Opération = `{operation}` | Description = `{description}`")
-                            
-                            if not poste_exists and operation != 'N/A':
-                                st.warning(f"⚠️ Poste '{operation}' non trouvé dans la base !")
-                                
-                        except Exception as parse_error:
-                            st.markdown(f"- **Tâche {ligne['sequence_ligne']}:** ❌ Erreur parsing - Description = `{ligne['description']}`")
-                else:
-                    st.markdown("  - ❌ Aucune tâche trouvée")
-                
-                st.markdown("---")
-                
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-    
-    with debug_tab3:
-        st.markdown("### 🔗 Opérations Synchronisées avec le Kanban")
-        try:
-            # CORRECTION: Requête adaptée aux colonnes réelles
-            operations = db.execute_query('''
-                SELECT o.id, o.formulaire_bt_id, o.work_center_id, 
-                       f.numero_document, wc.nom as work_center_nom,
-                       o.statut, o.temps_estime, o.description
-                FROM operations o
-                LEFT JOIN formulaires f ON o.formulaire_bt_id = f.id
-                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
-                WHERE o.formulaire_bt_id IS NOT NULL
-                ORDER BY f.numero_document, o.sequence_number
-            ''')
-            
-            if operations:
-                current_bt = None
-                for op in operations:
-                    if op['numero_document'] != current_bt:
-                        current_bt = op['numero_document']
-                        st.markdown(f"#### ✅ BT: {current_bt}")
-                    
-                    st.markdown(f"- **Description:** `{op['description']}` → **Poste:** `{op['work_center_nom']}` (ID: {op['work_center_id']}) - Statut: {op['statut']} - {op['temps_estime']}h")
-                
-                st.success(f"✅ {len(operations)} opération(s) synchronisée(s) trouvée(s). Ces BT devraient apparaître dans le Kanban !")
-            else:
-                st.error("❌ **PROBLÈME : Aucune opération synchronisée trouvée !**")
-                st.markdown("**Ceci explique pourquoi vos BT n'apparaissent pas dans les bonnes colonnes du Kanban.**")
-                st.markdown("**Solutions :**")
-                st.markdown("1. Cliquez sur 'Re-synchroniser tous les BT' ci-dessous")
-                st.markdown("2. Créez un nouveau BT avec les noms exacts des postes")
-                st.markdown("3. Vérifiez que les noms d'opérations correspondent exactement aux noms des postes")
-                
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-    
-    # Section Actions Rapides
-    st.markdown("---")
-    st.markdown("### ⚡ Actions Rapides de Debug")
-    
-    action_col1, action_col2, action_col3 = st.columns(3)
-    
-    with action_col1:
-        if st.button("🔄 Re-synchroniser tous les BT", key="debug_resync_all"):
-            try:
-                bts = db.execute_query("SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'")
-                count = 0
-                for bt in bts:
-                    _synchroniser_bt_operations(bt['id'], db)
-                    count += 1
-                st.success(f"✅ {count} BT(s) re-synchronisé(s) avec succès !")
-            except Exception as e:
-                st.error(f"Erreur re-synchronisation : {e}")
-    
-    with action_col2:
-        if st.button("🗑️ Nettoyer opérations orphelines", key="debug_clean_operations"):
-            try:
-                # Supprimer les opérations sans BT associé
-                result = db.execute_query('''
-                    DELETE FROM operations 
-                    WHERE formulaire_bt_id NOT IN (
-                        SELECT id FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'
-                    )
-                ''')
-                st.success("✅ Opérations orphelines nettoyées !")
-            except Exception as e:
-                st.error(f"Erreur nettoyage : {e}")
-    
-    with action_col3:
-        if st.button("📊 Vérifier Structure DB", key="debug_check_structure"):
-            try:
-                # Vérifier la structure de la table operations
-                columns = db.execute_query("PRAGMA table_info(operations)")
-                st.markdown("**Colonnes table operations:**")
-                for col in columns:
-                    st.markdown(f"- `{col['name']}` ({col['type']})")
-                    
-                st.markdown("---")
-                
-                # Stats de synchronisation améliorées
-                total_bts = db.execute_query("SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL'")[0]['count']
-                total_operations = db.execute_query("SELECT COUNT(*) as count FROM operations WHERE formulaire_bt_id IS NOT NULL")[0]['count']
-                bts_with_ops = db.execute_query("SELECT COUNT(DISTINCT formulaire_bt_id) as count FROM operations WHERE formulaire_bt_id IS NOT NULL")[0]['count']
-                
-                st.metric("Total BT", total_bts)
-                st.metric("BT synchronisés", bts_with_ops)
-                st.metric("Total opérations", total_operations)
-                
-                if total_bts > 0:
-                    sync_rate = (bts_with_ops / total_bts) * 100
-                    st.metric("Taux synchronisation", f"{sync_rate:.1f}%")
-                    
-            except Exception as e:
-                st.error(f"Erreur : {e}")
-
-def show_debug_page():
-    """Page de debug temporaire"""
-    if 'erp_db' in st.session_state:
-        debug_bt_kanban_integration(st.session_state.erp_db)
-    else:
-        st.error("❌ Base de données non disponible")
-
 def _synchroniser_bt_operations(bt_id: int, db):
     """
     Synchronise les lignes d'un Bon de Travail avec la table 'operations'.
@@ -351,7 +171,7 @@ class GestionnaireBonsTravail:
         if 'bt_show_success' not in st.session_state:
             st.session_state.bt_show_success = False
         
-        # NOUVEAU : Variables pour la suppression
+        # Variables pour la suppression
         if 'bt_confirm_delete' not in st.session_state:
             st.session_state.bt_confirm_delete = None
         
@@ -1288,14 +1108,14 @@ def show_dg_header():
     """, unsafe_allow_html=True)
 
 def show_main_navigation():
-    """Navigation principale entre BT et Postes"""
+    """Navigation principale simplifiée entre BT et Postes"""
     st.markdown('<div class="dg-nav-container">', unsafe_allow_html=True)
     
     # Mode principal : BT ou Postes
     if 'main_mode' not in st.session_state:
-        st.session_state.main_mode = 'bt'  # 'bt' ou 'postes' ou 'debug'
+        st.session_state.main_mode = 'bt'  # 'bt' ou 'postes'
     
-    nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6 = st.columns(6)
+    nav_col1, nav_col2, nav_col3 = st.columns(3)
     
     with nav_col1:
         if st.button("🔧 Bons de Travail", use_container_width=True, 
@@ -1314,32 +1134,12 @@ def show_main_navigation():
             st.rerun()
     
     with nav_col3:
-        if st.button("📋 Gestion", use_container_width=True, key="main_nav_gestion"):
-            if st.session_state.main_mode == 'bt':
-                st.session_state.bt_mode = 'manage'
-            else:
-                st.session_state.wc_action = 'list'
-            st.rerun()
-    
-    with nav_col4:
-        if st.button("📊 Statistiques", use_container_width=True, key="main_nav_stats"):
+        if st.button("📊 Statistiques Globales", use_container_width=True, 
+                     key="main_nav_stats"):
             if st.session_state.main_mode == 'bt':
                 st.session_state.bt_mode = 'stats'
             else:
                 st.session_state.wc_action = 'stats'
-            st.rerun()
-    
-    with nav_col5:
-        if st.button("⏱️ TimeTracker Pro", use_container_width=True, key="main_nav_timetracker"):
-            st.session_state.page_redirect = "timetracker_pro_page"
-            st.rerun()
-    
-    with nav_col6:
-        # NOUVEAU : Bouton Debug temporaire
-        if st.button("🔍 DEBUG Kanban", use_container_width=True,
-                     type="primary" if st.session_state.main_mode == 'debug' else "secondary",
-                     key="main_nav_debug"):
-            st.session_state.main_mode = 'debug'
             st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1360,7 +1160,7 @@ def show_bt_navigation():
             st.rerun()
     
     with nav_col2:
-        if st.button("📋 Gestion", use_container_width=True,
+        if st.button("📋 Gestion BT", use_container_width=True,
                      type="primary" if st.session_state.bt_mode == 'manage' else "secondary",
                      key="bt_nav_manage"):
             st.session_state.bt_mode = 'manage'
@@ -2440,11 +2240,8 @@ def show_bt_management():
                             st.rerun()
                 
                 with action_detail_col3:
-                    if st.button("⏱️ TimeTracker", key=f"tt_{bon['id']}"):
-                        st.session_state.timetracker_redirect_to_bt = True
-                        st.session_state.formulaire_project_preselect = bon['id']
-                        st.session_state.page_redirect = "timetracker_pro_page"
-                        st.rerun()
+                    if st.button("🔗 Opérations", key=f"op_{bon['id']}"):
+                        st.info("🔗 Lien vers vue Kanban en développement")
                 
                 with action_detail_col4:
                     # MISE À JOUR : Bouton suppression fonctionnel
@@ -3208,40 +3005,15 @@ def show_delete_confirmation(poste_id):
     except Exception as e:
         st.error(f"❌ Erreur: {e}")
 
-def debug_bt_data(bt_id):
-    """Fonction d'aide pour débugger les données BT"""
-    try:
-        st.markdown("#### 🐛 Debug - Données Brutes")
-        
-        # Afficher les données brutes de la DB
-        bt_result = st.session_state.erp_db.execute_query('''
-            SELECT * FROM formulaires WHERE id = ?
-        ''', (bt_id,))
-        
-        lignes_result = st.session_state.erp_db.execute_query('''
-            SELECT * FROM formulaire_lignes WHERE formulaire_id = ? ORDER BY sequence_ligne
-        ''', (bt_id,))
-        
-        st.markdown("**Données formulaire:**")
-        st.json(dict(bt_result[0]) if bt_result else {})
-        
-        st.markdown("**Lignes:**")
-        for ligne in lignes_result:
-            st.json(dict(ligne))
-        
-    except Exception as e:
-        st.error(f"Erreur debug: {e}")
-
 # ================== FONCTION PRINCIPALE ==================
 
 def show_production_management_page():
     """
     Page principale du module de gestion des bons de travail et postes de travail
-    Reproduit l'interface du fichier HTML en version Streamlit avec extension postes
-    VERSION FINALE : Support complet de la modification des BT + Types numériques harmonisés
-    VERSION PDF : Export PDF professionnel intégré
-    VERSION SUPPRESSION : Fonctionnalité complète de suppression sécurisée des BT
-    VERSION KANBAN : Synchronisation automatique avec le Kanban intégrée
+    VERSION NETTOYÉE : Navigation simplifiée et code organisé
+    - Suppression des éléments debug et TimeTracker
+    - Navigation principale simplifiée (3 boutons au lieu de 6)
+    - Code nettoyé et maintien de toutes les fonctionnalités essentielles
     """
     
     # Appliquer les styles DG
@@ -3265,7 +3037,7 @@ def show_production_management_page():
     # Afficher l'en-tête DG
     show_dg_header()
     
-    # Navigation principale
+    # Navigation principale simplifiée
     show_main_navigation()
     
     # Gestion des messages de succès
@@ -3344,19 +3116,11 @@ def show_production_management_page():
         elif wc_action == 'analysis':
             show_work_centers_analysis()
     
-    elif main_mode == 'debug':
-        # NOUVEAU : Mode Debug temporaire
-        st.warning("🔍 **Mode Debug Temporaire** - À utiliser pour diagnostiquer les problèmes de synchronisation BT-Kanban")
-        show_debug_page()
-    
-    # Footer DG
+    # Footer DG simplifié
     st.markdown("---")
     
     # Message selon le mode
-    if main_mode == 'debug':
-        footer_message = "🔍 Mode Debug Actif - Diagnostic BT-Kanban"
-        footer_color = "#f59e0b"
-    elif main_mode == 'bt':
+    if main_mode == 'bt':
         footer_message = "📋 Bons de Travail"
         footer_color = "var(--text-color-light)"
     else:
@@ -3370,7 +3134,6 @@ def show_production_management_page():
         <p><em>Mode actuel: {footer_message}</em></p>
         {f'<p><strong>🔄 Synchronisation Kanban:</strong> {"✅ Automatique" if main_mode == "bt" else "N/A"}</p>' if main_mode == 'bt' else ''}
         {f'<p><strong>📄 Export PDF:</strong> {"✅ Disponible" if PDF_EXPORT_AVAILABLE else "❌ Non disponible"}</p>' if main_mode == 'bt' else ''}
-        {f'<p><strong>🔍 Debug:</strong> {"⚠️ Mode diagnostic actif" if main_mode == "debug" else "✅ Disponible"}</p>' if main_mode in ['bt', 'debug'] else ''}
     </div>
     """, unsafe_allow_html=True)
 
