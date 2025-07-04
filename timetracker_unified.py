@@ -1883,21 +1883,17 @@ def show_employee_punch_interface(tt):
     # Section nouveau pointage sur opération
     st.markdown("##### ➕ Nouveau Pointage sur Opération")
     
-    # Affichage employé sélectionné
-    if selected_employee_id is not None:
-        st.info(f"👤 **Employé sélectionné:** {employee_options[selected_employee_id]}")
-    else:
-        st.warning("👤 **Aucun employé sélectionné** - Veuillez sélectionner un employé ci-dessus")
-        return
+    # Affichage employé sélectionné (disposition verticale)
+    st.info(f"👤 **Employé sélectionné:** {employee_options[selected_employee_id]}")
     
-    # Sélection hiérarchique : Projet/BT puis Opération
+    # Sélection hiérarchique : Projet/BT puis Opération (disposition verticale)
     operations_hierarchy = tt.get_available_operations_hierarchical()
     
     if not operations_hierarchy:
         st.warning("Aucune opération disponible")
         return
     
-    # Premier niveau : Projet/BT
+    # Premier niveau : Projet/BT (disposition verticale)
     project_bt_options = list(operations_hierarchy.keys())
     selected_project_bt = st.selectbox(
         "📋 Sélectionner Projet/BT:",
@@ -1905,7 +1901,7 @@ def show_employee_punch_interface(tt):
         key="employee_punch_op_project_bt_select"
     )
     
-    # Deuxième niveau : Opération
+    # Deuxième niveau : Opération (disposition verticale)
     if selected_project_bt and selected_project_bt in operations_hierarchy:
         available_operations = operations_hierarchy[selected_project_bt]
         
