@@ -185,16 +185,16 @@ class BTPDFGenerator:
         info_data = [
             ['N° Bon de Travail:', form_data.get('numero_document', 'N/A'), 
              'Date de création:', form_data.get('date_creation', datetime.now().strftime('%Y-%m-%d'))[:10]],
-            ['Projet:', self._truncate_text(form_data.get('project_name', 'N/A'), 35), 
-             'Client:', self._truncate_text(form_data.get('client_name', 'N/A'), 35)],
-            ['Chargé de projet:', self._truncate_text(form_data.get('project_manager', 'Non assigné'), 30), 
+            ['Projet:', form_data.get('project_name', 'N/A'),  # AUCUNE troncature pour projet
+             'Client:', form_data.get('client_name', 'N/A')],  # AUCUNE troncature pour client
+            ['Chargé de projet:', self._truncate_text(form_data.get('project_manager', 'Non assigné'), 35), 
              'Priorité:', self._get_priority_display(form_data.get('priority', 'NORMAL'))],
             ['Date début prévue:', form_data.get('start_date', 'N/A'), 
              'Date fin prévue:', form_data.get('end_date', 'N/A')]
         ]
         
-        # CORRECTION FINALE : Largeurs de colonnes ENCORE PLUS GÉNÉREUSES pour les infos
-        info_table = Table(info_data, colWidths=[95, 150, 95, 150])  # Augmenté encore
+        # CORRECTION FINALE : Largeurs MAXIMALES pour utiliser tout l'espace
+        info_table = Table(info_data, colWidths=[100, 160, 100, 160])  # Encore plus larges
         info_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), DG_LIGHT_GREEN),
             ('BACKGROUND', (2, 0), (2, -1), DG_LIGHT_GREEN),
@@ -244,14 +244,14 @@ class BTPDFGenerator:
         valid_tasks = [task for task in tasks if task.get('operation') or task.get('description')]
         
         for i, task in enumerate(valid_tasks, 1):
-            # VERSION PROFESSIONNELLE : Troncature encore moins agressive pour un look pro
-            operation = self._truncate_text(task.get('operation', ''), 20)  # Augmenté de 16 à 20
-            description = self._truncate_text(task.get('description', ''), 28)  # Augmenté de 24 à 28
+            # VERSION FINALE : Troncature MINIMALE ou supprimée pour les colonnes importantes
+            operation = task.get('operation', '')  # AUCUNE troncature pour les opérations
+            description = self._truncate_text(task.get('description', ''), 35)  # Augmenté à 35 caractères
             quantity = str(task.get('quantity', 1))
             planned_hours = f"{task.get('planned_hours', 0):.1f}"
             actual_hours = f"{task.get('actual_hours', 0):.1f}"
-            assigned_to = self._truncate_text(task.get('assigned_to', ''), 18)  # Augmenté de 16 à 18
-            fournisseur = self._truncate_text(task.get('fournisseur', '-- Interne --'), 16)  # Augmenté de 14 à 16
+            assigned_to = self._truncate_text(task.get('assigned_to', ''), 20)  # Augmenté à 20
+            fournisseur = task.get('fournisseur', '-- Interne --')  # AUCUNE troncature pour fournisseur
             status = self._get_status_display(task.get('status', 'pending'))
             
             task_data.append([
@@ -259,10 +259,11 @@ class BTPDFGenerator:
                 planned_hours, actual_hours, assigned_to, fournisseur, status
             ])
         
-        # VERSION PROFESSIONNELLE : Largeurs optimisées pour un look uniforme et pro
-        # Colonnes: N°(18) | Opération(95) | Description(115) | Qté(25) | H.Prév(35) | H.Réel(35) | Assigné(75) | Fournisseur(75) | Statut(50)
+        # VERSION FINALE : Largeurs MAXIMALES pour éviter toute troncature
+        # Colonnes: N°(15) | Opération(110) | Description(120) | Qté(20) | H.Prév(30) | H.Réel(30) | Assigné(70) | Fournisseur(80) | Statut(45)
+        # Total: 520pt - utilisation maximale de l'espace disponible
         if len(task_data) > 1:  # Si on a au moins une tâche + headers
-            tasks_table = Table(task_data, colWidths=[18, 95, 115, 25, 35, 35, 75, 75, 50])
+            tasks_table = Table(task_data, colWidths=[15, 110, 120, 20, 30, 30, 70, 80, 45])
             tasks_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -333,14 +334,14 @@ class BTPDFGenerator:
         material_data = [headers]
         
         for i, material in enumerate(valid_materials, 1):
-            # VERSION PROFESSIONNELLE : Troncature moins agressive pour matériaux
-            name = self._truncate_text(material.get('name', ''), 25)      # Augmenté de 22 à 25
-            description = self._truncate_text(material.get('description', ''), 30)  # Augmenté de 26 à 30
+            # VERSION FINALE : Troncature MINIMALE pour matériaux
+            name = self._truncate_text(material.get('name', ''), 30)      # Augmenté à 30
+            description = self._truncate_text(material.get('description', ''), 35)  # Augmenté à 35
             quantity = f"{material.get('quantity', 1):.1f}"
             unit = material.get('unit', 'pcs')
-            fournisseur = self._truncate_text(material.get('fournisseur', '-- Interne --'), 18)  # Augmenté de 16 à 18
+            fournisseur = material.get('fournisseur', '-- Interne --')  # AUCUNE troncature
             available = self._get_availability_display(material.get('available', 'yes'))
-            notes = self._truncate_text(material.get('notes', ''), 20)    # Augmenté de 18 à 20
+            notes = self._truncate_text(material.get('notes', ''), 25)    # Augmenté à 25
             
             material_data.append([
                 str(i), name, description, quantity, unit, fournisseur, available, notes
@@ -506,12 +507,12 @@ class BTPDFGenerator:
         # Créer un buffer pour le PDF
         buffer = io.BytesIO()
         
-        # Créer le document avec marges réduites pour plus d'espace
+        # Créer le document avec marges MINIMALES pour maximiser l'espace
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
-            rightMargin=40,    # Réduit de 50 à 40
-            leftMargin=40,     # Réduit de 50 à 40
+            rightMargin=30,    # Réduit de 40 à 30
+            leftMargin=30,     # Réduit de 40 à 30
             topMargin=130,     # Plus d'espace pour l'en-tête amélioré
             bottomMargin=80    # Plus d'espace pour le pied de page
         )
