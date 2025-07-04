@@ -1,5 +1,5 @@
 # attachments_manager.py - Gestionnaire de Pièces Jointes pour Projets ERP DG Inc.
-# NOUVEAU MODULE : Gestion complète des fichiers attachés aux projets + APERÇU DE FICHIERS
+# VERSION COMPLÈTE CORRIGÉE POUR RENDER PERSISTENT DISK
 
 import streamlit as st
 import os
@@ -17,15 +17,23 @@ import io
 class AttachmentsManager:
     """
     Gestionnaire de pièces jointes pour les projets ERP DG Inc.
-    Gère l'upload, le stockage, la récupération sécurisée et l'aperçu des fichiers.
+    VERSION CORRIGÉE pour utiliser le persistent disk Render
     """
     
     def __init__(self, db, storage_manager=None):
         self.db = db
         self.storage_manager = storage_manager
+        
+        # CORRIGÉ : Configuration robuste pour Render
         self.base_upload_dir = self._get_upload_directory()
         self._ensure_upload_directory()
         self._init_database_table()
+        
+        # NOUVEAU : Diagnostic au démarrage
+        self._run_startup_diagnostic()
+        
+        # NOUVEAU : Nettoyer les liens brisés
+        self._cleanup_broken_attachments()
         
         # Types de fichiers autorisés avec leurs catégories
         self.allowed_file_types = {
@@ -82,15 +90,106 @@ class AttachmentsManager:
         }
     
     def _get_upload_directory(self) -> str:
-        """Détermine le répertoire d'upload selon l'environnement"""
+        """CORRIGÉ : Utilise le répertoire persistant Render configuré"""
+        
+        # PRIORITÉ 1 : Variable ATTACHMENTS_DIR explicite
+        attachments_dir = os.environ.get('ATTACHMENTS_DIR')
+        if attachments_dir:
+            print(f"✅ Utilisation ATTACHMENTS_DIR: {attachments_dir}")
+            return attachments_dir
+        
+        # PRIORITÉ 2 : Variable DATA_PATH + attachments
+        data_path = os.environ.get('DATA_PATH')
+        if data_path and os.path.exists(data_path):
+            attachments_dir = os.path.join(data_path, 'attachments')
+            print(f"✅ Utilisation DATA_PATH: {attachments_dir}")
+            return attachments_dir
+        
+        # PRIORITÉ 3 : Variable RENDER_PERSISTENT_DISK_PATH existante
+        persistent_path = os.environ.get('RENDER_PERSISTENT_DISK_PATH')
+        if persistent_path and os.path.exists(persistent_path):
+            attachments_dir = os.path.join(persistent_path, 'attachments')
+            print(f"✅ Utilisation RENDER_PERSISTENT_DISK_PATH: {attachments_dir}")
+            return attachments_dir
+        
+        # PRIORITÉ 4 : Détection automatique Render avec persistent disk
+        if os.path.exists('/opt/render/project/data'):
+            attachments_dir = '/opt/render/project/data/attachments'
+            print(f"✅ Détection auto Render persistent: {attachments_dir}")
+            return attachments_dir
+        
+        # PRIORITÉ 5 : Storage manager (si disponible)
         if self.storage_manager:
-            # Utiliser le répertoire de stockage persistant
             storage_info = self.storage_manager.get_storage_info()
-            base_dir = storage_info.get('base_directory', 'data')
-            return os.path.join(base_dir, 'attachments')
+            base_dir = storage_info.get('data_dir', 'data')
+            attachments_dir = os.path.join(base_dir, 'attachments')
+            print(f"✅ Storage manager: {attachments_dir}")
+            return attachments_dir
+        
+        # PRIORITÉ 6 : Render temporaire (PROBLÉMATIQUE)
+        if os.path.exists('/opt/render/project'):
+            attachments_dir = '/tmp/attachments'
+            print(f"⚠️ RENDER SANS PERSISTENT DISK: {attachments_dir}")
+            print("🚨 LES FICHIERS SERONT PERDUS AU REDÉPLOIEMENT")
+            return attachments_dir
+        
+        # FALLBACK : Développement local
+        attachments_dir = os.path.join('data', 'attachments')
+        print(f"💻 Développement local: {attachments_dir}")
+        return attachments_dir
+    
+    def _run_startup_diagnostic(self):
+        """NOUVEAU : Diagnostic complet au démarrage"""
+        print("\n" + "="*60)
+        print("📎 ATTACHMENTS MANAGER - DIAGNOSTIC DÉMARRAGE")
+        print("="*60)
+        
+        # Informations environnement
+        print(f"🖥️  Environnement Render: {os.path.exists('/opt/render/project')}")
+        print(f"💾 Persistent disk disponible: {os.path.exists('/opt/render/project/data')}")
+        print(f"📁 Répertoire configuré: {self.base_upload_dir}")
+        print(f"📁 Répertoire existe: {os.path.exists(self.base_upload_dir)}")
+        
+        # Variables d'environnement critiques
+        env_vars = ['ATTACHMENTS_DIR', 'DATA_PATH', 'RENDER_PERSISTENT_DISK_PATH', 'USE_PERSISTENT_STORAGE']
+        print(f"\n🔧 Variables d'environnement:")
+        for var in env_vars:
+            value = os.environ.get(var, 'NON DÉFINI')
+            print(f"   {var}: {value}")
+        
+        # Test de création et écriture
+        try:
+            os.makedirs(self.base_upload_dir, exist_ok=True)
+            test_file = os.path.join(self.base_upload_dir, 'test_startup.txt')
+            with open(test_file, 'w') as f:
+                f.write(f'Test démarrage - {datetime.now()}')
+            
+            # Vérifier lecture
+            with open(test_file, 'r') as f:
+                content = f.read()
+            
+            os.remove(test_file)
+            print("✅ Test écriture/lecture: RÉUSSI")
+            
+            # Vérifier permissions
+            write_access = os.access(self.base_upload_dir, os.W_OK)
+            print(f"✅ Permissions écriture: {'RÉUSSI' if write_access else 'ÉCHEC'}")
+            
+        except Exception as e:
+            print(f"❌ Test écriture: ÉCHEC - {e}")
+        
+        # Évaluation configuration
+        if '/opt/render/project/data' in self.base_upload_dir:
+            print("🎉 CONFIGURATION OPTIMALE - Stockage persistant Render")
+        elif '/tmp' in self.base_upload_dir:
+            print("🚨 CONFIGURATION PROBLÉMATIQUE - Stockage temporaire")
+            print("   → Configurez les variables d'environnement:")
+            print("     ATTACHMENTS_DIR=/opt/render/project/data/attachments")
+            print("     DATA_PATH=/opt/render/project/data")
         else:
-            # Répertoire local par défaut
-            return os.path.join('data', 'attachments')
+            print("💻 Configuration développement local")
+        
+        print("="*60)
     
     def _ensure_upload_directory(self):
         """Crée le répertoire d'upload s'il n'existe pas"""
@@ -102,7 +201,8 @@ class AttachmentsManager:
             monthly_dir = os.path.join(self.base_upload_dir, str(current_year), f"{current_month:02d}")
             Path(monthly_dir).mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            st.error(f"Erreur création répertoire upload: {e}")
+            print(f"❌ Erreur création répertoire upload: {e}")
+            st.error(f"❌ Erreur création répertoire upload: {e}")
     
     def _init_database_table(self):
         """Initialise la table des pièces jointes"""
@@ -148,7 +248,87 @@ class AttachmentsManager:
                 self.db.execute_update(query)
                 
         except Exception as e:
-            st.error(f"Erreur initialisation table pièces jointes: {e}")
+            print(f"❌ Erreur initialisation table pièces jointes: {e}")
+            st.error(f"❌ Erreur initialisation table pièces jointes: {e}")
+    
+    def _cleanup_broken_attachments(self):
+        """NOUVEAU : Nettoie les références aux fichiers inexistants"""
+        try:
+            query = "SELECT id, file_path, original_filename FROM project_attachments WHERE is_active = 1"
+            attachments = self.db.execute_query(query)
+            
+            if not attachments:
+                print("📎 Aucun attachment à vérifier")
+                return
+            
+            broken_count = 0
+            migrated_count = 0
+            
+            for attachment in attachments:
+                file_path = attachment['file_path']
+                
+                if not os.path.exists(file_path):
+                    # Essayer de trouver le fichier dans d'anciens répertoires
+                    filename = os.path.basename(file_path)
+                    
+                    # Chemins potentiels de migration
+                    potential_paths = [
+                        f"/tmp/attachments/{filename}",
+                        f"/opt/render/project/src/data/attachments/{filename}",
+                        f"data/attachments/{filename}",
+                        f"/opt/render/project/{filename}"
+                    ]
+                    
+                    file_migrated = False
+                    for old_path in potential_paths:
+                        if os.path.exists(old_path):
+                            try:
+                                # Créer le nouveau répertoire si nécessaire
+                                new_path = os.path.join(self.base_upload_dir, filename)
+                                os.makedirs(os.path.dirname(new_path), exist_ok=True)
+                                
+                                # Copier le fichier
+                                shutil.copy2(old_path, new_path)
+                                
+                                # Mettre à jour le chemin en base
+                                self.db.execute_update(
+                                    "UPDATE project_attachments SET file_path = ? WHERE id = ?",
+                                    (new_path, attachment['id'])
+                                )
+                                
+                                migrated_count += 1
+                                file_migrated = True
+                                print(f"🔄 Fichier migré: {attachment['original_filename']}")
+                                break
+                                
+                            except Exception as e:
+                                print(f"⚠️ Erreur migration {filename}: {e}")
+                    
+                    if not file_migrated:
+                        # Marquer comme inactif si fichier introuvable
+                        self.db.execute_update(
+                            "UPDATE project_attachments SET is_active = 0 WHERE id = ?",
+                            (attachment['id'],)
+                        )
+                        broken_count += 1
+                        print(f"❌ Fichier perdu: {attachment['original_filename']}")
+            
+            # Résumé
+            if migrated_count > 0:
+                print(f"🔄 {migrated_count} fichier(s) migré(s) vers stockage persistant")
+                if migrated_count > 0:
+                    st.success(f"🔄 {migrated_count} fichier(s) migré(s) vers stockage persistant")
+            
+            if broken_count > 0:
+                print(f"⚠️ {broken_count} fichier(s) définitivement perdu(s)")
+                if broken_count > 0:
+                    st.warning(f"⚠️ {broken_count} fichier(s) de pièces jointes non trouvé(s) - probablement perdus lors du redéploiement")
+            
+            if migrated_count == 0 and broken_count == 0:
+                print("✅ Tous les fichiers sont accessibles")
+                
+        except Exception as e:
+            print(f"❌ Erreur nettoyage: {e}")
     
     def _calculate_file_hash(self, file_content: bytes) -> str:
         """Calcule le hash MD5 du fichier pour détecter les doublons"""
@@ -502,6 +682,44 @@ class AttachmentsManager:
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
     
+    def get_storage_health_info(self) -> dict:
+        """NOUVEAU : Diagnostique de santé du stockage"""
+        health_info = {
+            'upload_directory': self.base_upload_dir,
+            'directory_exists': os.path.exists(self.base_upload_dir),
+            'is_persistent': False,
+            'render_env': os.path.exists('/opt/render/project'),
+            'persistent_disk': os.path.exists('/opt/render/project/data'),
+            'recommendations': []
+        }
+        
+        # Déterminer si le stockage est persistant
+        if '/opt/render/project/data' in self.base_upload_dir:
+            health_info['is_persistent'] = True
+            health_info['recommendations'].append("✅ Configuration optimale - Stockage persistant")
+        elif '/tmp' in self.base_upload_dir or '/opt/render/project/src' in self.base_upload_dir:
+            health_info['is_persistent'] = False
+            health_info['recommendations'].append("🚨 URGENT: Configurez le Persistent Disk sur Render")
+            health_info['recommendations'].append("📋 Variables: ATTACHMENTS_DIR=/opt/render/project/data/attachments")
+        else:
+            health_info['is_persistent'] = True  # Développement local
+            health_info['recommendations'].append("💻 Mode développement local")
+        
+        # Statistiques des fichiers
+        try:
+            query = "SELECT COUNT(*) as total, COUNT(CASE WHEN is_active = 1 THEN 1 END) as active FROM project_attachments"
+            stats = self.db.execute_query(query)
+            if stats:
+                health_info['total_attachments'] = stats[0]['total']
+                health_info['active_attachments'] = stats[0]['active']
+                health_info['broken_attachments'] = stats[0]['total'] - stats[0]['active']
+        except:
+            health_info['total_attachments'] = 0
+            health_info['active_attachments'] = 0
+            health_info['broken_attachments'] = 0
+        
+        return health_info
+    
     def cleanup_orphaned_files(self):
         """Nettoie les fichiers orphelins (non référencés en base)"""
         try:
@@ -850,6 +1068,94 @@ def show_attachments_category(attachments_manager: AttachmentsManager, category:
             st.markdown("---")
 
 
+# NOUVEAU : Fonctions d'administration et diagnostic
+def show_attachments_health_dashboard(attachments_manager):
+    """Affiche le tableau de bord de santé des pièces jointes"""
+    
+    st.markdown("### 🏥 Diagnostic Pièces Jointes")
+    
+    health = attachments_manager.get_storage_health_info()
+    
+    # Métriques principales
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📁 Total Fichiers", health['total_attachments'])
+    
+    with col2:
+        st.metric("✅ Fichiers Actifs", health['active_attachments'])
+    
+    with col3:
+        broken = health['broken_attachments']
+        st.metric("❌ Fichiers Perdus", broken, delta=f"-{broken}" if broken > 0 else None)
+    
+    with col4:
+        persistent_status = "✅ OUI" if health['is_persistent'] else "❌ NON"
+        st.metric("💾 Persistant", persistent_status)
+    
+    # Informations détaillées
+    with st.expander("📋 Détails Configuration", expanded=broken > 0):
+        st.markdown(f"**📁 Répertoire stockage:** `{health['upload_directory']}`")
+        st.markdown(f"**🖥️ Environnement Render:** {'✅' if health['render_env'] else '❌'}")
+        st.markdown(f"**💾 Persistent Disk:** {'✅' if health['persistent_disk'] else '❌'}")
+        
+        # Recommandations
+        st.markdown("#### 💡 Recommandations")
+        for rec in health['recommendations']:
+            if rec.startswith('🚨'):
+                st.error(rec)
+            elif rec.startswith('⚠️'):
+                st.warning(rec)
+            elif rec.startswith('✅'):
+                st.success(rec)
+            else:
+                st.info(rec)
+    
+    # Actions correctives
+    if broken > 0:
+        st.markdown("#### 🔧 Actions Correctives")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🧹 Nettoyer Références Cassées", help="Supprime les références aux fichiers inexistants"):
+                try:
+                    # Supprimer définitivement les références cassées
+                    query = """
+                        DELETE FROM project_attachments 
+                        WHERE is_active = 0 
+                        AND id IN (
+                            SELECT id FROM project_attachments 
+                            WHERE is_active = 0 
+                            ORDER BY upload_date DESC
+                        )
+                    """
+                    result = attachments_manager.db.execute_update(query)
+                    st.success(f"✅ {broken} référence(s) cassée(s) nettoyée(s)")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Erreur nettoyage: {e}")
+        
+        with col2:
+            if st.button("📊 Rapport Détaillé", help="Affiche la liste des fichiers perdus"):
+                try:
+                    broken_files = attachments_manager.db.execute_query("""
+                        SELECT original_filename, upload_date, project_id 
+                        FROM project_attachments 
+                        WHERE is_active = 0 
+                        ORDER BY upload_date DESC
+                    """)
+                    
+                    if broken_files:
+                        st.markdown("##### 📋 Fichiers Perdus")
+                        for file in broken_files:
+                            st.markdown(f"- **{file['original_filename']}** (Projet #{file['project_id']}) - {file['upload_date']}")
+                    
+                except Exception as e:
+                    st.error(f"Erreur rapport: {e}")
+
+
 # Fonctions utilitaires pour intégration dans app.py
 
 def init_attachments_manager(db, storage_manager=None):
@@ -872,7 +1178,9 @@ def show_attachments_tab_in_project_modal(project):
     else:
         st.error("ID du projet non valide")
 
-print("✅ Module Gestionnaire de Pièces Jointes avec Aperçu créé")
-print("📎 Fonctionnalités : Upload, Download, Aperçu, Catégorisation, Sécurité")
+print("✅ AttachmentsManager VERSION COMPLÈTE CORRIGÉE pour Render Persistent Disk")
+print("📎 Fonctionnalités : Upload, Download, Aperçu, Catégorisation, Sécurité, Diagnostic")
 print("👁️ Types prévisualisables : Images, Texte, PDF, JSON, CSV, XML, Markdown")
-print("🔗 Prêt pour intégration dans app.py")
+print("🔧 Correction : Utilisation automatique du persistent disk Render")
+print("🏥 Nouveau : Diagnostic de santé et migration automatique des fichiers")
+print("🔗 Prêt pour utilisation avec les variables d'environnement Render")
