@@ -1,9 +1,4 @@
 # timetracker_unified.py - Système de Pointage sur Opérations pour ERP Production DG Inc.
-# VERSION OPÉRATIONS UNIQUEMENT - Pointage granulaire sur opérations des Bons de Travail
-# Utilise directement erp_database.py pour un punch spécialisé et efficace
-# Support complet du pointage sur opérations et tâches BT depuis formulaire_lignes
-# NOUVEAU: Gestion d'historique en mode administrateur avec suppressions sécurisées
-# NOUVEAU: Interface double - Mode Superviseur et Mode Employé
 
 import streamlit as st
 import pandas as pd
@@ -26,6 +21,7 @@ class TimeTrackerUnified:
     Avec méthodes de diagnostic intégrées
     NOUVEAU: Gestion administrative avec suppression d'historique
     NOUVEAU: Interface double - Mode Superviseur et Mode Employé
+    NOUVEAU: Réinitialisation automatique après pointage
     """
     
     def __init__(self, db):
@@ -1822,13 +1818,20 @@ def show_employee_punch_interface(tt):
         st.warning("Aucun employé trouvé")
         return
     
-    employee_options = {emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees}
+    employee_options = {None: "-- Sélectionner un employé --"}
+    employee_options.update({emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees})
+    
     selected_employee_id = st.selectbox(
         "👤 Sélectionner Employé:",
         options=list(employee_options.keys()),
         format_func=lambda x: employee_options[x],
         key="employee_punch_op_employee_select"
     )
+    
+    # Si aucun employé sélectionné, arrêter ici
+    if selected_employee_id is None:
+        st.info("👆 Veuillez sélectionner un employé pour continuer")
+        return
     
     # Section employé pointé (seulement celui sélectionné)
     active_employees = tt.get_active_employees_with_operations()
@@ -1869,6 +1872,8 @@ def show_employee_punch_interface(tt):
                 notes = st.text_input(f"Notes sortie:", key=f"employee_notes_out_op_{emp['id']}")
                 if tt.punch_out(emp['id'], notes):
                     st.success(f"✅ Pointage terminé !")
+                    # Réinitialiser la sélection d'employé
+                    st.session_state.pop("employee_punch_op_employee_select", None)
                     st.rerun()
                 else:
                     st.error("❌ Erreur pointage sortie")
@@ -1878,26 +1883,27 @@ def show_employee_punch_interface(tt):
     # Section nouveau pointage sur opération
     st.markdown("##### ➕ Nouveau Pointage sur Opération")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
+    # Affichage employé sélectionné
+    if selected_employee_id is not None:
         st.info(f"👤 **Employé sélectionné:** {employee_options[selected_employee_id]}")
+    else:
+        st.warning("👤 **Aucun employé sélectionné** - Veuillez sélectionner un employé ci-dessus")
+        return
     
-    with col2:
-        # Sélection hiérarchique : Projet/BT puis Opération
-        operations_hierarchy = tt.get_available_operations_hierarchical()
-        
-        if not operations_hierarchy:
-            st.warning("Aucune opération disponible")
-            return
-        
-        # Premier niveau : Projet/BT
-        project_bt_options = list(operations_hierarchy.keys())
-        selected_project_bt = st.selectbox(
-            "📋 Sélectionner Projet/BT:",
-            options=project_bt_options,
-            key="employee_punch_op_project_bt_select"
-        )
+    # Sélection hiérarchique : Projet/BT puis Opération
+    operations_hierarchy = tt.get_available_operations_hierarchical()
+    
+    if not operations_hierarchy:
+        st.warning("Aucune opération disponible")
+        return
+    
+    # Premier niveau : Projet/BT
+    project_bt_options = list(operations_hierarchy.keys())
+    selected_project_bt = st.selectbox(
+        "📋 Sélectionner Projet/BT:",
+        options=project_bt_options,
+        key="employee_punch_op_project_bt_select"
+    )
     
     # Deuxième niveau : Opération
     if selected_project_bt and selected_project_bt in operations_hierarchy:
@@ -1942,6 +1948,8 @@ def show_employee_punch_interface(tt):
                 entry_id = tt.punch_in_operation(selected_employee_id, selected_operation_id, notes)
                 if entry_id:
                     st.success(f"✅ Pointage sur opération démarré ! ID: {entry_id}")
+                    # Réinitialiser la sélection d'employé
+                    st.session_state.pop("employee_punch_op_employee_select", None)
                     st.rerun()
                 else:
                     st.error("❌ Erreur lors du pointage sur opération")
@@ -1954,6 +1962,8 @@ def show_employee_punch_interface(tt):
             else:
                 if tt.punch_out(selected_employee_id, notes):
                     st.success("✅ Pointage terminé !")
+                    # Réinitialiser la sélection d'employé
+                    st.session_state.pop("employee_punch_op_employee_select", None)
                     st.rerun()
                 else:
                     st.error("❌ Erreur pointage sortie")
@@ -1969,13 +1979,20 @@ def show_employee_history_interface(tt):
         st.warning("Aucun employé trouvé")
         return
     
-    employee_options = {emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees}
+    employee_options = {None: "-- Sélectionner un employé --"}
+    employee_options.update({emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees})
+    
     selected_employee_id = st.selectbox(
         "👤 Sélectionner Employé:",
         options=list(employee_options.keys()),
         format_func=lambda x: employee_options[x],
         key="employee_hist_select"
     )
+    
+    # Si aucun employé sélectionné, arrêter ici
+    if selected_employee_id is None:
+        st.info("👆 Veuillez sélectionner un employé pour voir son historique")
+        return
     
     # Filtres simples
     col1, col2 = st.columns(2)
@@ -2740,11 +2757,13 @@ def show_timetracker_unified_interface_main():
     NOUVELLES FONCTIONNALITÉS:
     - Mode Superviseur: Interface complète avec vue sur tous les employés pointés
     - Mode Employé: Interface simplifiée avec vue filtrée par employé sélectionné
+    - Disposition verticale des menus dans l'interface employé
+    - Réinitialisation automatique de la sélection d'employé après pointage
     
     Fonctions disponibles:
     - show_timetracker_unified_interface(): Interface principale avec sélecteur de mode
     - show_operation_punch_interface(): Interface superviseur (tous les employés)
-    - show_employee_punch_interface(): Interface employé (vue filtrée)
+    - show_employee_punch_interface(): Interface employé (vue filtrée avec menus verticaux)
     - show_employee_history_interface(): Historique simplifié pour employés
     """
     show_timetracker_unified_interface()
