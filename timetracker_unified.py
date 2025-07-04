@@ -1810,31 +1810,29 @@ def show_employee_punch_interface(tt):
     st.markdown("#### 👤 Interface Employé - Pointage sur Opérations")
     st.info("🔧 **Interface simplifiée pour les employés** - Saisie directe par numéros")
     
-    # Section saisie directe
+    # Section saisie directe (DISPOSITION VERTICALE)
     st.markdown("##### 📝 Saisie Directe")
     
-    col1, col2, col3 = st.columns(3)
+    # Champ 1 : No. Employé (en haut)
+    employee_number = st.text_input(
+        "👤 No. Employé:",
+        placeholder="Ex: 001, 123",
+        key="employee_number_input"
+    )
     
-    with col1:
-        employee_number = st.text_input(
-            "👤 No. Employé:",
-            placeholder="Ex: 001, 123",
-            key="employee_number_input"
-        )
+    # Champ 2 : No. BT (au milieu)
+    bt_number = st.text_input(
+        "📋 No. BT:",
+        placeholder="Ex: BT-2025-001",
+        key="bt_number_input"
+    )
     
-    with col2:
-        bt_number = st.text_input(
-            "📋 No. BT:",
-            placeholder="Ex: BT-2025-001",
-            key="bt_number_input"
-        )
-    
-    with col3:
-        work_center_number = st.text_input(
-            "🏭 No. Poste:",
-            placeholder="Ex: 1001, CNC-01",
-            key="work_center_number_input"
-        )
+    # Champ 3 : No. Poste (en bas)
+    work_center_number = st.text_input(
+        "🏭 No. Poste:",
+        placeholder="Ex: 1001, CNC-01",
+        key="work_center_number_input"
+    )
     
     # Validation et récupération des informations
     selected_employee_id = None
