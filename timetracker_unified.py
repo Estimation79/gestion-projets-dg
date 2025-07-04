@@ -22,6 +22,7 @@ class TimeTrackerUnified:
     NOUVEAU: Gestion administrative avec suppression d'historique
     NOUVEAU: Interface double - Mode Superviseur et Mode Employé
     NOUVEAU: Réinitialisation automatique après pointage
+    NOUVEAU: Interface employé pure pour "Interface Employé - DG Inc."
     """
     
     def __init__(self, db):
@@ -2627,11 +2628,11 @@ def show_admin_interface(tt):
                         st.write(f"- {erreur}")
 
 # =========================================================================
-# INTERFACE PRINCIPALE UNIFIÉE - AVEC SÉLECTEUR DE MODE
+# INTERFACE PRINCIPALE UNIFIÉE - AVEC SÉLECTEUR DE MODE (ERP ADMIN)
 # =========================================================================
 
 def show_timetracker_unified_interface():
-    """Interface principale du TimeTracker unifié - Choix entre mode Superviseur et Employé"""
+    """Interface principale du TimeTracker unifié - Choix entre mode Superviseur et Employé (ERP ADMIN)"""
     
     if 'timetracker_unified' not in st.session_state:
         st.error("❌ TimeTracker non initialisé")
@@ -2743,7 +2744,44 @@ def show_timetracker_unified_interface():
             show_employee_history_interface(tt)
 
 # =========================================================================
-# FONCTION PRINCIPALE D'AFFICHAGE
+# INTERFACE EMPLOYÉ SEULEMENT - POUR "Interface Employé - DG Inc."
+# =========================================================================
+
+def show_employee_only_interface():
+    """
+    Interface dédiée aux employés UNIQUEMENT - pour "Interface Employé - DG Inc."
+    
+    CARACTÉRISTIQUES:
+    - Pas de sélecteur de mode superviseur/employé
+    - Pas d'authentification superviseur
+    - Interface employé directe et simplifiée
+    - Vue filtrée par employé sélectionné
+    - Disposition verticale des menus
+    - Réinitialisation automatique après pointage
+    """
+    
+    if 'timetracker_unified' not in st.session_state:
+        st.error("❌ TimeTracker non initialisé")
+        return
+    
+    tt = st.session_state.timetracker_unified
+    
+    st.markdown("### ⏱️ TimeTracker - Interface Employé")
+    st.info("👤 **Interface Employé** - Pointage granulaire sur opérations et suivi personnel")
+    
+    # Interface employé seulement (pas de choix de mode)
+    tab_employee_punch, tab_employee_history = st.tabs([
+        "👤 Mon Pointage", "📊 Mon Historique"
+    ])
+    
+    with tab_employee_punch:
+        show_employee_punch_interface(tt)
+    
+    with tab_employee_history:
+        show_employee_history_interface(tt)
+
+# =========================================================================
+# FONCTION PRINCIPALE D'AFFICHAGE - POUR ERP ADMINISTRATEUR
 # =========================================================================
 
 def show_timetracker_unified_interface_main():
@@ -2757,9 +2795,25 @@ def show_timetracker_unified_interface_main():
     - Réinitialisation automatique de la sélection d'employé après pointage
     
     Fonctions disponibles:
-    - show_timetracker_unified_interface(): Interface principale avec sélecteur de mode
+    - show_timetracker_unified_interface(): Interface principale avec sélecteur de mode (ERP Admin)
+    - show_employee_only_interface(): Interface employé seulement (Interface Employé - DG Inc.)
     - show_operation_punch_interface(): Interface superviseur (tous les employés)
     - show_employee_punch_interface(): Interface employé (vue filtrée avec menus verticaux)
     - show_employee_history_interface(): Historique simplifié pour employés
     """
     show_timetracker_unified_interface()
+
+# =========================================================================
+# FONCTION SPÉCIFIQUE POUR "Interface Employé - DG Inc."
+# =========================================================================
+
+def show_employee_interface_main():
+    """
+    Point d'entrée spécifique pour "Interface Employé - DG Inc."
+    
+    UTILISATION:
+    - À appeler depuis l'application "Interface Employé - DG Inc."
+    - Interface employé pure, sans mode superviseur
+    - Sécurisée et simplifiée pour les employés
+    """
+    show_employee_only_interface()
