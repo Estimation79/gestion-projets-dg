@@ -1,3 +1,5 @@
+# production_management.py - Gestion des Bons de Travail & Postes - Desmarais & Gagné Inc.
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -1147,7 +1149,7 @@ def show_main_navigation():
 
 def show_bt_navigation():
     """Navigation secondaire pour les BT"""
-    nav_col1, nav_col2, nav_col3 = st.columns(3)
+    nav_col1, nav_col2 = st.columns(2)
     
     with nav_col1:
         if st.button("🔧 Nouveau Bon", use_container_width=True, 
@@ -1159,13 +1161,6 @@ def show_bt_navigation():
             st.rerun()
     
     with nav_col2:
-        if st.button("📋 Gestion BT", use_container_width=True,
-                     type="primary" if st.session_state.bt_mode == 'manage' else "secondary",
-                     key="bt_nav_manage"):
-            st.session_state.bt_mode = 'manage'
-            st.rerun()
-    
-    with nav_col3:
         if st.button("📊 Stats BT", use_container_width=True,
                      type="primary" if st.session_state.bt_mode == 'stats' else "secondary",
                      key="bt_nav_stats"):
