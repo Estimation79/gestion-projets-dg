@@ -2280,12 +2280,10 @@ def show_erp_main():
     if has_all_permissions or "projects" in permissions or "inventory" in permissions:
         available_pages["🏭 Production"] = "production_management"    
 
-    # 6. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
+    # 6. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (CORRECTION: sans doublon)
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
-        available_pages["⏱️ TimeTracker"] = "timetracker_pro_page"
-        # NOUVEAU : TimeTracker Unifié Complet pour Admin
         if TIMETRACKER_AVAILABLE:
-            available_pages["⏱️🔧 TimeTracker Unifié"] = "timetracker_admin_complete"
+            available_pages["⏱️🔧 TimeTracker Pro"] = "timetracker_admin_complete"
 
     # 7. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
@@ -2327,13 +2325,12 @@ def show_erp_main():
         "fournisseurs_page": "🏪 Prix matériaux",
         "formulaires_page": "📑 Création devis",
         "liste": "📋 Gestion projet",
-        "timetracker_pro_page": "⏱️🔧 Suivi temps",
         "production_management": "🏭 Fabrication",
+        "timetracker_admin_complete": "⏱️🔧 TimeTracker Pro",
         "employees_page": "👥 Équipes",
         "gantt": "📈 Planning",
         "calendrier": "📅 Calendrier",
-        "kanban": "🔄 Kanban",
-        "timetracker_admin_complete": "⏱️🔧 TimeTracker Unifié"
+        "kanban": "🔄 Kanban"
     }
     
     etape_actuelle = etapes_workflow.get(page_to_show_val, "")
@@ -2415,10 +2412,10 @@ def show_erp_main():
                 if en_retard > 0:
                     st.sidebar.metric("🚨 En Retard", en_retard)
 
-                # ÉTAPE 4 : Navigation vers TimeTracker depuis Formulaires
+                # Navigation vers TimeTracker depuis Formulaires
                 if TIMETRACKER_AVAILABLE and st.sidebar.button("⏱️ Aller au TimeTracker Pro", key="nav_to_tt", use_container_width=True):
-                    st.session_state.page_redirect = "timetracker_pro_page"
-                    st.session_state.navigation_message = "⏱️ Redirection vers TimeTracker Pro..."
+                    # Changer la sélection radio pour pointer vers TimeTracker Pro
+                    st.session_state.main_nav_radio = "⏱️🔧 TimeTracker Pro"
                     st.rerun()
 
     except Exception:
@@ -2467,7 +2464,7 @@ def show_erp_main():
         except Exception:
             pass  # Silencieux si erreur
 
-    # CHECKPOINT 6 : ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker Pro
+    # ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker Pro
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
             postes_stats = st.session_state.timetracker_unified.get_work_centers_statistics()
@@ -2480,7 +2477,7 @@ def show_erp_main():
         except Exception:
             pass  # Silencieux si erreur
 
-    # CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO : Statistiques dans la sidebar
+    # INTÉGRATION TIMETRACKER PRO : Statistiques dans la sidebar
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
             tt_stats = st.session_state.timetracker_unified.get_timetracker_statistics_unified()
@@ -2489,7 +2486,7 @@ def show_erp_main():
                 st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>⏱️🔧 TimeTracker Pro</h3>", unsafe_allow_html=True)
                 st.sidebar.metric("👥 Employés", tt_stats.get('total_employees', 0))
                 
-                # NOUVEAU : Distinction BT
+                # Distinction BT
                 active_total = tt_stats.get('active_entries', 0)
                 active_bt = tt_stats.get('active_entries_bt', 0)
                 st.sidebar.metric("🟢 Pointages Actifs", f"{active_total} ({active_bt} BT)")
@@ -2499,7 +2496,7 @@ def show_erp_main():
                 if tt_stats.get('total_revenue_today', 0) > 0:
                     st.sidebar.metric("💰 Revenus Jour", f"{tt_stats.get('total_revenue_today', 0):,.0f}$")
                 
-                # NOUVEAU : Métriques BT spécifiques
+                # Métriques BT spécifiques
                 bt_entries_today = tt_stats.get('bt_entries_today', 0)
                 if bt_entries_today > 0:
                     st.sidebar.metric("🔧 Pointages BT", bt_entries_today)
@@ -2507,7 +2504,7 @@ def show_erp_main():
                     if bt_revenue_today > 0:
                         st.sidebar.metric("💰 Revenus BT", f"{bt_revenue_today:,.0f}$")
 
-                # ÉTAPE 4 : Navigation vers Bons de Travail depuis TimeTracker
+                # Navigation vers Bons de Travail depuis TimeTracker
                 if st.sidebar.button("🔧 Voir Mes Bons de Travail", key="nav_to_bt", use_container_width=True):
                     st.session_state.page_redirect = "formulaires_page"
                     st.session_state.form_action = "list_bon_travail"
@@ -2516,7 +2513,7 @@ def show_erp_main():
         except Exception:
             pass  # Silencieux si erreur
 
-    # NOUVEAU : Indication module Kanban dans la sidebar
+    # Indication module Kanban dans la sidebar
     if KANBAN_AVAILABLE:
         st.sidebar.markdown("---")
         st.sidebar.success("🔄 Module Kanban Unifié Actif")
@@ -2525,19 +2522,19 @@ def show_erp_main():
         st.sidebar.warning("⚠️ Module Kanban - Version interne")
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro & Postes Unifiés<br/>🏭 Module Production Unifié"
+    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro Unifié<br/>🏭 Module Production Unifié"
 
-    # NOUVEAU : Indication module Kanban dans footer sidebar
+    # Indication module Kanban dans footer sidebar
     if KANBAN_AVAILABLE:
         footer_text += "<br/>🔄 Kanban Unifié (Projets + Opérations)"
     else:
         footer_text += "<br/>🔄 Kanban Interne"
 
-    # NOUVEAU : Indication module pièces jointes dans footer sidebar
+    # Indication module pièces jointes dans footer sidebar
     if ATTACHMENTS_AVAILABLE:
         footer_text += "<br/>📎 Pièces Jointes Actives"
 
-    # NOUVEAU : Ajouter info stockage persistant dans footer sidebar
+    # Ajouter info stockage persistant dans footer sidebar
     if st.session_state.get('storage_manager'):
         storage_info = st.session_state.storage_manager.get_storage_info()
         if storage_info['environment_type'] == 'RENDER_PERSISTENT':
@@ -2547,7 +2544,7 @@ def show_erp_main():
 
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # PAGES (MODIFIÉES avec module kanban)
+    # ROUTAGE DES PAGES (MODIFIÉ - Sans doublon TimeTracker)
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -2561,59 +2558,26 @@ def show_erp_main():
             show_fournisseurs_page()
         else:
             st.error("❌ Module Fournisseurs non disponible")
-    elif page_to_show_val == "formulaires_page":
-        if FORMULAIRES_AVAILABLE:
-            # CHECKPOINT 6: REDIRECTION BT vers TimeTracker Pro
-            st.info("""
-            📋 **Formulaires DG Inc. - Évolution du Système**
-            
-            🔧 **Bons de Travail** → Désormais intégrés dans **⏱️🔧 TimeTracker Pro**
-            
-            Cette section est réservée aux autres types de formulaires :
-            • 🛒 Bons d'Achat • 📦 Bons de Commande • 💰 Demandes de Prix • 📊 Estimations
-            """)
-            
-            col_redirect1, col_redirect2 = st.columns(2)
-            with col_redirect1:
-                if st.button("🚀 Aller à TimeTracker Pro (pour BTs)", use_container_width=True, type="primary"):
-                    # Redirection vers TimeTracker Pro avec onglet BT
-                    st.session_state.timetracker_redirect_to_bt = True
-                    st.rerun()
-            
-            with col_redirect2:
-                if st.button("📋 Continuer vers Autres Formulaires", use_container_width=True):
-                    pass  # Continue vers formulaires non-BT
-            
-            st.markdown("---")
-            show_formulaires_page()
-        else:
-            st.error("❌ Module Formulaires non disponible")
-    elif page_to_show_val == "timetracker_pro_page":
-        if TIMETRACKER_AVAILABLE:
-            show_timetracker_unified_interface_main()
-        else:
-            st.error("❌ TimeTracker Pro non disponible")
-            st.info("Le module timetracker_unified.py est requis pour cette fonctionnalité.")
-    elif page_to_show_val == "timetracker_admin_complete":
-        # NOUVEAU : Interface TimeTracker Unifié Complète pour Admin
-        if TIMETRACKER_AVAILABLE:
-            show_timetracker_admin_complete_interface()
-        else:
-            st.error("❌ TimeTracker Unifié non disponible")
-            st.info("Le module timetracker_unified.py est requis pour cette fonctionnalité.")
     elif page_to_show_val == "production_management":
-        # NOUVEAU : Routage vers module unifié
+        # Routage vers module unifié
         if PRODUCTION_MANAGEMENT_AVAILABLE:
             show_production_management_page()
         else:
             st.error("❌ Module Production non disponible")
             st.info("Le module production_management.py est requis pour cette fonctionnalité.")
+    elif page_to_show_val == "timetracker_admin_complete":
+        # TimeTracker Pro Unifié (CORRECTION: une seule interface)
+        if TIMETRACKER_AVAILABLE:
+            show_timetracker_admin_complete_interface()
+        else:
+            st.error("❌ TimeTracker Pro non disponible")
+            st.info("Le module timetracker_unified.py est requis pour cette fonctionnalité.")
     elif page_to_show_val == "gantt":
         show_gantt()
     elif page_to_show_val == "calendrier":
         show_calendrier()
     elif page_to_show_val == "kanban":
-        # NOUVEAU : Utilisation du module Kanban unifié
+        # Utilisation du module Kanban unifié
         if KANBAN_AVAILABLE:
             show_kanban_sqlite()  # Utilise la fonction du module kanban.py
         else:
@@ -2631,10 +2595,9 @@ def show_erp_main():
     if st.session_state.get('show_delete_confirmation'):
         render_delete_confirmation(st.session_state.gestionnaire)
     
-    # NOUVEAU : Gestion des actions en lot
+    # Gestion des actions en lot
     if st.session_state.get('batch_action'):
         handle_batch_actions()
-
 # ========================
 # AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR (ORIGINAL)
 # ========================
