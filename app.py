@@ -2301,7 +2301,7 @@ def show_erp_main():
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
-    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>CRM → Devis → Projet → Production</small>", unsafe_allow_html=True)
+    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>CRM → Devis → Projet → Production → Bons de Travail → TimeTracker</small>", unsafe_allow_html=True)
     
     # Bouton déconnexion
     if st.sidebar.button("🚪 Se Déconnecter", use_container_width=True):
