@@ -958,7 +958,7 @@ def show_projects_detailed_view(projects, crm_manager):
         st.markdown("---")
 
 def show_projects_table_view(projects, crm_manager):
-    """Vue tableau compacte avec ordre personnalisé : ID, Statut, Priorité, Tâche, No.Projet, Nom, Client, Description, Prix, Début, Durée, Fin, Adresse"""
+    """Vue tableau compacte avec ordre personnalisé : ID, Statut, Priorité, Tâche, No.Projet, Nom, Client, Description, Prix, Début, Durée, Fin, Adresse + ACTIONS COMPLÈTES"""
     df_data = []
     for p in projects:
         client_display_name = get_client_display_name(p, crm_manager)
@@ -1046,6 +1046,109 @@ def show_projects_table_view(projects, crm_manager):
         }
     )
 
+    # NOUVEAU : Section d'actions pour la vue tableau
+    st.markdown("---")
+    st.markdown("##### 🎯 Actions sur les Projets")
+    
+    # Sélection du projet pour action
+    selected_project_table = st.selectbox(
+        "Sélectionner un projet pour effectuer une action:",
+        options=[None] + projects,
+        format_func=lambda p: f"#{p.get('id')} - {p.get('nom_projet', 'N/A')}" if p else "Choisir un projet...",
+        key="table_view_project_select",
+        help="Sélectionnez un projet dans la liste pour voir ses détails et effectuer des actions"
+    )
+    
+    if selected_project_table:
+        # Afficher les détails du projet sélectionné
+        col_info, col_actions = st.columns([2, 1])
+        
+        with col_info:
+            client_name = get_client_display_name(selected_project_table, crm_manager)
+            statut_color = get_status_color(selected_project_table.get('statut', 'N/A'))
+            priority_color = get_priority_color(selected_project_table.get('priorite', 'N/A'))
+            
+            st.markdown(f"""
+            <div style="background:#f8fafc;border-radius:8px;padding:1rem;border-left:4px solid {statut_color};box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+                <h6 style="margin:0 0 0.75rem 0;color:#1e40af;font-size:1.1em;">
+                    📋 #{selected_project_table.get('id')} - {selected_project_table.get('nom_projet', 'N/A')}
+                </h6>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;font-size:0.9em;">
+                    <div><strong>👤 Client:</strong> {client_name}</div>
+                    <div><strong>🚦 Statut:</strong> <span style="color:{statut_color};font-weight:600;">{selected_project_table.get('statut', 'N/A')}</span></div>
+                    <div><strong>💰 Prix:</strong> {format_currency(selected_project_table.get('prix_estime', 0))}</div>
+                    <div><strong>⭐ Priorité:</strong> <span style="color:{priority_color};font-weight:600;">{selected_project_table.get('priorite', 'N/A')}</span></div>
+                    <div><strong>🏷️ Type:</strong> {selected_project_table.get('tache', 'N/A')}</div>
+                    <div><strong>📅 Période:</strong> {selected_project_table.get('date_soumis', 'N/A')} → {selected_project_table.get('date_prevu', 'N/A')}</div>
+                </div>
+                <div style="margin-top:0.75rem;padding-top:0.5rem;border-top:1px solid #e5e7eb;">
+                    <strong>📄 Description:</strong> {(selected_project_table.get('description', 'Aucune description'))[:100]}{'...' if len(selected_project_table.get('description', '')) > 100 else ''}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_actions:
+            st.markdown("**🔧 Actions Disponibles:**")
+            
+            # Bouton Voir Détails
+            if st.button("👁️ Voir Détails", key=f"table_view_{selected_project_table.get('id')}", use_container_width=True, help="Afficher tous les détails du projet"):
+                st.session_state.selected_project = selected_project_table
+                st.session_state.show_project_modal = True
+                st.rerun()
+            
+            # Bouton Modifier (PRINCIPAL)
+            if st.button("✏️ Modifier", key=f"table_edit_{selected_project_table.get('id')}", use_container_width=True, type="primary", help="Modifier les informations du projet"):
+                st.session_state.show_edit_project = True
+                st.session_state.edit_project_data = selected_project_table
+                st.rerun()
+            
+            # Bouton Supprimer
+            if st.button("🗑️ Supprimer", key=f"table_delete_{selected_project_table.get('id')}", use_container_width=True, help="Supprimer définitivement le projet"):
+                st.session_state.show_delete_confirmation = True
+                st.session_state.delete_project_id = selected_project_table.get('id')
+                st.rerun()
+            
+            st.markdown("**📋 Actions Rapides:**")
+            
+            # Bouton Bon de Travail
+            if st.button("🔧 Bon de Travail", key=f"table_bt_{selected_project_table.get('id')}", use_container_width=True, help="Créer un bon de travail pour ce projet"):
+                st.session_state.timetracker_redirect_to_bt = True
+                st.session_state.formulaire_project_preselect = selected_project_table.get('id')
+                st.session_state.page_redirect = "timetracker_pro_page"
+                st.rerun()
+            
+            # Bouton Bon d'Achat
+            if st.button("🛒 Bon d'Achat", key=f"table_ba_{selected_project_table.get('id')}", use_container_width=True, help="Créer un bon d'achat pour ce projet"):
+                st.session_state.form_action = "create_bon_achat"
+                st.session_state.formulaire_project_preselect = selected_project_table.get('id')
+                st.session_state.page_redirect = "formulaires_page"
+                st.rerun()
+            
+            # Bouton Dupliquer
+            if st.button("📋 Dupliquer", key=f"table_duplicate_{selected_project_table.get('id')}", use_container_width=True, help="Créer une copie de ce projet"):
+                duplicate_project(st.session_state.gestionnaire, selected_project_table)
+                st.rerun()
+        
+        # Message d'aide
+        st.markdown("""
+        <div style="background:#e6f3ff;border:1px solid #bfdbfe;border-radius:6px;padding:0.75rem;margin-top:1rem;">
+            <small style="color:#1e40af;">
+                💡 <strong>Astuce:</strong> Utilisez la vue "📋 Liste Détaillée" pour des actions rapides directement sur chaque projet, 
+                ou cette vue "📊 Tableau Compact" pour une vue d'ensemble avec sélection d'actions.
+            </small>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    else:
+        # Message d'instruction si aucun projet sélectionné
+        st.markdown("""
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:1rem;text-align:center;">
+            <p style="margin:0;color:#166534;">
+                👆 <strong>Sélectionnez un projet</strong> dans la liste déroulante ci-dessus pour voir ses détails et effectuer des actions.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
 def show_projects_card_view(projects, crm_manager):
     """Vue cartes compactes en grille"""
     # Organiser en grille de 2 colonnes
