@@ -3391,7 +3391,7 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
     return bool(re.match(pattern, project_id.strip()))
     
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
