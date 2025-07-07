@@ -1,5 +1,3 @@
-# timetracker_unified.py - Système de Pointage sur Opérations pour ERP Production DG Inc.
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -23,6 +21,7 @@ class TimeTrackerUnified:
     NOUVEAU: Interface double - Mode Superviseur et Mode Employé
     NOUVEAU: Réinitialisation automatique après pointage
     MODIFIÉ: Interface employé directe sans sélecteur de mode
+    v2.1: Réinitialisation automatique du sélecteur d'employé après chaque pointage
     """
     
     def __init__(self, db):
@@ -1570,10 +1569,6 @@ class TimeTrackerUnified:
         for h in history[:5]:  # Afficher les 5 premiers
             print(f"  - {h['employee_name']}: {h.get('operation_description', 'N/A')} (Type: {h.get('pointage_type', 'N/A')})")
     
-    # =========================================================================
-    # FONCTION UTILITAIRE BONUS
-    # =========================================================================
-    
     def sync_bt_tasks_to_operations(self):
         """
         Fonction optionnelle pour créer des entrées operations depuis les tâches BT
@@ -1653,6 +1648,44 @@ class TimeTrackerUnified:
         except Exception as e:
             logger.error(f"Erreur synchronisation BT: {e}")
             return 0
+
+# =========================================================================
+# UTILITAIRES DE RÉINITIALISATION INTERFACE
+# =========================================================================
+
+def reset_employee_selectors():
+    """
+    Fonction utilitaire pour réinitialiser tous les sélecteurs d'employés
+    À utiliser après chaque pointage réussi pour forcer le retour à "-- Sélectionner un employé --"
+    """
+    # Marquer tous les sélecteurs pour réinitialisation
+    st.session_state.reset_employee_selector = True
+    st.session_state.reset_employee_hist_selector = True
+    
+    # Optionnel : nettoyer aussi les anciennes clés directement
+    keys_to_reset = [
+        "employee_punch_op_employee_select",
+        "employee_hist_select",
+        "employee_punch_op_project_bt_select",
+        "employee_punch_op_operation_select"
+    ]
+    
+    for key in keys_to_reset:
+        if key in st.session_state:
+            if key.endswith("_employee_select"):
+                # Pour les sélecteurs d'employés, forcer None
+                st.session_state[key] = None
+            else:
+                # Pour les autres, on peut les laisser ou les supprimer
+                pass
+
+def trigger_interface_reset(success_message: str = "✅ Opération terminée !"):
+    """
+    Déclenche la réinitialisation de l'interface après un pointage réussi
+    """
+    st.success(success_message)
+    reset_employee_selectors()
+    st.rerun()
 
 # =========================================================================
 # INTERFACES MODE SUPERVISEUR - INTERFACE COMPLÈTE ORIGINALE
@@ -1819,6 +1852,15 @@ def show_employee_punch_interface(tt):
         st.warning("Aucun employé trouvé")
         return
     
+    # Gestion de la réinitialisation automatique
+    if 'reset_employee_selector' not in st.session_state:
+        st.session_state.reset_employee_selector = False
+    
+    # Si réinitialisation demandée, forcer la valeur None
+    if st.session_state.reset_employee_selector:
+        st.session_state.employee_punch_op_employee_select = None
+        st.session_state.reset_employee_selector = False
+    
     employee_options = {None: "-- Sélectionner un employé --"}
     employee_options.update({emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees})
     
@@ -1872,10 +1914,7 @@ def show_employee_punch_interface(tt):
             if st.button("🔴 Pointer Sortie", key=f"employee_out_op_{emp['id']}", use_container_width=True, type="primary"):
                 notes = st.text_input(f"Notes sortie:", key=f"employee_notes_out_op_{emp['id']}")
                 if tt.punch_out(emp['id'], notes):
-                    st.success(f"✅ Pointage terminé !")
-                    # Réinitialiser la sélection d'employé
-                    st.session_state.pop("employee_punch_op_employee_select", None)
-                    st.rerun()
+                    trigger_interface_reset("✅ Pointage terminé !")
                 else:
                     st.error("❌ Erreur pointage sortie")
         
@@ -1944,10 +1983,7 @@ def show_employee_punch_interface(tt):
             else:
                 entry_id = tt.punch_in_operation(selected_employee_id, selected_operation_id, notes)
                 if entry_id:
-                    st.success(f"✅ Pointage sur opération démarré ! ID: {entry_id}")
-                    # Réinitialiser la sélection d'employé
-                    st.session_state.pop("employee_punch_op_employee_select", None)
-                    st.rerun()
+                    trigger_interface_reset(f"✅ Pointage sur opération démarré ! ID: {entry_id}")
                 else:
                     st.error("❌ Erreur lors du pointage sur opération")
     
@@ -1958,10 +1994,7 @@ def show_employee_punch_interface(tt):
                 st.error(f"❌ {employee_options[selected_employee_id].split(' (')[0]} n'est pas pointé")
             else:
                 if tt.punch_out(selected_employee_id, notes):
-                    st.success("✅ Pointage terminé !")
-                    # Réinitialiser la sélection d'employé
-                    st.session_state.pop("employee_punch_op_employee_select", None)
-                    st.rerun()
+                    trigger_interface_reset("✅ Pointage terminé !")
                 else:
                     st.error("❌ Erreur pointage sortie")
 
@@ -1975,6 +2008,15 @@ def show_employee_history_interface(tt):
     if not employees:
         st.warning("Aucun employé trouvé")
         return
+    
+    # Gestion de la réinitialisation automatique pour l'historique aussi
+    if 'reset_employee_hist_selector' not in st.session_state:
+        st.session_state.reset_employee_hist_selector = False
+    
+    # Si réinitialisation demandée, forcer la valeur None
+    if st.session_state.reset_employee_hist_selector:
+        st.session_state.employee_hist_select = None
+        st.session_state.reset_employee_hist_selector = False
     
     employee_options = {None: "-- Sélectionner un employé --"}
     employee_options.update({emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees})
@@ -2874,98 +2916,6 @@ def show_timetracker_admin_complete_interface():
             show_employee_history_interface(tt)
 
 # =========================================================================
-# EXEMPLE DE MODIFICATION DANS APP.PY (MISE À JOUR)
-# =========================================================================
-
-"""
-Dans app.py, vous devez maintenant utiliser deux fonctions distinctes :
-
-# SECTION EMPLOYÉ - Accès direct au mode employé
-if selected_mode == "employee":
-    if st.button("⏱️ TimeTracker Pro & Postes Unifiés"):
-        st.session_state.current_page = "timetracker_employee"
-
-# SECTION ADMINISTRATEUR - Interface complète avec choix superviseur/employé
-if selected_mode == "admin":
-    if st.button("⏱️ TimeTracker Unifié Complet"):
-        st.session_state.current_page = "timetracker_admin_complete"
-
-# Puis dans le router des pages :
-elif st.session_state.current_page == "timetracker_employee":
-    # ACCÈS EMPLOYÉ : Interface employé directe
-    show_timetracker_unified_interface_main()
-
-elif st.session_state.current_page == "timetracker_admin_complete":
-    # ACCÈS ADMIN : Interface complète avec tous les choix
-    show_timetracker_admin_complete_interface()
-
-# Optionnel - Si vous voulez garder l'interface superviseur séparée :
-elif st.session_state.current_page == "timetracker_supervisor_only":
-    show_timetracker_supervisor_interface()
-"""
-
-# =========================================================================
-# FONCTIONS D'EXPORT/IMPORT POUR COMPATIBILITÉ
-# =========================================================================
-
-def export_timetracker_data(tt) -> str:
-    """Exporte toutes les données TimeTracker en JSON"""
-    try:
-        export_data = {
-            'metadata': {
-                'export_date': datetime.now().isoformat(),
-                'version': '2.0',
-                'type': 'timetracker_unified_export'
-            },
-            'time_entries': [],
-            'statistics': tt.get_timetracker_statistics_unified()
-        }
-        
-        # Récupérer toutes les entrées avec détails
-        query = '''
-            SELECT te.*, 
-                   p.nom_projet, 
-                   e.prenom || ' ' || e.nom as employee_name,
-                   o.description as operation_description,
-                   f.numero_document as bt_numero
-            FROM time_entries te
-            LEFT JOIN projects p ON te.project_id = p.id
-            LEFT JOIN employees e ON te.employee_id = e.id
-            LEFT JOIN operations o ON te.operation_id = o.id
-            LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id
-            ORDER BY te.punch_in DESC
-        '''
-        
-        rows = tt.db.execute_query(query)
-        for row in rows:
-            export_data['time_entries'].append(dict(row))
-        
-        return json.dumps(export_data, indent=2, default=str)
-        
-    except Exception as e:
-        logger.error(f"Erreur export données: {e}")
-        return None
-
-def get_timetracker_summary_stats(tt) -> Dict:
-    """Statistiques résumées pour l'affichage dans app.py"""
-    try:
-        stats = tt.get_timetracker_statistics_unified()
-        
-        return {
-            'total_employees': stats.get('total_employees', 0),
-            'active_entries': stats.get('active_entries', 0),
-            'total_entries_today': stats.get('total_entries_today', 0),
-            'total_hours_today': stats.get('total_hours_today', 0),
-            'total_revenue_today': stats.get('total_revenue_today', 0),
-            'operation_entries': stats.get('operation_entries', 0),
-            'bt_entries': stats.get('bt_entries', 0)
-        }
-        
-    except Exception as e:
-        logger.error(f"Erreur stats résumées: {e}")
-        return {}
-
-# =========================================================================
 # UTILITAIRES DE MAINTENANCE
 # =========================================================================
 
@@ -3028,6 +2978,67 @@ def initialize_timetracker_unified(db) -> TimeTrackerUnified:
     except Exception as e:
         logger.error(f"Erreur initialisation TimeTracker: {e}")
         raise
+
+# =========================================================================
+# FONCTIONS D'EXPORT/IMPORT POUR COMPATIBILITÉ
+# =========================================================================
+
+def export_timetracker_data(tt) -> str:
+    """Exporte toutes les données TimeTracker en JSON"""
+    try:
+        export_data = {
+            'metadata': {
+                'export_date': datetime.now().isoformat(),
+                'version': '2.1',
+                'type': 'timetracker_unified_export'
+            },
+            'time_entries': [],
+            'statistics': tt.get_timetracker_statistics_unified()
+        }
+        
+        # Récupérer toutes les entrées avec détails
+        query = '''
+            SELECT te.*, 
+                   p.nom_projet, 
+                   e.prenom || ' ' || e.nom as employee_name,
+                   o.description as operation_description,
+                   f.numero_document as bt_numero
+            FROM time_entries te
+            LEFT JOIN projects p ON te.project_id = p.id
+            LEFT JOIN employees e ON te.employee_id = e.id
+            LEFT JOIN operations o ON te.operation_id = o.id
+            LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id
+            ORDER BY te.punch_in DESC
+        '''
+        
+        rows = tt.db.execute_query(query)
+        for row in rows:
+            export_data['time_entries'].append(dict(row))
+        
+        return json.dumps(export_data, indent=2, default=str)
+        
+    except Exception as e:
+        logger.error(f"Erreur export données: {e}")
+        return None
+
+def get_timetracker_summary_stats(tt) -> Dict:
+    """Statistiques résumées pour l'affichage dans app.py"""
+    try:
+        stats = tt.get_timetracker_statistics_unified()
+        
+        return {
+            'total_employees': stats.get('total_employees', 0),
+            'active_entries': stats.get('active_entries', 0),
+            'total_entries_today': stats.get('total_entries_today', 0),
+            'total_hours_today': stats.get('total_hours_today', 0),
+            'total_revenue_today': stats.get('total_revenue_today', 0),
+            'operation_entries': stats.get('operation_entries', 0),
+            'bt_entries': stats.get('bt_entries', 0)
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur stats résumées: {e}")
+        return {}
 
 # =========================================================================
 # CONFIGURATION ET CONSTANTES
@@ -3108,7 +3119,8 @@ TIMETRACKER_STYLES = """
 
 """
 TimeTracker Unifié - Système de Pointage sur Opérations
-Version 2.0 - Double Interface : Employé Direct + Admin Complet
+Version 2.1 - Double Interface : Employé Direct + Admin Complet
+NOUVEAU: Réinitialisation automatique du sélecteur d'employé après chaque pointage
 
 PRINCIPALES FONCTIONNALITÉS:
 ============================
@@ -3125,7 +3137,7 @@ PRINCIPALES FONCTIONNALITÉS:
       - Interface employé directe SANS sélecteur de mode
       - Aller directement aux onglets "Mon Pointage" et "Mon Historique"
       - Sélection d'employé puis opérations (disposition verticale)
-      - Réinitialisation automatique après pointage
+      - Réinitialisation automatique après pointage (retour à "-- Sélectionner un employé --")
       - Fonction: show_timetracker_unified_interface_main()
    
    B) ACCÈS ADMINISTRATEUR (Portail section ADMINISTRATEUR):
@@ -3134,6 +3146,16 @@ PRINCIPALES FONCTIONNALITÉS:
       - Toutes les fonctionnalités administratives conservées
       - Authentification superviseur pour mode avancé
       - Fonction: show_timetracker_admin_complete_interface()
+
+NOUVELLES FONCTIONNALITÉS v2.1:
+============================
+
+🔄 **RÉINITIALISATION AUTOMATIQUE:**
+   - Après chaque pointage (entrée/sortie) réussi
+   - Le sélecteur d'employé revient automatiquement à "-- Sélectionner un employé --"
+   - Évite les erreurs de pointage (employé qui oublie de changer le nom)
+   - Interface plus sécurisée pour un usage partagé/terminal de pointage
+   - Workflow optimisé : sélectionner → pointer → automatiquement réinitialisé
 
 3. MODE SUPERVISEUR (dans l'accès admin):
    - Authentification requise (supervisor123)
@@ -3191,7 +3213,7 @@ RÉSULTAT FINAL:
 ├── 👤 EMPLOYÉ
 │   └── ⏱️ TimeTracker Pro & Postes Unifiés
 │       └── 🔄 Interface directe employé (SANS sélecteur)
-│           ├── 👤 Mon Pointage
+│           ├── 👤 Mon Pointage (avec réinitialisation auto)
 │           └── 📊 Mon Historique
 │
 └── 👑 ADMINISTRATEUR  
@@ -3203,8 +3225,18 @@ RÉSULTAT FINAL:
             │   ├── 📈 Statistiques avancées
             │   └── ⚙️ Administration
             └── 👤 Mode Employé (dans contexte admin)
-                ├── 👤 Pointage Employé
+                ├── 👤 Pointage Employé (avec réinitialisation auto)
                 └── 📊 Historique Employé
+
+WORKFLOW DE POINTAGE OPTIMISÉ:
+=============================
+
+🔄 **TERMINAL DE POINTAGE PARTAGÉ:**
+1. 👤 Employé A sélectionne son nom
+2. 🟢 Pointe entrée sur opération
+3. ✅ Message de succès
+4. 🔄 **AUTOMATIQUEMENT** → Retour à "-- Sélectionner un employé --"
+5. 👤 Employé B peut directement sélectionner son nom (aucun risque d'erreur)
 
 MOTS DE PASSE DE DÉMO:
 =====================
@@ -3238,14 +3270,21 @@ MAINTENANCE:
 - Exécutez cleanup_timetracker_data() périodiquement
 - Sauvegardez les données avec export_timetracker_data()
 - Vérifiez les diagnostics avec diagnostic_timetracker_data()
+
+FONCTIONS UTILITAIRES DE RÉINITIALISATION:
+==========================================
+- reset_employee_selectors() : Réinitialise tous les sélecteurs d'employés
+- trigger_interface_reset() : Déclenche réinitialisation + message succès + rerun
 """
 
 if __name__ == "__main__":
     # Test d'import - ne pas exécuter directement
-    print("TimeTracker Unifié v2.0 - Double Interface")
+    print("TimeTracker Unifié v2.1 - Double Interface avec Réinitialisation Auto")
     print("FONCTIONS PRINCIPALES:")
-    print("- show_timetracker_unified_interface_main() : Accès EMPLOYÉ direct")
+    print("- show_timetracker_unified_interface_main() : Accès EMPLOYÉ direct avec auto-reset")
     print("- show_timetracker_admin_complete_interface() : Accès ADMIN complet")
     print("- show_timetracker_supervisor_interface() : Superviseur standalone")
+    print("- reset_employee_selectors() : Réinitialise les sélecteurs")
+    print("- trigger_interface_reset() : Déclenche réinitialisation complète")
     print("\nCe module doit être importé dans app.py")
     print("Consultez la documentation ci-dessus pour l'utilisation.")
