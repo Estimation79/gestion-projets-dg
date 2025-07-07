@@ -3319,7 +3319,7 @@ def render_create_project_form(gestionnaire, crm_manager):
             priorite = st.selectbox("Priorité:", ["BAS", "MOYEN", "ÉLEVÉ"])
 
         with fc2:
-            tache = st.selectbox("Type:", [
+            tache = st.selectbox("Tâches:", [
                 "Général",
                 "Temps Bureau", 
                 "Programmation",
