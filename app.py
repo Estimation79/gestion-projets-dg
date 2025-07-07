@@ -1,4 +1,4 @@
-# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré
+# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré et TimeTracker Unifié
 
 import streamlit as st
 import pandas as pd
@@ -514,9 +514,15 @@ try:
 except ImportError:
     FOURNISSEURS_AVAILABLE = False
 
-# CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO UNIFIÉ
+# === AJOUTS POUR TIMETRACKER UNIFIÉ ===
 try:
-    from timetracker_unified import show_timetracker_unified_interface, TimeTrackerUnified
+    from timetracker_unified import (
+        show_timetracker_unified_interface_main,
+        show_timetracker_admin_complete_interface,
+        initialize_timetracker_unified,
+        get_timetracker_summary_stats,
+        TimeTrackerUnified
+    )
     TIMETRACKER_AVAILABLE = True
 except ImportError as e:
     TIMETRACKER_AVAILABLE = False
@@ -1954,13 +1960,13 @@ def init_erp_system():
     # Plus besoin d'initialiser gestionnaire_postes séparément
     # Il sera initialisé automatiquement dans show_timetracker_unified_interface()
 
-    # CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO UNIFIÉ
+    # === INITIALISATION TIMETRACKER UNIFIÉ ===
     if TIMETRACKER_AVAILABLE and ERP_DATABASE_AVAILABLE and 'timetracker_unified' not in st.session_state:
         try:
-            st.session_state.timetracker_unified = TimeTrackerUnified(st.session_state.erp_db)
-            print("✅ TimeTracker Pro Unifié initialisé avec intégration BT complète")
+            st.session_state.timetracker_unified = initialize_timetracker_unified(st.session_state.erp_db)
+            print("✅ TimeTracker Unifié initialisé avec double interface")
         except Exception as e:
-            print(f"Erreur initialisation TimeTracker Pro: {e}")
+            print(f"❌ Erreur initialisation TimeTracker: {e}")
             st.session_state.timetracker_unified = None
             
 def get_system_stats():
@@ -1986,6 +1992,23 @@ def get_system_stats():
         'postes': 61,
         'formulaires': 120
     }
+
+# ========================
+# GESTION REDIRECTION TIMETRACKER PRO (NOUVEAU)
+# ========================
+
+def handle_timetracker_redirect():
+    """Gère la redirection vers TimeTracker Pro avec focus BT"""
+    if st.session_state.get('timetracker_redirect_to_bt'):
+        del st.session_state.timetracker_redirect_to_bt
+        
+        # Forcer l'affichage de TimeTracker Pro avec onglet BT
+        if 'timetracker_unified' in st.session_state:
+            st.session_state.timetracker_focus_tab = "bt_management"
+            st.success("🔧 Redirection vers TimeTracker Pro - Onglet Gestion BTs")
+            show_timetracker_unified_interface_main()
+            return True
+    return False
 
 # ========================
 # INTERFACE PORTAIL (AVEC CLASSES CSS)
@@ -2070,23 +2093,6 @@ def show_portal_home():
     </div>
     """, unsafe_allow_html=True)
 
-# ========================
-# GESTION REDIRECTION TIMETRACKER PRO (NOUVEAU)
-# ========================
-
-def handle_timetracker_redirect():
-    """Gère la redirection vers TimeTracker Pro avec focus BT"""
-    if st.session_state.get('timetracker_redirect_to_bt'):
-        del st.session_state.timetracker_redirect_to_bt
-        
-        # Forcer l'affichage de TimeTracker Pro avec onglet BT
-        if 'timetracker_unified' in st.session_state:
-            st.session_state.timetracker_focus_tab = "bt_management"
-            st.success("🔧 Redirection vers TimeTracker Pro - Onglet Gestion BTs")
-            show_timetracker_unified_interface()
-            return True
-    return False
-
 def show_employee_interface():
     """Interface simplifiée pour les employés - TimeTracker uniquement"""
     st.markdown("""
@@ -2096,11 +2102,11 @@ def show_employee_interface():
     </div>
     """, unsafe_allow_html=True)
 
-    # Interface TimeTracker Pro directe (sans onglets)
+    # === TIMETRACKER UNIFIÉ EMPLOYÉ (INTERFACE DIRECTE) ===
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
-            # Interface TimeTracker Pro complète
-            show_timetracker_unified_interface()
+            # Interface employé directe SANS sélecteur de mode
+            show_timetracker_unified_interface_main()
         except Exception as e:
             st.error(f"Erreur TimeTracker Pro: {e}")
             show_fallback_timetracker()
@@ -2277,6 +2283,9 @@ def show_erp_main():
     # 6. SUIVI TEMPS RÉEL - CHECKPOINT 6: TIMETRACKER PRO
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         available_pages["⏱️ TimeTracker"] = "timetracker_pro_page"
+        # NOUVEAU : TimeTracker Unifié Complet pour Admin
+        if TIMETRACKER_AVAILABLE:
+            available_pages["⏱️🔧 TimeTracker Unifié"] = "timetracker_admin_complete"
 
     # 7. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
@@ -2323,7 +2332,8 @@ def show_erp_main():
         "employees_page": "👥 Équipes",
         "gantt": "📈 Planning",
         "calendrier": "📅 Calendrier",
-        "kanban": "🔄 Kanban"
+        "kanban": "🔄 Kanban",
+        "timetracker_admin_complete": "⏱️🔧 TimeTracker Unifié"
     }
     
     etape_actuelle = etapes_workflow.get(page_to_show_val, "")
@@ -2580,9 +2590,16 @@ def show_erp_main():
             st.error("❌ Module Formulaires non disponible")
     elif page_to_show_val == "timetracker_pro_page":
         if TIMETRACKER_AVAILABLE:
-            show_timetracker_unified_interface()
+            show_timetracker_unified_interface_main()
         else:
             st.error("❌ TimeTracker Pro non disponible")
+            st.info("Le module timetracker_unified.py est requis pour cette fonctionnalité.")
+    elif page_to_show_val == "timetracker_admin_complete":
+        # NOUVEAU : Interface TimeTracker Unifié Complète pour Admin
+        if TIMETRACKER_AVAILABLE:
+            show_timetracker_admin_complete_interface()
+        else:
+            st.error("❌ TimeTracker Unifié non disponible")
             st.info("Le module timetracker_unified.py est requis pour cette fonctionnalité.")
     elif page_to_show_val == "production_management":
         # NOUVEAU : Routage vers module unifié
@@ -3374,7 +3391,7 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}
     return bool(re.match(pattern, project_id.strip()))
     
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
@@ -3446,7 +3463,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
