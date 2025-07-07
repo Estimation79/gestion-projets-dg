@@ -1,5 +1,3 @@
-# app.py - ERP Production DG Inc. avec Portail d'Entrée Intégré et TimeTracker Unifié
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -2025,7 +2023,7 @@ def show_portal_home():
         <h1>🏭 PORTAIL DG INC.</h1>
         <div class="portal-subtitle">
             Système de Gestion Intégré • Production & Métallurgie<br>
-            📅 {current_date} • 🕒 {current_time} • Desmarais & Gagné Inc.
+            📅 {current_date} • 🕒 {current_time}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2069,7 +2067,7 @@ def show_portal_home():
             <ul class="access-features">
                 <li>📋 Gestion projets</li>
                 <li>🤝 CRM complet</li>
-                <li>📑 Formulaires DG</li>
+                <li>📑 Formulaires</li>
                 <li>🏪 Fournisseurs</li>
                 <li>📊 Reporting avancé</li>
             </ul>
@@ -2084,7 +2082,7 @@ def show_portal_home():
     st.markdown("---")
     st.markdown("""
     <div class="portal-footer">
-        <h4>🏭 ERP Production DG Inc.</h4>
+        <h4>🏭 ERP</h4>
         <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); text-align: center;">
             <small style="color: var(--text-color-muted); font-style: italic;">
                 💻 Développé par <strong>Sylvain Leduc</strong> • 2025
@@ -2097,7 +2095,7 @@ def show_employee_interface():
     """Interface simplifiée pour les employés - TimeTracker uniquement"""
     st.markdown("""
     <div class="employee-header">
-        <h2>👥 Interface Employé - DG Inc.</h2>
+        <h2>👥 Interface Employé</h2>
         <p>TimeTracker Pro & Postes Unifiés et Suivi Production</p>
     </div>
     """, unsafe_allow_html=True)
@@ -2183,7 +2181,7 @@ def show_admin_auth():
     st.markdown("""
     <div class="admin-auth">
         <h3>🔐 Authentification Administrateur</h3>
-        <p style="text-align: center; color: #6B7280;">ERP Production DG Inc. - Accès Restreint</p>
+        <p style="text-align: center; color: #6B7280;">ERP - Accès Restreint</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2315,7 +2313,7 @@ def show_erp_main():
     st.sidebar.markdown("---")
 
     # Menu de navigation chronologique
-    sel_page_key = st.sidebar.radio("🏭 Workflow DG Inc.:", list(available_pages.keys()), key="main_nav_radio")
+    sel_page_key = st.sidebar.radio("🏭 Workflow :", list(available_pages.keys()), key="main_nav_radio")
     page_to_show_val = available_pages[sel_page_key]
 
     # Indication visuelle de l'étape actuelle
@@ -2522,7 +2520,7 @@ def show_erp_main():
         st.sidebar.warning("⚠️ Module Kanban - Version interne")
 
     st.sidebar.markdown("---")
-    footer_text = "🏭 ERP Production DG Inc.<br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro Unifié<br/>🏭 Module Production Unifié"
+    footer_text = "🏭 ERP <br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro Unifié<br/>🏭 Module Production Unifié"
 
     # Indication module Kanban dans footer sidebar
     if KANBAN_AVAILABLE:
@@ -2698,7 +2696,7 @@ def show_dashboard():
     if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
         st.markdown("""
         <div class='welcome-card'>
-            <h3>🏭 Bienvenue dans l'ERP Production DG Inc. !</h3>
+            <h3>🏭 Bienvenue dans l'ERP</h3>
             <p>Architecture unifiée avec TimeTracker Pro, Kanban Unifié et Pièces Jointes intégrés. Créez votre premier projet ou explorez les données migrées.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -2759,7 +2757,7 @@ def show_dashboard():
 
     # NOUVEAU : Métriques Formulaires
     if gestionnaire_formulaires and any(form_stats.values()):
-        st.markdown("### 📑 Aperçu Formulaires DG Inc.")
+        st.markdown("### 📑 Aperçu Formulaires")
         form_c1, form_c2, form_c3, form_c4, form_c5 = st.columns(5)
 
         with form_c1:
@@ -2787,9 +2785,9 @@ def show_dashboard():
         if montant_total_forms > 0:
             st.markdown(f"**💼 Valeur Documents: {montant_total_forms:,.0f}$ CAD**")
 
-    # NOUVEAU : Métriques Fournisseurs DG Inc.
+    # NOUVEAU : Métriques Fournisseurs
     if fournisseurs_stats and fournisseurs_stats.get('total_fournisseurs', 0) > 0:
-        st.markdown("### 🏪 Aperçu Fournisseurs DG Inc.")
+        st.markdown("### 🏪 Aperçu Fournisseurs")
         fournisseur_c1, fournisseur_c2, fournisseur_c3, fournisseur_c4 = st.columns(4)
 
         with fournisseur_c1:
@@ -2840,7 +2838,7 @@ def show_dashboard():
 
     # Métriques postes de travail
     if postes_stats['total_postes'] > 0:
-        st.markdown("### 🏭 Aperçu Production DG Inc.")
+        st.markdown("### 🏭 Aperçu Production")
         prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
         with prod_c1:
             st.metric("🏭 Total Postes", postes_stats['total_postes'])
@@ -3145,7 +3143,7 @@ def render_create_project_form(gestionnaire, crm_manager):
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.markdown("### ➕ Créer Projet DG Inc.")
+    st.markdown("### ➕ Créer Projet")
 
     # VALIDATION PRÉALABLE des données de base
     companies_count = st.session_state.erp_db.get_table_count('companies')
@@ -4172,7 +4170,7 @@ def show_footer():
     st.markdown("---")
     st.markdown("""
     <div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'>
-        <p>🏭 ERP Production DG Inc.</p>
+        <p>🏭 ERP</p>
         <p style='font-style: italic;'>💻 Développé par <strong>Sylvain Leduc</strong> • 2025</p>
     </div>
     """, unsafe_allow_html=True)
