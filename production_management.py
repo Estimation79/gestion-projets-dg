@@ -1,5 +1,3 @@
-# production_management.py - Gestion des Bons de Travail & Postes - Desmarais & Gagné Inc.
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -10,13 +8,8 @@ import uuid
 from typing import Dict, List, Optional, Any
 import logging
 
-# Import pour export PDF des Bons de Travail
-try:
-    from bt_pdf_export import export_bt_pdf_streamlit
-    PDF_EXPORT_AVAILABLE = True
-except ImportError:
-    PDF_EXPORT_AVAILABLE = False
-    logging.warning("Module bt_pdf_export non disponible. Export PDF désactivé.")
+# Export HTML disponible par défaut
+HTML_EXPORT_AVAILABLE = True
 
 # Configuration logging
 logging.basicConfig(level=logging.INFO)
@@ -134,6 +127,558 @@ def _convertir_statut_bt_vers_operation(statut_bt: str) -> str:
         'on-hold': 'EN PAUSE'
     }
     return conversion.get(statut_bt, 'À FAIRE')
+
+def export_bt_html_streamlit(form_data: Dict) -> str:
+    """
+    Génère un export HTML élégant du Bon de Travail
+    VERSION PROFESSIONNELLE avec design DG Inc.
+    """
+    
+    # Calculer les totaux
+    total_tasks = len(form_data.get('tasks', []))
+    total_materials = len(form_data.get('materials', []))
+    total_planned_hours = sum(task.get('planned_hours', 0) for task in form_data.get('tasks', []))
+    total_actual_hours = sum(task.get('actual_hours', 0) for task in form_data.get('tasks', []))
+    
+    # Répartition interne/externe
+    internal_hours = sum(task.get('planned_hours', 0) for task in form_data.get('tasks', []) 
+                        if task.get('fournisseur') == '-- Interne --')
+    external_hours = total_planned_hours - internal_hours
+    
+    # Date de génération
+    date_generation = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Template HTML avec styles intégrés
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Bon de Travail - {form_data.get('numero_document', 'N/A')}</title>
+        <style>
+            :root {{
+                --primary-color: #00A971;
+                --primary-color-darker: #00673D;
+                --primary-color-darkest: #004C2E;
+                --primary-color-lighter: #DCFCE7;
+                --background-color: #F9FAFB;
+                --secondary-background-color: #FFFFFF;
+                --text-color: #374151;
+                --text-color-light: #6B7280;
+                --border-color: #E5E7EB;
+                --border-radius-md: 0.5rem;
+                --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            }}
+            
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: var(--text-color);
+                background-color: var(--background-color);
+                margin: 0;
+                padding: 20px;
+            }}
+            
+            .container {{
+                max-width: 210mm;
+                margin: 0 auto;
+                background-color: white;
+                border-radius: 12px;
+                box-shadow: var(--box-shadow-md);
+                overflow: hidden;
+            }}
+            
+            .header {{
+                background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+                color: white;
+                padding: 30px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }}
+            
+            .logo-container {{
+                display: flex;
+                align-items: center;
+                gap: 20px;
+            }}
+            
+            .logo-box {{
+                background-color: white;
+                width: 70px;
+                height: 45px;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            }}
+            
+            .logo-text {{
+                font-family: 'Segoe UI', sans-serif;
+                font-weight: 800;
+                font-size: 24px;
+                color: var(--primary-color);
+                letter-spacing: 1px;
+            }}
+            
+            .company-info {{
+                text-align: left;
+            }}
+            
+            .company-name {{
+                font-weight: 700;
+                font-size: 28px;
+                margin-bottom: 5px;
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            }}
+            
+            .company-subtitle {{
+                font-size: 16px;
+                opacity: 0.9;
+            }}
+            
+            .contact-info {{
+                text-align: right;
+                font-size: 14px;
+                line-height: 1.4;
+                opacity: 0.95;
+            }}
+            
+            .document-title {{
+                background: var(--primary-color-lighter);
+                padding: 20px 30px;
+                border-left: 5px solid var(--primary-color);
+            }}
+            
+            .document-title h1 {{
+                color: var(--primary-color-darker);
+                font-size: 24px;
+                margin-bottom: 10px;
+            }}
+            
+            .document-meta {{
+                display: flex;
+                justify-content: space-between;
+                color: var(--text-color-light);
+                font-size: 14px;
+            }}
+            
+            .content {{
+                padding: 30px;
+            }}
+            
+            .section {{
+                margin-bottom: 30px;
+            }}
+            
+            .section-title {{
+                color: var(--primary-color-darker);
+                font-size: 18px;
+                font-weight: 600;
+                margin-bottom: 15px;
+                padding-bottom: 8px;
+                border-bottom: 2px solid var(--primary-color-lighter);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }}
+            
+            .info-grid {{
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-bottom: 20px;
+            }}
+            
+            .info-item {{
+                background: var(--background-color);
+                padding: 15px;
+                border-radius: var(--border-radius-md);
+                border-left: 3px solid var(--primary-color);
+            }}
+            
+            .info-label {{
+                font-weight: 600;
+                color: var(--text-color-light);
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 5px;
+            }}
+            
+            .info-value {{
+                font-size: 16px;
+                color: var(--text-color);
+                font-weight: 500;
+            }}
+            
+            .table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 15px 0;
+                border-radius: var(--border-radius-md);
+                overflow: hidden;
+                box-shadow: var(--box-shadow-md);
+            }}
+            
+            .table th {{
+                background: var(--primary-color);
+                color: white;
+                padding: 12px;
+                text-align: left;
+                font-weight: 600;
+                font-size: 14px;
+            }}
+            
+            .table td {{
+                padding: 12px;
+                border-bottom: 1px solid var(--border-color);
+                vertical-align: top;
+            }}
+            
+            .table tr:nth-child(even) {{
+                background-color: var(--background-color);
+            }}
+            
+            .table tr:hover {{
+                background-color: var(--primary-color-lighter);
+            }}
+            
+            .badge {{
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                display: inline-block;
+            }}
+            
+            .badge-pending {{ background: #fef3c7; color: #92400e; }}
+            .badge-in-progress {{ background: #dbeafe; color: #1e40af; }}
+            .badge-completed {{ background: #d1fae5; color: #065f46; }}
+            .badge-on-hold {{ background: #fee2e2; color: #991b1b; }}
+            
+            .priority-normal {{ background: #d1fae5; color: #065f46; }}
+            .priority-urgent {{ background: #fef3c7; color: #92400e; }}
+            .priority-critique {{ background: #fee2e2; color: #991b1b; }}
+            
+            .external-supplier {{
+                background: #e0f2fe;
+                color: #0277bd;
+                font-weight: 500;
+                padding: 2px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+            }}
+            
+            .summary-box {{
+                background: linear-gradient(45deg, var(--primary-color-lighter), white);
+                border: 2px solid var(--primary-color);
+                border-radius: var(--border-radius-md);
+                padding: 20px;
+                margin: 20px 0;
+            }}
+            
+            .summary-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+            }}
+            
+            .summary-item {{
+                text-align: center;
+                background: white;
+                padding: 15px;
+                border-radius: var(--border-radius-md);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            
+            .summary-number {{
+                font-size: 24px;
+                font-weight: 700;
+                color: var(--primary-color-darker);
+                display: block;
+            }}
+            
+            .summary-label {{
+                font-size: 12px;
+                color: var(--text-color-light);
+                text-transform: uppercase;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+            }}
+            
+            .instructions-box {{
+                background: var(--background-color);
+                border-left: 4px solid var(--primary-color);
+                padding: 20px;
+                border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
+                margin: 15px 0;
+            }}
+            
+            .footer {{
+                background: var(--primary-color-darkest);
+                color: white;
+                padding: 20px 30px;
+                text-align: center;
+                font-size: 12px;
+                line-height: 1.4;
+            }}
+            
+            @media print {{
+                body {{ margin: 0; padding: 0; }}
+                .container {{ box-shadow: none; }}
+                .table {{ break-inside: avoid; }}
+                .section {{ break-inside: avoid-page; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <!-- En-tête -->
+            <div class="header">
+                <div class="logo-container">
+                    <div class="logo-box">
+                        <div class="logo-text">DG</div>
+                    </div>
+                    <div class="company-info">
+                        <div class="company-name">Desmarais & Gagné inc.</div>
+                        <div class="company-subtitle">Fabrication et Assemblage Métallurgique</div>
+                    </div>
+                </div>
+                <div class="contact-info">
+                    565 rue Maisonneuve<br>
+                    Granby, QC J2G 3H5<br>
+                    Tél.: (450) 372-9630<br>
+                    Téléc.: (450) 372-8122
+                </div>
+            </div>
+            
+            <!-- Titre du document -->
+            <div class="document-title">
+                <h1>🔧 BON DE TRAVAIL</h1>
+                <div class="document-meta">
+                    <span><strong>N° Document:</strong> {form_data.get('numero_document', 'N/A')}</span>
+                    <span><strong>Généré le:</strong> {date_generation}</span>
+                </div>
+            </div>
+            
+            <!-- Contenu principal -->
+            <div class="content">
+                <!-- Informations générales -->
+                <div class="section">
+                    <h2 class="section-title">📋 Informations Générales</h2>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <div class="info-label">Projet</div>
+                            <div class="info-value">{form_data.get('project_name', 'N/A')}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Client</div>
+                            <div class="info-value">{form_data.get('client_name', 'N/A')}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Chargé de Projet</div>
+                            <div class="info-value">{form_data.get('project_manager', 'Non assigné')}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Priorité</div>
+                            <div class="info-value">
+                                <span class="badge priority-{form_data.get('priority', 'NORMAL').lower()}">
+                                    {form_data.get('priority', 'NORMAL')}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Date de Début</div>
+                            <div class="info-value">{form_data.get('start_date', 'N/A')}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Date de Fin</div>
+                            <div class="info-value">{form_data.get('end_date', 'N/A')}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Résumé -->
+                <div class="summary-box">
+                    <h3 style="color: var(--primary-color-darker); margin-bottom: 15px; text-align: center;">📊 Résumé du Bon de Travail</h3>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <span class="summary-number">{total_tasks}</span>
+                            <span class="summary-label">Tâches</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-number">{total_materials}</span>
+                            <span class="summary-label">Matériaux</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-number">{total_planned_hours:.1f}h</span>
+                            <span class="summary-label">Heures Prévues</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-number">{internal_hours:.1f}h</span>
+                            <span class="summary-label">Interne</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-number">{external_hours:.1f}h</span>
+                            <span class="summary-label">Externe</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-number">{total_actual_hours:.1f}h</span>
+                            <span class="summary-label">Heures Réelles</span>
+                        </div>
+                    </div>
+                </div>
+    """
+    
+    # Ajouter les tâches
+    if form_data.get('tasks'):
+        html_template += """
+                <!-- Tâches et Opérations -->
+                <div class="section">
+                    <h2 class="section-title">🔧 Tâches et Opérations</h2>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Opération</th>
+                                <th>Description</th>
+                                <th>Fournisseur</th>
+                                <th>Quantité</th>
+                                <th>H. Prévues</th>
+                                <th>H. Réelles</th>
+                                <th>Assigné à</th>
+                                <th>Statut</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        """
+        
+        for i, task in enumerate(form_data['tasks'], 1):
+            # Déterminer la classe du statut
+            status_class = f"badge-{task.get('status', 'pending')}"
+            
+            # Fournisseur
+            fournisseur = task.get('fournisseur', '-- Interne --')
+            fournisseur_display = fournisseur if fournisseur == '-- Interne --' else f'<span class="external-supplier">{fournisseur}</span>'
+            
+            html_template += f"""
+                            <tr>
+                                <td><strong>{task.get('operation', 'N/A')}</strong></td>
+                                <td>{task.get('description', '')}</td>
+                                <td>{fournisseur_display}</td>
+                                <td>{task.get('quantity', 1)}</td>
+                                <td>{task.get('planned_hours', 0):.2f}h</td>
+                                <td>{task.get('actual_hours', 0):.2f}h</td>
+                                <td>{task.get('assigned_to', 'Non assigné')}</td>
+                                <td><span class="badge {status_class}">{task.get('status', 'pending')}</span></td>
+                            </tr>
+            """
+        
+        html_template += """
+                        </tbody>
+                    </table>
+                </div>
+        """
+    
+    # Ajouter les matériaux
+    if form_data.get('materials'):
+        html_template += """
+                <!-- Matériaux et Outils -->
+                <div class="section">
+                    <h2 class="section-title">📝 Matériaux et Outils Requis</h2>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Matériau/Outil</th>
+                                <th>Description</th>
+                                <th>Fournisseur</th>
+                                <th>Quantité</th>
+                                <th>Unité</th>
+                                <th>Disponibilité</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        """
+        
+        for material in form_data['materials']:
+            # Disponibilité avec icônes
+            availability = material.get('available', 'yes')
+            availability_icons = {
+                'yes': '✅ Disponible',
+                'no': '❌ Non disponible',
+                'partial': '⚠️ Partiellement',
+                'ordered': '📦 Commandé'
+            }
+            availability_display = availability_icons.get(availability, availability)
+            
+            # Fournisseur
+            fournisseur = material.get('fournisseur', '-- Interne --')
+            fournisseur_display = fournisseur if fournisseur == '-- Interne --' else f'<span class="external-supplier">{fournisseur}</span>'
+            
+            html_template += f"""
+                            <tr>
+                                <td><strong>{material.get('name', 'N/A')}</strong></td>
+                                <td>{material.get('description', '')}</td>
+                                <td>{fournisseur_display}</td>
+                                <td>{material.get('quantity', 1)}</td>
+                                <td>{material.get('unit', 'pcs')}</td>
+                                <td>{availability_display}</td>
+                                <td>{material.get('notes', '')}</td>
+                            </tr>
+            """
+        
+        html_template += """
+                        </tbody>
+                    </table>
+                </div>
+        """
+    
+    # Ajouter les instructions
+    instructions_sections = [
+        ('work_instructions', 'Instructions de Travail', '🔧'),
+        ('safety_notes', 'Notes de Sécurité', '⚠️'),
+        ('quality_requirements', 'Exigences Qualité', '✅')
+    ]
+    
+    for field_key, title, icon in instructions_sections:
+        content = form_data.get(field_key, '').strip()
+        if content:
+            html_template += f"""
+                <div class="section">
+                    <h2 class="section-title">{icon} {title}</h2>
+                    <div class="instructions-box">
+                        {content.replace('\n', '<br>')}
+                    </div>
+                </div>
+            """
+    
+    # Footer
+    html_template += f"""
+            </div>
+            
+            <!-- Pied de page -->
+            <div class="footer">
+                <div><strong>🏭 Desmarais & Gagné inc.</strong> - Système de Gestion Production ERP</div>
+                <div>Document généré automatiquement le {date_generation}</div>
+                <div>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 www.dg-inc.com</div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html_template
 
 class GestionnaireBonsTravail:
     """
@@ -1854,7 +2399,7 @@ def show_instructions_section():
 def show_bt_actions():
     """
     Boutons d'action pour le BT
-    VERSION FINALE : Support complet de la modification des BT + Export PDF intégré
+    VERSION FINALE : Support complet de la modification des BT + Export HTML intégré
     VERSION KANBAN : Notification de synchronisation
     """
     st.markdown("---")
@@ -1873,12 +2418,34 @@ def show_bt_actions():
                 st.info("📋 Fonction d'impression en développement")
         
         with action_col3:
-            # NOUVEAU : Export PDF fonctionnel
-            if st.button("📄 Exporter PDF", use_container_width=True, key="bt_pdf_view_btn"):
-                if PDF_EXPORT_AVAILABLE:
-                    export_bt_pdf_streamlit(st.session_state.bt_current_form_data)
+            # NOUVEAU : Export HTML élégant
+            if st.button("📄 Exporter HTML", use_container_width=True, key="bt_html_view_btn"):
+                if HTML_EXPORT_AVAILABLE:
+                    try:
+                        # Générer le HTML
+                        html_content = export_bt_html_streamlit(st.session_state.bt_current_form_data)
+                        
+                        # Nom du fichier
+                        filename = f"BT_{st.session_state.bt_current_form_data.get('numero_document', 'NOUVEAU')}.html"
+                        
+                        # Bouton de téléchargement
+                        st.download_button(
+                            label="💾 Télécharger HTML",
+                            data=html_content,
+                            file_name=filename,
+                            mime="text/html",
+                            use_container_width=True,
+                            key="download_bt_html_view"
+                        )
+                        
+                        # Afficher un aperçu
+                        with st.expander("👁️ Aperçu HTML", expanded=False):
+                            st.components.v1.html(html_content, height=800, scrolling=True)
+                            
+                    except Exception as e:
+                        st.error(f"❌ Erreur lors de la génération HTML: {e}")
                 else:
-                    st.error("❌ Module d'export PDF non disponible. Installez: pip install reportlab")
+                    st.error("❌ Export HTML non disponible")
         
         with action_col4:
             if st.button("📋 Retour Gestion", use_container_width=True, key="bt_back_manage_btn"):
@@ -1961,16 +2528,42 @@ def show_bt_actions():
                 st.info("📋 Fonction d'impression en développement")
         
         with action_col3:
-            # NOUVEAU : Export PDF fonctionnel
-            if st.button("📄 Exporter PDF", use_container_width=True, key="bt_pdf_btn"):
-                if PDF_EXPORT_AVAILABLE:
+            # NOUVEAU : Export HTML élégant
+            if st.button("📄 Exporter HTML", use_container_width=True, key="bt_html_btn"):
+                if HTML_EXPORT_AVAILABLE:
                     # Vérifier que le BT a les infos minimales pour l'export
                     if not form_data.get('project_name') or not form_data.get('client_name'):
-                        st.warning("⚠️ Veuillez remplir au moins le projet et le client avant l'export PDF")
+                        st.warning("⚠️ Veuillez remplir au moins le projet et le client avant l'export HTML")
                     else:
-                        export_bt_pdf_streamlit(form_data)
+                        try:
+                            # Générer le HTML
+                            html_content = export_bt_html_streamlit(form_data)
+                            
+                            # Nom du fichier
+                            filename = f"BT_{form_data.get('numero_document', 'NOUVEAU')}.html"
+                            
+                            # Bouton de téléchargement
+                            st.download_button(
+                                label="💾 Télécharger HTML",
+                                data=html_content,
+                                file_name=filename,
+                                mime="text/html",
+                                use_container_width=True,
+                                key="download_bt_html"
+                            )
+                            
+                            # Message de succès
+                            st.success("✅ Document HTML généré avec succès !")
+                            
+                            # Aperçu optionnel
+                            if st.checkbox("👁️ Voir l'aperçu", key="preview_html_checkbox"):
+                                with st.expander("📄 Aperçu du Document HTML", expanded=True):
+                                    st.components.v1.html(html_content, height=800, scrolling=True)
+                                    
+                        except Exception as e:
+                            st.error(f"❌ Erreur lors de la génération HTML: {e}")
                 else:
-                    st.error("❌ Module d'export PDF non disponible. Installez: pip install reportlab")
+                    st.error("❌ Export HTML non disponible")
         
         with action_col4:
             if st.button("🗑️ Nouveau Bon", use_container_width=True, key="bt_new_btn"):
@@ -3000,6 +3593,7 @@ def show_production_management_page():
     - Suppression des éléments debug et TimeTracker
     - Navigation principale simplifiée (3 boutons au lieu de 6)
     - Code nettoyé et maintien de toutes les fonctionnalités essentielles
+    VERSION HTML : Export HTML élégant intégré
     """
     
     # Appliquer les styles DG
@@ -3119,7 +3713,7 @@ def show_production_management_page():
         <p>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 Interface intégrée ERP Production</p>
         <p><em>Mode actuel: {footer_message}</em></p>
         {f'<p><strong>🔄 Synchronisation Kanban:</strong> {"✅ Automatique" if main_mode == "bt" else "N/A"}</p>' if main_mode == 'bt' else ''}
-        {f'<p><strong>📄 Export PDF:</strong> {"✅ Disponible" if PDF_EXPORT_AVAILABLE else "❌ Non disponible"}</p>' if main_mode == 'bt' else ''}
+        {f'<p><strong>📄 Export HTML:</strong> {"✅ Disponible" if HTML_EXPORT_AVAILABLE else "❌ Non disponible"}</p>' if main_mode == 'bt' else ''}
     </div>
     """, unsafe_allow_html=True)
 
