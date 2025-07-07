@@ -2283,7 +2283,7 @@ def show_erp_main():
     # 6. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (CORRECTION: sans doublon)
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         if TIMETRACKER_AVAILABLE:
-            available_pages["⏱️🔧 TimeTracker Pro"] = "timetracker_admin_complete"
+            available_pages["⏱️TimeTracker"] = "timetracker_admin_complete"
 
     # 7. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
