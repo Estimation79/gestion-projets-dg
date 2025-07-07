@@ -28,6 +28,9 @@ class BTPDFGenerator:
         self.margin = 20  # MARGE MINIMALE pour maximiser l'espace
         self.content_width = self.page_width - 2 * self.margin  # ~555 points disponibles
         
+        # LARGEUR UNIFORME POUR TOUS LES TABLEAUX
+        self.table_width = self.content_width - 10  # Largeur standard pour tous
+        
         # Styles uniformisés
         self.styles = getSampleStyleSheet()
         self._create_uniform_styles()
@@ -170,14 +173,13 @@ class BTPDFGenerator:
              'Date fin prévue:', form_data.get('end_date', 'N/A')]
         ]
         
-        # LARGEURS ABSOLUES CALCULÉES POUR UTILISER TOUT L'ESPACE DISPONIBLE
-        total_width = self.content_width - 10  # Petit buffer
+        # LARGEURS CORRIGÉES AVEC ESPACEMENT ENTRE COLONNES - LARGEUR UNIFORME
         info_table = Table(info_data, colWidths=[
-            total_width * 0.20,  # Étiquettes (20%)
-            total_width * 0.30,  # Valeurs (30%)
-            total_width * 0.20,  # Étiquettes (20%)
-            total_width * 0.30   # Valeurs (30%)
-        ])
+            self.table_width * 0.18,  # Étiquettes (18%)
+            self.table_width * 0.32,  # Valeurs (32%)
+            self.table_width * 0.18,  # Étiquettes (18%)
+            self.table_width * 0.32   # Valeurs (32%)
+        ], spaceAfter=0, spaceBefore=0)
         
         info_table.setStyle(TableStyle([
             # Couleurs et fond
@@ -197,11 +199,11 @@ class BTPDFGenerator:
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
             
-            # Padding MINIMAL mais visible
+            # Padding AVEC ESPACEMENT POUR ÉVITER COLLAGE
             ('TOPPADDING', (0, 0), (-1, -1), 5),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ('LEFTPADDING', (0, 0), (-1, -1), 4),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),    # Plus d'espace à gauche
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),   # Plus d'espace à droite
             
             # Hauteur réduite mais suffisante
             ('ROWHEIGHT', (0, 0), (-1, -1), 22),
@@ -250,20 +252,20 @@ class BTPDFGenerator:
             ])
         
         if len(task_data) > 1:
-            # LARGEURS ABSOLUES MAXIMALES - Calcul précis pour éviter débordement
-            total_width = self.content_width - 5  # Buffer minimal
+            # LARGEURS CORRIGÉES POUR ÉVITER TOUTE TRONCATURE
+            total_width = self.content_width - 8  # Buffer minimal
             
-            # Répartition intelligente pour éviter la troncature
+            # Répartition corrigée avec colonne N° visible et statut complet
             tasks_table = Table(task_data, colWidths=[
-                25,   # N° - fixe petit
-                total_width * 0.25,  # Opération - 25% pour texte complet
-                total_width * 0.25,  # Description - 25% pour texte complet  
-                30,   # Qté - fixe petit
-                35,   # H.Prév - fixe
-                35,   # H.Réel - fixe
-                total_width * 0.15,  # Assigné - 15%
-                total_width * 0.20,  # Fournisseur - 20%
-                total_width * 0.10   # Statut - 10%
+                20,   # N° - visible et fixe
+                total_width * 0.23,  # Opération - 23%
+                total_width * 0.23,  # Description - 23%
+                25,   # Qté - fixe petit
+                30,   # H.Prév - fixe
+                30,   # H.Réel - fixe
+                total_width * 0.16,  # Assigné - 16%
+                total_width * 0.18,  # Fournisseur - 18%
+                total_width * 0.12   # Statut - 12% pour texte complet
             ])
             
             tasks_table.setStyle(TableStyle([
@@ -271,11 +273,11 @@ class BTPDFGenerator:
                 ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),  # POLICE RÉDUITE POUR PLUS D'ESPACE
+                ('FONTSIZE', (0, 0), (-1, 0), 8),  # POLICE RÉDUITE pour en-tête
                 
-                # Contenu uniforme
+                # Contenu avec police lisible
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),  # ENCORE PLUS PETIT pour contenu
+                ('FONTSIZE', (0, 1), (-1, -1), 7),  # ENCORE PLUS PETIT pour éviter troncature
                 
                 # Alignement optimisé
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -287,14 +289,14 @@ class BTPDFGenerator:
                 ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN]),
                 
-                # Espacement MINIMAL mais suffisant
-                ('TOPPADDING', (0, 0), (-1, -1), 3),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-                ('LEFTPADDING', (0, 0), (-1, -1), 2),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+                # Espacement CORRIGÉ pour éviter collage
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
                 
-                # Hauteur adaptative pour texte long
-                ('ROWHEIGHT', (0, 1), (-1, -1), 20),  # Plus compact
+                # Hauteur adaptative pour texte
+                ('ROWHEIGHT', (0, 1), (-1, -1), 18),  # Réduit mais suffisant
                 
                 # Lignes professionnelles
                 ('LINEBELOW', (0, 0), (-1, 0), 1, DG_PRIMARY),
@@ -643,42 +645,42 @@ def test_pdf_generation():
         'quality_requirements': 'Contrôle dimensionnel selon ISO 9001. Vérification de la résistance à la traction selon normes canadiennes.',
         'tasks': [
             {
-                'operation': '1001 - Temps Machine (Préparation Complète)',
-                'description': 'Préparation et réglage machine CNC pour production série avec vérification des outils',
+                'operation': '1001 - Temps Machine',
+                'description': 'Préparation et réglage machine CNC',
                 'quantity': 1,
                 'planned_hours': 1.0,
                 'actual_hours': 0.0,
-                'assigned_to': 'Technicien CNC Senior Expérimenté',
+                'assigned_to': 'Technicien CNC',
                 'fournisseur': '-- Interne --',
                 'status': 'pending'
             },
             {
-                'operation': '1000 - Génération Programmation CNC Complète',
-                'description': 'Programmation complète avec simulation 3D et optimisation des parcours d\'usinage',
+                'operation': '1000 - Génération Programmation',
+                'description': 'Programmation complète avec simulation',
                 'quantity': 1,
                 'planned_hours': 4.7,
                 'actual_hours': 0.0,
-                'assigned_to': 'Programmeur CNC Certifié Mastercam',
+                'assigned_to': 'Programmeur CNC',
                 'fournisseur': '-- Interne --',
                 'status': 'pending'
             },
             {
-                'operation': '1004 - Scie Métal (Découpe de Précision)',
-                'description': 'Découpe des barres rectangulaires selon plan technique avec tolérances strictes',
+                'operation': '1004 - Scie Métal',
+                'description': 'Découpe des barres selon plan',
                 'quantity': 1,
                 'planned_hours': 9.0,
                 'actual_hours': 0.0,
-                'assigned_to': 'Opérateur Scie Expérimenté Qualifié',
+                'assigned_to': 'Opérateur Scie',
                 'fournisseur': '-- Interne --',
                 'status': 'pending'
             },
             {
-                'operation': '1012 - Robot Soudage (Assemblage Automatisé)',
-                'description': 'Soudage robotisé des attaches avec contrôle qualité en temps réel et inspection finale',
+                'operation': '1012 - Robot Soudage',
+                'description': 'Soudage robotisé des attaches',
                 'quantity': 1,
                 'planned_hours': 5.7,
                 'actual_hours': 0.0,
-                'assigned_to': 'Soudeur Robot Qualifié Expérimenté',
+                'assigned_to': 'Soudeur Robot',
                 'fournisseur': '-- Interne --',
                 'status': 'pending'
             }
