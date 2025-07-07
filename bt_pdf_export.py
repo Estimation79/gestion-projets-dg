@@ -35,6 +35,68 @@ class BTPDFGenerator:
         self.styles = getSampleStyleSheet()
         self._create_uniform_styles()
     
+    def _create_uniform_styles(self):
+        """Créer des styles parfaitement uniformes - POLICE UNIQUE"""
+        
+        # UNIFORMITÉ ABSOLUE : Une seule taille pour tout le contenu
+        CONTENT_FONT_SIZE = 9  # Plus petit pour avoir plus d'espace
+        
+        # Style titre principal
+        self.styles.add(ParagraphStyle(
+            name='DGTitle',
+            parent=self.styles['Heading1'],
+            fontSize=22,
+            textColor=DG_PRIMARY_DARK,
+            spaceAfter=18,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold',
+            leading=26
+        ))
+        
+        # Style section
+        self.styles.add(ParagraphStyle(
+            name='DGSection',
+            parent=self.styles['Heading3'],
+            fontSize=12,
+            textColor=DG_PRIMARY_DARK,
+            spaceAfter=8,
+            spaceBefore=12,
+            fontName='Helvetica-Bold',
+            leading=16
+        ))
+        
+        # Style normal DG - TAILLE RÉDUITE POUR PLUS D'ESPACE
+        self.styles.add(ParagraphStyle(
+            name='DGNormal',
+            parent=self.styles['Normal'],
+            fontSize=CONTENT_FONT_SIZE,
+            textColor=DG_GRAY,
+            spaceAfter=4,
+            fontName='Helvetica',
+            leading=12
+        ))
+        
+        # Style info importante - MÊME TAILLE
+        self.styles.add(ParagraphStyle(
+            name='DGImportant',
+            parent=self.styles['Normal'],
+            fontSize=CONTENT_FONT_SIZE,
+            textColor=DG_PRIMARY_DARK,
+            fontName='Helvetica-Bold',
+            spaceAfter=4,
+            leading=12
+        ))
+        
+        # Style petite info
+        self.styles.add(ParagraphStyle(
+            name='DGSmall',
+            parent=self.styles['Normal'],
+            fontSize=8,
+            textColor=DG_LIGHT_GRAY,
+            fontName='Helvetica',
+            leading=10
+        ))
+    
     def _get_uniform_table_style(self, has_header=True):
         """Style de tableau uniforme pour toutes les sections"""
         base_style = [
