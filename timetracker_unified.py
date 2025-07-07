@@ -1658,32 +1658,29 @@ def reset_employee_selectors():
     Fonction utilitaire pour réinitialiser tous les sélecteurs d'employés
     À utiliser après chaque pointage réussi pour forcer le retour à "-- Sélectionner un employé --"
     """
-    # Marquer tous les sélecteurs pour réinitialisation
-    st.session_state.reset_employee_selector = True
-    st.session_state.reset_employee_hist_selector = True
-    
-    # Optionnel : nettoyer aussi les anciennes clés directement
+    # Supprimer complètement les clés des sélecteurs pour forcer la réinitialisation
     keys_to_reset = [
         "employee_punch_op_employee_select",
         "employee_hist_select",
         "employee_punch_op_project_bt_select",
-        "employee_punch_op_operation_select"
+        "employee_punch_op_operation_select",
+        "employee_punch_op_notes"
     ]
     
     for key in keys_to_reset:
         if key in st.session_state:
-            if key.endswith("_employee_select"):
-                # Pour les sélecteurs d'employés, forcer None
-                st.session_state[key] = None
-            else:
-                # Pour les autres, on peut les laisser ou les supprimer
-                pass
+            del st.session_state[key]
+    
+    # Marquer qu'une réinitialisation vient d'avoir lieu
+    st.session_state.just_reset = True
 
 def trigger_interface_reset(success_message: str = "✅ Opération terminée !"):
     """
     Déclenche la réinitialisation de l'interface après un pointage réussi
     """
     st.success(success_message)
+    # Marquer qu'un pointage vient d'être complété pour afficher le bon message
+    st.session_state.just_completed_punch = True
     reset_employee_selectors()
     st.rerun()
 
@@ -1852,14 +1849,9 @@ def show_employee_punch_interface(tt):
         st.warning("Aucun employé trouvé")
         return
     
-    # Gestion de la réinitialisation automatique
-    if 'reset_employee_selector' not in st.session_state:
-        st.session_state.reset_employee_selector = False
-    
-    # Si réinitialisation demandée, forcer la valeur None
-    if st.session_state.reset_employee_selector:
-        st.session_state.employee_punch_op_employee_select = None
-        st.session_state.reset_employee_selector = False
+    # Nettoyer l'indicateur de réinitialisation s'il existe
+    if 'just_reset' in st.session_state:
+        del st.session_state.just_reset
     
     employee_options = {None: "-- Sélectionner un employé --"}
     employee_options.update({emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees})
@@ -1873,7 +1865,12 @@ def show_employee_punch_interface(tt):
     
     # Si aucun employé sélectionné, arrêter ici
     if selected_employee_id is None:
-        st.info("👆 Veuillez sélectionner un employé pour continuer")
+        # Afficher un message spécial si on vient de faire un pointage
+        if 'just_completed_punch' in st.session_state:
+            st.success("🔄 Interface réinitialisée après pointage - Sélectionnez l'employé suivant")
+            del st.session_state.just_completed_punch
+        else:
+            st.info("👆 Veuillez sélectionner un employé pour continuer")
         return
     
     # Section employé pointé (seulement celui sélectionné)
@@ -2008,15 +2005,6 @@ def show_employee_history_interface(tt):
     if not employees:
         st.warning("Aucun employé trouvé")
         return
-    
-    # Gestion de la réinitialisation automatique pour l'historique aussi
-    if 'reset_employee_hist_selector' not in st.session_state:
-        st.session_state.reset_employee_hist_selector = False
-    
-    # Si réinitialisation demandée, forcer la valeur None
-    if st.session_state.reset_employee_hist_selector:
-        st.session_state.employee_hist_select = None
-        st.session_state.reset_employee_hist_selector = False
     
     employee_options = {None: "-- Sélectionner un employé --"}
     employee_options.update({emp['id']: f"{emp['display_name']} ({emp['poste']})" for emp in employees})
@@ -3273,8 +3261,17 @@ MAINTENANCE:
 
 FONCTIONS UTILITAIRES DE RÉINITIALISATION:
 ==========================================
-- reset_employee_selectors() : Réinitialise tous les sélecteurs d'employés
+- reset_employee_selectors() : Supprime les clés des sélecteurs pour forcer la réinitialisation
 - trigger_interface_reset() : Déclenche réinitialisation + message succès + rerun
+- Approche basée sur la suppression des clés de session_state (évite l'erreur Streamlit)
+- Messages contextuels pour informer l'utilisateur de la réinitialisation
+
+RÉSOLUTION DU PROBLÈME STREAMLIT:
+=================================
+L'erreur "cannot be modified after widget instantiation" est résolue en :
+1. Supprimant complètement les clés de st.session_state au lieu de les modifier
+2. Laissant Streamlit recréer les widgets avec leurs valeurs par défaut
+3. Utilisant des indicateurs temporaires pour les messages contextuels
 """
 
 if __name__ == "__main__":
