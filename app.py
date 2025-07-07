@@ -2842,7 +2842,7 @@ def show_dashboard():
 
     # Métriques Projets
     if stats['total'] > 0:
-        st.markdown("### 🚀 Aperçu Projets")
+        st.markdown("### 🚀 Projets")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.metric("📊 Total Projets", stats['total'])
@@ -2855,7 +2855,7 @@ def show_dashboard():
 
     # NOUVEAU : Métriques Production Unifiée
     if PRODUCTION_MANAGEMENT_AVAILABLE:
-        st.markdown("### 🏭 Aperçu Production Unifiée")
+        st.markdown("### 🏭 Production Unifiée")
         prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
 
         with prod_c1:
@@ -2925,7 +2925,7 @@ def show_dashboard():
 
     # NOUVEAU : Métriques Fournisseurs
     if fournisseurs_stats and fournisseurs_stats.get('total_fournisseurs', 0) > 0:
-        st.markdown("### 🏪 Aperçu Fournisseurs")
+        st.markdown("### 🏪 Fournisseurs")
         fournisseur_c1, fournisseur_c2, fournisseur_c3, fournisseur_c4 = st.columns(4)
 
         with fournisseur_c1:
@@ -2950,7 +2950,7 @@ def show_dashboard():
             attachments_stats = st.session_state.attachments_manager.get_attachments_statistics()
             
             if attachments_stats.get('total_attachments', 0) > 0:
-                st.markdown("### 📎 Aperçu Pièces Jointes")
+                st.markdown("### 📎 Pièces Jointes")
                 att_c1, att_c2, att_c3, att_c4 = st.columns(4)
                 
                 with att_c1:
@@ -2976,7 +2976,7 @@ def show_dashboard():
 
     # Métriques postes de travail
     if postes_stats['total_postes'] > 0:
-        st.markdown("### 🏭 Aperçu Production")
+        st.markdown("### 🏭 Production")
         prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
         with prod_c1:
             st.metric("🏭 Total Postes", postes_stats['total_postes'])
@@ -2993,7 +2993,7 @@ def show_dashboard():
         try:
             timetracker_stats = st.session_state.timetracker_unified.get_timetracker_statistics_unified()
             if timetracker_stats.get('total_employees', 0) > 0 or timetracker_stats.get('total_entries_today', 0) > 0:
-                st.markdown("### ⏱️ Aperçu TimeTracker")
+                st.markdown("### ⏱️ TimeTracker")
                 tt_c1, tt_c2, tt_c3, tt_c4 = st.columns(4)
                 with tt_c1:
                     st.metric("👥 Employés ERP", timetracker_stats.get('total_employees', 0))
@@ -3011,7 +3011,7 @@ def show_dashboard():
 
     # Métriques RH
     if emp_stats.get('total', 0) > 0:
-        st.markdown("### 👥 Aperçu Ressources Humaines")
+        st.markdown("### 👥 Ressources Humaines")
         emp_c1, emp_c2, emp_c3, emp_c4 = st.columns(4)
         with emp_c1:
             st.metric("👥 Total Employés", emp_stats['total'])
