@@ -1,8 +1,3 @@
-# bt_pdf_export.py - Module d'export PDF pour les Bons de Travail - VERSION FINALE SANS TRONCATURE
-# Desmarais & Gagné Inc. - Système ERP Production
-# Génération de PDFs professionnels avec identité DG Inc.
-# VERSION FINALE : Aucune troncature, largeurs maximales, espacement parfait
-
 import streamlit as st
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
