@@ -2857,7 +2857,7 @@ def show_dashboard():
         try:
             timetracker_stats = st.session_state.timetracker_unified.get_timetracker_statistics_unified()
             if timetracker_stats.get('total_employees', 0) > 0 or timetracker_stats.get('total_entries_today', 0) > 0:
-                st.markdown("### ⏱️🔧 Aperçu TimeTracker Pro")
+                st.markdown("### ⏱️ Aperçu TimeTracker")
                 tt_c1, tt_c2, tt_c3, tt_c4 = st.columns(4)
                 with tt_c1:
                     st.metric("👥 Employés ERP", timetracker_stats.get('total_employees', 0))
