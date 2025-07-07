@@ -20,7 +20,7 @@ DG_GRAY = colors.Color(55/255, 65/255, 81/255)      # #374151
 DG_LIGHT_GRAY = colors.Color(107/255, 114/255, 128/255)  # #6B7280
 
 class BTPDFGenerator:
-    """Générateur de PDF pour les Bons de Travail - VERSION FINALE SANS TRONCATURE"""
+    """Générateur de PDF compact pour les Bons de Travail"""
     
     def __init__(self):
         self.page_width = A4[0]  # 595.28 points
@@ -33,93 +33,94 @@ class BTPDFGenerator:
         
         # Styles uniformisés
         self.styles = getSampleStyleSheet()
-        self._create_uniform_styles()
+        self._create_compact_styles()
     
-    def _create_uniform_styles(self):
-        """Créer des styles parfaitement uniformes - POLICE UNIQUE"""
+    def _create_compact_styles(self):
+        """Créer des styles ultra-compacts avec hauteur de texte réduite"""
         
-        # UNIFORMITÉ ABSOLUE : Une seule taille pour tout le contenu
-        CONTENT_FONT_SIZE = 9  # Plus petit pour avoir plus d'espace
+        # COMPACITÉ MAXIMALE : Tailles réduites pour tout
+        CONTENT_FONT_SIZE = 7   # Réduit de 9 à 7
+        SECTION_FONT_SIZE = 10  # Réduit de 12 à 10
         
-        # Style titre principal
+        # Style titre principal - plus compact
         self.styles.add(ParagraphStyle(
             name='DGTitle',
             parent=self.styles['Heading1'],
-            fontSize=22,
+            fontSize=20,  # Réduit de 22 à 20
             textColor=DG_PRIMARY_DARK,
-            spaceAfter=18,
+            spaceAfter=12,  # Réduit de 18 à 12
             alignment=TA_CENTER,
             fontName='Helvetica-Bold',
-            leading=26
+            leading=22  # Réduit de 26 à 22
         ))
         
-        # Style section
+        # Style section - plus compact
         self.styles.add(ParagraphStyle(
             name='DGSection',
             parent=self.styles['Heading3'],
-            fontSize=12,
+            fontSize=SECTION_FONT_SIZE,  # Réduit de 12 à 10
             textColor=DG_PRIMARY_DARK,
-            spaceAfter=8,
-            spaceBefore=12,
+            spaceAfter=6,   # Réduit de 8 à 6
+            spaceBefore=8,  # Réduit de 12 à 8
             fontName='Helvetica-Bold',
-            leading=16
+            leading=12  # Réduit de 16 à 12
         ))
         
-        # Style normal DG - TAILLE RÉDUITE POUR PLUS D'ESPACE
+        # Style normal DG - ultra compact
         self.styles.add(ParagraphStyle(
             name='DGNormal',
             parent=self.styles['Normal'],
-            fontSize=CONTENT_FONT_SIZE,
+            fontSize=CONTENT_FONT_SIZE,  # 7pt au lieu de 9pt
             textColor=DG_GRAY,
-            spaceAfter=4,
+            spaceAfter=2,  # Réduit de 4 à 2
             fontName='Helvetica',
-            leading=12
+            leading=9   # Réduit de 12 à 9
         ))
         
-        # Style info importante - MÊME TAILLE
+        # Style info importante - ultra compact
         self.styles.add(ParagraphStyle(
             name='DGImportant',
             parent=self.styles['Normal'],
-            fontSize=CONTENT_FONT_SIZE,
+            fontSize=CONTENT_FONT_SIZE,  # 7pt au lieu de 9pt
             textColor=DG_PRIMARY_DARK,
             fontName='Helvetica-Bold',
-            spaceAfter=4,
-            leading=12
+            spaceAfter=2,  # Réduit de 4 à 2
+            leading=9   # Réduit de 12 à 9
         ))
         
-        # Style petite info
+        # Style petite info - plus petit
         self.styles.add(ParagraphStyle(
             name='DGSmall',
             parent=self.styles['Normal'],
-            fontSize=8,
+            fontSize=6,  # Réduit de 8 à 6
             textColor=DG_LIGHT_GRAY,
             fontName='Helvetica',
-            leading=10
+            leading=8   # Réduit de 10 à 8
         ))
     
-    def _get_uniform_table_style(self, has_header=True):
-        """Style de tableau uniforme pour toutes les sections"""
+    def _get_compact_table_style(self, has_header=True):
+        """Style de tableau ultra-compact avec bordures fines"""
         base_style = [
-            # Bordures UNIFORMES pour tous les tableaux
-            ('GRID', (0, 0), (-1, -1), 1, DG_GRAY),  # Grille uniforme 1pt
-            ('LINEBELOW', (0, 0), (-1, -1), 1, DG_GRAY),  # Lignes horizontales
-            ('LINEBEFORE', (0, 0), (-1, -1), 1, DG_GRAY),  # Lignes verticales
-            ('LINEAFTER', (0, 0), (-1, -1), 1, DG_GRAY),   # Bordure droite
-            ('LINEABOVE', (0, 0), (-1, -1), 1, DG_GRAY),   # Bordure haute
+            # Bordures FINES et uniformes - Réduit de 1 à 0.5pt
+            ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),  # Grille fine 0.5pt
+            ('LINEBELOW', (0, 0), (-1, -1), 0.5, DG_GRAY),
+            ('LINEBEFORE', (0, 0), (-1, -1), 0.5, DG_GRAY),
+            ('LINEAFTER', (0, 0), (-1, -1), 0.5, DG_GRAY),
+            ('LINEABOVE', (0, 0), (-1, -1), 0.5, DG_GRAY),
             
-            # Polices UNIFORMES
+            # Polices COMPACTES
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('FONTSIZE', (0, 0), (-1, -1), 7),  # Réduit de 8 à 7
             
-            # Alignement et espacement UNIFORMES
+            # Alignement et espacement ULTRA-COMPACTS
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING', (0, 0), (-1, -1), 3),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),    # Réduit de 4 à 2
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2), # Réduit de 4 à 2
+            ('LEFTPADDING', (0, 0), (-1, -1), 2),   # Réduit de 3 à 2
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2),  # Réduit de 3 à 2
             
-            # Hauteur uniforme
-            ('ROWHEIGHT', (0, 0), (-1, -1), 20),
+            # Hauteur uniforme RÉDUITE
+            ('ROWHEIGHT', (0, 0), (-1, -1), 16),    # Réduit de 20 à 16
         ]
         
         # Style spécial pour en-tête si présent
@@ -128,8 +129,8 @@ class BTPDFGenerator:
                 ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 8),
-                ('LINEBELOW', (0, 0), (-1, 0), 2, DG_PRIMARY),  # Ligne épaisse sous en-tête
+                ('FONTSIZE', (0, 0), (-1, 0), 7),  # Réduit de 8 à 7
+                ('LINEBELOW', (0, 0), (-1, 0), 1, DG_PRIMARY),  # Ligne sous en-tête
             ]
             base_style.extend(header_style)
             
@@ -140,144 +141,84 @@ class BTPDFGenerator:
             base_style.append(('BACKGROUND', (0, 0), (-1, -1), colors.white))
         
         return base_style
-        """Créer des styles parfaitement uniformes - POLICE UNIQUE"""
-        
-        # UNIFORMITÉ ABSOLUE : Une seule taille pour tout le contenu
-        CONTENT_FONT_SIZE = 9  # Plus petit pour avoir plus d'espace
-        
-        # Style titre principal
-        self.styles.add(ParagraphStyle(
-            name='DGTitle',
-            parent=self.styles['Heading1'],
-            fontSize=22,
-            textColor=DG_PRIMARY_DARK,
-            spaceAfter=18,
-            alignment=TA_CENTER,
-            fontName='Helvetica-Bold',
-            leading=26
-        ))
-        
-        # Style section
-        self.styles.add(ParagraphStyle(
-            name='DGSection',
-            parent=self.styles['Heading3'],
-            fontSize=12,
-            textColor=DG_PRIMARY_DARK,
-            spaceAfter=8,
-            spaceBefore=12,
-            fontName='Helvetica-Bold',
-            leading=16
-        ))
-        
-        # Style normal DG - TAILLE RÉDUITE POUR PLUS D'ESPACE
-        self.styles.add(ParagraphStyle(
-            name='DGNormal',
-            parent=self.styles['Normal'],
-            fontSize=CONTENT_FONT_SIZE,
-            textColor=DG_GRAY,
-            spaceAfter=4,
-            fontName='Helvetica',
-            leading=12
-        ))
-        
-        # Style info importante - MÊME TAILLE
-        self.styles.add(ParagraphStyle(
-            name='DGImportant',
-            parent=self.styles['Normal'],
-            fontSize=CONTENT_FONT_SIZE,
-            textColor=DG_PRIMARY_DARK,
-            fontName='Helvetica-Bold',
-            spaceAfter=4,
-            leading=12
-        ))
-        
-        # Style petite info
-        self.styles.add(ParagraphStyle(
-            name='DGSmall',
-            parent=self.styles['Normal'],
-            fontSize=8,
-            textColor=DG_LIGHT_GRAY,
-            fontName='Helvetica',
-            leading=10
-        ))
     
     def _create_header_footer(self, canvas, doc):
-        """Créer l'en-tête et le pied de page - VERSION COMPACTE"""
+        """Créer l'en-tête et le pied de page - VERSION ULTRA COMPACTE"""
         canvas.saveState()
         
-        # En-tête plus compact
+        # En-tête ultra compact
         canvas.setFillColor(DG_PRIMARY)
-        canvas.rect(self.margin, self.page_height - 70, 50, 25, fill=1, stroke=0)
+        canvas.rect(self.margin, self.page_height - 60, 45, 20, fill=1, stroke=0)  # Plus petit
         
-        # Logo texte
+        # Logo texte plus petit
         canvas.setFillColor(colors.white)
-        canvas.setFont('Helvetica-Bold', 14)
-        text_width = canvas.stringWidth("DG", 'Helvetica-Bold', 14)
-        canvas.drawString(self.margin + 25 - text_width/2, self.page_height - 62, "DG")
+        canvas.setFont('Helvetica-Bold', 12)  # Réduit de 14 à 12
+        text_width = canvas.stringWidth("DG", 'Helvetica-Bold', 12)
+        canvas.drawString(self.margin + 22.5 - text_width/2, self.page_height - 54, "DG")
         
-        # Nom de l'entreprise
+        # Nom de l'entreprise plus compact
         canvas.setFillColor(DG_PRIMARY_DARK)
-        canvas.setFont('Helvetica-Bold', 16)
-        canvas.drawString(self.margin + 60, self.page_height - 58, "Desmarais & Gagné inc.")
+        canvas.setFont('Helvetica-Bold', 14)  # Réduit de 16 à 14
+        canvas.drawString(self.margin + 55, self.page_height - 50, "Desmarais & Gagné inc.")
         
-        # Coordonnées compactes
+        # Coordonnées ultra compactes
         canvas.setFillColor(DG_GRAY)
-        canvas.setFont('Helvetica', 8)
+        canvas.setFont('Helvetica', 7)  # Réduit de 8 à 7
         contact_info = [
             "565 rue Maisonneuve, Granby, QC J2G 3H5",
             "Tél.: (450) 372-9630 | Téléc.: (450) 372-8122",
             "www.dg-inc.com"
         ]
         
-        y_contact = self.page_height - 65
+        y_contact = self.page_height - 55
         for line in contact_info:
             canvas.drawRightString(self.page_width - self.margin, y_contact, line)
-            y_contact -= 10
+            y_contact -= 8  # Réduit de 10 à 8
         
-        # Ligne de séparation
+        # Ligne de séparation plus fine
         canvas.setStrokeColor(DG_PRIMARY)
-        canvas.setLineWidth(1)
-        canvas.line(self.margin, self.page_height - 85, 
-                   self.page_width - self.margin, self.page_height - 85)
+        canvas.setLineWidth(0.5)  # Réduit de 1 à 0.5
+        canvas.line(self.margin, self.page_height - 75, 
+                   self.page_width - self.margin, self.page_height - 75)
         
-        # Pied de page compact
+        # Pied de page ultra compact
         canvas.setFillColor(DG_LIGHT_GRAY)
-        canvas.setFont('Helvetica', 8)
+        canvas.setFont('Helvetica', 7)  # Réduit de 8 à 7
         
         date_impression = f"Imprimé le {datetime.now().strftime('%d/%m/%Y à %H:%M')}"
-        canvas.drawString(self.margin, 25, date_impression)
+        canvas.drawString(self.margin, 20, date_impression)  # Réduit de 25 à 20
         
         page_num = f"Page {doc.page}"
-        canvas.drawRightString(self.page_width - self.margin, 25, page_num)
+        canvas.drawRightString(self.page_width - self.margin, 20, page_num)
         
         canvas.setStrokeColor(DG_PRIMARY)
-        canvas.setLineWidth(0.5)
-        canvas.line(self.margin, 40, self.page_width - self.margin, 40)
+        canvas.setLineWidth(0.5)  # Plus fine
+        canvas.line(self.margin, 35, self.page_width - self.margin, 35)  # Réduit de 40 à 35
         
         canvas.restoreState()
     
     def _create_info_section(self, form_data):
-        """Créer la section d'informations générales - LARGEURS MAXIMALES"""
+        """Créer la section d'informations générales - VERSION COMPACTE"""
         elements = []
         
         # Titre du document
         title = Paragraph("BON DE TRAVAIL", self.styles['DGTitle'])
         elements.append(title)
-        elements.append(Spacer(1, 15))
+        elements.append(Spacer(1, 10))  # Réduit de 15 à 10
         
-        # Informations principales - LARGEURS ABSOLUES MAXIMALES
+        # Informations principales
         info_data = [
             ['N° Bon de Travail:', form_data.get('numero_document', 'N/A'), 
              'Date de création:', form_data.get('date_creation', datetime.now().strftime('%Y-%m-%d'))[:10]],
-            ['Projet:', form_data.get('project_name', 'N/A'),  # AUCUNE limite
-             'Client:', form_data.get('client_name', 'N/A')],   # AUCUNE limite
-            ['Chargé de projet:', form_data.get('project_manager', 'Non assigné'),  # AUCUNE limite
+            ['Projet:', form_data.get('project_name', 'N/A'),
+             'Client:', form_data.get('client_name', 'N/A')],
+            ['Chargé de projet:', form_data.get('project_manager', 'Non assigné'),
              'Priorité:', self._get_priority_display(form_data.get('priority', 'NORMAL'))],
             ['Date début prévue:', form_data.get('start_date', 'N/A'), 
              'Date fin prévue:', form_data.get('end_date', 'N/A')]
         ]
         
-        # LARGEURS CORRIGÉES AVEC ESPACEMENT ENTRE COLONNES - LARGEUR UNIFORME
+        # Largeurs uniformes
         info_table = Table(info_data, colWidths=[
             self.table_width * 0.18,  # Étiquettes (18%)
             self.table_width * 0.32,  # Valeurs (32%)
@@ -292,15 +233,15 @@ class BTPDFGenerator:
             ('TEXTCOLOR', (0, 0), (-1, -1), DG_GRAY),
             ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
             ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
-        ] + self._get_uniform_table_style(has_header=False)))
+        ] + self._get_compact_table_style(has_header=False)))
         
         elements.append(info_table)
-        elements.append(Spacer(1, 15))
+        elements.append(Spacer(1, 10))  # Réduit de 15 à 10
         
         return elements
     
     def _create_tasks_section(self, form_data):
-        """Créer la section des tâches - VERSION SANS AUCUNE TRONCATURE"""
+        """Créer la section des tâches - VERSION ULTRA COMPACTE"""
         elements = []
         
         tasks = form_data.get('tasks', [])
@@ -310,7 +251,7 @@ class BTPDFGenerator:
         # Titre de section
         section_title = Paragraph("TÂCHES ET OPÉRATIONS", self.styles['DGSection'])
         elements.append(section_title)
-        elements.append(Spacer(1, 8))
+        elements.append(Spacer(1, 6))  # Réduit de 8 à 6
         
         # En-têtes optimisés
         headers = ['N°', 'Opération', 'Description', 'Qté', 'H.Prév', 'H.Réel', 'Assigné à', 'Fournisseur', 'Statut']
@@ -321,14 +262,13 @@ class BTPDFGenerator:
         valid_tasks = [task for task in tasks if task.get('operation') or task.get('description')]
         
         for i, task in enumerate(valid_tasks, 1):
-            # AUCUNE TRONCATURE - Texte complet préservé
-            operation = task.get('operation', '')  # Texte complet
-            description = task.get('description', '')  # Texte complet
+            operation = task.get('operation', '')
+            description = task.get('description', '')
             quantity = str(task.get('quantity', 1))
             planned_hours = f"{task.get('planned_hours', 0):.1f}"
             actual_hours = f"{task.get('actual_hours', 0):.1f}"
-            assigned_to = task.get('assigned_to', '')  # Texte complet
-            fournisseur = task.get('fournisseur', '-- Interne --')  # Texte complet
+            assigned_to = task.get('assigned_to', '')
+            fournisseur = task.get('fournisseur', '-- Interne --')
             status = self._get_status_display(task.get('status', 'pending'))
             
             task_data.append([
@@ -337,18 +277,16 @@ class BTPDFGenerator:
             ])
         
         if len(task_data) > 1:
-            # LARGEURS UNIFORMES AVEC TOUTES LES AUTRES SECTIONS
-            # Répartition corrigée avec colonne N° visible et statut complet
             tasks_table = Table(task_data, colWidths=[
-                20,   # N° - visible et fixe
+                18,   # N° - plus petit
                 self.table_width * 0.23,  # Opération - 23%
                 self.table_width * 0.23,  # Description - 23%
-                25,   # Qté - fixe petit
-                30,   # H.Prév - fixe
-                30,   # H.Réel - fixe
+                22,   # Qté - plus petit
+                28,   # H.Prév - plus petit
+                28,   # H.Réel - plus petit
                 self.table_width * 0.16,  # Assigné - 16%
                 self.table_width * 0.18,  # Fournisseur - 18%
-                self.table_width * 0.12   # Statut - 12% pour texte complet
+                self.table_width * 0.12   # Statut - 12%
             ])
             
             tasks_table.setStyle(TableStyle([
@@ -356,28 +294,28 @@ class BTPDFGenerator:
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('ALIGN', (1, 1), (2, -1), 'LEFT'),     # Opération et description à gauche
                 ('ALIGN', (6, 1), (7, -1), 'LEFT'),     # Assigné et fournisseur à gauche
-            ] + self._get_uniform_table_style(has_header=True)))
+            ] + self._get_compact_table_style(has_header=True)))
             
             elements.append(tasks_table)
-            elements.append(Spacer(1, 10))
+            elements.append(Spacer(1, 6))  # Réduit de 10 à 6
             
-            # Totaux compacts
+            # Totaux ultra compacts
             total_planned = sum(task.get('planned_hours', 0) for task in valid_tasks)
             total_actual = sum(task.get('actual_hours', 0) for task in valid_tasks)
             internal_planned = sum(task.get('planned_hours', 0) for task in valid_tasks 
                                  if task.get('fournisseur') == '-- Interne --')
             external_planned = total_planned - internal_planned
             
-            totals_text = f"""<b>TOTAUX:</b> Heures prévues: <b>{total_planned:.1f}h</b> (Interne: {internal_planned:.1f}h, Externe: {external_planned:.1f}h) • Heures réelles: <b>{total_actual:.1f}h</b> • Tâches: <b>{len(valid_tasks)}</b>"""
+            totals_text = f"""<b>TOTAUX:</b> H.prév: <b>{total_planned:.1f}h</b> (Int: {internal_planned:.1f}h, Ext: {external_planned:.1f}h) • H.réel: <b>{total_actual:.1f}h</b> • Tâches: <b>{len(valid_tasks)}</b>"""
             
             totals_para = Paragraph(totals_text, self.styles['DGImportant'])
             elements.append(totals_para)
-            elements.append(Spacer(1, 12))
+            elements.append(Spacer(1, 8))  # Réduit de 12 à 8
         
         return elements
     
     def _create_materials_section(self, form_data):
-        """Créer la section des matériaux - VERSION SANS TRONCATURE"""
+        """Créer la section des matériaux - VERSION COMPACTE"""
         elements = []
         
         materials = form_data.get('materials', [])
@@ -389,7 +327,7 @@ class BTPDFGenerator:
         # Titre de section
         section_title = Paragraph("MATÉRIAUX ET OUTILS REQUIS", self.styles['DGSection'])
         elements.append(section_title)
-        elements.append(Spacer(1, 8))
+        elements.append(Spacer(1, 6))  # Réduit de 8 à 6
         
         # En-têtes optimisés
         headers = ['N°', 'Matériau/Outil', 'Description', 'Qté', 'Unité', 'Fournisseur', 'Disponibilité', 'Notes']
@@ -398,26 +336,25 @@ class BTPDFGenerator:
         material_data = [headers]
         
         for i, material in enumerate(valid_materials, 1):
-            # AUCUNE TRONCATURE pour matériaux
-            name = material.get('name', '')  # Texte complet
-            description = material.get('description', '')  # Texte complet
+            name = material.get('name', '')
+            description = material.get('description', '')
             quantity = f"{material.get('quantity', 1):.1f}"
             unit = material.get('unit', 'pcs')
-            fournisseur = material.get('fournisseur', '-- Interne --')  # Texte complet
+            fournisseur = material.get('fournisseur', '-- Interne --')
             available = self._get_availability_display(material.get('available', 'yes'))
-            notes = material.get('notes', '')  # Texte complet
+            notes = material.get('notes', '')
             
             material_data.append([
                 str(i), name, description, quantity, unit, fournisseur, available, notes
             ])
         
-        # Largeurs UNIFORMES avec toutes les autres sections
+        # Largeurs compactes
         materials_table = Table(material_data, colWidths=[
-            25,   # N° - fixe
+            22,   # N° - plus petit
             self.table_width * 0.22,  # Matériau - 22%
             self.table_width * 0.25,  # Description - 25%
-            35,   # Qté - fixe
-            35,   # Unité - fixe
+            30,   # Qté - plus petit
+            30,   # Unité - plus petit
             self.table_width * 0.20,  # Fournisseur - 20%
             self.table_width * 0.15,  # Disponibilité - 15%
             self.table_width * 0.13   # Notes - 13%
@@ -428,15 +365,15 @@ class BTPDFGenerator:
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('ALIGN', (1, 1), (2, -1), 'LEFT'),     # Nom et description à gauche
             ('ALIGN', (5, 1), (7, -1), 'LEFT'),     # Fournisseur et notes à gauche
-        ] + self._get_uniform_table_style(has_header=True)))
+        ] + self._get_compact_table_style(has_header=True)))
         
         elements.append(materials_table)
-        elements.append(Spacer(1, 12))
+        elements.append(Spacer(1, 8))  # Réduit de 12 à 8
         
         return elements
     
     def _create_instructions_section(self, form_data):
-        """Créer la section des instructions - VERSION COMPACTE"""
+        """Créer la section des instructions - VERSION ULTRA COMPACTE"""
         elements = []
         
         work_instructions = form_data.get('work_instructions', '').strip()
@@ -449,29 +386,29 @@ class BTPDFGenerator:
         # Titre de section
         section_title = Paragraph("INSTRUCTIONS ET NOTES", self.styles['DGSection'])
         elements.append(section_title)
-        elements.append(Spacer(1, 6))
+        elements.append(Spacer(1, 4))  # Réduit de 6 à 4
         
-        # Instructions compactes
+        # Instructions ultra compactes
         if work_instructions:
             work_title = Paragraph("<b>Instructions de travail:</b>", self.styles['DGImportant'])
             elements.append(work_title)
             work_text = Paragraph(work_instructions, self.styles['DGNormal'])
             elements.append(work_text)
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 4))  # Réduit de 6 à 4
         
         if safety_notes:
             safety_title = Paragraph("<b>⚠️ Notes de sécurité:</b>", self.styles['DGImportant'])
             elements.append(safety_title)
             safety_text = Paragraph(safety_notes, self.styles['DGNormal'])
             elements.append(safety_text)
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 4))  # Réduit de 6 à 4
         
         if quality_requirements:
             quality_title = Paragraph("<b>🎯 Exigences qualité:</b>", self.styles['DGImportant'])
             elements.append(quality_title)
             quality_text = Paragraph(quality_requirements, self.styles['DGNormal'])
             elements.append(quality_text)
-            elements.append(Spacer(1, 8))
+            elements.append(Spacer(1, 6))  # Réduit de 8 à 6
         
         return elements
     
@@ -482,7 +419,7 @@ class BTPDFGenerator:
         # Titre de section
         section_title = Paragraph("VALIDATIONS ET SIGNATURES", self.styles['DGSection'])
         elements.append(section_title)
-        elements.append(Spacer(1, 6))
+        elements.append(Spacer(1, 4))  # Réduit de 6 à 4
         
         # Tableau des signatures compact
         signature_data = [
@@ -493,7 +430,7 @@ class BTPDFGenerator:
             ['Client (si requis)', '', '', '']
         ]
         
-        # Largeurs UNIFORMES avec toutes les autres sections
+        # Largeurs compactes
         signatures_table = Table(signature_data, colWidths=[
             self.table_width * 0.30,  # Rôle (30%)
             self.table_width * 0.25,  # Nom (25%)
@@ -505,11 +442,11 @@ class BTPDFGenerator:
             # Alignements spéciaux pour signatures
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('ALIGN', (0, 1), (1, -1), 'LEFT'),     # Rôle et nom à gauche
-            ('ROWHEIGHT', (0, 1), (-1, -1), 25),    # Plus d'espace pour signatures
-        ] + self._get_uniform_table_style(has_header=True)))
+            ('ROWHEIGHT', (0, 1), (-1, -1), 20),    # Hauteur réduite pour signatures
+        ] + self._get_compact_table_style(has_header=True)))
         
         elements.append(signatures_table)
-        elements.append(Spacer(1, 15))
+        elements.append(Spacer(1, 10))  # Réduit de 15 à 10
         
         return elements
     
@@ -543,18 +480,18 @@ class BTPDFGenerator:
         return availability_map.get(availability, availability)
     
     def generate_pdf(self, form_data):
-        """Générer le PDF complet - VERSION FINALE SANS TRONCATURE"""
+        """Générer le PDF complet - VERSION ULTRA COMPACTE"""
         # Créer un buffer pour le PDF
         buffer = io.BytesIO()
         
-        # Document avec marges ULTRA MINIMALES pour maximiser l'espace
+        # Document avec marges optimisées
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
             rightMargin=self.margin,
             leftMargin=self.margin,
-            topMargin=100,     # En-tête compact
-            bottomMargin=55    # Pied de page compact
+            topMargin=85,     # En-tête plus compact (réduit de 100 à 85)
+            bottomMargin=50   # Pied de page plus compact (réduit de 55 à 50)
         )
         
         # Éléments du document
@@ -577,7 +514,7 @@ class BTPDFGenerator:
 
 def export_bt_pdf_streamlit(form_data):
     """
-    Fonction principale d'export PDF pour Streamlit - VERSION FINALE SANS TRONCATURE
+    Fonction principale d'export PDF pour Streamlit - VERSION ULTRA COMPACTE
     """
     try:
         # Validation des données minimales
@@ -589,11 +526,11 @@ def export_bt_pdf_streamlit(form_data):
             st.error("❌ Nom du projet requis pour l'export PDF")
             return
         
-        # Créer le générateur PDF final
+        # Créer le générateur PDF compact
         pdf_generator = BTPDFGenerator()
         
         # Générer le PDF
-        with st.spinner("📄 Génération du PDF final sans troncature..."):
+        with st.spinner("📄 Génération du PDF ultra-compact..."):
             pdf_buffer = pdf_generator.generate_pdf(form_data)
         
         # Nom du fichier
@@ -604,25 +541,25 @@ def export_bt_pdf_streamlit(form_data):
         
         # Bouton de téléchargement
         st.download_button(
-            label="📥 Télécharger le PDF Final (Sans Troncature)",
+            label="📥 Télécharger le PDF Ultra-Compact",
             data=pdf_buffer.getvalue(),
             file_name=filename,
             mime="application/pdf",
             type="primary",
-            help=f"Télécharger le bon de travail {numero_doc} - Version finale sans troncature"
+            help=f"Télécharger le bon de travail {numero_doc} - Version ultra-compacte"
         )
         
-        st.success(f"✅ PDF final généré avec succès ! Fichier: {filename}")
+        st.success(f"✅ PDF ultra-compact généré avec succès ! Fichier: {filename}")
         
-        # Informations sur les améliorations FINALES
+        # Informations sur les améliorations COMPACTES
         st.info("""
-        🎯 **Version Finale - Améliorations Définitives :**
-        • ✅ **AUCUNE troncature** : Texte complet préservé dans toutes les colonnes
-        • ✅ **Marges minimales** : 20pt au lieu de 40pt (35% d'espace en plus)
-        • ✅ **Police optimisée** : 8-9pt pour maximiser l'espace disponible
-        • ✅ **Largeurs précises** : Calcul exact pour éviter débordement
-        • ✅ **Espacement minimal** : Padding réduit mais professionnel
-        • ✅ **Colonnes équilibrées** : "Fournisseur" et "Statut" bien séparés
+        🎯 **Version Ultra-Compacte - Améliorations :**
+        • ✅ **Hauteur de texte réduite** : Police 7pt au lieu de 9pt (22% plus compact)
+        • ✅ **Bordures fines** : Cadres 0.5pt au lieu de 1pt (look plus fin)
+        • ✅ **Hauteur de lignes** : 16pt au lieu de 20pt (20% plus compact)
+        • ✅ **Padding réduit** : 2pt au lieu de 4pt (espacement minimal)
+        • ✅ **En-tête compact** : Hauteur réduite de 15pt
+        • ✅ **Espacement uniforme** : Cohérence parfaite entre toutes les sections
         """)
         
         # Statistiques du PDF
@@ -631,22 +568,22 @@ def export_bt_pdf_streamlit(form_data):
         total_hours = sum(task.get('planned_hours', 0) for task in form_data.get('tasks', []))
         
         st.info(f"""
-        📊 **Contenu du PDF Final :**
+        📊 **Contenu du PDF Ultra-Compact :**
         - **Bon de Travail:** {numero_doc}
         - **Projet:** {form_data.get('project_name', 'N/A')}
         - **Tâches:** {tasks_count} opérations ({total_hours:.1f}h prévues)
         - **Matériaux:** {materials_count} éléments
-        - **Taille:** {len(pdf_buffer.getvalue()):,} octets
-        - **Largeur utilisée:** {555}pt sur {595}pt disponibles (93% d'utilisation)
+        - **Compacité:** Hauteur de ligne 16pt, police 7pt, bordures 0.5pt
+        - **Uniformité:** Espacement standardisé dans toutes les sections
         """)
         
     except Exception as e:
-        logger.error(f"Erreur génération PDF final: {e}")
+        logger.error(f"Erreur génération PDF compact: {e}")
         st.error(f"❌ Erreur lors de la génération du PDF: {str(e)}")
         st.info("💡 Vérifiez que ReportLab est installé: `pip install reportlab`")
 
 def test_pdf_generation():
-    """Fonction de test pour la version finale sans troncature"""
+    """Fonction de test pour la version ultra-compacte"""
     test_data = {
         'numero_document': 'BT-2025-001',
         'project_name': 'ATTACHE DE SERRE 10" (T DE SERRE) - Projet Complet de Fabrication',
@@ -725,14 +662,14 @@ def test_pdf_generation():
     return test_data
 
 if __name__ == "__main__":
-    # Test de la version finale sans troncature
+    # Test de la version ultra-compacte
     test_data = test_pdf_generation()
     generator = BTPDFGenerator()
     pdf_buffer = generator.generate_pdf(test_data)
     
-    with open("test_bt_final_sans_troncature.pdf", "wb") as f:
+    with open("test_bt_ultra_compact.pdf", "wb") as f:
         f.write(pdf_buffer.getvalue())
     
-    print("✅ PDF final sans troncature généré: test_bt_final_sans_troncature.pdf")
-    print("🎯 AUCUNE troncature, largeurs maximales, espacement optimal !")
-    print("📏 Utilisation de 93% de l'espace disponible pour éliminer toute troncature !")
+    print("✅ PDF ultra-compact généré: test_bt_ultra_compact.pdf")
+    print("🎯 Hauteur de texte réduite, bordures fines, espacement uniforme !")
+    print("📏 Police 7pt, hauteur de ligne 16pt, bordures 0.5pt pour un look épuré !")
