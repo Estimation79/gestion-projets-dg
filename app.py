@@ -16,6 +16,40 @@ import csv
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
 
 # ========================
+# CONSTANTES GLOBALES
+# ========================
+
+# Liste unifiée des tâches de production (utilisée dans création ET modification)
+TACHES_PRODUCTION = [
+    "Général",
+    "Temps Bureau", 
+    "Programmation",
+    "Réception",
+    "Scie",
+    "Cisaille",
+    "Poinçonnage",
+    "Laser",
+    "Cintrage/Roulage",
+    "Pliage",
+    "Punch Press",
+    "Soudure MIG",
+    "Robot Soudage",
+    "Ébavurage",
+    "Press Drill",
+    "Filetage",
+    "Fraisage",
+    "Peinture",
+    "Galvanisation",
+    "Placage/Passivation",
+    "Polissage",
+    "Manutention",
+    "Assemblage",
+    "Inspection",
+    "Emballage",
+    "Expédition"
+]
+
+# ========================
 # CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
 # ========================
 
@@ -2699,6 +2733,7 @@ def show_erp_main():
     # Gestion des actions en lot
     if st.session_state.get('batch_action'):
         handle_batch_actions()
+
 # ========================
 # AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR (ORIGINAL)
 # ========================
@@ -3242,7 +3277,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе - VERSION FINALE COMPLÈTE"""
+    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе et TACHES_PRODUCTION - VERSION FINALE COMPLÈTE"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -3319,34 +3354,8 @@ def render_create_project_form(gestionnaire, crm_manager):
             priorite = st.selectbox("Priorité:", ["BAS", "MOYEN", "ÉLEVÉ"])
 
         with fc2:
-            tache = st.selectbox("Tâches:", [
-                "Général",
-                "Temps Bureau", 
-                "Programmation",
-                "Réception",
-                "Scie",
-                "Cisaille",
-                "Poinçonnage",
-                "Laser",
-                "Cintrage/Roulage",
-                "Pliage",
-                "Punch Press",
-                "Soudure MIG",
-                "Robot Soudage",
-                "Ébavurage",
-                "Press Drill",
-                "Filetage",
-                "Fraisage",
-                "Peinture",
-                "Galvanisation",
-                "Placage/Passivation",
-                "Polissage",
-                "Manutention",
-                "Assemblage",
-                "Inspection",
-                "Emballage",
-                "Expédition"
-            ])
+            # CORRECTION : Utilisation de TACHES_PRODUCTION
+            tache = st.selectbox("Tâches:", TACHES_PRODUCTION)
             d_debut = st.date_input("Début:", datetime.now().date())
             d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
             bd_ft = st.number_input("BD-FT (h):", 0, value=40, step=1)
@@ -3482,11 +3491,11 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}
     return bool(re.match(pattern, project_id.strip()))
     
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
-    """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE"""
+    """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE avec TACHES_PRODUCTION"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -3527,10 +3536,9 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             priorite = st.selectbox("Priorité:", priorites, index=priorites.index(current_priorite) if current_priorite in priorites else 1)
 
         with fc2:
-            # Gestion du type de tâche
-            taches = ["ESTIMATION", "CONCEPTION", "DÉVELOPPEMENT", "TESTS", "DÉPLOIEMENT", "MAINTENANCE", "FORMATION"]
-            current_tache = project_data.get('tache', 'ESTIMATION')
-            tache = st.selectbox("Type:", taches, index=taches.index(current_tache) if current_tache in taches else 0)
+            # CORRECTION : Gestion du type de tâche avec TACHES_PRODUCTION
+            current_tache = project_data.get('tache', 'Général')
+            tache = st.selectbox("Tâches:", TACHES_PRODUCTION, index=TACHES_PRODUCTION.index(current_tache) if current_tache in TACHES_PRODUCTION else 0)
 
             # Gestion des dates
             try:
@@ -3554,7 +3562,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -4461,10 +4469,11 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC ID PERSONNALISÉ")
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC ID PERSONNALISÉ ET TACHES_PRODUCTION")
 print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
 print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
 print("✅ Fonctionnalité ID projet personnalisé intégrée")
 print("✅ Module Kanban unifié intégré avec fallback")
 print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
+print("✅ CORRECTION CRITIQUE: Liste des tâches unifiée avec TACHES_PRODUCTION")
 print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
