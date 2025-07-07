@@ -1,5 +1,3 @@
-# production_management.py - Gestion des Bons de Travail & Postes - Desmarais & Gagné Inc.
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -1122,7 +1120,8 @@ def show_main_navigation():
                      type="primary" if st.session_state.main_mode == 'bt' else "secondary",
                      key="main_nav_bt"):
             st.session_state.main_mode = 'bt'
-            st.session_state.bt_mode = 'create'
+            # Aller vers la gestion des BT au lieu de la création
+            st.session_state.bt_mode = 'manage'
             st.rerun()
     
     with nav_col2:
