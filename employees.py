@@ -1,7 +1,3 @@
-# -*- coding: utf-8 -*-
-# employees.py - Module RH SQLite Unifié
-# ERP Production DG Inc. - Architecture SQLite Complète
-
 import json
 import os
 from datetime import datetime, timedelta
@@ -1079,7 +1075,7 @@ def render_employes_liste_tab(emp_manager, projet_manager):
 
 def render_employes_dashboard_tab(emp_manager, projet_manager):
     """Dashboard RH - Compatible SQLite avec métriques métallurgie"""
-    st.subheader("📊 Dashboard RH - DG Inc. Métallurgie (SQLite)")
+    st.subheader("📊 Dashboard RH")
     
     stats = emp_manager.get_statistiques_employes()
     if not stats:
