@@ -183,16 +183,17 @@ def export_bt_html_streamlit(form_data: Dict) -> str:
                 color: var(--text-color);
                 background-color: var(--background-color);
                 margin: 0;
-                padding: 20px;
+                padding: 15px;
             }}
             
             .container {{
-                max-width: 210mm;
+                max-width: 8.5in;
                 margin: 0 auto;
                 background-color: white;
                 border-radius: 12px;
                 box-shadow: var(--box-shadow-md);
                 overflow: hidden;
+                width: 100%;
             }}
             
             .header {{
@@ -272,7 +273,7 @@ def export_bt_html_streamlit(form_data: Dict) -> str:
             }}
             
             .content {{
-                padding: 30px;
+                padding: 25px;
             }}
             
             .section {{
@@ -293,8 +294,8 @@ def export_bt_html_streamlit(form_data: Dict) -> str:
             
             .info-grid {{
                 display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 20px;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: 15px;
                 margin-bottom: 20px;
             }}
             
@@ -390,8 +391,8 @@ def export_bt_html_streamlit(form_data: Dict) -> str:
             
             .summary-grid {{
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
+                grid-template-columns: repeat(6, 1fr);
+                gap: 12px;
             }}
             
             .summary-item {{
@@ -435,10 +436,54 @@ def export_bt_html_streamlit(form_data: Dict) -> str:
             }}
             
             @media print {{
-                body {{ margin: 0; padding: 0; }}
-                .container {{ box-shadow: none; }}
-                .table {{ break-inside: avoid; }}
-                .section {{ break-inside: avoid-page; }}
+                body {{ 
+                    margin: 0; 
+                    padding: 0; 
+                }}
+                .container {{ 
+                    box-shadow: none; 
+                    max-width: 100%;
+                    width: 8.5in;
+                }}
+                .table {{ 
+                    break-inside: avoid; 
+                    font-size: 12px;
+                }}
+                .section {{ 
+                    break-inside: avoid-page; 
+                }}
+                .header {{
+                    padding: 20px 25px;
+                }}
+                .content {{
+                    padding: 20px;
+                }}
+                @page {{
+                    size: letter;
+                    margin: 0.5in;
+                }}
+            }}
+            
+            @media screen and (max-width: 768px) {{
+                .container {{
+                    max-width: 100%;
+                    margin: 0 10px;
+                }}
+                .info-grid {{
+                    grid-template-columns: 1fr;
+                    gap: 10px;
+                }}
+                .summary-grid {{
+                    grid-template-columns: repeat(2, 1fr);
+                }}
+                .header {{
+                    flex-direction: column;
+                    text-align: center;
+                    gap: 15px;
+                }}
+                .contact-info {{
+                    text-align: center;
+                }}
             }}
         </style>
     </head>
