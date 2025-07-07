@@ -1784,7 +1784,7 @@ class GestionnaireCRM:
 # --- Fonctions d'affichage Streamlit avec adresses structurées ---
 
 def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
-    st.subheader("👤 Liste des Contacts (SQLite)")
+    st.subheader("👤 Liste des Contacts")
 
     col_create_contact, col_search_contact = st.columns([1, 2])
     with col_create_contact:
