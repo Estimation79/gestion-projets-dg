@@ -699,11 +699,13 @@ def export_bt_html_streamlit(form_data: Dict) -> str:
     for field_key, title, icon in instructions_sections:
         content = form_data.get(field_key, '').strip()
         if content:
+            # Remplacer les retours à la ligne par des <br>
+            content_formatted = content.replace('\n', '<br>')
             html_template += f"""
                 <div class="section">
                     <h2 class="section-title">{icon} {title}</h2>
                     <div class="instructions-box">
-                        {content.replace('\n', '<br>')}
+                        {content_formatted}
                     </div>
                 </div>
             """
