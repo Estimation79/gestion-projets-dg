@@ -1,3 +1,8 @@
+# bt_pdf_export.py - Module d'export PDF pour les Bons de Travail - VERSION FINALE SANS TRONCATURE
+# Desmarais & Gagné Inc. - Système ERP Production
+# Génération de PDFs professionnels avec identité DG Inc.
+# VERSION FINALE : Aucune troncature, largeurs maximales, espacement parfait
+
 import streamlit as st
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
@@ -35,7 +40,49 @@ class BTPDFGenerator:
         self.styles = getSampleStyleSheet()
         self._create_uniform_styles()
     
-    def _create_uniform_styles(self):
+    def _get_uniform_table_style(self, has_header=True):
+        """Style de tableau uniforme pour toutes les sections"""
+        base_style = [
+            # Bordures UNIFORMES pour tous les tableaux
+            ('GRID', (0, 0), (-1, -1), 1, DG_GRAY),  # Grille uniforme 1pt
+            ('LINEBELOW', (0, 0), (-1, -1), 1, DG_GRAY),  # Lignes horizontales
+            ('LINEBEFORE', (0, 0), (-1, -1), 1, DG_GRAY),  # Lignes verticales
+            ('LINEAFTER', (0, 0), (-1, -1), 1, DG_GRAY),   # Bordure droite
+            ('LINEABOVE', (0, 0), (-1, -1), 1, DG_GRAY),   # Bordure haute
+            
+            # Polices UNIFORMES
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            
+            # Alignement et espacement UNIFORMES
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            
+            # Hauteur uniforme
+            ('ROWHEIGHT', (0, 0), (-1, -1), 20),
+        ]
+        
+        # Style spécial pour en-tête si présent
+        if has_header:
+            header_style = [
+                ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('LINEBELOW', (0, 0), (-1, 0), 2, DG_PRIMARY),  # Ligne épaisse sous en-tête
+            ]
+            base_style.extend(header_style)
+            
+            # Fond alterné pour le contenu (après en-tête)
+            base_style.append(('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN]))
+        else:
+            # Fond blanc pour tableaux sans en-tête
+            base_style.append(('BACKGROUND', (0, 0), (-1, -1), colors.white))
+        
+        return base_style
         """Créer des styles parfaitement uniformes - POLICE UNIQUE"""
         
         # UNIFORMITÉ ABSOLUE : Une seule taille pour tout le contenu
@@ -182,32 +229,13 @@ class BTPDFGenerator:
         ], spaceAfter=0, spaceBefore=0)
         
         info_table.setStyle(TableStyle([
-            # Couleurs et fond
+            # Couleurs spéciales pour section info
             ('BACKGROUND', (0, 0), (0, -1), DG_LIGHT_GREEN),
             ('BACKGROUND', (2, 0), (2, -1), DG_LIGHT_GREEN),
             ('TEXTCOLOR', (0, 0), (-1, -1), DG_GRAY),
-            
-            # Polices UNIFORMES
             ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
             ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
-            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-            ('FONTNAME', (3, 0), (3, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),  # TAILLE UNIFORME
-            
-            # Alignement et espacement
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
-            
-            # Padding AVEC ESPACEMENT POUR ÉVITER COLLAGE
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),    # Plus d'espace à gauche
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),   # Plus d'espace à droite
-            
-            # Hauteur réduite mais suffisante
-            ('ROWHEIGHT', (0, 0), (-1, -1), 22),
-        ]))
+        ] + self._get_uniform_table_style(has_header=False)))
         
         elements.append(info_table)
         elements.append(Spacer(1, 15))
@@ -252,55 +280,26 @@ class BTPDFGenerator:
             ])
         
         if len(task_data) > 1:
-            # LARGEURS CORRIGÉES POUR ÉVITER TOUTE TRONCATURE
-            total_width = self.content_width - 8  # Buffer minimal
-            
+            # LARGEURS UNIFORMES AVEC TOUTES LES AUTRES SECTIONS
             # Répartition corrigée avec colonne N° visible et statut complet
             tasks_table = Table(task_data, colWidths=[
                 20,   # N° - visible et fixe
-                total_width * 0.23,  # Opération - 23%
-                total_width * 0.23,  # Description - 23%
+                self.table_width * 0.23,  # Opération - 23%
+                self.table_width * 0.23,  # Description - 23%
                 25,   # Qté - fixe petit
                 30,   # H.Prév - fixe
                 30,   # H.Réel - fixe
-                total_width * 0.16,  # Assigné - 16%
-                total_width * 0.18,  # Fournisseur - 18%
-                total_width * 0.12   # Statut - 12% pour texte complet
+                self.table_width * 0.16,  # Assigné - 16%
+                self.table_width * 0.18,  # Fournisseur - 18%
+                self.table_width * 0.12   # Statut - 12% pour texte complet
             ])
             
             tasks_table.setStyle(TableStyle([
-                # En-tête uniforme
-                ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 8),  # POLICE RÉDUITE pour en-tête
-                
-                # Contenu avec police lisible
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 7),  # ENCORE PLUS PETIT pour éviter troncature
-                
-                # Alignement optimisé
+                # Alignements spéciaux pour tâches
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('ALIGN', (1, 1), (2, -1), 'LEFT'),     # Opération et description à gauche
                 ('ALIGN', (6, 1), (7, -1), 'LEFT'),     # Assigné et fournisseur à gauche
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),    # Alignement en haut pour texte long
-                
-                # Bordures fines
-                ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN]),
-                
-                # Espacement CORRIGÉ pour éviter collage
-                ('TOPPADDING', (0, 0), (-1, -1), 4),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-                ('LEFTPADDING', (0, 0), (-1, -1), 3),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-                
-                # Hauteur adaptative pour texte
-                ('ROWHEIGHT', (0, 1), (-1, -1), 18),  # Réduit mais suffisant
-                
-                # Lignes professionnelles
-                ('LINEBELOW', (0, 0), (-1, 0), 1, DG_PRIMARY),
-            ]))
+            ] + self._get_uniform_table_style(has_header=True)))
             
             elements.append(tasks_table)
             elements.append(Spacer(1, 10))
@@ -355,45 +354,24 @@ class BTPDFGenerator:
                 str(i), name, description, quantity, unit, fournisseur, available, notes
             ])
         
-        # Largeurs optimisées pour matériaux
-        total_width = self.content_width - 5
+        # Largeurs UNIFORMES avec toutes les autres sections
         materials_table = Table(material_data, colWidths=[
             25,   # N° - fixe
-            total_width * 0.22,  # Matériau - 22%
-            total_width * 0.25,  # Description - 25%
+            self.table_width * 0.22,  # Matériau - 22%
+            self.table_width * 0.25,  # Description - 25%
             35,   # Qté - fixe
             35,   # Unité - fixe
-            total_width * 0.20,  # Fournisseur - 20%
-            total_width * 0.15,  # Disponibilité - 15%
-            total_width * 0.13   # Notes - 13%
+            self.table_width * 0.20,  # Fournisseur - 20%
+            self.table_width * 0.15,  # Disponibilité - 15%
+            self.table_width * 0.13   # Notes - 13%
         ])
         
         materials_table.setStyle(TableStyle([
-            # Styles uniformes avec les tâches
-            ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-            
+            # Alignements spéciaux pour matériaux
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (1, 1), (2, -1), 'LEFT'),
-            ('ALIGN', (5, 1), (7, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            
-            ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, DG_LIGHT_GREEN]),
-            
-            # Espacement identique aux tâches
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-            ('LEFTPADDING', (0, 0), (-1, -1), 2),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-            ('ROWHEIGHT', (0, 1), (-1, -1), 20),
-            
-            ('LINEBELOW', (0, 0), (-1, 0), 1, DG_PRIMARY),
-        ]))
+            ('ALIGN', (1, 1), (2, -1), 'LEFT'),     # Nom et description à gauche
+            ('ALIGN', (5, 1), (7, -1), 'LEFT'),     # Fournisseur et notes à gauche
+        ] + self._get_uniform_table_style(has_header=True)))
         
         elements.append(materials_table)
         elements.append(Spacer(1, 12))
@@ -458,40 +436,20 @@ class BTPDFGenerator:
             ['Client (si requis)', '', '', '']
         ]
         
-        # Largeurs optimisées pour signatures
-        total_width = self.content_width - 5
+        # Largeurs UNIFORMES avec toutes les autres sections
         signatures_table = Table(signature_data, colWidths=[
-            total_width * 0.30,  # Rôle (30%)
-            total_width * 0.25,  # Nom (25%)
-            total_width * 0.30,  # Signature (30%)
-            total_width * 0.15   # Date (15%)
+            self.table_width * 0.30,  # Rôle (30%)
+            self.table_width * 0.25,  # Nom (25%)
+            self.table_width * 0.30,  # Signature (30%)
+            self.table_width * 0.15   # Date (15%)
         ])
         
         signatures_table.setStyle(TableStyle([
-            # Style uniforme avec les autres tableaux
-            ('BACKGROUND', (0, 0), (-1, 0), DG_PRIMARY),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-            
+            # Alignements spéciaux pour signatures
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            
-            ('GRID', (0, 0), (-1, -1), 0.5, DG_GRAY),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white]),
-            
-            # Espacement pour signatures
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ('LEFTPADDING', (0, 0), (-1, -1), 3),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-            ('ROWHEIGHT', (0, 1), (-1, -1), 25),  # Espace pour signatures
-            
-            ('LINEBELOW', (0, 0), (-1, 0), 1, DG_PRIMARY),
-        ]))
+            ('ALIGN', (0, 1), (1, -1), 'LEFT'),     # Rôle et nom à gauche
+            ('ROWHEIGHT', (0, 1), (-1, -1), 25),    # Plus d'espace pour signatures
+        ] + self._get_uniform_table_style(has_header=True)))
         
         elements.append(signatures_table)
         elements.append(Spacer(1, 15))
