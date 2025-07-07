@@ -3319,7 +3319,34 @@ def render_create_project_form(gestionnaire, crm_manager):
             priorite = st.selectbox("Priorité:", ["BAS", "MOYEN", "ÉLEVÉ"])
 
         with fc2:
-            tache = st.selectbox("Type:", ["ESTIMATION", "CONCEPTION", "DÉVELOPPEMENT", "TESTS", "DÉPLOIEMENT", "MAINTENANCE", "FORMATION"])
+            tache = st.selectbox("Type:", [
+                "Général",
+                "Temps Bureau", 
+                "Programmation",
+                "Réception",
+                "Scie",
+                "Cisaille",
+                "Poinçonnage",
+                "Laser",
+                "Cintrage/Roulage",
+                "Pliage",
+                "Punch Press",
+                "Soudure MIG",
+                "Robot Soudage",
+                "Ébavurage",
+                "Press Drill",
+                "Filetage",
+                "Fraisage",
+                "Peinture",
+                "Galvanisation",
+                "Placage/Passivation",
+                "Polissage",
+                "Manutention",
+                "Assemblage",
+                "Inspection",
+                "Emballage",
+                "Expédition"
+            ])
             d_debut = st.date_input("Début:", datetime.now().date())
             d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
             bd_ft = st.number_input("BD-FT (h):", 0, value=40, step=1)
