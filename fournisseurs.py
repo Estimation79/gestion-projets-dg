@@ -1,9 +1,3 @@
-# fournisseurs.py - Module Fournisseurs pour ERP Production DG Inc.
-# Version nettoyée - Suppression complète de la logique d'activation/désactivation
-# + NOUVEAUX FORMULAIRES : Demande de Prix et Bon d'Achat intégrés
-# + NETTOYAGE : Suppression complète du système est_actif
-# + SIMPLIFICATION : Code Fournisseur automatique + Catégorie optionnelle
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -14,7 +8,7 @@ from typing import Dict, List, Optional, Any
 
 class GestionnaireFournisseurs:
     """
-    Gestionnaire complet pour les fournisseurs de l'ERP Production DG Inc.
+    Gestionnaire complet pour les fournisseurs.
     Intégré avec la base de données SQLite unifiée
     + NOUVEAUX : Formulaires Demande de Prix et Bon d'Achat
     + NETTOYAGE : Suppression complète du système d'activation/désactivation
@@ -591,7 +585,7 @@ class GestionnaireFournisseurs:
 
 def show_fournisseurs_page():
     """Page principale du module Fournisseurs - VERSION NETTOYÉE"""
-    st.markdown("## 🏪 Gestion des Fournisseurs DG Inc.")
+    st.markdown("## 🏪 Gestion des Fournisseurs")
     
     # Initialisation du gestionnaire
     if 'gestionnaire_fournisseurs' not in st.session_state:
