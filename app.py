@@ -2970,7 +2970,7 @@ def show_liste_projets():
     # Appliquer les styles CSS supplémentaires
     apply_additional_project_styles()
     
-    st.markdown("### 📋 Gestion des Projets DG Inc.")
+    st.markdown("### 📋 Gestion des Projets")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
 
