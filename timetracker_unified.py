@@ -22,6 +22,7 @@ class TimeTrackerUnified:
     NOUVEAU: Gestion administrative avec suppression d'historique
     NOUVEAU: Interface double - Mode Superviseur et Mode Employé
     NOUVEAU: Réinitialisation automatique après pointage
+    MODIFIÉ: Interface employé directe sans sélecteur de mode
     """
     
     def __init__(self, db):
@@ -2627,11 +2628,11 @@ def show_admin_interface(tt):
                         st.write(f"- {erreur}")
 
 # =========================================================================
-# INTERFACE PRINCIPALE UNIFIÉE - AVEC SÉLECTEUR DE MODE
+# INTERFACE PRINCIPALE MODIFIÉE - MODE EMPLOYÉ DIRECT
 # =========================================================================
 
 def show_timetracker_unified_interface():
-    """Interface principale du TimeTracker unifié - Choix entre mode Superviseur et Employé"""
+    """Interface principale du TimeTracker unifié - MODE EMPLOYÉ DIRECT"""
     
     if 'timetracker_unified' not in st.session_state:
         st.error("❌ TimeTracker non initialisé")
@@ -2639,13 +2640,141 @@ def show_timetracker_unified_interface():
     
     tt = st.session_state.timetracker_unified
     
-    st.markdown("### ⏱️ TimeTracker Unifié - Pointage sur Opérations")
+    st.markdown("### ⏱️ TimeTracker Unifié - Interface Employé")
+    st.info("👤 **Interface Employé** - Vue personnelle simplifiée pour le pointage sur opérations")
+    
+    # MODE EMPLOYÉ DIRECT - Interface simplifiée (pas d'authentification requise)
+    tab_employee_punch, tab_employee_history = st.tabs([
+        "👤 Mon Pointage", "📊 Mon Historique"
+    ])
+    
+    with tab_employee_punch:
+        show_employee_punch_interface(tt)
+    
+    with tab_employee_history:
+        # Interface historique simplifiée pour employés
+        show_employee_history_interface(tt)
+
+# =========================================================================
+# NOUVELLE INTERFACE POUR ADMINISTRATEUR (si nécessaire)
+# =========================================================================
+
+def show_timetracker_supervisor_interface():
+    """Interface TimeTracker pour superviseurs/administrateurs"""
+    
+    if 'timetracker_unified' not in st.session_state:
+        st.error("❌ TimeTracker non initialisé")
+        return
+    
+    tt = st.session_state.timetracker_unified
+    
+    st.markdown("### ⏱️ TimeTracker Unifié - Interface Superviseur")
     
     # Initialiser l'authentification superviseur
     if 'supervisor_authenticated' not in st.session_state:
         st.session_state.supervisor_authenticated = False
     
-    # Sélecteur de mode utilisateur
+    # Vérification de l'authentification superviseur
+    if not st.session_state.supervisor_authenticated:
+        st.markdown("#### 🔐 Authentification Superviseur")
+        st.warning("🔒 **Accès Restreint** - Authentification requise pour le mode superviseur")
+        
+        col_auth1, col_auth2 = st.columns(2)
+        
+        with col_auth1:
+            supervisor_password = st.text_input(
+                "Mot de passe superviseur:", 
+                type="password", 
+                key="supervisor_password",
+                placeholder="Entrez le mot de passe superviseur"
+            )
+        
+        with col_auth2:
+            st.markdown("")  # Espacement
+            if st.button("🔓 Se connecter comme Superviseur", type="primary"):
+                # Mot de passe superviseur - À changer en production !
+                if supervisor_password == "supervisor123":
+                    st.session_state.supervisor_authenticated = True
+                    st.success("✅ Authentification superviseur réussie")
+                    st.rerun()
+                else:
+                    st.error("❌ Mot de passe superviseur incorrect")
+        
+        # Afficher les infos d'authentification
+        with st.expander("💡 Informations d'authentification"):
+            st.info("**Mot de passe superviseur de démo:** supervisor123")
+            st.caption("🔒 En production, utilisez un mot de passe sécurisé et implémentez un système d'authentification plus robuste.")
+        
+        return
+    
+    # Interface superviseur authentifiée
+    col_status1, col_status2 = st.columns([3, 1])
+    
+    with col_status1:
+        st.success("🔓 **Connecté en mode Superviseur** - Accès complet autorisé")
+    
+    with col_status2:
+        if st.button("🔒 Se déconnecter", key="supervisor_logout"):
+            st.session_state.supervisor_authenticated = False
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Mode superviseur - Interface complète avec tous les employés
+    tab_operations, tab_history_op, tab_stats_op, tab_admin = st.tabs([
+        "🔧 Pointage Opérations", "📊 Historique", "📈 Statistiques", "⚙️ Administration"
+    ])
+    
+    with tab_operations:
+        show_operation_punch_interface(tt)
+    
+    with tab_history_op:
+        show_history_interface_operations(tt)
+    
+    with tab_stats_op:
+        show_operation_statistics_interface(tt)
+    
+    with tab_admin:
+        show_admin_interface(tt)
+
+# =========================================================================
+# FONCTIONS PRINCIPALES D'AFFICHAGE - DOUBLE MODE
+# =========================================================================
+
+def show_timetracker_unified_interface_main():
+    """
+    Point d'entrée pour l'ACCÈS EMPLOYÉ depuis le portail
+    
+    ACCÈS EMPLOYÉ:
+    - Va directement au mode employé
+    - Interface simplifiée sans sélecteur de mode
+    - Vue personnelle filtrée par employé
+    """
+    show_timetracker_unified_interface()
+
+def show_timetracker_admin_complete_interface():
+    """
+    Point d'entrée pour l'ACCÈS ADMINISTRATEUR depuis le portail
+    
+    ACCÈS ADMINISTRATEUR:
+    - Interface complète avec sélecteur de mode
+    - Choix entre Superviseur et Employé
+    - Toutes les fonctionnalités administratives
+    """
+    
+    if 'timetracker_unified' not in st.session_state:
+        st.error("❌ TimeTracker non initialisé")
+        return
+    
+    tt = st.session_state.timetracker_unified
+    
+    st.markdown("### ⏱️ TimeTracker Unifié - Interface Administrateur")
+    
+    # Initialiser l'authentification superviseur
+    if 'supervisor_authenticated' not in st.session_state:
+        st.session_state.supervisor_authenticated = False
+    
+    # Sélecteur de mode utilisateur COMPLET pour admin
     col_mode1, col_mode2 = st.columns(2)
     
     with col_mode1:
@@ -2653,7 +2782,7 @@ def show_timetracker_unified_interface():
             "👥 Choisir le mode d'interface:",
             options=["superviseur", "employee"],
             format_func=lambda x: "🔧 Superviseur/Admin (voir tous les employés)" if x == "superviseur" else "👤 Employé (vue personnelle)",
-            key="timetracker_user_mode",
+            key="timetracker_admin_user_mode",
             horizontal=True
         )
     
@@ -2677,13 +2806,13 @@ def show_timetracker_unified_interface():
                 supervisor_password = st.text_input(
                     "Mot de passe superviseur:", 
                     type="password", 
-                    key="supervisor_password",
+                    key="admin_supervisor_password",
                     placeholder="Entrez le mot de passe superviseur"
                 )
             
             with col_auth2:
                 st.markdown("")  # Espacement
-                if st.button("🔓 Se connecter comme Superviseur", type="primary"):
+                if st.button("🔓 Se connecter comme Superviseur", type="primary", key="admin_supervisor_login"):
                     # Mot de passe superviseur - À changer en production !
                     if supervisor_password == "supervisor123":
                         st.session_state.supervisor_authenticated = True
@@ -2706,7 +2835,7 @@ def show_timetracker_unified_interface():
             st.success("🔓 **Connecté en mode Superviseur** - Accès complet autorisé")
         
         with col_status2:
-            if st.button("🔒 Se déconnecter", key="supervisor_logout"):
+            if st.button("🔒 Se déconnecter", key="admin_supervisor_logout"):
                 st.session_state.supervisor_authenticated = False
                 st.rerun()
         
@@ -2730,9 +2859,11 @@ def show_timetracker_unified_interface():
             show_admin_interface(tt)
     
     else:
-        # Mode employé - Interface simplifiée (pas d'authentification requise)
+        # Mode employé - Interface simplifiée (dans le contexte admin)
+        st.markdown("---")
+        
         tab_employee_punch, tab_employee_history = st.tabs([
-            "👤 Mon Pointage", "📊 Mon Historique"
+            "👤 Pointage Employé", "📊 Historique Employé"
         ])
         
         with tab_employee_punch:
@@ -2743,23 +2874,378 @@ def show_timetracker_unified_interface():
             show_employee_history_interface(tt)
 
 # =========================================================================
-# FONCTION PRINCIPALE D'AFFICHAGE
+# EXEMPLE DE MODIFICATION DANS APP.PY (MISE À JOUR)
 # =========================================================================
 
-def show_timetracker_unified_interface_main():
+"""
+Dans app.py, vous devez maintenant utiliser deux fonctions distinctes :
+
+# SECTION EMPLOYÉ - Accès direct au mode employé
+if selected_mode == "employee":
+    if st.button("⏱️ TimeTracker Pro & Postes Unifiés"):
+        st.session_state.current_page = "timetracker_employee"
+
+# SECTION ADMINISTRATEUR - Interface complète avec choix superviseur/employé
+if selected_mode == "admin":
+    if st.button("⏱️ TimeTracker Unifié Complet"):
+        st.session_state.current_page = "timetracker_admin_complete"
+
+# Puis dans le router des pages :
+elif st.session_state.current_page == "timetracker_employee":
+    # ACCÈS EMPLOYÉ : Interface employé directe
+    show_timetracker_unified_interface_main()
+
+elif st.session_state.current_page == "timetracker_admin_complete":
+    # ACCÈS ADMIN : Interface complète avec tous les choix
+    show_timetracker_admin_complete_interface()
+
+# Optionnel - Si vous voulez garder l'interface superviseur séparée :
+elif st.session_state.current_page == "timetracker_supervisor_only":
+    show_timetracker_supervisor_interface()
+"""
+
+# =========================================================================
+# FONCTIONS D'EXPORT/IMPORT POUR COMPATIBILITÉ
+# =========================================================================
+
+def export_timetracker_data(tt) -> str:
+    """Exporte toutes les données TimeTracker en JSON"""
+    try:
+        export_data = {
+            'metadata': {
+                'export_date': datetime.now().isoformat(),
+                'version': '2.0',
+                'type': 'timetracker_unified_export'
+            },
+            'time_entries': [],
+            'statistics': tt.get_timetracker_statistics_unified()
+        }
+        
+        # Récupérer toutes les entrées avec détails
+        query = '''
+            SELECT te.*, 
+                   p.nom_projet, 
+                   e.prenom || ' ' || e.nom as employee_name,
+                   o.description as operation_description,
+                   f.numero_document as bt_numero
+            FROM time_entries te
+            LEFT JOIN projects p ON te.project_id = p.id
+            LEFT JOIN employees e ON te.employee_id = e.id
+            LEFT JOIN operations o ON te.operation_id = o.id
+            LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id
+            ORDER BY te.punch_in DESC
+        '''
+        
+        rows = tt.db.execute_query(query)
+        for row in rows:
+            export_data['time_entries'].append(dict(row))
+        
+        return json.dumps(export_data, indent=2, default=str)
+        
+    except Exception as e:
+        logger.error(f"Erreur export données: {e}")
+        return None
+
+def get_timetracker_summary_stats(tt) -> Dict:
+    """Statistiques résumées pour l'affichage dans app.py"""
+    try:
+        stats = tt.get_timetracker_statistics_unified()
+        
+        return {
+            'total_employees': stats.get('total_employees', 0),
+            'active_entries': stats.get('active_entries', 0),
+            'total_entries_today': stats.get('total_entries_today', 0),
+            'total_hours_today': stats.get('total_hours_today', 0),
+            'total_revenue_today': stats.get('total_revenue_today', 0),
+            'operation_entries': stats.get('operation_entries', 0),
+            'bt_entries': stats.get('bt_entries', 0)
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur stats résumées: {e}")
+        return {}
+
+# =========================================================================
+# UTILITAIRES DE MAINTENANCE
+# =========================================================================
+
+def cleanup_timetracker_data(tt) -> Dict:
+    """Nettoyage automatique des données TimeTracker"""
+    try:
+        cleanup_result = {
+            'orphans_cleaned': 0,
+            'old_entries_archived': 0,
+            'invalid_entries_fixed': 0,
+            'success': True,
+            'message': ''
+        }
+        
+        # 1. Nettoyer les orphelins
+        orphan_result = tt.clear_orphaned_entries(create_backup=False)
+        cleanup_result['orphans_cleaned'] = orphan_result.get('entries_deleted', 0)
+        
+        # 2. Corriger les BT orphelins
+        bt_result = tt.corriger_pointages_bt_orphelins()
+        cleanup_result['invalid_entries_fixed'] = bt_result.get('corrections_effectuees', 0)
+        
+        cleanup_result['message'] = f"✅ Nettoyage terminé: {cleanup_result['orphans_cleaned']} orphelins supprimés, {cleanup_result['invalid_entries_fixed']} entrées corrigées"
+        
+        return cleanup_result
+        
+    except Exception as e:
+        logger.error(f"Erreur nettoyage: {e}")
+        return {
+            'success': False,
+            'message': f"❌ Erreur lors du nettoyage: {e}"
+        }
+
+def initialize_timetracker_unified(db) -> TimeTrackerUnified:
     """
-    Point d'entrée principal pour l'interface (appelé depuis app.py)
-    
-    NOUVELLES FONCTIONNALITÉS:
-    - Mode Superviseur: Interface complète avec vue sur tous les employés pointés
-    - Mode Employé: Interface simplifiée avec vue filtrée par employé sélectionné
-    - Disposition verticale des menus dans l'interface employé
-    - Réinitialisation automatique de la sélection d'employé après pointage
-    
-    Fonctions disponibles:
-    - show_timetracker_unified_interface(): Interface principale avec sélecteur de mode
-    - show_operation_punch_interface(): Interface superviseur (tous les employés)
-    - show_employee_punch_interface(): Interface employé (vue filtrée avec menus verticaux)
-    - show_employee_history_interface(): Historique simplifié pour employés
+    Initialise le TimeTracker unifié avec vérifications
     """
-    show_timetracker_unified_interface()
+    try:
+        # Créer l'instance
+        tt = TimeTrackerUnified(db)
+        
+        # Vérifier les tables nécessaires
+        required_tables = ['time_entries', 'employees', 'projects', 'operations', 'work_centers', 'formulaires', 'formulaire_lignes']
+        
+        for table in required_tables:
+            try:
+                result = db.execute_query(f"SELECT COUNT(*) as count FROM {table} LIMIT 1")
+                logger.info(f"Table {table}: {result[0]['count'] if result else 0} entrées")
+            except Exception as e:
+                logger.warning(f"Table {table} manquante ou inaccessible: {e}")
+        
+        # Diagnostic rapide
+        diagnostic = tt.diagnostic_timetracker_data()
+        if diagnostic.get('problemes_detectes'):
+            logger.warning(f"Problèmes détectés lors de l'initialisation: {len(diagnostic['problemes_detectes'])}")
+        
+        logger.info("TimeTracker Unifié initialisé avec succès")
+        return tt
+        
+    except Exception as e:
+        logger.error(f"Erreur initialisation TimeTracker: {e}")
+        raise
+
+# =========================================================================
+# CONFIGURATION ET CONSTANTES
+# =========================================================================
+
+# Configuration par défaut
+TIMETRACKER_CONFIG = {
+    'default_hourly_rate': 25.0,
+    'working_hours_per_year': 2080,
+    'max_daily_hours': 12,
+    'auto_cleanup_days': 90,
+    'backup_retention_days': 30,
+    'operation_id_offset': 100000,  # Pour différencier les tâches BT
+    'default_work_center': 'Poste Manuel'
+}
+
+# Messages d'interface
+INTERFACE_MESSAGES = {
+    'employee_select_prompt': "👆 Veuillez sélectionner un employé pour continuer",
+    'no_operations_available': "Aucune opération disponible",
+    'already_punched_in': "est déjà pointé sur",
+    'punch_in_success': "✅ Pointage sur opération démarré !",
+    'punch_out_success': "✅ Pointage terminé !",
+    'no_active_punch': "n'est pas pointé",
+    'operation_selection_required': "Sélectionnez un projet/BT",
+    'authentication_required': "🔒 Authentification requise",
+    'access_granted': "🔓 Accès autorisé"
+}
+
+# Styles CSS pour l'interface (optionnel)
+TIMETRACKER_STYLES = """
+<style>
+.timetracker-card {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border-left: 4px solid #28a745;
+    margin: 0.5rem 0;
+}
+
+.timetracker-warning {
+    background: #fff3cd;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border-left: 4px solid #ffc107;
+    margin: 0.5rem 0;
+}
+
+.timetracker-error {
+    background: #f8d7da;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border-left: 4px solid #dc3545;
+    margin: 0.5rem 0;
+}
+
+.employee-punch-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    margin: 1rem 0;
+}
+
+.operation-card {
+    background: #e3f2fd;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #2196f3;
+    margin: 0.5rem 0;
+}
+</style>
+"""
+
+# =========================================================================
+# POINT D'ENTRÉE PRINCIPAL ET DOCUMENTATION
+# =========================================================================
+
+"""
+TimeTracker Unifié - Système de Pointage sur Opérations
+Version 2.0 - Double Interface : Employé Direct + Admin Complet
+
+PRINCIPALES FONCTIONNALITÉS:
+============================
+
+1. POINTAGE SUR OPÉRATIONS:
+   - Support des opérations classiques depuis la table 'operations'
+   - Support des tâches BT depuis 'formulaire_lignes'
+   - Sélection hiérarchique : Projet/BT → Opération
+   - Calcul automatique des heures et coûts
+
+2. DOUBLE INTERFACE ADAPTÉE AU PORTAIL:
+   
+   A) ACCÈS EMPLOYÉ (Portail section EMPLOYÉ):
+      - Interface employé directe SANS sélecteur de mode
+      - Aller directement aux onglets "Mon Pointage" et "Mon Historique"
+      - Sélection d'employé puis opérations (disposition verticale)
+      - Réinitialisation automatique après pointage
+      - Fonction: show_timetracker_unified_interface_main()
+   
+   B) ACCÈS ADMINISTRATEUR (Portail section ADMINISTRATEUR):
+      - Interface complète AVEC sélecteur de mode
+      - Choix entre "🔧 Superviseur/Admin" et "👤 Employé"
+      - Toutes les fonctionnalités administratives conservées
+      - Authentification superviseur pour mode avancé
+      - Fonction: show_timetracker_admin_complete_interface()
+
+3. MODE SUPERVISEUR (dans l'accès admin):
+   - Authentification requise (supervisor123)
+   - Vue complète sur tous les employés pointés
+   - Outils d'administration et gestion historique
+   - Statistiques avancées et diagnostics
+
+4. GESTION DE L'HISTORIQUE:
+   - Sauvegarde automatique avant suppression
+   - Suppression par période, employé, ou type
+   - Nettoyage des données orphelines
+   - Export/Import des données
+
+5. COMPATIBILITÉ:
+   - Support des tâches BT avec ID décalé (>100000)
+   - Unification des descriptions d'opérations
+   - Statistiques pour app.py
+   - Méthodes de diagnostic intégrées
+
+UTILISATION DANS APP.PY:
+========================
+
+1. Pour l'accès EMPLOYÉ (bouton dans section EMPLOYÉ du portail):
+   ```python
+   if st.button("⏱️ TimeTracker Pro & Postes Unifiés"):
+       st.session_state.current_page = "timetracker_employee"
+   
+   # Dans le router:
+   elif st.session_state.current_page == "timetracker_employee":
+       show_timetracker_unified_interface_main()  # Interface employé directe
+   ```
+
+2. Pour l'accès ADMINISTRATEUR (bouton dans section ADMINISTRATEUR du portail):
+   ```python
+   if st.button("⏱️ TimeTracker Unifié Complet"):
+       st.session_state.current_page = "timetracker_admin_complete"
+   
+   # Dans le router:
+   elif st.session_state.current_page == "timetracker_admin_complete":
+       show_timetracker_admin_complete_interface()  # Interface complète avec choix
+   ```
+
+3. Pour initialiser (une seule fois):
+   ```python
+   from timetracker_unified import initialize_timetracker_unified
+   
+   if 'timetracker_unified' not in st.session_state:
+       st.session_state.timetracker_unified = initialize_timetracker_unified(db)
+   ```
+
+RÉSULTAT FINAL:
+===============
+
+📊 PORTAIL DG INC:
+├── 👤 EMPLOYÉ
+│   └── ⏱️ TimeTracker Pro & Postes Unifiés
+│       └── 🔄 Interface directe employé (SANS sélecteur)
+│           ├── 👤 Mon Pointage
+│           └── 📊 Mon Historique
+│
+└── 👑 ADMINISTRATEUR  
+    └── ⏱️ TimeTracker Unifié Complet
+        └── 🎛️ Interface complète (AVEC sélecteur)
+            ├── 🔧 Mode Superviseur (auth requise)
+            │   ├── 🔧 Pointage Opérations (tous employés)
+            │   ├── 📊 Historique complet
+            │   ├── 📈 Statistiques avancées
+            │   └── ⚙️ Administration
+            └── 👤 Mode Employé (dans contexte admin)
+                ├── 👤 Pointage Employé
+                └── 📊 Historique Employé
+
+MOTS DE PASSE DE DÉMO:
+=====================
+- Superviseur: supervisor123
+- Administrateur: admin123
+
+SÉCURITÉ:
+=========
+En production, remplacez les mots de passe codés en dur par un système 
+d'authentification sécurisé avec base de données utilisateurs et hashage.
+
+TABLES REQUISES:
+================
+- time_entries (table principale des pointages)
+- employees (employés)
+- projects (projets)
+- operations (opérations classiques)
+- work_centers (postes de travail)
+- formulaires (BT)
+- formulaire_lignes (tâches des BT)
+
+LOGS:
+=====
+Utilisez logging pour suivre les opérations:
+- INFO: Initialisation, pointages normaux
+- WARNING: Données manquantes, corrections
+- ERROR: Erreurs de base de données, échecs de pointage
+
+MAINTENANCE:
+============
+- Exécutez cleanup_timetracker_data() périodiquement
+- Sauvegardez les données avec export_timetracker_data()
+- Vérifiez les diagnostics avec diagnostic_timetracker_data()
+"""
+
+if __name__ == "__main__":
+    # Test d'import - ne pas exécuter directement
+    print("TimeTracker Unifié v2.0 - Double Interface")
+    print("FONCTIONS PRINCIPALES:")
+    print("- show_timetracker_unified_interface_main() : Accès EMPLOYÉ direct")
+    print("- show_timetracker_admin_complete_interface() : Accès ADMIN complet")
+    print("- show_timetracker_supervisor_interface() : Superviseur standalone")
+    print("\nCe module doit être importé dans app.py")
+    print("Consultez la documentation ci-dessus pour l'utilisation.")
