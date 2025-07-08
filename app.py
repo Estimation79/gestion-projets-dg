@@ -13,11 +13,27 @@ import hashlib
 from math import gcd
 from fractions import Fraction
 import csv
+import pytz  # NOUVEAU : Pour la gestion du fuseau horaire du Québec
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
 
 # ========================
 # CONSTANTES GLOBALES
 # ========================
+
+# Configuration du fuseau horaire du Québec
+QUEBEC_TZ = pytz.timezone('America/Montreal')
+
+def get_quebec_datetime():
+    """Retourne la date/heure actuelle du Québec"""
+    return datetime.now(QUEBEC_TZ)
+
+def get_quebec_time():
+    """Retourne l'heure actuelle du Québec (format HH:MM)"""
+    return get_quebec_datetime().strftime("%H:%M")
+
+def get_quebec_date():
+    """Retourne la date actuelle du Québec (format DD/MM/YYYY)"""
+    return get_quebec_datetime().strftime("%d/%m/%Y")
 
 # Liste unifiée des tâches de production (utilisée dans création ET modification)
 TACHES_PRODUCTION = [
@@ -442,8 +458,19 @@ def check_admin_session():
     if 'admin_login_time' not in st.session_state:
         return False
 
-    # Session expire après 4 heures
-    session_age = datetime.now() - st.session_state.admin_login_time
+    # Session expire après 4 heures - MODIFIÉ pour le fuseau horaire du Québec
+    current_time = get_quebec_datetime()
+    login_time = st.session_state.admin_login_time
+    
+    # Convertir le temps de login en fuseau québécois si nécessaire
+    if hasattr(login_time, 'tzinfo') and login_time.tzinfo is not None:
+        # Si login_time a déjà un timezone, le convertir au Québec
+        login_time_quebec = login_time.astimezone(QUEBEC_TZ)
+    else:
+        # Si login_time est naïf, supposer qu'il est déjà en heure du Québec
+        login_time_quebec = QUEBEC_TZ.localize(login_time)
+    
+    session_age = current_time - login_time_quebec
     if session_age > timedelta(hours=4):
         st.session_state.admin_authenticated = False
         st.warning("Session expirée. Veuillez vous reconnecter.")
@@ -452,13 +479,23 @@ def check_admin_session():
     return True
 
 def show_admin_header():
-    """Affiche l'en-tête admin avec info session"""
+    """Affiche l'en-tête admin avec info session - MODIFIÉ pour le fuseau horaire du Québec"""
     username = st.session_state.get('admin_username', 'Admin')
     display_name = get_user_display_name(username)
     login_time = st.session_state.get('admin_login_time')
 
     if login_time:
-        session_duration = datetime.now() - login_time
+        current_time = get_quebec_datetime()
+        
+        # Convertir le temps de login en fuseau québécois si nécessaire
+        if hasattr(login_time, 'tzinfo') and login_time.tzinfo is not None:
+            # Si login_time a déjà un timezone, le convertir au Québec
+            login_time_quebec = login_time.astimezone(QUEBEC_TZ)
+        else:
+            # Si login_time est naïf, supposer qu'il est déjà en heure du Québec
+            login_time_quebec = QUEBEC_TZ.localize(login_time)
+        
+        session_duration = current_time - login_time_quebec
         hours = int(session_duration.total_seconds() // 3600)
         minutes = int((session_duration.total_seconds() % 3600) // 60)
         session_info = f"Session: {hours}h{minutes}m"
@@ -687,8 +724,8 @@ def duplicate_project(gestionnaire, original_project):
         if 'id' in new_project_data:
             del new_project_data['id']
         
-        # Ajuster les dates
-        today = datetime.now().date()
+        # Ajuster les dates - MODIFIÉ pour le fuseau horaire du Québec
+        today = get_quebec_datetime().date()
         new_project_data['date_soumis'] = today.strftime('%Y-%m-%d')
         new_project_data['date_prevu'] = (today + timedelta(days=30)).strftime('%Y-%m-%d')
         
@@ -900,7 +937,7 @@ def show_projects_detailed_view(projects, crm_manager):
                     st.download_button(
                         label="⬇️ Télécharger",
                         data=csv_content,
-                        file_name=f"projets_selection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        file_name=f"projets_selection_{get_quebec_datetime().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv"
                     )
         with batch_col4:
@@ -2146,14 +2183,14 @@ def handle_timetracker_redirect():
     return False
 
 # ========================
-# INTERFACE PORTAIL (AVEC CLASSES CSS)
+# INTERFACE PORTAIL (AVEC CLASSES CSS) - MODIFIÉ POUR LE FUSEAU HORAIRE
 # ========================
 
 def show_portal_home():
-    """Affiche la page d'accueil du portail avec classes CSS - SIMPLIFIÉ sans statistiques"""
-    # Header principal
-    current_time = datetime.now().strftime("%H:%M")
-    current_date = datetime.now().strftime("%d/%m/%Y")
+    """Affiche la page d'accueil du portail avec classes CSS - MODIFIÉ pour le fuseau horaire du Québec"""
+    # Header principal - MODIFIÉ pour utiliser le fuseau horaire du Québec
+    current_time = get_quebec_time()
+    current_date = get_quebec_date()
 
     st.markdown(f"""
     <div class="portal-header">
@@ -2179,7 +2216,7 @@ def show_portal_home():
                 Interface unifiée TimeTracker Pro & Postes de travail
             </div>
             <ul class="access-features">
-                <li>⏱️ TimeTracker</li>
+                <li>⏱️🔧 TimeTracker Pro & Postes Unifiés</li>
                 <li>🔧 Bons de Travail Intégrés</li>
                 <li>📊 Suivi temps réel</li>
                 <li>📱 Interface simplifiée</li>
@@ -2255,7 +2292,7 @@ def show_employee_interface():
         st.rerun()
 
 def show_fallback_timetracker():
-    """Interface de pointage de substitution"""
+    """Interface de pointage de substitution - MODIFIÉ pour le fuseau horaire du Québec"""
     st.markdown("### ⏰ Pointage Simplifié")
     st.info("Interface de pointage temporaire en attendant le déploiement complet du TimeTracker Pro")
 
@@ -2278,7 +2315,7 @@ def show_fallback_timetracker():
         with col1:
             if st.button("🟢 DÉBUTER", use_container_width=True, type="primary"):
                 if employee_name and project_id:
-                    current_time = datetime.now().strftime("%H:%M:%S")
+                    current_time = get_quebec_time()  # MODIFIÉ pour le fuseau horaire du Québec
                     st.success(f"✅ Pointage débuté à {current_time}")
                     st.balloons()
 
@@ -2291,7 +2328,7 @@ def show_fallback_timetracker():
                         'project': project_id,
                         'task': task_description,
                         'start_time': current_time,
-                        'date': datetime.now().strftime("%Y-%m-%d")
+                        'date': get_quebec_date()  # MODIFIÉ pour le fuseau horaire du Québec
                     })
                 else:
                     st.error("Veuillez remplir au minimum le nom et le projet")
@@ -2302,7 +2339,7 @@ def show_fallback_timetracker():
 
         with col3:
             if st.button("🔴 TERMINER", use_container_width=True):
-                current_time = datetime.now().strftime("%H:%M:%S")
+                current_time = get_quebec_time()  # MODIFIÉ pour le fuseau horaire du Québec
                 st.success(f"✅ Pointage terminé à {current_time}")
 
         # Affichage des pointages temporaires
@@ -2338,7 +2375,7 @@ def show_admin_auth():
             if verify_admin_password(username, password):
                 st.session_state.admin_authenticated = True
                 st.session_state.admin_username = username
-                st.session_state.admin_login_time = datetime.now()
+                st.session_state.admin_login_time = get_quebec_datetime()  # MODIFIÉ pour le fuseau horaire du Québec
                 st.session_state.admin_permissions = get_user_permissions(username)
                 st.session_state.app_mode = "erp"
                 st.session_state.user_role = "admin"
@@ -2677,6 +2714,9 @@ def show_erp_main():
         elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
             footer_text += "<br/>⚠️ Mode Temporaire"
 
+    # Ajouter info fuseau horaire dans footer sidebar
+    footer_text += "<br/>🕐 Fuseau Horaire: Québec (EST/EDT)"
+
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
     # ROUTAGE DES PAGES (MODIFIÉ - Sans doublon TimeTracker)
@@ -2787,7 +2827,7 @@ def show_storage_status_sidebar():
 # ========================
 
 def show_dashboard():
-    """Dashboard principal utilisant les classes CSS - MODIFIÉ avec Pièces Jointes"""
+    """Dashboard principal utilisant les classes CSS - MODIFIÉ avec Pièces Jointes et fuseau horaire du Québec"""
     st.markdown("""
     <div class="main-title">
         <h1>📊 Tableau de Bord ERP Production</h1>
@@ -3132,7 +3172,7 @@ def show_liste_projets():
                     st.download_button(
                         label="⬇️ Télécharger CSV",
                         data=csv_content,
-                        file_name=f"projets_dg_inc_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        file_name=f"projets_dg_inc_{get_quebec_datetime().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv",
                         use_container_width=True
                     )
@@ -3277,7 +3317,7 @@ def show_liste_projets():
             """, unsafe_allow_html=True)
 
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе et TACHES_PRODUCTION - VERSION FINALE COMPLÈTE"""
+    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе et TACHES_PRODUCTION - VERSION FINALE COMPLÈTE avec fuseau horaire du Québec"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -3356,8 +3396,8 @@ def render_create_project_form(gestionnaire, crm_manager):
         with fc2:
             # CORRECTION : Utilisation de TACHES_PRODUCTION
             tache = st.selectbox("Tâches:", TACHES_PRODUCTION)
-            d_debut = st.date_input("Début:", datetime.now().date())
-            d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
+            d_debut = st.date_input("Début:", get_quebec_datetime().date())  # MODIFIÉ pour le fuseau horaire du Québec
+            d_fin = st.date_input("Fin Prévue:", get_quebec_datetime().date() + timedelta(days=30))  # MODIFIÉ pour le fuseau horaire du Québec
             bd_ft = st.number_input("BD-FT (h):", 0, value=40, step=1)
             prix = st.number_input("Prix ($):", 0.0, value=10000.0, step=100.0, format="%.2f")
 
@@ -3491,7 +3531,7 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}
     return bool(re.match(pattern, project_id.strip()))
     
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
@@ -3540,16 +3580,16 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             current_tache = project_data.get('tache', 'Général')
             tache = st.selectbox("Tâches:", TACHES_PRODUCTION, index=TACHES_PRODUCTION.index(current_tache) if current_tache in TACHES_PRODUCTION else 0)
 
-            # Gestion des dates
+            # Gestion des dates - MODIFIÉ pour le fuseau horaire du Québec
             try:
                 d_debut = st.date_input("Début:", datetime.strptime(project_data.get('date_soumis', ''), '%Y-%m-%d').date())
             except (ValueError, TypeError):
-                d_debut = st.date_input("Début:", datetime.now().date())
+                d_debut = st.date_input("Début:", get_quebec_datetime().date())
 
             try:
                 d_fin = st.date_input("Fin Prévue:", datetime.strptime(project_data.get('date_prevu', ''), '%Y-%m-%d').date())
             except (ValueError, TypeError):
-                d_fin = st.date_input("Fin Prévue:", datetime.now().date() + timedelta(days=30))
+                d_fin = st.date_input("Fin Prévue:", get_quebec_datetime().date() + timedelta(days=30))
 
             # Gestion BD-FT
             try:
@@ -3562,7 +3602,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -3839,6 +3879,7 @@ def show_gantt():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_calendrier():
+    """Vue calendrier - MODIFIÉ pour le fuseau horaire du Québec"""
     st.markdown("### 📅 Vue Calendrier")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
@@ -3861,7 +3902,7 @@ def show_calendrier():
             st.rerun()
 
     if st.button("📅 Aujourd'hui", key="cal_today", use_container_width=True):
-        st.session_state.selected_date = date.today()
+        st.session_state.selected_date = get_quebec_datetime().date()  # MODIFIÉ pour le fuseau horaire du Québec
         st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -3920,7 +3961,7 @@ def show_calendrier():
                 day_classes = ["calendar-day-cell"]
                 if day_date_obj.month != curr_date.month:
                     day_classes.append("other-month")
-                if day_date_obj == date.today():
+                if day_date_obj == get_quebec_datetime().date():  # MODIFIÉ pour le fuseau horaire du Québec
                     day_classes.append("today")
 
                 events_html = ""
@@ -4318,7 +4359,7 @@ def show_footer():
 # ========================
 
 def main():
-    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ"""
+    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ avec fuseau horaire du Québec"""
 
     # NOUVEAU : Charger le CSS externe en priorité
     css_loaded = load_external_css()
@@ -4344,7 +4385,7 @@ def main():
         'show_project_modal': False, 'selected_project': None,
         'show_create_project': False, 'show_edit_project': False,
         'edit_project_data': None, 'show_delete_confirmation': False,
-        'delete_project_id': None, 'selected_date': datetime.now().date(),
+        'delete_project_id': None, 'selected_date': get_quebec_datetime().date(),  # MODIFIÉ pour le fuseau horaire du Québec
         'welcome_seen': False,
         'inv_action_mode': "Voir Liste",
         'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
@@ -4469,11 +4510,11 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC ID PERSONNALISÉ ET TACHES_PRODUCTION")
-print("✅ Toutes les modifications appliquées pour TimeTracker Pro Unifié")
-print("✅ Gestion des projets complète intégrée avec CRUD + Actions en lot + Recherche avancée")
-print("✅ Fonctionnalité ID projet personnalisé intégrée")
-print("✅ Module Kanban unifié intégré avec fallback")
-print("✅ Injection de dépendance CRM avec gestionnaire de projets corrigée")
-print("✅ CORRECTION CRITIQUE: Liste des tâches unifiée avec TACHES_PRODUCTION")
-print("🚀 Prêt pour CHECKPOINT 7 - Tests et Validation")
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC FUSEAU HORAIRE DU QUÉBEC")
+print("✅ Toutes les modifications appliquées pour le fuseau horaire America/Montreal")
+print("✅ TimeTracker Pro Unifié maintenu")
+print("✅ Gestion des projets complète intégrée")
+print("✅ Module Kanban unifié intégré")
+print("✅ Support fuseau horaire EST/EDT automatique")
+print("🕐 Heure affichée: Québec (gestion automatique heure d'été/hiver)")
+print("🚀 Prêt pour déploiement sur Render avec heure locale correcte")
