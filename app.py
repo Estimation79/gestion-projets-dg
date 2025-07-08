@@ -2457,18 +2457,23 @@ def show_erp_main():
 
     # 5. PLANIFICATION FABRICATION
     if has_all_permissions or "projects" in permissions or "inventory" in permissions:
-        available_pages["🏭 Production"] = "production_management"    
+        available_pages["🏭 Production"] = "production_management"
 
-    # 6. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (CORRECTION: sans doublon)
+    # 6. GESTION INVENTAIRE - AJOUTEZ ICI
+    if has_all_permissions or "inventory" in permissions:
+        if INVENTORY_AVAILABLE:
+            available_pages["📦 Inventaire"] = "inventory_page"
+
+    # 7. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (CORRECTION: sans doublon)
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         if TIMETRACKER_AVAILABLE:
             available_pages["⏱️TimeTracker"] = "timetracker_admin_complete"
 
-    # 7. GESTION ÉQUIPES
+    # 8. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
         available_pages["👥 Employés"] = "employees_page"
 
-    # 8. VUES DE SUIVI (regroupées en fin) - MISE À JOUR AVEC MODULE KANBAN
+    # 9. VUES DE SUIVI (regroupées en fin) - MISE À JOUR AVEC MODULE KANBAN
     if has_all_permissions or "projects" in permissions:
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
