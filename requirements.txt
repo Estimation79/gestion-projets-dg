@@ -5,6 +5,7 @@
 streamlit>=1.46.0
 pandas>=1.5.0
 plotly>=5.15.0
+pytz>=2023.3
 
 # === BASE DE DONNÉES ===
 # SQLite est inclus avec Python (pas besoin d'installation)
