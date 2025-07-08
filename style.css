@@ -3989,3 +3989,237 @@ print("✅ Corrections CSS appliquées pour éliminer les boutons rouges");
 print("🎨 Thème vert DG Inc. uniformisé sur toute l'interface");
 print("🔧 Navigation, sélecteurs et indicateurs convertis au vert");
 print("⚠️ Seuls les vrais messages d'erreur gardent une couleur rouge adoucie");
+
+/* ============================================================
+   CORRECTION SIMPLE - Ajouter à la fin de votre style.css
+   ============================================================ */
+
+/* ========================
+   CORRECTION UNIVERSELLE - Tous les éléments rouges → verts
+   ======================== */
+
+/* Remplacer TOUS les rgb(255, 75, 75) par le vert DG Inc */
+*[style*="rgb(255, 75, 75)"],
+*[style*="background-color: rgb(255, 75, 75)"],
+*[style*="background: rgb(255, 75, 75)"],
+*[style*="color: rgb(255, 75, 75)"],
+*[style*="border-color: rgb(255, 75, 75)"],
+*[style*="fill: rgb(255, 75, 75)"] {
+    background-color: var(--primary-color) !important;
+    background: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+    fill: var(--primary-color) !important;
+}
+
+/* Variante avec #ff4b4b */
+*[style*="#ff4b4b"],
+*[style*="background-color: #ff4b4b"],
+*[style*="background: #ff4b4b"],
+*[style*="color: #ff4b4b"],
+*[style*="border-color: #ff4b4b"] {
+    background-color: var(--primary-color) !important;
+    background: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+}
+
+/* ========================
+   RADIO BUTTONS - Points de sélection rouges
+   ======================== */
+
+/* Tous les radio buttons Streamlit */
+.stRadio input[type="radio"]:checked + div,
+.stRadio label[data-checked="true"] > div,
+div[data-baseweb="radio"] > div,
+div[role="radio"] > div {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+}
+
+/* Navigation sidebar - Radio sélectionné */
+section[data-testid="stSidebar"] .stRadio label[data-checked="true"] {
+    background-color: var(--primary-color-lighter) !important;
+    color: var(--primary-color-darker) !important;
+    border-left: 4px solid var(--primary-color) !important;
+    border-radius: 6px !important;
+    padding: 0.5rem !important;
+}
+
+/* ========================
+   TABS - Onglets avec éléments rouges
+   ======================== */
+
+/* Onglets Streamlit actifs */
+div[data-testid="stTabs"] button[aria-selected="true"],
+div[data-baseweb="tab"][aria-selected="true"] {
+    background-color: var(--primary-color-lighter) !important;
+    color: var(--primary-color-darker) !important;
+    border-bottom: 3px solid var(--primary-color) !important;
+}
+
+/* ========================
+   MULTISELECT ET SELECTBOX
+   ======================== */
+
+/* Tags sélectionnés dans multiselect */
+.stMultiSelect > div > div > div > div {
+    background-color: var(--primary-color-lighter) !important;
+    color: var(--primary-color-darker) !important;
+    border: 1px solid var(--primary-color) !important;
+}
+
+/* Options sélectionnées dans selectbox */
+.stSelectbox > div > div > div {
+    border-color: var(--primary-color) !important;
+}
+
+.stSelectbox > div > div > div:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px rgba(0, 169, 113, 0.2) !important;
+}
+
+/* ========================
+   BOUTONS SPÉCIFIQUES
+   ======================== */
+
+/* Boutons d'action CRM, Navigation, etc. */
+.stButton > button:has(span:contains("Actualiser")),
+.stButton > button:has(span:contains("Modifier")),
+.stButton > button:has(span:contains("Voir Détails")) {
+    background: linear-gradient(145deg, 
+        rgba(255,255,255,0.4) 0%, 
+        var(--text-color-light) 20%, 
+        var(--text-color) 80%, 
+        rgba(0,0,0,0.2) 100%) !important;
+    color: white !important;
+    border: none !important;
+}
+
+/* Bouton "Supprimer" - Garder rouge mais plus doux */
+.stButton > button:has(span:contains("Supprimer")) {
+    background: linear-gradient(145deg, 
+        rgba(255,255,255,0.4) 0%, 
+        #f87171 20%, 
+        #dc2626 80%, 
+        rgba(0,0,0,0.2) 100%) !important;
+    color: white !important;
+    border: none !important;
+}
+
+/* ========================
+   ALERTES ET NOTIFICATIONS
+   ======================== */
+
+/* Garder les alertes d'erreur en rouge mais plus doux */
+[data-testid="stAlert"][kind="error"] {
+    background: linear-gradient(to right, #fef2f2, #fee2e2) !important;
+    border-left: 4px solid #f87171 !important;
+    color: #b91c1c !important;
+}
+
+/* Alertes warning en orange */
+[data-testid="stAlert"][kind="warning"] {
+    background: linear-gradient(to right, #fffbeb, #fef3c7) !important;
+    border-left: 4px solid #f59e0b !important;
+    color: #92400e !important;
+}
+
+/* Alertes info en vert DG Inc */
+[data-testid="stAlert"][kind="info"] {
+    background: linear-gradient(to right, var(--primary-color-lighter), #e6f7f1) !important;
+    border-left: 4px solid var(--primary-color) !important;
+    color: var(--primary-color-darker) !important;
+}
+
+/* ========================
+   PROGRESS BARS ET SLIDERS
+   ======================== */
+
+/* Barres de progression */
+.stProgress > div > div > div {
+    background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-color-darker) 100%) !important;
+}
+
+/* Sliders */
+.stSlider > div > div > div > div,
+.stSlider > div > div > div > div > div {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+}
+
+/* ========================
+   CHECKBOXES
+   ======================== */
+
+/* Checkboxes cochées */
+.stCheckbox > label > div {
+    border-color: var(--primary-color) !important;
+}
+
+.stCheckbox > label > div[data-checked="true"] {
+    background-color: var(--primary-color) !important;
+}
+
+/* ========================
+   MÉTRIQUES
+   ======================== */
+
+/* Métriques avec deltas positifs */
+.stMetric > div > div {
+    color: var(--primary-color) !important;
+}
+
+/* ========================
+   CORRECTIONS SPÉCIALES POUR STREAMLIT
+   ======================== */
+
+/* Forcer le thème vert sur tous les composants Streamlit */
+:root {
+    --primary-color-streamlit: var(--primary-color) !important;
+    --background-color-secondary: var(--primary-color-lighter) !important;
+}
+
+/* Remplacer la couleur d'accent par défaut de Streamlit */
+.streamlit-container,
+.main .block-container {
+    --primary-color: #00A971 !important;
+    --primary-color-dark: #00673D !important;
+    --primary-color-light: #DCFCE7 !important;
+}
+
+/* ========================
+   CORRECTION FINALE - FORCE BRUTALE
+   ======================== */
+
+/* Si tout le reste échoue, cette règle force TOUT en vert */
+div, span, button, input, select, textarea {
+    --red-override: var(--primary-color) !important;
+}
+
+/* Règle de dernière chance pour capturer les éléments dynamiques */
+* {
+    --primary-color-fallback: #00A971 !important;
+    --accent-color-fallback: #00A971 !important;
+}
+
+/* ========================
+   ANIMATION DOUCE POUR LES TRANSITIONS
+   ======================== */
+
+/* Transition douce quand les couleurs changent */
+.stRadio, .stTabs, .stButton, .stMultiSelect, .stSelectbox {
+    transition: all 0.3s ease !important;
+}
+
+/* ========================
+   RESPONSIVE - MOBILE
+   ======================== */
+@media (max-width: 768px) {
+    /* S'assurer que le thème vert fonctionne aussi sur mobile */
+    .stRadio label[data-checked="true"],
+    div[data-testid="stTabs"] button[aria-selected="true"] {
+        background-color: var(--primary-color-lighter) !important;
+        color: var(--primary-color-darker) !important;
+    }
+}
