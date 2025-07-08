@@ -616,9 +616,16 @@ try:
 except ImportError:
     ATTACHMENTS_AVAILABLE = False
 
+# NOUVEAU : Import du module Inventaire - AJOUTEZ ICI
+try:
+    from inventory import show_inventory_page, init_inventory_manager
+    INVENTORY_AVAILABLE = True
+except ImportError:
+    INVENTORY_AVAILABLE = False
+
 # Configuration de la page
 st.set_page_config(
-    page_title="🚀 ERP Production DG Inc.",
+    page_title="🚀 ERP",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded"
