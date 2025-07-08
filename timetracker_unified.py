@@ -2798,7 +2798,7 @@ def show_timetracker_admin_complete_interface():
     
     tt = st.session_state.timetracker_unified
     
-    st.markdown("### ⏱️ TimeTracker Unifié - Interface Administrateur")
+    st.markdown("### ⏱️ TimeTracker - Interface Administrateur")
     
     # Initialiser l'authentification superviseur
     if 'supervisor_authenticated' not in st.session_state:
