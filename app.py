@@ -4230,8 +4230,7 @@ def show_project_modal():
             st.session_state.show_project_modal = False
             st.rerun()
 
-
-def _afficher_operation_dans_modal(operation, border_color):
+def afficher_operation_dans_modal(operation, border_color):
     """Fonction helper pour afficher une opération dans la modal avec informations complètes"""
     temps = operation.get('temps_estime', 0)
     statut = operation.get('statut', 'À FAIRE')
@@ -4287,15 +4286,6 @@ def _afficher_operation_dans_modal(operation, border_color):
                 <small style='color:#6b7280;'>({cout_horaire}$/h)</small>
             </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-def show_footer():
-    st.markdown("---")
-    st.markdown("""
-    <div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'>
-        <p>🏭 ERP</p>
-        <p style='font-style: italic;'>💻 Développé par <strong>Sylvain Leduc</strong> • 2025</p>
     </div>
     """, unsafe_allow_html=True)
 
