@@ -540,7 +540,7 @@ class GestionnaireInventaire:
             logger.error(f"Erreur ajout historique: {e}")
 
 # =========================================================================
-# INTERFACE STREAMLIT PRINCIPALE
+# INTERFACE STREAMLIT PRINCIPALE - VERSION CORRIGÉE
 # =========================================================================
 
 def show_inventory_page():
@@ -570,7 +570,7 @@ def show_inventory_page():
         render_add_item_tab(inventory_manager)
     
     with tab_movements:
-        render_movements_tab(inventory_manager)
+        render_movements_tab_fixed(inventory_manager)  # Version corrigée
     
     with tab_stats:
         render_statistics_tab(inventory_manager)
@@ -581,6 +581,274 @@ def show_inventory_page():
     # Gestion des actions
     handle_inventory_actions(inventory_manager)
 
+def render_movements_tab_fixed(inventory_manager):
+    """Onglet mouvements de stock - VERSION CORRIGÉE"""
+    st.markdown("#### 📊 Mouvements de Stock")
+    
+    # Récupérer les articles disponibles
+    items = inventory_manager.get_all_items()
+    
+    if not items:
+        st.warning("⚠️ Aucun article en inventaire. Veuillez d'abord ajouter des articles dans l'onglet 'Ajouter'.")
+        
+        # Bouton pour aller à l'onglet d'ajout
+        if st.button("➕ Aller à l'ajout d'articles", type="primary"):
+            # Note: En réalité, on ne peut pas changer d'onglet programmatiquement dans Streamlit
+            # mais on peut afficher un message informatif
+            st.info("👆 Cliquez sur l'onglet '➕ Ajouter' ci-dessus pour créer votre premier article.")
+        
+        return
+    
+    # Section ajout de mouvement
+    with st.expander("➕ Ajouter un Mouvement", expanded=True):
+        movement_form_key = f"add_movement_form_{datetime.now().microsecond}"
+        
+        with st.form(movement_form_key, clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Sélection de l'article
+                selected_item = st.selectbox(
+                    "📦 Sélectionner un article:",
+                    options=items,
+                    format_func=lambda x: f"{x.get('code_interne', 'N/A')} - {x.get('nom', 'N/A')} (Stock: {x.get('quantite_metric', 0):.2f})",
+                    key=f"select_item_{movement_form_key}"
+                )
+                
+                movement_type = st.selectbox(
+                    "📋 Type de mouvement:", 
+                    ["ENTREE", "SORTIE", "AJUSTEMENT"],
+                    help="ENTREE: Ajout de stock, SORTIE: Consommation, AJUSTEMENT: Correction d'inventaire",
+                    key=f"movement_type_{movement_form_key}"
+                )
+                
+                quantity = st.number_input(
+                    "🔢 Quantité:", 
+                    min_value=0.01, 
+                    value=1.0, 
+                    step=0.01,
+                    help="Quantité à ajouter, retirer ou ajuster",
+                    key=f"quantity_{movement_form_key}"
+                )
+            
+            with col2:
+                # Afficher les infos de l'article sélectionné
+                if selected_item:
+                    st.info(f"""
+                    **Article sélectionné:**
+                    - **Nom:** {selected_item.get('nom', 'N/A')}
+                    - **Stock actuel:** {selected_item.get('quantite_metric', 0):.2f}
+                    - **Limite min:** {selected_item.get('limite_minimale_metric', 0):.2f}
+                    - **Statut:** {selected_item.get('statut', 'N/A')}
+                    """)
+                
+                # Employé responsable (optionnel)
+                try:
+                    employees_query = "SELECT id, prenom, nom FROM employees WHERE statut = 'ACTIF' ORDER BY prenom, nom"
+                    employees = inventory_manager.db.execute_query(employees_query)
+                    
+                    if employees:
+                        employee_options = [{'id': None, 'prenom': 'Système', 'nom': ''}] + list(employees)
+                        selected_employee = st.selectbox(
+                            "👤 Employé responsable:",
+                            options=employee_options,
+                            format_func=lambda x: f"{x.get('prenom', '')} {x.get('nom', '')}".strip() if x.get('id') else "Système",
+                            key=f"employee_{movement_form_key}"
+                        )
+                        employee_id = selected_employee.get('id') if selected_employee.get('id') else None
+                    else:
+                        st.info("ℹ️ Aucun employé trouvé")
+                        employee_id = None
+                        
+                except Exception as e:
+                    st.warning("⚠️ Impossible de charger la liste des employés")
+                    employee_id = None
+            
+            # Notes
+            notes = st.text_area(
+                "📝 Notes (optionnel):", 
+                placeholder="Raison du mouvement, référence commande, commentaires...",
+                height=80,
+                key=f"notes_{movement_form_key}"
+            )
+            
+            # Prévisualisation du résultat
+            if selected_item and movement_type and quantity:
+                current_qty = float(selected_item.get('quantite_metric', 0))
+                
+                if movement_type == 'ENTREE':
+                    new_qty = current_qty + quantity
+                    operation = f"{current_qty:.2f} + {quantity:.2f} = {new_qty:.2f}"
+                elif movement_type == 'SORTIE':
+                    new_qty = max(0, current_qty - quantity)
+                    operation = f"{current_qty:.2f} - {quantity:.2f} = {new_qty:.2f}"
+                else:  # AJUSTEMENT
+                    new_qty = quantity
+                    operation = f"Ajustement à {new_qty:.2f}"
+                
+                # Déterminer la couleur selon le résultat
+                if new_qty <= 0:
+                    preview_color = "🔴"
+                elif new_qty <= selected_item.get('limite_minimale_metric', 0):
+                    preview_color = "🟡"
+                else:
+                    preview_color = "🟢"
+                
+                st.info(f"**Prévisualisation:** {preview_color} {operation}")
+            
+            # BOUTON DE SOUMISSION - CORRECTION DU BUG
+            col_submit1, col_submit2 = st.columns([2, 1])
+            
+            with col_submit1:
+                submitted = st.form_submit_button(
+                    "📦 Enregistrer le Mouvement", 
+                    type="primary",
+                    use_container_width=True
+                )
+            
+            with col_submit2:
+                clear_form = st.form_submit_button(
+                    "🗑️ Effacer",
+                    use_container_width=True
+                )
+            
+            # Traitement de la soumission
+            if submitted and selected_item:
+                with st.spinner("Enregistrement du mouvement..."):
+                    success = inventory_manager.add_stock_movement(
+                        selected_item['id'],
+                        movement_type,
+                        quantity,
+                        notes.strip(),
+                        employee_id
+                    )
+                
+                if success:
+                    st.success(f"✅ Mouvement enregistré avec succès!")
+                    st.success(f"📋 {movement_type} de {quantity:.2f} pour l'article '{selected_item['nom']}'")
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de l'enregistrement du mouvement.")
+            
+            if clear_form:
+                st.rerun()
+    
+    # Historique des mouvements
+    st.markdown("---")
+    st.markdown("##### 📋 Historique des Mouvements")
+    
+    # Filtres pour l'historique
+    col_filter1, col_filter2, col_filter3 = st.columns(3)
+    
+    with col_filter1:
+        show_all_movements = st.checkbox("Afficher tous les mouvements", value=True)
+    
+    with col_filter2:
+        if not show_all_movements:
+            filter_item = st.selectbox(
+                "Filtrer par article:",
+                options=[None] + items,
+                format_func=lambda x: f"{x.get('code_interne', '')} - {x.get('nom', '')}" if x else "Tous les articles"
+            )
+        else:
+            filter_item = None
+    
+    with col_filter3:
+        limit_movements = st.selectbox(
+            "Nombre d'entrées:",
+            [50, 100, 200, 500],
+            index=1
+        )
+    
+    # Récupérer les mouvements
+    if filter_item:
+        movements = inventory_manager.get_stock_movements(filter_item['id'], limit_movements)
+    else:
+        movements = inventory_manager.get_stock_movements(None, limit_movements)
+    
+    if movements:
+        # Affichage en tableau avec meilleur formatage
+        st.markdown(f"**{len(movements)} mouvement(s) trouvé(s)**")
+        
+        movement_data = []
+        for mov in movements:
+            # Formatage de la date
+            date_str = mov.get('created_at', '')
+            if 'T' in date_str:
+                date_formatted = date_str[:16].replace('T', ' ')
+            else:
+                date_formatted = date_str[:16]
+            
+            # Icône selon le type d'action
+            action_icons = {
+                'ENTREE': '📥',
+                'SORTIE': '📤', 
+                'AJUSTEMENT': '⚖️',
+                'CREATION': '🆕',
+                'MODIFICATION': '✏️'
+            }
+            action_with_icon = f"{action_icons.get(mov.get('action', ''), '📦')} {mov.get('action', '')}"
+            
+            # Code et nom de l'article
+            article_display = f"{mov.get('code_interne', 'N/A')} - {mov.get('item_nom', 'N/A')}"
+            if len(article_display) > 35:
+                article_display = article_display[:32] + "..."
+            
+            movement_data.append({
+                'Date': date_formatted,
+                'Article': article_display,
+                'Action': action_with_icon,
+                'Avant': mov.get('quantite_avant', ''),
+                'Après': mov.get('quantite_apres', ''),
+                'Employé': (mov.get('employee_nom') or 'Système')[:15],
+                'Notes': (mov.get('notes') or '')[:30] + ('...' if len(mov.get('notes', '')) > 30 else '')
+            })
+        
+        df_movements = pd.DataFrame(movement_data)
+        
+        # Configuration du tableau
+        st.dataframe(
+            df_movements,
+            use_container_width=True,
+            height=400,
+            column_config={
+                "Date": st.column_config.TextColumn("Date", width="medium"),
+                "Article": st.column_config.TextColumn("Article", width="large"),
+                "Action": st.column_config.TextColumn("Action", width="medium"),
+                "Avant": st.column_config.NumberColumn("Quantité Avant", format="%.2f"),
+                "Après": st.column_config.NumberColumn("Quantité Après", format="%.2f"),
+                "Employé": st.column_config.TextColumn("Employé", width="medium"),
+                "Notes": st.column_config.TextColumn("Notes", width="large")
+            }
+        )
+        
+        # Statistiques rapides
+        if len(movements) > 0:
+            st.markdown("---")
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            
+            with col_stat1:
+                entrees = len([m for m in movements if m.get('action') == 'ENTREE'])
+                st.metric("📥 Entrées", entrees)
+            
+            with col_stat2:
+                sorties = len([m for m in movements if m.get('action') == 'SORTIE'])
+                st.metric("📤 Sorties", sorties)
+            
+            with col_stat3:
+                ajustements = len([m for m in movements if m.get('action') == 'AJUSTEMENT'])
+                st.metric("⚖️ Ajustements", ajustements)
+        
+    else:
+        st.info("📋 Aucun mouvement enregistré pour le moment.")
+        st.markdown("""
+        **Pour commencer:**
+        1. Assurez-vous d'avoir des articles en inventaire
+        2. Utilisez le formulaire ci-dessus pour enregistrer votre premier mouvement
+        3. L'historique apparaîtra ici automatiquement
+        """)
+
+# Les autres fonctions restent identiques...
 def render_items_list_tab(inventory_manager):
     """Onglet liste des articles"""
     st.markdown("#### 📋 Liste des Articles d'Inventaire")
@@ -593,10 +861,13 @@ def render_items_list_tab(inventory_manager):
     
     with col_filter1:
         # Types de produits disponibles
-        types_result = inventory_manager.db.execute_query(
-            "SELECT DISTINCT type_produit FROM inventory_items WHERE type_produit IS NOT NULL AND type_produit != ''"
-        )
-        types_options = ['Tous'] + [row['type_produit'] for row in types_result]
+        try:
+            types_result = inventory_manager.db.execute_query(
+                "SELECT DISTINCT type_produit FROM inventory_items WHERE type_produit IS NOT NULL AND type_produit != ''"
+            )
+            types_options = ['Tous'] + [row['type_produit'] for row in types_result]
+        except:
+            types_options = ['Tous']
         type_filter = st.selectbox("Type:", types_options)
     
     with col_filter2:
@@ -621,7 +892,12 @@ def render_items_list_tab(inventory_manager):
         items = inventory_manager.get_all_items()
     
     if not items:
-        st.info("Aucun article trouvé.")
+        if search_term or filters:
+            st.info("🔍 Aucun article trouvé avec ces critères.")
+        else:
+            st.warning("📦 Aucun article en inventaire. Commencez par ajouter votre premier article!")
+            if st.button("➕ Ajouter un article", type="primary"):
+                st.info("👆 Cliquez sur l'onglet '➕ Ajouter' ci-dessus.")
         return
     
     # Affichage en mode carte ou tableau
@@ -652,7 +928,7 @@ def render_items_table(items, inventory_manager):
             'Quantité': f"{item.get('quantite_metric', 0):.2f}",
             'Limite Min': f"{item.get('limite_minimale_metric', 0):.2f}",
             'Statut': f"{status_icon} {item.get('statut', '')}",
-            'Fournisseur': item.get('fournisseur_principal', '')[:20]
+            'Fournisseur': (item.get('fournisseur_principal', '') or '')[:20]
         })
     
     df = pd.DataFrame(table_data)
@@ -812,120 +1088,14 @@ def render_add_item_tab(inventory_manager):
                 item_id = inventory_manager.add_item(item_data)
                 if item_id:
                     st.success(f"✅ Article ajouté avec succès ! ID: {item_id}")
-                    if code_interne:
-                        st.info(f"Code interne assigné: {item_data.get('code_interne', 'Auto-généré')}")
+                    if not code_interne:
+                        # Récupérer le code généré
+                        new_item = inventory_manager.get_item_by_id(item_id)
+                        if new_item:
+                            st.info(f"📋 Code interne généré: {new_item.get('code_interne')}")
                     st.rerun()
                 else:
                     st.error("❌ Erreur lors de l'ajout de l'article.")
-
-def render_movements_tab(inventory_manager):
-    """Onglet mouvements de stock"""
-    st.markdown("#### 📊 Mouvements de Stock")
-    
-    # Section ajout de mouvement
-    with st.expander("➕ Ajouter un Mouvement", expanded=False):
-        with st.form("add_movement_form"):
-            # Sélection de l'article
-            items = inventory_manager.get_all_items()
-            if not items:
-                st.warning("Aucun article en inventaire.")
-                return
-            
-            selected_item = st.selectbox(
-                "Article:",
-                options=items,
-                format_func=lambda x: f"{x.get('code_interne', '')} - {x.get('nom', '')} (Stock: {x.get('quantite_metric', 0):.2f})"
-            )
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                movement_type = st.selectbox("Type de mouvement:", ["ENTREE", "SORTIE", "AJUSTEMENT"])
-                quantity = st.number_input("Quantité:", min_value=0.01, value=1.0, step=0.01)
-            
-            with col2:
-                # Employé (si disponible)
-                try:
-                    employees = inventory_manager.db.execute_query("SELECT id, prenom, nom FROM employees WHERE statut = 'ACTIF'")
-                    if employees:
-                        employee_options = [None] + employees
-                        selected_employee = st.selectbox(
-                            "Employé responsable:",
-                            options=employee_options,
-                            format_func=lambda x: f"{x.get('prenom', '')} {x.get('nom', '')}" if x else "Non spécifié"
-                        )
-                        employee_id = selected_employee.get('id') if selected_employee else None
-                    else:
-                        employee_id = None
-                        st.info("Aucun employé disponible")
-                except:
-                    employee_id = None
-            
-            notes = st.text_area("Notes:", placeholder="Raison du mouvement, référence commande...")
-            
-            submitted = st.form_submit_button("📦 Enregistrer le Mouvement", type="primary")
-            
-            if submitted and selected_item:
-                success = inventory_manager.add_stock_movement(
-                    selected_item['id'],
-                    movement_type,
-                    quantity,
-                    notes,
-                    employee_id
-                )
-                
-                if success:
-                    st.success(f"✅ Mouvement enregistré: {movement_type} de {quantity} pour {selected_item['nom']}")
-                    st.rerun()
-                else:
-                    st.error("❌ Erreur lors de l'enregistrement du mouvement.")
-    
-    # Historique des mouvements
-    st.markdown("##### 📋 Historique des Mouvements")
-    
-    # Filtres pour l'historique
-    col1, col2 = st.columns(2)
-    with col1:
-        show_all = st.checkbox("Afficher tous les mouvements", value=True)
-    with col2:
-        if not show_all:
-            items = inventory_manager.get_all_items()
-            filter_item = st.selectbox(
-                "Filtrer par article:",
-                options=[None] + items,
-                format_func=lambda x: f"{x.get('code_interne', '')} - {x.get('nom', '')}" if x else "Tous"
-            )
-        else:
-            filter_item = None
-    
-    # Récupérer les mouvements
-    if filter_item:
-        movements = inventory_manager.get_stock_movements(filter_item['id'], 50)
-    else:
-        movements = inventory_manager.get_stock_movements(None, 100)
-    
-    if movements:
-        # Affichage en tableau
-        movement_data = []
-        for mov in movements:
-            movement_data.append({
-                'Date': mov.get('created_at', '')[:16].replace('T', ' '),
-                'Article': f"{mov.get('code_interne', '')} - {mov.get('item_nom', '')}"[:30],
-                'Action': mov.get('action', ''),
-                'Avant': mov.get('quantite_avant', ''),
-                'Après': mov.get('quantite_apres', ''),
-                'Employé': mov.get('employee_nom', 'Système')[:20],
-                'Notes': (mov.get('notes', '') or '')[:40]
-            })
-        
-        df_movements = pd.DataFrame(movement_data)
-        st.dataframe(
-            df_movements,
-            use_container_width=True,
-            height=400
-        )
-    else:
-        st.info("Aucun mouvement enregistré.")
 
 def render_statistics_tab(inventory_manager):
     """Onglet statistiques"""
@@ -1100,6 +1270,7 @@ def render_import_export_tab(inventory_manager):
         except Exception as e:
             st.error(f"Erreur lors de la lecture du fichier: {e}")
 
+# Les fonctions de modal restent identiques, je les garde pour la complétude
 def handle_inventory_actions(inventory_manager):
     """Gère les actions utilisateur"""
     action = st.session_state.get('inventory_action')
@@ -1351,12 +1522,11 @@ if __name__ == "__main__":
     st.session_state.erp_db = MockDB()
     show_inventory_page()
 
-print("📦 Module Inventaire SQLite créé avec succès !")
-print("✅ Fonctionnalités incluses:")
-print("   - CRUD complet des articles")
-print("   - Gestion des mouvements de stock")
-print("   - Alertes de stock critique")
-print("   - Statistiques et graphiques")
-print("   - Import/Export CSV")
-print("   - Interface Streamlit complète")
-print("   - Intégration ERPDatabase SQLite")
+print("📦 Module Inventaire SQLite CORRIGÉ créé avec succès !")
+print("✅ Corrections apportées:")
+print("   - Bouton de soumission ajouté dans le formulaire de mouvement")
+print("   - Gestion des cas où aucun article n'existe")
+print("   - Meilleure validation et gestion des erreurs")
+print("   - Interface plus robuste et informative")
+print("   - Prévisualisation des mouvements")
+print("   - Clés uniques pour éviter les conflits Streamlit")
