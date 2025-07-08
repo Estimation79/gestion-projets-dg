@@ -446,7 +446,7 @@ def get_user_permissions(username):
         "dg_admin": ["ALL"],
         "direction": ["projects", "crm", "employees", "reports", "formulaires", "fournisseurs"],
         "superviseur": ["projects", "timetracker", "work_centers", "employees", "formulaires"],
-        "production": ["timetracker", "work_centers", "formulaires", "inventory"]
+        "production": ["timetracker", "work_centers", "formulaires"]  # Retiré "inventory"
     }
     return permissions.get(username, [])
 
@@ -615,13 +615,6 @@ try:
     ATTACHMENTS_AVAILABLE = True
 except ImportError:
     ATTACHMENTS_AVAILABLE = False
-
-# NOUVEAU : Import du module Inventaire - AJOUTEZ ICI
-try:
-    from inventory import show_inventory_page, init_inventory_manager
-    INVENTORY_AVAILABLE = True
-except ImportError:
-    INVENTORY_AVAILABLE = False
 
 # Configuration de la page
 st.set_page_config(
@@ -2426,7 +2419,7 @@ def show_admin_auth():
 # ========================
 
 def show_erp_main():
-    """ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION"""
+    """ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION SANS INVENTAIRE"""
     # Initialiser l'ERP
     init_erp_system()
 
@@ -2437,7 +2430,7 @@ def show_erp_main():
     permissions = st.session_state.get('admin_permissions', [])
     has_all_permissions = "ALL" in permissions
 
-    # NAVIGATION PRINCIPALE - ORDRE CHRONOLOGIQUE DE FABRICATION
+    # NAVIGATION PRINCIPALE - ORDRE CHRONOLOGIQUE DE FABRICATION SANS INVENTAIRE
     available_pages = {}
 
     # 1. VUE D'ENSEMBLE
@@ -2456,24 +2449,19 @@ def show_erp_main():
         available_pages["📋 Projets"] = "liste"
 
     # 5. PLANIFICATION FABRICATION
-    if has_all_permissions or "projects" in permissions or "inventory" in permissions:
+    if has_all_permissions or "projects" in permissions:
         available_pages["🏭 Production"] = "production_management"
 
-    # 6. GESTION INVENTAIRE - AJOUTEZ ICI
-    if has_all_permissions or "inventory" in permissions:
-        if INVENTORY_AVAILABLE:
-            available_pages["📦 Inventaire"] = "inventory_page"
-
-    # 7. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (CORRECTION: sans doublon)
+    # 6. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (sans doublon)
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         if TIMETRACKER_AVAILABLE:
             available_pages["⏱️TimeTracker"] = "timetracker_admin_complete"
 
-    # 8. GESTION ÉQUIPES
+    # 7. GESTION ÉQUIPES
     if has_all_permissions or "employees" in permissions:
         available_pages["👥 Employés"] = "employees_page"
 
-    # 9. VUES DE SUIVI (regroupées en fin) - MISE À JOUR AVEC MODULE KANBAN
+    # 8. VUES DE SUIVI (regroupées en fin) - MISE À JOUR AVEC MODULE KANBAN
     if has_all_permissions or "projects" in permissions:
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
@@ -2521,23 +2509,12 @@ def show_erp_main():
     if etape_actuelle:
         st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:8px;border-radius:5px;text-align:center;margin-bottom:1rem;'><small><strong>Étape:</strong> {etape_actuelle}</small></div>", unsafe_allow_html=True)
 
-    # GESTION SIDEBAR SELON CONTEXTE - MISE À JOUR pour module unifié
-    if page_to_show_val == "production_management":
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Production Unifié</h4>", unsafe_allow_html=True)
-        st.session_state.inv_action_mode = st.sidebar.radio(
-            "Mode Inventaire:",
-            ["Voir Liste", "Ajouter Article", "Modifier Article"],
-            key="inv_action_mode_selector",
-            index=["Voir Liste", "Ajouter Article", "Modifier Article"].index(st.session_state.get('inv_action_mode', "Voir Liste"))
-        )
-
     st.sidebar.markdown("---")
 
     # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
     show_storage_status_sidebar()
 
-    # Statistiques dans la sidebar - MISE À JOUR avec module unifié
+    # Statistiques dans la sidebar
     try:
         total_projects_sql = st.session_state.erp_db.get_table_count('projects')
         total_companies = st.session_state.erp_db.get_table_count('companies')
@@ -2555,18 +2532,6 @@ def show_erp_main():
         if schema_info['file_size_mb'] > 0:
             st.sidebar.metric("Base: Taille", f"{schema_info['file_size_mb']} MB")
             st.sidebar.metric("Base: Total", f"{schema_info['total_records']}")
-
-        # NOUVEAU : Statistiques inventaire depuis module unifié
-        try:
-            if 'inventory_manager_sql' not in st.session_state:
-                from production_management import GestionnaireInventaireSQL
-                st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
-            
-            inventory_count = len(st.session_state.inventory_manager_sql.get_all_inventory())
-            if inventory_count > 0:
-                st.sidebar.metric("📦 Articles Stock", inventory_count)
-        except Exception:
-            pass
 
     except Exception:
         pass
@@ -2599,7 +2564,7 @@ def show_erp_main():
                 # Navigation vers TimeTracker depuis Formulaires
                 if TIMETRACKER_AVAILABLE and st.sidebar.button("⏱️ Aller au TimeTracker Pro", key="nav_to_tt", use_container_width=True):
                     # Changer la sélection radio pour pointer vers TimeTracker Pro
-                    st.session_state.main_nav_radio = "⏱️🔧 TimeTracker Pro"
+                    st.session_state.main_nav_radio = "⏱️TimeTracker"
                     st.rerun()
 
     except Exception:
@@ -2731,7 +2696,7 @@ def show_erp_main():
 
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # ROUTAGE DES PAGES (MODIFIÉ - Sans doublon TimeTracker)
+    # ROUTAGE DES PAGES (MODIFIÉ - Sans doublon TimeTracker et sans inventaire)
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -2752,15 +2717,6 @@ def show_erp_main():
         else:
             st.error("❌ Module Production non disponible")
             st.info("Le module production_management.py est requis pour cette fonctionnalité.")
-            
-    # NOUVEAU : ROUTAGE INVENTAIRE - AJOUTEZ ICI
-    elif page_to_show_val == "inventory_page":
-        if INVENTORY_AVAILABLE:
-            show_inventory_page()
-        else:
-            st.error("❌ Module Inventaire non disponible")
-            st.info("Le module inventory.py est requis pour cette fonctionnalité.")
-    
     elif page_to_show_val == "timetracker_admin_complete":
         # TimeTracker Pro Unifié (CORRECTION: une seule interface)
         if TIMETRACKER_AVAILABLE:
@@ -2914,24 +2870,12 @@ def show_dashboard():
         with c4:
             st.metric("💰 CA Total", format_currency(stats['ca_total']))
 
-    # NOUVEAU : Métriques Production Unifiée
+    # NOUVEAU : Métriques Production Unifiée (SANS inventaire)
     if PRODUCTION_MANAGEMENT_AVAILABLE:
         st.markdown("### 🏭 Production Unifiée")
         prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
 
         with prod_c1:
-            # Stats inventaire depuis module unifié
-            try:
-                if 'inventory_manager_sql' not in st.session_state:
-                    from production_management import GestionnaireInventaireSQL
-                    st.session_state.inventory_manager_sql = GestionnaireInventaireSQL(st.session_state.erp_db)
-                
-                inventory_count = len(st.session_state.inventory_manager_sql.get_all_inventory())
-                st.metric("📦 Articles Stock", inventory_count)
-            except Exception:
-                st.metric("📦 Articles Stock", 0)
-
-        with prod_c2:
             # Stats BOM depuis projets
             total_materials = 0
             try:
@@ -2941,7 +2885,7 @@ def show_dashboard():
             except Exception:
                 st.metric("📋 Matériaux BOM", 0)
 
-        with prod_c3:
+        with prod_c2:
             # Stats opérations itinéraire
             total_operations = 0
             try:
@@ -2950,6 +2894,13 @@ def show_dashboard():
                 st.metric("🛠️ Opérations", total_operations)
             except Exception:
                 st.metric("🛠️ Opérations", 0)
+
+        with prod_c3:
+            # Stats postes de travail
+            try:
+                st.metric("🏭 Postes Travail", postes_stats.get('total_postes', 0))
+            except Exception:
+                st.metric("🏭 Postes Travail", 0)
 
         with prod_c4:
             st.metric("✅ Module Unifié", "ACTIF" if PRODUCTION_MANAGEMENT_AVAILABLE else "INACTIF")
@@ -3552,7 +3503,7 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}
     return bool(re.match(pattern, project_id.strip()))
     
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
@@ -3623,7 +3574,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -4408,7 +4359,6 @@ def main():
         'edit_project_data': None, 'show_delete_confirmation': False,
         'delete_project_id': None, 'selected_date': get_quebec_datetime().date(),  # MODIFIÉ pour le fuseau horaire du Québec
         'welcome_seen': False,
-        'inv_action_mode': "Voir Liste",
         'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
         'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
         'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
@@ -4531,11 +4481,12 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC FUSEAU HORAIRE DU QUÉBEC")
+print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC FUSEAU HORAIRE DU QUÉBEC - SANS INVENTAIRE DANS MENU PRODUCTION")
 print("✅ Toutes les modifications appliquées pour le fuseau horaire America/Montreal")
 print("✅ TimeTracker Pro Unifié maintenu")
 print("✅ Gestion des projets complète intégrée")
 print("✅ Module Kanban unifié intégré")
 print("✅ Support fuseau horaire EST/EDT automatique")
+print("✅ INVENTAIRE RETIRÉ du menu production")
 print("🕐 Heure affichée: Québec (gestion automatique heure d'été/hiver)")
-print("🚀 Prêt pour déploiement sur Render avec heure locale correcte")
+print("🚀 Prêt pour déploiement sur Render avec heure locale correcte et menu production épuré")
