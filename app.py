@@ -2179,7 +2179,7 @@ def show_portal_home():
                 Interface unifiée TimeTracker Pro & Postes de travail
             </div>
             <ul class="access-features">
-                <li>⏱️🔧 TimeTracker Pro & Postes Unifiés</li>
+                <li>⏱️ TimeTracker</li>
                 <li>🔧 Bons de Travail Intégrés</li>
                 <li>📊 Suivi temps réel</li>
                 <li>📱 Interface simplifiée</li>
