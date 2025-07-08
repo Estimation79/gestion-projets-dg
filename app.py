@@ -66,7 +66,751 @@ TACHES_PRODUCTION = [
 ]
 
 # ========================
-# CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
+# IMPORTS DES MODULES ERP (NOUVELLE ORGANISATION)
+# ========================
+
+# PERSISTENT STORAGE : Import du gestionnaire de stockage persistant
+try:
+    from database_persistent import init_persistent_storage
+    PERSISTENT_STORAGE_AVAILABLE = True
+except ImportError:
+    PERSISTENT_STORAGE_AVAILABLE = False
+
+# NOUVELLE ARCHITECTURE : Import SQLite Database
+try:
+    from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
+    ERP_DATABASE_AVAILABLE = True
+except ImportError:
+    ERP_DATABASE_AVAILABLE = False
+
+# NOUVEAU : Import du module unifié
+try:
+    from production_management import show_production_management_page
+    PRODUCTION_MANAGEMENT_AVAILABLE = True
+except ImportError:
+    PRODUCTION_MANAGEMENT_AVAILABLE = False
+
+# Importations pour le CRM (avec toutes les fonctions décommentées)
+try:
+    from crm import GestionnaireCRM, render_crm_main_interface
+    CRM_AVAILABLE = True
+except ImportError:
+    CRM_AVAILABLE = False
+
+# Importations pour les Employés
+try:
+    from employees import (
+        GestionnaireEmployes,
+        render_employes_liste_tab,
+        render_employes_dashboard_tab,
+        render_employe_form,
+        render_employe_details
+    )
+    EMPLOYEES_AVAILABLE = True
+except ImportError:
+    EMPLOYEES_AVAILABLE = False
+
+# NOUVEAU : Importation du module Formulaires
+try:
+    from formulaires import (
+        GestionnaireFormulaires,
+        show_formulaires_page
+    )
+    FORMULAIRES_AVAILABLE = True
+except ImportError:
+    FORMULAIRES_AVAILABLE = False
+
+# NOUVEAU : Importation du module Fournisseurs
+try:
+    from fournisseurs import (
+        GestionnaireFournisseurs,
+        show_fournisseurs_page
+    )
+    FOURNISSEURS_AVAILABLE = True
+except ImportError:
+    FOURNISSEURS_AVAILABLE = False
+
+# === AJOUTS POUR TIMETRACKER UNIFIÉ ===
+try:
+    from timetracker_unified import (
+        show_timetracker_unified_interface_main,
+        show_timetracker_admin_complete_interface,
+        initialize_timetracker_unified,
+        get_timetracker_summary_stats,
+        TimeTrackerUnified
+    )
+    TIMETRACKER_AVAILABLE = True
+except ImportError as e:
+    TIMETRACKER_AVAILABLE = False
+    print(f"Erreur import TimeTracker Pro: {e}")
+
+# NOUVEAU : Importation du module Kanban unifié
+try:
+    from kanban import show_kanban_sqlite, show_kanban
+    KANBAN_AVAILABLE = True
+except ImportError:
+    KANBAN_AVAILABLE = False
+
+# NOUVEAU : Import du gestionnaire de pièces jointes
+try:
+    from attachments_manager import (
+        AttachmentsManager,
+        show_project_attachments_interface,
+        init_attachments_manager,
+        show_attachments_tab_in_project_modal
+    )
+    ATTACHMENTS_AVAILABLE = True
+except ImportError:
+    ATTACHMENTS_AVAILABLE = False
+
+# NOUVEAU : Import du module Inventaire
+try:
+    from inventory import show_inventory_page, init_inventory_manager
+    INVENTORY_AVAILABLE = True
+except ImportError:
+    INVENTORY_AVAILABLE = False
+
+# ========================
+# INITIALISATION CENTRALE DU SYSTÈME (NOUVELLE FONCTION CLÉ)
+# ========================
+
+def initialize_core_services():
+    """
+    Initialise la base de données et tous les gestionnaires de modules.
+    Cette fonction est le cœur du démarrage de l'application.
+    Elle garantit que tout est prêt avant l'affichage de l'interface.
+    """
+    # 1. Initialiser le stockage persistant si disponible
+    if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
+        try:
+            st.session_state.storage_manager = init_persistent_storage()
+            db_path = st.session_state.storage_manager.db_path
+            
+            # Notification selon le type de stockage
+            storage_info = st.session_state.storage_manager.get_storage_info()
+            if storage_info['environment_type'] == 'RENDER_PERSISTENT':
+                st.toast("💾 Stockage persistant Render activé !", icon="✅")
+            elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
+                st.toast("⚠️ Mode temporaire - Configurez le persistent disk", icon="⚠️")
+        except Exception as e:
+            st.error(f"❌ Erreur initialisation stockage persistant: {e}")
+            db_path = "erp_production_dg.db"
+            st.session_state.storage_manager = None
+    else:
+        db_path = st.session_state.storage_manager.db_path if st.session_state.get('storage_manager') else "erp_production_dg.db"
+
+    # 2. Initialiser la base de données
+    if ERP_DATABASE_AVAILABLE and 'erp_db' not in st.session_state:
+        try:
+            st.session_state.erp_db = ERPDatabase(db_path)
+            
+            # NOUVELLE MIGRATION : Support IDs alphanumériques
+            force_recreate_projects_table_with_text_id(st.session_state.erp_db)
+            st.session_state.migration_completed = True
+
+            # AJOUT CRITIQUE : Initialiser données de base si vides - RÉSOUT ERREURS FK
+            _init_base_data_if_empty()
+
+            # Créer une sauvegarde initiale si gestionnaire disponible
+            if st.session_state.get('storage_manager'):
+                try:
+                    backup_path = st.session_state.storage_manager.create_backup("initial_startup")
+                    if backup_path:
+                        print(f"✅ Sauvegarde de démarrage créée: {backup_path}")
+                except Exception as e:
+                    print(f"⚠️ Erreur sauvegarde de démarrage: {e}")
+                    
+        except Exception as e:
+            st.error(f"❌ Erreur critique de connexion à la base de données: {e}")
+            st.stop()  # Arrête l'application si la DB est inaccessible
+
+    # Si la DB n'est pas prête, on ne peut pas continuer.
+    if 'erp_db' not in st.session_state:
+        st.error("❌ ERPDatabase non disponible - Initialisation impossible.")
+        st.stop()
+    
+    db = st.session_state.erp_db
+
+    # 3. Initialiser les gestionnaires qui dépendent de la DB
+    if 'gestionnaire' not in st.session_state:
+        st.session_state.gestionnaire = GestionnaireProjetSQL(db)
+
+    if EMPLOYEES_AVAILABLE and 'gestionnaire_employes' not in st.session_state:
+        st.session_state.gestionnaire_employes = GestionnaireEmployes()
+
+    if CRM_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
+        # Le CRM dépend du gestionnaire de projets pour la conversion des devis
+        if 'gestionnaire' in st.session_state:
+            st.session_state.gestionnaire_crm = GestionnaireCRM(
+                db=db, 
+                project_manager=st.session_state.gestionnaire
+            )
+            print("✅ Gestionnaire CRM initialisé avec accès au gestionnaire de projets.")
+        else:
+            st.session_state.gestionnaire_crm = GestionnaireCRM(db=db)
+            print("⚠️ Gestionnaire CRM initialisé SANS accès au gestionnaire de projets.")
+
+    if FORMULAIRES_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
+        st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(db)
+
+    if FOURNISSEURS_AVAILABLE and 'gestionnaire_fournisseurs' not in st.session_state:
+        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(db)
+
+    if ATTACHMENTS_AVAILABLE and 'attachments_manager' not in st.session_state:
+        st.session_state.attachments_manager = init_attachments_manager(
+            db,
+            st.session_state.get('storage_manager')
+        )
+        print("✅ Gestionnaire de pièces jointes initialisé")
+
+    if TIMETRACKER_AVAILABLE and 'timetracker_unified' not in st.session_state:
+        try:
+            st.session_state.timetracker_unified = initialize_timetracker_unified(db)
+            print("✅ TimeTracker Unifié initialisé avec double interface")
+        except Exception as e:
+            print(f"❌ Erreur initialisation TimeTracker: {e}")
+            st.session_state.timetracker_unified = None
+
+
+def _init_base_data_if_empty():
+    """Initialise les données de base si les tables sont vides - RÉSOUT ERREURS FK"""
+    if not ERP_DATABASE_AVAILABLE:
+        return
+
+    db = st.session_state.erp_db
+
+    try:
+        # Vérifier et créer entreprises par défaut
+        companies_count = db.get_table_count('companies')
+        if companies_count == 0:
+            # Créer quelques entreprises par défaut
+            default_companies = [
+                {
+                    'id': 1,
+                    'nom': 'AutoTech Corp.',
+                    'secteur': 'Automobile',
+                    'adresse': '123 Rue Industrielle, Montréal, QC',
+                    'site_web': 'www.autotech.com',
+                    'notes': 'Client métallurgie automobile'
+                },
+                {
+                    'id': 2,
+                    'nom': 'BâtiTech Inc.',
+                    'secteur': 'Construction',
+                    'adresse': '456 Boul. Construction, Québec, QC',
+                    'site_web': 'www.batitech.ca',
+                    'notes': 'Structures industrielles'
+                },
+                {
+                    'id': 3,
+                    'nom': 'AeroSpace Ltd',
+                    'secteur': 'Aéronautique',
+                    'adresse': '789 Ave. Aviation, Mirabel, QC',
+                    'site_web': 'www.aerospace.com',
+                    'notes': 'Pièces aéronautiques'
+                }
+            ]
+
+            for company in default_companies:
+                db.execute_insert('''
+                    INSERT OR IGNORE INTO companies (id, nom, secteur, adresse, site_web, notes)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    company['id'], company['nom'], company['secteur'],
+                    company['adresse'], company['site_web'], company['notes']
+                ))
+
+            print(f"✅ {len(default_companies)} entreprises par défaut créées")
+
+        # Vérifier et créer contacts par défaut
+        contacts_count = db.get_table_count('contacts')
+        if contacts_count == 0:
+            default_contacts = [
+                {
+                    'id': 1,
+                    'prenom': 'Jean',
+                    'nom_famille': 'Dubois',
+                    'email': 'j.dubois@autotech.com',
+                    'telephone': '514-555-0101',
+                    'company_id': 1,
+                    'role_poste': 'Directeur Technique'
+                },
+                {
+                    'id': 2,
+                    'prenom': 'Marie',
+                    'nom_famille': 'Tremblay',
+                    'email': 'm.tremblay@batitech.ca',
+                    'telephone': '418-555-0202',
+                    'company_id': 2,
+                    'role_poste': 'Ingénieure Projet'
+                },
+                {
+                    'id': 3,
+                    'prenom': 'David',
+                    'nom_famille': 'Johnson',
+                    'email': 'd.johnson@aerospace.com',
+                    'telephone': '450-555-0303',
+                    'company_id': 3,
+                    'role_poste': 'Responsable Achats'
+                }
+            ]
+
+            for contact in default_contacts:
+                db.execute_insert('''
+                    INSERT OR IGNORE INTO contacts (id, prenom, nom_famille, email, telephone, company_id, role_poste)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    contact['id'], contact['prenom'], contact['nom_famille'],
+                    contact['email'], contact['telephone'], contact['company_id'], contact['role_poste']
+                ))
+
+            print(f"✅ {len(default_contacts)} contacts par défaut créés")
+
+        # Initialiser postes de travail si vides
+        work_centers_count = db.get_table_count('work_centers')
+        if work_centers_count == 0:
+            # Créer quelques postes essentiels
+            default_work_centers = [
+                {
+                    'id': 1,
+                    'nom': 'Robot ABB GMAW Station 1',
+                    'departement': 'PRODUCTION',
+                    'categorie': 'ROBOTIQUE',
+                    'type_machine': 'Robot de soudage',
+                    'capacite_theorique': 8.0,
+                    'operateurs_requis': 1,
+                    'cout_horaire': 140.0,
+                    'competences_requises': 'Soudage GMAW, Programmation Robot'
+                },
+                {
+                    'id': 2,
+                    'nom': 'Découpe Plasma CNC',
+                    'departement': 'USINAGE',
+                    'categorie': 'CNC',
+                    'type_machine': 'Table plasma',
+                    'capacite_theorique': 7.5,
+                    'operateurs_requis': 1,
+                    'cout_horaire': 125.0,
+                    'competences_requises': 'Découpe plasma, Programmation CNC'
+                },
+                {
+                    'id': 3,
+                    'nom': 'Assemblage Manuel Station A',
+                    'departement': 'PRODUCTION',
+                    'categorie': 'MANUEL',
+                    'type_machine': 'Poste assemblage',
+                    'capacite_theorique': 8.0,
+                    'operateurs_requis': 2,
+                    'cout_horaire': 65.0,
+                    'competences_requises': 'Assemblage mécanique, Lecture plans'
+                }
+            ]
+
+            for wc in default_work_centers:
+                db.execute_insert('''
+                    INSERT OR IGNORE INTO work_centers
+                    (id, nom, departement, categorie, type_machine, capacite_theorique,
+                     operateurs_requis, cout_horaire, competences_requises)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    wc['id'], wc['nom'], wc['departement'], wc['categorie'],
+                    wc['type_machine'], wc['capacite_theorique'], wc['operateurs_requis'],
+                    wc['cout_horaire'], wc['competences_requises']
+                ))
+
+            print(f"✅ {len(default_work_centers)} postes de travail créés")
+
+    except Exception as e:
+        print(f"Erreur initialisation données de base: {e}")
+
+
+def force_recreate_projects_table_with_text_id(db):
+    """Solution de contournement : Recréer complètement la table projects avec ID TEXT"""
+    try:
+        print("🚨 SOLUTION FORCÉE : Recréation complète de la table projects")
+        
+        # 1. Sauvegarder toutes les données existantes
+        print("💾 Sauvegarde des données existantes...")
+        existing_projects = []
+        try:
+            projects_data = db.execute_query("SELECT * FROM projects")
+            if projects_data:
+                existing_projects = [dict(row) for row in projects_data]
+                print(f"📊 {len(existing_projects)} projets à sauvegarder")
+        except Exception as e:
+            print(f"⚠️ Erreur lecture projets existants: {e}")
+        
+        # 2. Supprimer complètement l'ancienne table
+        print("🗑️ Suppression de l'ancienne table...")
+        db.execute_update("DROP TABLE IF EXISTS projects")
+        
+        # 3. Créer la nouvelle table avec ID TEXT
+        print("🏗️ Création de la nouvelle table...")
+        db.execute_update("""
+            CREATE TABLE projects (
+                id TEXT PRIMARY KEY,
+                nom_projet TEXT NOT NULL,
+                client_company_id INTEGER,
+                client_nom_cache TEXT,
+                client_legacy TEXT,
+                statut TEXT DEFAULT 'À FAIRE',
+                priorite TEXT DEFAULT 'MOYEN',
+                tache TEXT,
+                date_soumis TEXT,
+                date_prevu TEXT,
+                bd_ft_estime REAL DEFAULT 0,
+                prix_estime REAL DEFAULT 0,
+                description TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (client_company_id) REFERENCES companies(id)
+            )
+        """)
+        
+        # 4. Restaurer les données avec ID converti en TEXT
+        if existing_projects:
+            print("📥 Restauration des données...")
+            for project in existing_projects:
+                try:
+                    # Convertir l'ID en string
+                    project_id = str(project.get('id', ''))
+                    
+                    db.execute_update("""
+                        INSERT INTO projects 
+                        (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                         statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
+                         prix_estime, description, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        project_id,
+                        project.get('nom_projet', ''),
+                        project.get('client_company_id'),
+                        project.get('client_nom_cache', ''),
+                        project.get('client_legacy', ''),
+                        project.get('statut', 'À FAIRE'),
+                        project.get('priorite', 'MOYEN'),
+                        project.get('tache', ''),
+                        project.get('date_soumis', ''),
+                        project.get('date_prevu', ''),
+                        project.get('bd_ft_estime', 0),
+                        project.get('prix_estime', 0),
+                        project.get('description', ''),
+                        project.get('created_at', 'CURRENT_TIMESTAMP'),
+                        project.get('updated_at', 'CURRENT_TIMESTAMP')
+                    ))
+                except Exception as restore_error:
+                    print(f"⚠️ Erreur restauration projet {project.get('id')}: {restore_error}")
+            
+            print(f"✅ {len(existing_projects)} projets restaurés")
+        
+        # 5. Nettoyer les tables liées (optionnel - supprimer les références orphelines)
+        print("🧹 Nettoyage des tables liées...")
+        try:
+            # Supprimer les assignations orphelines
+            db.execute_update("""
+                DELETE FROM project_assignments 
+                WHERE project_id NOT IN (SELECT id FROM projects)
+            """)
+            
+            # Supprimer les opérations orphelines  
+            db.execute_update("""
+                DELETE FROM operations 
+                WHERE project_id IS NOT NULL 
+                AND project_id NOT IN (SELECT id FROM projects)
+            """)
+            
+            # Supprimer les matériaux orphelins
+            db.execute_update("""
+                DELETE FROM materials 
+                WHERE project_id IS NOT NULL 
+                AND project_id NOT IN (SELECT id FROM projects)
+            """)
+            
+            print("✅ Tables liées nettoyées")
+        except Exception as cleanup_error:
+            print(f"⚠️ Erreur nettoyage: {cleanup_error}")
+        
+        # 6. Vérification finale
+        final_check = db.execute_query("PRAGMA table_info(projects)")
+        for column in final_check:
+            if column['name'] == 'id':
+                print(f"🎉 SUCCÈS: Colonne ID maintenant de type {column['type']}")
+                break
+        
+        restored_count = len(db.execute_query("SELECT id FROM projects") or [])
+        print(f"📊 Projets dans la nouvelle table: {restored_count}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Erreur solution forcée: {e}")
+        import traceback
+        print(f"📋 Traceback: {traceback.format_exc()}")
+        return False
+
+
+# ========================
+# GESTIONNAIRE PROJETS SQLite AVEC ID PERSONNALISÉ
+# ========================
+
+class GestionnaireProjetSQL:
+    """
+    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite avec support ID alphanumériqueе
+    """
+
+    def __init__(self, db: ERPDatabase):
+        self.db = db
+        self.next_id = 10000  # Commence à 10000 pour professionnalisme
+        self._init_next_id()
+
+    def _init_next_id(self):
+        """Initialise le prochain ID numérique basé sur les projets existants"""
+        try:
+            # Pour les IDs automatiques, on cherche le plus grand ID numérique
+            result = self.db.execute_query("""
+                SELECT id FROM projects 
+                WHERE id GLOB '[0-9]*' 
+                ORDER BY CAST(id AS INTEGER) DESC 
+                LIMIT 1
+            """)
+            if result and result[0]['id']:
+                max_numeric_id = int(result[0]['id'])
+                self.next_id = max(max_numeric_id + 1, 10000)
+            else:
+                self.next_id = 10000
+        except Exception as e:
+            print(f"Erreur initialisation next_id: {e}")
+            self.next_id = 10000
+
+    def check_project_id_exists(self, project_id):
+        """Vérifie si un ID de projet existe déjà (alphanumériqueе ou numérique)"""
+        try:
+            result = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE id = ?", (str(project_id),))
+            return result and result[0]['count'] > 0
+        except Exception:
+            return True  # En cas d'erreur, considérer comme existant pour éviter les conflits
+
+    @property
+    def projets(self):
+        """Propriété pour maintenir compatibilité avec l'ancien code"""
+        return self.get_all_projects()
+
+    def ajouter_projet(self, projet_data, custom_id=None):
+        """
+        Ajoute un nouveau projet en SQLite avec support ID alphanumériqueе
+        
+        Args:
+            projet_data: Données du projet
+            custom_id: ID personnalisé optionnel (peut être alphanumériqueе)
+        """
+        try:
+            # Déterminer l'ID du projet
+            if custom_id is not None:
+                # Validation de l'ID personnalisé (alphanumériqueе)
+                project_id = str(custom_id).strip()
+                if not project_id:
+                    raise ValueError("L'ID ne peut pas être vide")
+                
+                # Vérifier que l'ID n'existe pas déjà
+                if self.check_project_id_exists(project_id):
+                    raise ValueError(f"Le projet #{project_id} existe déjà")
+                
+                # Si c'est un ID numérique, ajuster next_id si nécessaire
+                try:
+                    numeric_id = int(project_id)
+                    if numeric_id >= self.next_id:
+                        self.next_id = numeric_id + 1
+                except ValueError:
+                    # ID non numérique, pas besoin d'ajuster next_id
+                    pass
+            else:
+                # Utiliser l'auto-incrémentation numérique
+                project_id = str(self.next_id)
+                self.next_id += 1
+
+            # VALIDATION PRÉALABLE des clés étrangères
+            if projet_data.get('client_company_id'):
+                company_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM companies WHERE id = ?",
+                    (projet_data['client_company_id'],)
+                )
+                if not company_exists or company_exists[0]['count'] == 0:
+                    raise ValueError(f"Entreprise ID {projet_data['client_company_id']} n'existe pas")
+
+            # Validation employés assignés
+            employes_assignes = projet_data.get('employes_assignes', [])
+            for emp_id in employes_assignes:
+                emp_exists = self.db.execute_query(
+                    "SELECT COUNT(*) as count FROM employees WHERE id = ?",
+                    (emp_id,)
+                )
+                if not emp_exists or emp_exists[0]['count'] == 0:
+                    raise ValueError(f"Employé ID {emp_id} n'existe pas")
+
+            # Insérer projet principal avec gestion NULL
+            # IMPORTANT: Utiliser l'ID comme TEXT pour supporter les formats alphanumériques
+            query = '''
+                INSERT INTO projects
+                (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                 statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
+                 prix_estime, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+
+            prix_estime = float(str(projet_data.get('prix_estime', 0)).replace('$', '').replace(',', '')) if projet_data.get('prix_estime') else 0
+            bd_ft_estime = float(projet_data.get('bd_ft_estime', 0)) if projet_data.get('bd_ft_estime') else 0
+
+            self.db.execute_update(query, (
+                project_id,  # Maintenant stocké comme TEXT
+                projet_data['nom_projet'],
+                projet_data.get('client_company_id'),
+                projet_data.get('client_nom_cache'),
+                projet_data.get('client_legacy', ''),
+                projet_data.get('statut', 'À FAIRE'),
+                projet_data.get('priorite', 'MOYEN'),
+                projet_data['tache'],
+                projet_data.get('date_soumis'),
+                projet_data.get('date_prevu'),
+                bd_ft_estime,
+                prix_estime,
+                projet_data.get('description')
+            ))
+
+            # Insérer assignations employés (validation déjà faite)
+            for emp_id in employes_assignes:
+                self.db.execute_update(
+                    "INSERT OR IGNORE INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
+                    (project_id, emp_id, 'Membre équipe')
+                )
+
+            return project_id
+
+        except ValueError as ve:
+            st.error(f"Erreur validation: {ve}")
+            return None
+        except Exception as e:
+            st.error(f"Erreur technique ajout projet: {e}")
+            return None
+
+    def modifier_projet(self, projet_id, projet_data_update):
+        """Modifie un projet existant (projet_id peut être alphanumériqueе)"""
+        try:
+            # Préparer les champs à mettre à jour
+            update_fields = []
+            params = []
+
+            for field, value in projet_data_update.items():
+                if field in ['nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
+                           'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
+                           'bd_ft_estime', 'prix_estime', 'description']:
+                    update_fields.append(f"{field} = ?")
+
+                    # Traitement spécial pour les prix
+                    if field == 'prix_estime':
+                        value = float(str(value).replace('$', '').replace(',', '')) if value else 0
+                    elif field == 'bd_ft_estime':
+                        value = float(value) if value else 0
+
+                    params.append(value)
+
+            if update_fields:
+                query = f"UPDATE projects SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                params.append(str(projet_id))  # Convertir en string pour compatibilité
+                self.db.execute_update(query, tuple(params))
+
+            # Mettre à jour assignations employés si fourni
+            if 'employes_assignes' in projet_data_update:
+                # Supprimer anciennes assignations
+                self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (str(projet_id),))
+
+                # Ajouter nouvelles assignations
+                for emp_id in projet_data_update['employes_assignes']:
+                    self.db.execute_update(
+                        "INSERT INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
+                        (str(projet_id), emp_id, 'Membre équipe')
+                    )
+
+            return True
+
+        except Exception as e:
+            st.error(f"Erreur modification projet: {e}")
+            return False
+
+    def supprimer_projet(self, projet_id):
+        """Supprime un projet et ses données associées (projet_id peut être alphanumériqueе)"""
+        try:
+            projet_id_str = str(projet_id)
+            # Supprimer en cascade (relations d'abord)
+            self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id_str,))
+            self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id_str,))
+            self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id_str,))
+            self.db.execute_update("DELETE FROM time_entries WHERE project_id = ?", (projet_id_str,))
+
+            # Supprimer le projet
+            self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id_str,))
+
+            return True
+
+        except Exception as e:
+            st.error(f"Erreur suppression projet: {e}")
+            return False
+
+    def get_all_projects(self):
+        """Récupère tous les projets depuis SQLite (compatible IDs alphanumériques)"""
+        try:
+            query = '''
+                SELECT p.*, c.nom as client_nom_company
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                ORDER BY 
+                    CASE 
+                        WHEN p.id GLOB '[0-9]*' THEN CAST(p.id AS INTEGER)
+                        ELSE 999999
+                    END DESC,
+                    p.id DESC
+            '''
+            rows = self.db.execute_query(query)
+
+            projets = []
+            for row in rows:
+                projet = dict(row)
+
+                # Récupérer opérations
+                operations = self.db.execute_query(
+                    "SELECT * FROM operations WHERE project_id = ? ORDER BY sequence_number",
+                    (projet['id'],)
+                )
+                projet['operations'] = [dict(op) for op in operations]
+
+                # Récupérer matériaux
+                materiaux = self.db.execute_query(
+                    "SELECT * FROM materials WHERE project_id = ?",
+                    (projet['id'],)
+                )
+                projet['materiaux'] = [dict(mat) for mat in materiaux]
+
+                # Récupérer employés assignés
+                employes_assignes = self.db.execute_query(
+                    "SELECT employee_id FROM project_assignments WHERE project_id = ?",
+                    (projet['id'],)
+                )
+                projet['employes_assignes'] = [row['employee_id'] for row in employes_assignes]
+
+                # Compatibilité avec ancien format
+                if not projet.get('client_nom_cache') and projet.get('client_nom_company'):
+                    projet['client_nom_cache'] = projet['client_nom_company']
+
+                projets.append(projet)
+
+            return projets
+
+        except Exception as e:
+            st.error(f"Erreur récupération projets: {e}")
+            return []
+
+
+# ========================
+# CHARGEMENT DU CSS EXTERNE
 # ========================
 
 def safe_price_conversion(price_value, default=0.0):
@@ -409,6 +1153,7 @@ def apply_additional_attachments_styles():
     </style>
     """, unsafe_allow_html=True)
 
+
 # ========================
 # CONFIGURATION AUTHENTIFICATION
 # ========================
@@ -509,134 +1254,10 @@ def show_admin_header():
     </div>
     """, unsafe_allow_html=True)
 
-# ========================
-# IMPORTS MODULES ERP (MODIFIÉS POUR TIMETRACKER PRO + PIÈCES JOINTES)
-# ========================
-
-# PERSISTENT STORAGE : Import du gestionnaire de stockage persistant
-try:
-    from database_persistent import init_persistent_storage
-    PERSISTENT_STORAGE_AVAILABLE = True
-except ImportError:
-    PERSISTENT_STORAGE_AVAILABLE = False
-
-# NOUVELLE ARCHITECTURE : Import SQLite Database
-try:
-    from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
-    ERP_DATABASE_AVAILABLE = True
-except ImportError:
-    ERP_DATABASE_AVAILABLE = False
 
 # ========================
-# NOUVEAU : Import du module unifié
+# FONCTIONS UTILITAIRES ERP
 # ========================
-try:
-    from production_management import show_production_management_page
-    PRODUCTION_MANAGEMENT_AVAILABLE = True
-except ImportError:
-    PRODUCTION_MANAGEMENT_AVAILABLE = False
-
-# --- REMPLACEZ PAR CECI DANS app.py ---
-
-# Importations pour le CRM (avec toutes les fonctions décommentées)
-try:
-    # On importe uniquement le constructeur et l'interface principale du CRM.
-    from crm import GestionnaireCRM, render_crm_main_interface
-    CRM_AVAILABLE = True
-except ImportError:
-    CRM_AVAILABLE = False
-
-# Importations pour les Employés
-try:
-    from employees import (
-        GestionnaireEmployes,
-        render_employes_liste_tab,
-        render_employes_dashboard_tab,
-        render_employe_form,
-        render_employe_details
-    )
-    EMPLOYEES_AVAILABLE = True
-except ImportError:
-    EMPLOYEES_AVAILABLE = False
-
-# ARCHITECTURE UNIFIÉE : Postes de travail intégrés dans TimeTracker
-# Les fonctions postes sont maintenant dans timetracker_unified.py
-POSTES_AVAILABLE = False  # Désactivé - maintenant unifié dans TimeTracker Pro
-
-# NOUVEAU : Importation du module Formulaires
-try:
-    from formulaires import (
-        GestionnaireFormulaires,
-        show_formulaires_page
-    )
-    FORMULAIRES_AVAILABLE = True
-except ImportError:
-    FORMULAIRES_AVAILABLE = False
-
-# NOUVEAU : Importation du module Fournisseurs
-try:
-    from fournisseurs import (
-        GestionnaireFournisseurs,
-        show_fournisseurs_page
-    )
-    FOURNISSEURS_AVAILABLE = True
-except ImportError:
-    FOURNISSEURS_AVAILABLE = False
-
-# === AJOUTS POUR TIMETRACKER UNIFIÉ ===
-try:
-    from timetracker_unified import (
-        show_timetracker_unified_interface_main,
-        show_timetracker_admin_complete_interface,
-        initialize_timetracker_unified,
-        get_timetracker_summary_stats,
-        TimeTrackerUnified
-    )
-    TIMETRACKER_AVAILABLE = True
-except ImportError as e:
-    TIMETRACKER_AVAILABLE = False
-    print(f"Erreur import TimeTracker Pro: {e}")
-
-# NOUVEAU : Importation du module Kanban unifié
-try:
-    from kanban import show_kanban_sqlite, show_kanban
-    KANBAN_AVAILABLE = True
-except ImportError:
-    KANBAN_AVAILABLE = False
-
-# NOUVEAU : Import du gestionnaire de pièces jointes
-try:
-    from attachments_manager import (
-        AttachmentsManager,
-        show_project_attachments_interface,
-        init_attachments_manager,
-        show_attachments_tab_in_project_modal
-    )
-    ATTACHMENTS_AVAILABLE = True
-except ImportError:
-    ATTACHMENTS_AVAILABLE = False
-
-# NOUVEAU : Import du module Inventaire - AJOUTEZ ICI
-try:
-    from inventory import show_inventory_page, init_inventory_manager
-    INVENTORY_AVAILABLE = True
-except ImportError:
-    INVENTORY_AVAILABLE = False
-
-# Configuration de la page
-st.set_page_config(
-    page_title="🚀 ERP",
-    page_icon="🏭",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# ========================
-# FONCTIONS UTILITAIRES ERP (RÉDUITES - MODULE UNIFIÉ)
-# ========================
-
-# Les constantes et fonctions utilitaires ont été déplacées vers production_management.py
-# Seules les fonctions encore utilisées dans app.py sont conservées ici
 
 def format_currency(value):
     if value is None:
@@ -682,10 +1303,6 @@ def get_project_statistics(gestionnaire):
     termines = stats['par_statut'].get('TERMINÉ', 0)
     stats['taux_completion'] = (termines / stats['total'] * 100) if stats['total'] > 0 else 0
     return stats
-
-# ========================
-# NOUVELLES FONCTIONS UTILITAIRES POUR GESTION PROJETS
-# ========================
 
 def get_client_display_name(project, crm_manager):
     """Récupère le nom d'affichage du client"""
@@ -1354,826 +1971,9 @@ def handle_batch_actions():
                     st.session_state.batch_selected_ids = None
                     st.rerun()
 
-# ========================
-# GESTIONNAIRE PROJETS SQLite AVEC ID PERSONNALISÉ
-# ========================
-
-class GestionnaireProjetSQL:
-    """
-    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite avec support ID alphanumériqueе
-    """
-
-    def __init__(self, db: ERPDatabase):
-        self.db = db
-        self.next_id = 10000  # Commence à 10000 pour professionnalisme
-        self._init_next_id()
-
-    def _init_next_id(self):
-        """Initialise le prochain ID numérique basé sur les projets existants"""
-        try:
-            # Pour les IDs automatiques, on cherche le plus grand ID numérique
-            result = self.db.execute_query("""
-                SELECT id FROM projects 
-                WHERE id GLOB '[0-9]*' 
-                ORDER BY CAST(id AS INTEGER) DESC 
-                LIMIT 1
-            """)
-            if result and result[0]['id']:
-                max_numeric_id = int(result[0]['id'])
-                self.next_id = max(max_numeric_id + 1, 10000)
-            else:
-                self.next_id = 10000
-        except Exception as e:
-            print(f"Erreur initialisation next_id: {e}")
-            self.next_id = 10000
-
-    def check_project_id_exists(self, project_id):
-        """Vérifie si un ID de projet existe déjà (alphanumériqueе ou numérique)"""
-        try:
-            result = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE id = ?", (str(project_id),))
-            return result and result[0]['count'] > 0
-        except Exception:
-            return True  # En cas d'erreur, considérer comme existant pour éviter les conflits
-
-    @property
-    def projets(self):
-        """Propriété pour maintenir compatibilité avec l'ancien code"""
-        return self.get_all_projects()
-
-    def ajouter_projet(self, projet_data, custom_id=None):
-        """
-        Ajoute un nouveau projet en SQLite avec support ID alphanumériqueе
-        
-        Args:
-            projet_data: Données du projet
-            custom_id: ID personnalisé optionnel (peut être alphanumériqueе)
-        """
-        try:
-            # Déterminer l'ID du projet
-            if custom_id is not None:
-                # Validation de l'ID personnalisé (alphanumériqueе)
-                project_id = str(custom_id).strip()
-                if not project_id:
-                    raise ValueError("L'ID ne peut pas être vide")
-                
-                # Vérifier que l'ID n'existe pas déjà
-                if self.check_project_id_exists(project_id):
-                    raise ValueError(f"Le projet #{project_id} existe déjà")
-                
-                # Si c'est un ID numérique, ajuster next_id si nécessaire
-                try:
-                    numeric_id = int(project_id)
-                    if numeric_id >= self.next_id:
-                        self.next_id = numeric_id + 1
-                except ValueError:
-                    # ID non numérique, pas besoin d'ajuster next_id
-                    pass
-            else:
-                # Utiliser l'auto-incrémentation numérique
-                project_id = str(self.next_id)
-                self.next_id += 1
-
-            # VALIDATION PRÉALABLE des clés étrangères
-            if projet_data.get('client_company_id'):
-                company_exists = self.db.execute_query(
-                    "SELECT COUNT(*) as count FROM companies WHERE id = ?",
-                    (projet_data['client_company_id'],)
-                )
-                if not company_exists or company_exists[0]['count'] == 0:
-                    raise ValueError(f"Entreprise ID {projet_data['client_company_id']} n'existe pas")
-
-            # Validation employés assignés
-            employes_assignes = projet_data.get('employes_assignes', [])
-            for emp_id in employes_assignes:
-                emp_exists = self.db.execute_query(
-                    "SELECT COUNT(*) as count FROM employees WHERE id = ?",
-                    (emp_id,)
-                )
-                if not emp_exists or emp_exists[0]['count'] == 0:
-                    raise ValueError(f"Employé ID {emp_id} n'existe pas")
-
-            # Insérer projet principal avec gestion NULL
-            # IMPORTANT: Utiliser l'ID comme TEXT pour supporter les formats alphanumériques
-            query = '''
-                INSERT INTO projects
-                (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
-                 statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
-                 prix_estime, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            '''
-
-            prix_estime = float(str(projet_data.get('prix_estime', 0)).replace('$', '').replace(',', '')) if projet_data.get('prix_estime') else 0
-            bd_ft_estime = float(projet_data.get('bd_ft_estime', 0)) if projet_data.get('bd_ft_estime') else 0
-
-            self.db.execute_update(query, (
-                project_id,  # Maintenant stocké comme TEXT
-                projet_data['nom_projet'],
-                projet_data.get('client_company_id'),
-                projet_data.get('client_nom_cache'),
-                projet_data.get('client_legacy', ''),
-                projet_data.get('statut', 'À FAIRE'),
-                projet_data.get('priorite', 'MOYEN'),
-                projet_data['tache'],
-                projet_data.get('date_soumis'),
-                projet_data.get('date_prevu'),
-                bd_ft_estime,
-                prix_estime,
-                projet_data.get('description')
-            ))
-
-            # Insérer assignations employés (validation déjà faite)
-            for emp_id in employes_assignes:
-                self.db.execute_update(
-                    "INSERT OR IGNORE INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
-                    (project_id, emp_id, 'Membre équipe')
-                )
-
-            return project_id
-
-        except ValueError as ve:
-            st.error(f"Erreur validation: {ve}")
-            return None
-        except Exception as e:
-            st.error(f"Erreur technique ajout projet: {e}")
-            return None
-
-    def modifier_projet(self, projet_id, projet_data_update):
-        """Modifie un projet existant (projet_id peut être alphanumériqueе)"""
-        try:
-            # Préparer les champs à mettre à jour
-            update_fields = []
-            params = []
-
-            for field, value in projet_data_update.items():
-                if field in ['nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
-                           'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
-                           'bd_ft_estime', 'prix_estime', 'description']:
-                    update_fields.append(f"{field} = ?")
-
-                    # Traitement spécial pour les prix
-                    if field == 'prix_estime':
-                        value = float(str(value).replace('$', '').replace(',', '')) if value else 0
-                    elif field == 'bd_ft_estime':
-                        value = float(value) if value else 0
-
-                    params.append(value)
-
-            if update_fields:
-                query = f"UPDATE projects SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                params.append(str(projet_id))  # Convertir en string pour compatibilité
-                self.db.execute_update(query, tuple(params))
-
-            # Mettre à jour assignations employés si fourni
-            if 'employes_assignes' in projet_data_update:
-                # Supprimer anciennes assignations
-                self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (str(projet_id),))
-
-                # Ajouter nouvelles assignations
-                for emp_id in projet_data_update['employes_assignes']:
-                    self.db.execute_update(
-                        "INSERT INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
-                        (str(projet_id), emp_id, 'Membre équipe')
-                    )
-
-            return True
-
-        except Exception as e:
-            st.error(f"Erreur modification projet: {e}")
-            return False
-
-    def supprimer_projet(self, projet_id):
-        """Supprime un projet et ses données associées (projet_id peut être alphanumériqueе)"""
-        try:
-            projet_id_str = str(projet_id)
-            # Supprimer en cascade (relations d'abord)
-            self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id_str,))
-            self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id_str,))
-            self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id_str,))
-            self.db.execute_update("DELETE FROM time_entries WHERE project_id = ?", (projet_id_str,))
-
-            # Supprimer le projet
-            self.db.execute_update("DELETE FROM projects WHERE id = ?", (projet_id_str,))
-
-            return True
-
-        except Exception as e:
-            st.error(f"Erreur suppression projet: {e}")
-            return False
-
-    def get_all_projects(self):
-        """Récupère tous les projets depuis SQLite (compatible IDs alphanumériques)"""
-        try:
-            query = '''
-                SELECT p.*, c.nom as client_nom_company
-                FROM projects p
-                LEFT JOIN companies c ON p.client_company_id = c.id
-                ORDER BY 
-                    CASE 
-                        WHEN p.id GLOB '[0-9]*' THEN CAST(p.id AS INTEGER)
-                        ELSE 999999
-                    END DESC,
-                    p.id DESC
-            '''
-            rows = self.db.execute_query(query)
-
-            projets = []
-            for row in rows:
-                projet = dict(row)
-
-                # Récupérer opérations
-                operations = self.db.execute_query(
-                    "SELECT * FROM operations WHERE project_id = ? ORDER BY sequence_number",
-                    (projet['id'],)
-                )
-                projet['operations'] = [dict(op) for op in operations]
-
-                # Récupérer matériaux
-                materiaux = self.db.execute_query(
-                    "SELECT * FROM materials WHERE project_id = ?",
-                    (projet['id'],)
-                )
-                projet['materiaux'] = [dict(mat) for mat in materiaux]
-
-                # Récupérer employés assignés
-                employes_assignes = self.db.execute_query(
-                    "SELECT employee_id FROM project_assignments WHERE project_id = ?",
-                    (projet['id'],)
-                )
-                projet['employes_assignes'] = [row['employee_id'] for row in employes_assignes]
-
-                # Compatibilité avec ancien format
-                if not projet.get('client_nom_cache') and projet.get('client_nom_company'):
-                    projet['client_nom_cache'] = projet['client_nom_company']
-
-                projets.append(projet)
-
-            return projets
-
-        except Exception as e:
-            st.error(f"Erreur récupération projets: {e}")
-            return []
 
 # ========================
-# INITIALISATION ERP SYSTÈME (MODIFIÉ AVEC PIÈCES JOINTES)
-# ========================
-
-def _init_base_data_if_empty():
-    """Initialise les données de base si les tables sont vides - RÉSOUT ERREURS FK"""
-    if not ERP_DATABASE_AVAILABLE:
-        return
-
-    db = st.session_state.erp_db
-
-    try:
-        # Vérifier et créer entreprises par défaut
-        companies_count = db.get_table_count('companies')
-        if companies_count == 0:
-            # Créer quelques entreprises par défaut
-            default_companies = [
-                {
-                    'id': 1,
-                    'nom': 'AutoTech Corp.',
-                    'secteur': 'Automobile',
-                    'adresse': '123 Rue Industrielle, Montréal, QC',
-                    'site_web': 'www.autotech.com',
-                    'notes': 'Client métallurgie automobile'
-                },
-                {
-                    'id': 2,
-                    'nom': 'BâtiTech Inc.',
-                    'secteur': 'Construction',
-                    'adresse': '456 Boul. Construction, Québec, QC',
-                    'site_web': 'www.batitech.ca',
-                    'notes': 'Structures industrielles'
-                },
-                {
-                    'id': 3,
-                    'nom': 'AeroSpace Ltd',
-                    'secteur': 'Aéronautique',
-                    'adresse': '789 Ave. Aviation, Mirabel, QC',
-                    'site_web': 'www.aerospace.com',
-                    'notes': 'Pièces aéronautiques'
-                }
-            ]
-
-            for company in default_companies:
-                db.execute_insert('''
-                    INSERT OR IGNORE INTO companies (id, nom, secteur, adresse, site_web, notes)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (
-                    company['id'], company['nom'], company['secteur'],
-                    company['adresse'], company['site_web'], company['notes']
-                ))
-
-            print(f"✅ {len(default_companies)} entreprises par défaut créées")
-
-        # Vérifier et créer contacts par défaut
-        contacts_count = db.get_table_count('contacts')
-        if contacts_count == 0:
-            default_contacts = [
-                {
-                    'id': 1,
-                    'prenom': 'Jean',
-                    'nom_famille': 'Dubois',
-                    'email': 'j.dubois@autotech.com',
-                    'telephone': '514-555-0101',
-                    'company_id': 1,
-                    'role_poste': 'Directeur Technique'
-                },
-                {
-                    'id': 2,
-                    'prenom': 'Marie',
-                    'nom_famille': 'Tremblay',
-                    'email': 'm.tremblay@batitech.ca',
-                    'telephone': '418-555-0202',
-                    'company_id': 2,
-                    'role_poste': 'Ingénieure Projet'
-                },
-                {
-                    'id': 3,
-                    'prenom': 'David',
-                    'nom_famille': 'Johnson',
-                    'email': 'd.johnson@aerospace.com',
-                    'telephone': '450-555-0303',
-                    'company_id': 3,
-                    'role_poste': 'Responsable Achats'
-                }
-            ]
-
-            for contact in default_contacts:
-                db.execute_insert('''
-                    INSERT OR IGNORE INTO contacts (id, prenom, nom_famille, email, telephone, company_id, role_poste)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    contact['id'], contact['prenom'], contact['nom_famille'],
-                    contact['email'], contact['telephone'], contact['company_id'], contact['role_poste']
-                ))
-
-            print(f"✅ {len(default_contacts)} contacts par défaut créés")
-
-        # Initialiser postes de travail si vides
-        work_centers_count = db.get_table_count('work_centers')
-        if work_centers_count == 0:
-            # Créer quelques postes essentiels
-            default_work_centers = [
-                {
-                    'id': 1,
-                    'nom': 'Robot ABB GMAW Station 1',
-                    'departement': 'PRODUCTION',
-                    'categorie': 'ROBOTIQUE',
-                    'type_machine': 'Robot de soudage',
-                    'capacite_theorique': 8.0,
-                    'operateurs_requis': 1,
-                    'cout_horaire': 140.0,
-                    'competences_requises': 'Soudage GMAW, Programmation Robot'
-                },
-                {
-                    'id': 2,
-                    'nom': 'Découpe Plasma CNC',
-                    'departement': 'USINAGE',
-                    'categorie': 'CNC',
-                    'type_machine': 'Table plasma',
-                    'capacite_theorique': 7.5,
-                    'operateurs_requis': 1,
-                    'cout_horaire': 125.0,
-                    'competences_requises': 'Découpe plasma, Programmation CNC'
-                },
-                {
-                    'id': 3,
-                    'nom': 'Assemblage Manuel Station A',
-                    'departement': 'PRODUCTION',
-                    'categorie': 'MANUEL',
-                    'type_machine': 'Poste assemblage',
-                    'capacite_theorique': 8.0,
-                    'operateurs_requis': 2,
-                    'cout_horaire': 65.0,
-                    'competences_requises': 'Assemblage mécanique, Lecture plans'
-                }
-            ]
-
-            for wc in default_work_centers:
-                db.execute_insert('''
-                    INSERT OR IGNORE INTO work_centers
-                    (id, nom, departement, categorie, type_machine, capacite_theorique,
-                     operateurs_requis, cout_horaire, competences_requises)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    wc['id'], wc['nom'], wc['departement'], wc['categorie'],
-                    wc['type_machine'], wc['capacite_theorique'], wc['operateurs_requis'],
-                    wc['cout_horaire'], wc['competences_requises']
-                ))
-
-            print(f"✅ {len(default_work_centers)} postes de travail créés")
-
-    except Exception as e:
-        print(f"Erreur initialisation données de base: {e}")
-
-# Fonction à ajouter dans app.py ou dans erp_database.py
-
-def migrate_projects_table_for_alphanumeric_ids(db):
-    """Migre la table projects pour supporter les IDs alphanumériques - VERSION DIAGNOSTIQUE COMPLÈTE"""
-    try:
-        # DIAGNOSTIC : Vérifier la structure actuelle
-        table_info = db.execute_query("PRAGMA table_info(projects)")
-        print("🔍 Structure actuelle de la table projects:")
-        for column in table_info:
-            print(f"  - {column['name']}: {column['type']} (PK: {column['pk']})")
-        
-        id_column_type = None
-        for column in table_info:
-            if column['name'] == 'id':
-                id_column_type = column['type']
-                break
-        
-        print(f"🎯 Type actuel de la colonne ID: {id_column_type}")
-        
-        if id_column_type and id_column_type.upper() == 'INTEGER':
-            print("📝 Migration requise: Conversion ID INTEGER vers TEXT")
-            
-            # SÉCURITÉ : Sauvegarder les données existantes
-            existing_projects = db.execute_query("SELECT * FROM projects LIMIT 5")
-            print(f"📊 Nombre de projets existants: {len(existing_projects) if existing_projects else 0}")
-            
-            # Créer nouvelle table avec ID TEXT
-            print("🔨 Création de la nouvelle table...")
-            db.execute_update("""
-                CREATE TABLE IF NOT EXISTS projects_new (
-                    id TEXT PRIMARY KEY,
-                    nom_projet TEXT NOT NULL,
-                    client_company_id INTEGER,
-                    client_nom_cache TEXT,
-                    client_legacy TEXT,
-                    statut TEXT DEFAULT 'À FAIRE',
-                    priorite TEXT DEFAULT 'MOYEN',
-                    tache TEXT,
-                    date_soumis TEXT,
-                    date_prevu TEXT,
-                    bd_ft_estime REAL DEFAULT 0,
-                    prix_estime REAL DEFAULT 0,
-                    description TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (client_company_id) REFERENCES companies(id)
-                )
-            """)
-            
-            # Copier données existantes avec gestion d'erreur
-            print("📋 Copie des données existantes...")
-            try:
-                db.execute_update("""
-                    INSERT OR REPLACE INTO projects_new 
-                    SELECT CAST(id AS TEXT), nom_projet, client_company_id, client_nom_cache, 
-                           client_legacy, statut, priorite, tache, date_soumis, date_prevu,
-                           bd_ft_estime, prix_estime, description, 
-                           COALESCE(created_at, CURRENT_TIMESTAMP),
-                           COALESCE(updated_at, CURRENT_TIMESTAMP)
-                    FROM projects
-                """)
-                print("✅ Données copiées avec succès")
-            except Exception as copy_error:
-                print(f"⚠️ Erreur copie données: {copy_error}")
-                # Continuer quand même pour créer la structure
-            
-            # Mettre à jour tables liées avec gestion d'erreur
-            print("🔗 Mise à jour des tables liées...")
-            
-            try:
-                db.execute_update("""
-                    UPDATE project_assignments 
-                    SET project_id = CAST(project_id AS TEXT)
-                    WHERE project_id IS NOT NULL
-                """)
-                print("✅ project_assignments mise à jour")
-            except Exception as e:
-                print(f"⚠️ Erreur project_assignments: {e}")
-            
-            try:
-                db.execute_update("""
-                    UPDATE operations 
-                    SET project_id = CAST(project_id AS TEXT)
-                    WHERE project_id IS NOT NULL
-                """)
-                print("✅ operations mise à jour")
-            except Exception as e:
-                print(f"⚠️ Erreur operations: {e}")
-            
-            try:
-                db.execute_update("""
-                    UPDATE materials 
-                    SET project_id = CAST(project_id AS TEXT)
-                    WHERE project_id IS NOT NULL
-                """)
-                print("✅ materials mise à jour")
-            except Exception as e:
-                print(f"⚠️ Erreur materials: {e}")
-            
-            try:
-                db.execute_update("""
-                    UPDATE time_entries 
-                    SET project_id = CAST(project_id AS TEXT)
-                    WHERE project_id IS NOT NULL
-                """)
-                print("✅ time_entries mise à jour")
-            except Exception as e:
-                print(f"⚠️ Erreur time_entries: {e} (normal si table n'existe pas)")
-            
-            # Remplacer table avec sécurité
-            print("🔄 Remplacement de la table...")
-            try:
-                db.execute_update("DROP TABLE IF EXISTS projects_old")  # Nettoyer ancien backup
-                db.execute_update("ALTER TABLE projects RENAME TO projects_old")  # Backup
-                db.execute_update("ALTER TABLE projects_new RENAME TO projects")  # Activer nouvelle
-                print("✅ Table remplacée avec succès")
-                
-                # Vérifier le résultat
-                new_table_info = db.execute_query("PRAGMA table_info(projects)")
-                for column in new_table_info:
-                    if column['name'] == 'id':
-                        print(f"🎉 Nouveau type de colonne ID: {column['type']}")
-                        break
-                
-            except Exception as replace_error:
-                print(f"❌ Erreur remplacement table: {replace_error}")
-                # Essayer de récupérer
-                try:
-                    db.execute_update("ALTER TABLE projects_old RENAME TO projects")
-                    print("🔄 Table restaurée")
-                except:
-                    pass
-            
-            print("✅ Migration terminée: IDs alphanumériques supportés")
-            
-        else:
-            print("✅ Table déjà configurée pour IDs alphanumériques")
-            
-        # DIAGNOSTIC FINAL : Vérifier la structure finale
-        final_info = db.execute_query("PRAGMA table_info(projects)")
-        print("🎯 Structure FINALE de la table projects:")
-        for column in final_info:
-            if column['name'] == 'id':
-                print(f"  🆔 ID: {column['type']} (PK: {column['pk']})")
-                break
-            
-    except Exception as e:
-        print(f"❌ Erreur migration: {e}")
-        import traceback
-        print(f"📋 Traceback: {traceback.format_exc()}")
-        
-        # En cas d'erreur, essayer de nettoyer
-        try:
-            db.execute_update("DROP TABLE IF EXISTS projects_new")
-        except:
-            pass
-
-def force_recreate_projects_table_with_text_id(db):
-    """Solution de contournement : Recréer complètement la table projects avec ID TEXT"""
-    try:
-        print("🚨 SOLUTION FORCÉE : Recréation complète de la table projects")
-        
-        # 1. Sauvegarder toutes les données existantes
-        print("💾 Sauvegarde des données existantes...")
-        existing_projects = []
-        try:
-            projects_data = db.execute_query("SELECT * FROM projects")
-            if projects_data:
-                existing_projects = [dict(row) for row in projects_data]
-                print(f"📊 {len(existing_projects)} projets à sauvegarder")
-        except Exception as e:
-            print(f"⚠️ Erreur lecture projets existants: {e}")
-        
-        # 2. Supprimer complètement l'ancienne table
-        print("🗑️ Suppression de l'ancienne table...")
-        db.execute_update("DROP TABLE IF EXISTS projects")
-        
-        # 3. Créer la nouvelle table avec ID TEXT
-        print("🏗️ Création de la nouvelle table...")
-        db.execute_update("""
-            CREATE TABLE projects (
-                id TEXT PRIMARY KEY,
-                nom_projet TEXT NOT NULL,
-                client_company_id INTEGER,
-                client_nom_cache TEXT,
-                client_legacy TEXT,
-                statut TEXT DEFAULT 'À FAIRE',
-                priorite TEXT DEFAULT 'MOYEN',
-                tache TEXT,
-                date_soumis TEXT,
-                date_prevu TEXT,
-                bd_ft_estime REAL DEFAULT 0,
-                prix_estime REAL DEFAULT 0,
-                description TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (client_company_id) REFERENCES companies(id)
-            )
-        """)
-        
-        # 4. Restaurer les données avec ID converti en TEXT
-        if existing_projects:
-            print("📥 Restauration des données...")
-            for project in existing_projects:
-                try:
-                    # Convertir l'ID en string
-                    project_id = str(project.get('id', ''))
-                    
-                    db.execute_update("""
-                        INSERT INTO projects 
-                        (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
-                         statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
-                         prix_estime, description, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        project_id,
-                        project.get('nom_projet', ''),
-                        project.get('client_company_id'),
-                        project.get('client_nom_cache', ''),
-                        project.get('client_legacy', ''),
-                        project.get('statut', 'À FAIRE'),
-                        project.get('priorite', 'MOYEN'),
-                        project.get('tache', ''),
-                        project.get('date_soumis', ''),
-                        project.get('date_prevu', ''),
-                        project.get('bd_ft_estime', 0),
-                        project.get('prix_estime', 0),
-                        project.get('description', ''),
-                        project.get('created_at', 'CURRENT_TIMESTAMP'),
-                        project.get('updated_at', 'CURRENT_TIMESTAMP')
-                    ))
-                except Exception as restore_error:
-                    print(f"⚠️ Erreur restauration projet {project.get('id')}: {restore_error}")
-            
-            print(f"✅ {len(existing_projects)} projets restaurés")
-        
-        # 5. Nettoyer les tables liées (optionnel - supprimer les références orphelines)
-        print("🧹 Nettoyage des tables liées...")
-        try:
-            # Supprimer les assignations orphelines
-            db.execute_update("""
-                DELETE FROM project_assignments 
-                WHERE project_id NOT IN (SELECT id FROM projects)
-            """)
-            
-            # Supprimer les opérations orphelines  
-            db.execute_update("""
-                DELETE FROM operations 
-                WHERE project_id IS NOT NULL 
-                AND project_id NOT IN (SELECT id FROM projects)
-            """)
-            
-            # Supprimer les matériaux orphelins
-            db.execute_update("""
-                DELETE FROM materials 
-                WHERE project_id IS NOT NULL 
-                AND project_id NOT IN (SELECT id FROM projects)
-            """)
-            
-            print("✅ Tables liées nettoyées")
-        except Exception as cleanup_error:
-            print(f"⚠️ Erreur nettoyage: {cleanup_error}")
-        
-        # 6. Vérification finale
-        final_check = db.execute_query("PRAGMA table_info(projects)")
-        for column in final_check:
-            if column['name'] == 'id':
-                print(f"🎉 SUCCÈS: Colonne ID maintenant de type {column['type']}")
-                break
-        
-        restored_count = len(db.execute_query("SELECT id FROM projects") or [])
-        print(f"📊 Projets dans la nouvelle table: {restored_count}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Erreur solution forcée: {e}")
-        import traceback
-        print(f"📋 Traceback: {traceback.format_exc()}")
-        return False
-            
-def init_erp_system():
-    """Initialise le système ERP complet - MODIFIÉ avec Pièces Jointes et Support IDs Alphanumériques"""
-
-    # NOUVEAU : Initialisation du gestionnaire de stockage persistant AVANT tout
-    if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
-        try:
-            st.session_state.storage_manager = init_persistent_storage()
-
-            # Utiliser le chemin de base de données configuré par le gestionnaire de stockage
-            db_path = st.session_state.storage_manager.db_path
-
-            # Notification selon le type de stockage
-            storage_info = st.session_state.storage_manager.get_storage_info()
-            if storage_info['environment_type'] == 'RENDER_PERSISTENT':
-                st.toast("💾 Stockage persistant Render activé !", icon="✅")
-            elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
-                st.toast("⚠️ Mode temporaire - Configurez le persistent disk", icon="⚠️")
-
-        except Exception as e:
-            st.error(f"❌ Erreur initialisation stockage persistant: {e}")
-            # Fallback vers stockage local
-            db_path = "erp_production_dg.db"
-            st.session_state.storage_manager = None
-    else:
-        db_path = st.session_state.storage_manager.db_path if st.session_state.get('storage_manager') else "erp_production_dg.db"
-
-    # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec chemin configuré
-    if ERP_DATABASE_AVAILABLE and 'erp_db' not in st.session_state:
-        st.session_state.erp_db = ERPDatabase(db_path)
-        
-        # NOUVELLE MIGRATION : Support IDs alphanumériques
-        force_recreate_projects_table_with_text_id(st.session_state.erp_db)
-        
-        st.session_state.migration_completed = True
-
-        # AJOUT CRITIQUE : Initialiser données de base si vides - RÉSOUT ERREURS FK
-        _init_base_data_if_empty()
-
-        # Créer une sauvegarde initiale si gestionnaire disponible
-        if st.session_state.get('storage_manager'):
-            try:
-                backup_path = st.session_state.storage_manager.create_backup("initial_startup")
-                if backup_path:
-                    print(f"✅ Sauvegarde de démarrage créée: {backup_path}")
-            except Exception as e:
-                print(f"⚠️ Erreur sauvegarde de démarrage: {e}")
-
-    # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite avec ID personnalisé
-    if ERP_DATABASE_AVAILABLE and 'gestionnaire' not in st.session_state:
-        st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
-
-    # NOUVEAU : Gestionnaire formulaires
-    if FORMULAIRES_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
-        st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
-
-    # NOUVEAU : Gestionnaire fournisseurs
-    if FOURNISSEURS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_fournisseurs' not in st.session_state:
-        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
-
-    # NOUVEAU : Gestionnaire pièces jointes
-    if ATTACHMENTS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'attachments_manager' not in st.session_state:
-        st.session_state.attachments_manager = init_attachments_manager(
-            st.session_state.erp_db,
-            st.session_state.get('storage_manager')
-        )
-        print("✅ Gestionnaire de pièces jointes initialisé")
-
-    # CORRECTION CRITIQUE : CRM avec base SQLite unifiée
-    # SECTION MODIFIÉE SELON LA DEMANDE
-    if CRM_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
-        # On s'assure que le gestionnaire de projets est déjà initialisé
-        if 'gestionnaire' in st.session_state:
-            st.session_state.gestionnaire_crm = GestionnaireCRM(
-                db=st.session_state.erp_db, 
-                project_manager=st.session_state.gestionnaire  # Injection de la dépendance ici
-            )
-            print("✅ Gestionnaire CRM initialisé avec accès au gestionnaire de projets.")
-        else:
-            # Fallback si le gestionnaire de projet n'est pas prêt (ne devrait pas arriver)
-            st.session_state.gestionnaire_crm = GestionnaireCRM(db=st.session_state.erp_db)
-            print("⚠️ Gestionnaire CRM initialisé SANS accès au gestionnaire de projets.")
-
-    # Gestionnaire employés (reste identique pour l'instant)
-    if EMPLOYEES_AVAILABLE and 'gestionnaire_employes' not in st.session_state:
-        st.session_state.gestionnaire_employes = GestionnaireEmployes()
-
-    # ARCHITECTURE UNIFIÉE : Gestionnaire postes intégré dans TimeTracker
-    # Plus besoin d'initialiser gestionnaire_postes séparément
-    # Il sera initialisé automatiquement dans show_timetracker_unified_interface()
-
-    # === INITIALISATION TIMETRACKER UNIFIÉ ===
-    if TIMETRACKER_AVAILABLE and ERP_DATABASE_AVAILABLE and 'timetracker_unified' not in st.session_state:
-        try:
-            st.session_state.timetracker_unified = initialize_timetracker_unified(st.session_state.erp_db)
-            print("✅ TimeTracker Unifié initialisé avec double interface")
-        except Exception as e:
-            print(f"❌ Erreur initialisation TimeTracker: {e}")
-            st.session_state.timetracker_unified = None
-            
-def get_system_stats():
-    """Récupère les statistiques système"""
-    try:
-        if ERP_DATABASE_AVAILABLE and 'erp_db' in st.session_state:
-            db = st.session_state.erp_db
-            return {
-                'projets': db.get_table_count('projects'),
-                'employes': db.get_table_count('employees'),
-                'entreprises': db.get_table_count('companies'),
-                'postes': db.get_table_count('work_centers'),
-                'formulaires': db.get_table_count('formulaires') if hasattr(db, 'get_table_count') else 0
-            }
-    except Exception:
-        pass
-
-    # Stats par défaut
-    return {
-        'projets': 150,
-        'employes': 45,
-        'entreprises': 80,
-        'postes': 61,
-        'formulaires': 120
-    }
-
-# ========================
-# GESTION REDIRECTION TIMETRACKER PRO (NOUVEAU)
+# GESTION REDIRECTION TIMETRACKER PRO
 # ========================
 
 def handle_timetracker_redirect():
@@ -2189,8 +1989,58 @@ def handle_timetracker_redirect():
             return True
     return False
 
+
 # ========================
-# INTERFACE PORTAIL (AVEC CLASSES CSS) - MODIFIÉ POUR LE FUSEAU HORAIRE
+# AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR
+# ========================
+
+def show_storage_status_sidebar():
+    """Affiche le statut du stockage persistant dans la sidebar"""
+    if 'storage_manager' not in st.session_state:
+        return
+
+    try:
+        storage_info = st.session_state.storage_manager.get_storage_info()
+
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>💾 Stockage</h3>", unsafe_allow_html=True)
+
+        # Statut principal
+        if storage_info['is_persistent']:
+            st.sidebar.success("💾 Stockage Persistant")
+        else:
+            st.sidebar.warning("⚠️ Stockage Éphémère")
+
+        # Informations de base
+        if storage_info['db_exists']:
+            st.sidebar.metric("Base ERP", f"{storage_info['db_size_mb']} MB")
+
+        if storage_info.get('backup_count', 0) > 0:
+            st.sidebar.metric("Sauvegardes", storage_info['backup_count'])
+
+        # Usage disque (Render uniquement)
+        if storage_info.get('disk_usage'):
+            disk = storage_info['disk_usage']
+            st.sidebar.metric("Usage Disque", f"{disk['usage_percent']}%")
+            if disk['usage_percent'] > 80:
+                st.sidebar.warning("⚠️ Espace disque faible")
+
+        # Type d'environnement (en petit)
+        env_display = {
+            'RENDER_PERSISTENT': '🚀 Render Persistent',
+            'RENDER_EPHEMERAL': '⚠️ Render Temporaire',
+            'LOCAL_DEVELOPMENT': '💻 Développement',
+            'CUSTOM_PATH': '📁 Personnalisé'
+        }
+
+        st.sidebar.caption(f"Type: {env_display.get(storage_info['environment_type'], 'Inconnu')}")
+
+    except Exception as e:
+        st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
+
+
+# ========================
+# INTERFACES D'AFFICHAGE PRINCIPALES
 # ========================
 
 def show_portal_home():
@@ -2421,15 +2271,11 @@ def show_admin_auth():
         *En production, ces mots de passe sont configurés via les variables d'environnement*
         """)
 
-# ========================
-# ERP PRINCIPAL AVEC PORTAIL (INTÉGRATION COMPLÈTE)
-# ========================
-
 def show_erp_main():
-    """ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION"""
-    # Initialiser l'ERP
-    init_erp_system()
-
+    """
+    ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION
+    Cette fonction suppose que tout a été initialisé par initialize_core_services().
+    """
     # Header admin
     show_admin_header()
 
@@ -2459,12 +2305,12 @@ def show_erp_main():
     if has_all_permissions or "projects" in permissions or "inventory" in permissions:
         available_pages["🏭 Production"] = "production_management"
 
-    # 6. GESTION INVENTAIRE - AJOUTEZ ICI
+    # 6. GESTION INVENTAIRE
     if has_all_permissions or "inventory" in permissions:
         if INVENTORY_AVAILABLE:
             available_pages["📦 Inventaire"] = "inventory_page"
 
-    # 7. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (CORRECTION: sans doublon)
+    # 7. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         if TIMETRACKER_AVAILABLE:
             available_pages["⏱️TimeTracker"] = "timetracker_admin_complete"
@@ -2473,7 +2319,7 @@ def show_erp_main():
     if has_all_permissions or "employees" in permissions:
         available_pages["👥 Employés"] = "employees_page"
 
-    # 9. VUES DE SUIVI (regroupées en fin) - MISE À JOUR AVEC MODULE KANBAN
+    # 9. VUES DE SUIVI (regroupées en fin)
     if has_all_permissions or "projects" in permissions:
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
@@ -2521,7 +2367,7 @@ def show_erp_main():
     if etape_actuelle:
         st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:8px;border-radius:5px;text-align:center;margin-bottom:1rem;'><small><strong>Étape:</strong> {etape_actuelle}</small></div>", unsafe_allow_html=True)
 
-    # GESTION SIDEBAR SELON CONTEXTE - MISE À JOUR pour module unifié
+    # GESTION SIDEBAR SELON CONTEXTE
     if page_to_show_val == "production_management":
         st.sidebar.markdown("---")
         st.sidebar.markdown("<h4 style='color:var(--primary-color-darker);'>Production Unifié</h4>", unsafe_allow_html=True)
@@ -2537,7 +2383,7 @@ def show_erp_main():
     # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
     show_storage_status_sidebar()
 
-    # Statistiques dans la sidebar - MISE À JOUR avec module unifié
+    # Statistiques dans la sidebar
     try:
         total_projects_sql = st.session_state.erp_db.get_table_count('projects')
         total_companies = st.session_state.erp_db.get_table_count('companies')
@@ -2731,7 +2577,7 @@ def show_erp_main():
 
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # ROUTAGE DES PAGES (MODIFIÉ - Sans doublon TimeTracker)
+    # ROUTAGE DES PAGES
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
@@ -2753,7 +2599,7 @@ def show_erp_main():
             st.error("❌ Module Production non disponible")
             st.info("Le module production_management.py est requis pour cette fonctionnalité.")
             
-    # NOUVEAU : ROUTAGE INVENTAIRE - AJOUTEZ ICI
+    # NOUVEAU : ROUTAGE INVENTAIRE
     elif page_to_show_val == "inventory_page":
         if INVENTORY_AVAILABLE:
             show_inventory_page()
@@ -2762,7 +2608,7 @@ def show_erp_main():
             st.info("Le module inventory.py est requis pour cette fonctionnalité.")
     
     elif page_to_show_val == "timetracker_admin_complete":
-        # TimeTracker Pro Unifié (CORRECTION: une seule interface)
+        # TimeTracker Pro Unifié
         if TIMETRACKER_AVAILABLE:
             show_timetracker_admin_complete_interface()
         else:
@@ -2795,58 +2641,6 @@ def show_erp_main():
     if st.session_state.get('batch_action'):
         handle_batch_actions()
 
-# ========================
-# AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR (ORIGINAL)
-# ========================
-
-def show_storage_status_sidebar():
-    """Affiche le statut du stockage persistant dans la sidebar"""
-    if 'storage_manager' not in st.session_state:
-        return
-
-    try:
-        storage_info = st.session_state.storage_manager.get_storage_info()
-
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>💾 Stockage</h3>", unsafe_allow_html=True)
-
-        # Statut principal
-        if storage_info['is_persistent']:
-            st.sidebar.success("💾 Stockage Persistant")
-        else:
-            st.sidebar.warning("⚠️ Stockage Éphémère")
-
-        # Informations de base
-        if storage_info['db_exists']:
-            st.sidebar.metric("Base ERP", f"{storage_info['db_size_mb']} MB")
-
-        if storage_info.get('backup_count', 0) > 0:
-            st.sidebar.metric("Sauvegardes", storage_info['backup_count'])
-
-        # Usage disque (Render uniquement)
-        if storage_info.get('disk_usage'):
-            disk = storage_info['disk_usage']
-            st.sidebar.metric("Usage Disque", f"{disk['usage_percent']}%")
-            if disk['usage_percent'] > 80:
-                st.sidebar.warning("⚠️ Espace disque faible")
-
-        # Type d'environnement (en petit)
-        env_display = {
-            'RENDER_PERSISTENT': '🚀 Render Persistent',
-            'RENDER_EPHEMERAL': '⚠️ Render Temporaire',
-            'LOCAL_DEVELOPMENT': '💻 Développement',
-            'CUSTOM_PATH': '📁 Personnalisé'
-        }
-
-        st.sidebar.caption(f"Type: {env_display.get(storage_info['environment_type'], 'Inconnu')}")
-
-    except Exception as e:
-        st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
-
-# ========================
-# FONCTIONS DE VUE ET DE RENDU ERP (MODIFIÉES AVEC GESTION PROJETS COMPLÈTE + PIÈCES JOINTES)
-# ========================
-
 def show_dashboard():
     """Dashboard principal utilisant les classes CSS - MODIFIÉ avec Pièces Jointes et fuseau horaire du Québec"""
     st.markdown("""
@@ -2878,14 +2672,9 @@ def show_dashboard():
 
     gestionnaire_formulaires = st.session_state.get('gestionnaire_formulaires')
 
-    # Messages de notification supprimés pour une interface plus épurée
-
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
     
-    # ARCHITECTURE UNIFIÉE : Stats postes depuis TimeTracker
-    # postes_stats déjà initialisé plus haut
-
     # NOUVEAU : Statistiques formulaires
     form_stats = gestionnaire_formulaires.get_statistiques_formulaires() if gestionnaire_formulaires else {}
 
@@ -3337,6 +3126,7 @@ def show_liste_projets():
             </div>
             """, unsafe_allow_html=True)
 
+
 def render_create_project_form(gestionnaire, crm_manager):
     """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе et TACHES_PRODUCTION - VERSION FINALE COMPLÈTE avec fuseau horaire du Québec"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
@@ -3552,9 +3342,9 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}
     return bool(re.match(pattern, project_id.strip()))
-    
+
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
     """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE avec TACHES_PRODUCTION"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
@@ -3623,7 +3413,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -4365,7 +4155,7 @@ def _afficher_operation_dans_modal(operation, border_color):
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
+
 def show_footer():
     st.markdown("---")
     st.markdown("""
@@ -4375,13 +4165,22 @@ def show_footer():
     </div>
     """, unsafe_allow_html=True)
 
+
 # ========================
-# FONCTION PRINCIPALE AVEC PORTAIL
+# FONCTION PRINCIPALE AVEC PORTAIL (REFACTORISÉE)
 # ========================
 
 def main():
-    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ avec fuseau horaire du Québec"""
-
+    """Fonction principale avec la nouvelle routine d'initialisation centralisée."""
+    
+    # Configuration de la page
+    st.set_page_config(
+        page_title="🚀 ERP",
+        page_icon="🏭",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
     # NOUVEAU : Charger le CSS externe en priorité
     css_loaded = load_external_css()
     
@@ -4393,7 +4192,7 @@ def main():
     if ATTACHMENTS_AVAILABLE:
         apply_additional_attachments_styles()
 
-    # Initialisation des variables de session - COMPLÈTE
+    # Initialisation des variables de session pour la logique de navigation
     if 'app_mode' not in st.session_state:
         st.session_state.app_mode = "portal"
     if 'admin_authenticated' not in st.session_state:
@@ -4471,12 +4270,16 @@ def main():
         st.info(st.session_state.navigation_message)
         del st.session_state.navigation_message
 
+    # 1. INITIALISATION CENTRALE au début (NOUVELLE APPROCHE)
+    # SEULEMENT si on accède aux modules qui en ont besoin
+    if st.session_state.app_mode in ["employee", "erp"]:
+        initialize_core_services()
+
     # Routage selon le mode
     if st.session_state.app_mode == "portal":
         show_portal_home()
 
     elif st.session_state.app_mode == "employee":
-        init_erp_system()  # Initialiser le système pour avoir accès aux modules
         show_employee_interface()
 
     elif st.session_state.app_mode == "admin_auth":
@@ -4531,11 +4334,12 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC FUSEAU HORAIRE DU QUÉBEC")
-print("✅ Toutes les modifications appliquées pour le fuseau horaire America/Montreal")
+print("🎯 VERSION REFACTORISÉE - APP.PY TERMINÉE")
+print("✅ Architecture d'initialisation centralisée implémentée")
+print("✅ Toutes les modifications pour le fuseau horaire du Québec")
 print("✅ TimeTracker Pro Unifié maintenu")
 print("✅ Gestion des projets complète intégrée")
 print("✅ Module Kanban unifié intégré")
 print("✅ Support fuseau horaire EST/EDT automatique")
-print("🕐 Heure affichée: Québec (gestion automatique heure d'été/hiver)")
-print("🚀 Prêt pour déploiement sur Render avec heure locale correcte")
+print("✅ Initialisation robuste et gestion d'erreurs améliorée")
+print("🚀 Prêt pour déploiement sur Render avec architecture optimisée")
