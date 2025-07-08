@@ -467,7 +467,7 @@ def show_admin_header():
 
     st.markdown(f"""
     <div class="admin-welcome">
-        <h3>🏭 ERP - Mode Administrateur</h3>
+        <h3>🏭 ERP Production DG Inc. - Mode Administrateur</h3>
         <p>Bienvenue <strong>{display_name}</strong> ! {session_info}</p>
     </div>
     """, unsafe_allow_html=True)
@@ -2154,21 +2154,22 @@ def show_portal_home():
     # Header principal
     current_time = datetime.now().strftime("%H:%M")
     current_date = datetime.now().strftime("%d/%m/%Y")
+
     st.markdown(f"""
     <div class="portal-header">
-        <h1>🏭 PORTAIL</h1>
+        <h1>🏭 PORTAIL DG INC.</h1>
         <div class="portal-subtitle">
-            Système de Gestion Intégré<br>
+            Système de Gestion Intégré • Production & Métallurgie<br>
             📅 {current_date} • 🕒 {current_time}
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
+
     st.markdown("## 🚪 Choisissez votre mode d'accès")
-    
+
     # Cartes d'accès
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("""
         <div class="access-card employee">
@@ -2186,12 +2187,12 @@ def show_portal_home():
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
+
         if st.button("👥 ACCÈS EMPLOYÉ", key="employee_btn", use_container_width=True, type="primary"):
             st.session_state.app_mode = "employee"
             st.session_state.user_role = "employee"
             st.rerun()
-    
+
     with col2:
         st.markdown("""
         <div class="access-card admin">
@@ -2209,11 +2210,24 @@ def show_portal_home():
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
+
         if st.button("👨‍💼 ACCÈS ADMIN", key="admin_btn", use_container_width=True, type="secondary"):
             st.session_state.app_mode = "admin_auth"
             st.rerun()
-            
+
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div class="portal-footer">
+        <h4>🏭 ERP</h4>
+        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); text-align: center;">
+            <small style="color: var(--text-color-muted); font-style: italic;">
+                💻 Développé par <strong>Sylvain Leduc</strong> • 2025
+            </small>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 def show_employee_interface():
     """Interface simplifiée pour les employés - TimeTracker uniquement"""
     st.markdown("""
@@ -4230,7 +4244,8 @@ def show_project_modal():
             st.session_state.show_project_modal = False
             st.rerun()
 
-def afficher_operation_dans_modal(operation, border_color):
+
+def _afficher_operation_dans_modal(operation, border_color):
     """Fonction helper pour afficher une opération dans la modal avec informations complètes"""
     temps = operation.get('temps_estime', 0)
     statut = operation.get('statut', 'À FAIRE')
@@ -4286,6 +4301,15 @@ def afficher_operation_dans_modal(operation, border_color):
                 <small style='color:#6b7280;'>({cout_horaire}$/h)</small>
             </div>
         </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+def show_footer():
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align:center;color:var(--text-color-muted);padding:20px 0;font-size:0.9em;'>
+        <p>🏭 ERP</p>
+        <p style='font-style: italic;'>💻 Développé par <strong>Sylvain Leduc</strong> • 2025</p>
     </div>
     """, unsafe_allow_html=True)
 
