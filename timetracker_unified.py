@@ -2670,7 +2670,7 @@ def show_timetracker_unified_interface():
     
     tt = st.session_state.timetracker_unified
     
-    st.markdown("### ⏱️ TimeTracker Unifié - Interface Employé")
+    st.markdown("### ⏱️ TimeTracker - Interface Employé")
     st.info("👤 **Interface Employé** - Vue personnelle simplifiée pour le pointage sur opérations")
     
     # MODE EMPLOYÉ DIRECT - Interface simplifiée (pas d'authentification requise)
