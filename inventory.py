@@ -540,6 +540,31 @@ class GestionnaireInventaire:
             logger.error(f"Erreur ajout historique: {e}")
 
 # =========================================================================
+# FONCTIONS UTILITAIRES POUR GESTION DES VALEURS NONE
+# =========================================================================
+
+def safe_string_slice(value, max_length: int = 20, default: str = 'N/A') -> str:
+    """Retourne une chaîne tronquée en gérant les valeurs None"""
+    if value is None:
+        return default
+    try:
+        str_value = str(value)
+        return str_value[:max_length] if len(str_value) > max_length else str_value
+    except:
+        return default
+
+def safe_get_display_name(data_dict: dict, keys: list, default: str = 'N/A', max_length: int = None) -> str:
+    """Récupère de manière sécurisée une valeur d'affichage depuis un dictionnaire"""
+    for key in keys:
+        value = data_dict.get(key)
+        if value is not None and str(value).strip():
+            result = str(value).strip()
+            if max_length:
+                return result[:max_length] + ('...' if len(result) > max_length else '')
+            return result
+    return default
+
+# =========================================================================
 # INTERFACE STREAMLIT PRINCIPALE
 # =========================================================================
 
@@ -593,10 +618,13 @@ def render_items_list_tab(inventory_manager):
     
     with col_filter1:
         # Types de produits disponibles
-        types_result = inventory_manager.db.execute_query(
-            "SELECT DISTINCT type_produit FROM inventory_items WHERE type_produit IS NOT NULL AND type_produit != ''"
-        )
-        types_options = ['Tous'] + [row['type_produit'] for row in types_result]
+        try:
+            types_result = inventory_manager.db.execute_query(
+                "SELECT DISTINCT type_produit FROM inventory_items WHERE type_produit IS NOT NULL AND type_produit != ''"
+            )
+            types_options = ['Tous'] + [row['type_produit'] for row in types_result if row['type_produit']]
+        except:
+            types_options = ['Tous']
         type_filter = st.selectbox("Type:", types_options)
     
     with col_filter2:
@@ -646,13 +674,13 @@ def render_items_table(items, inventory_manager):
         
         table_data.append({
             'ID': item.get('id', ''),
-            'Code': item.get('code_interne', ''),
-            'Nom': item.get('nom', ''),
-            'Type': item.get('type_produit', ''),
+            'Code': safe_get_display_name(item, ['code_interne'], 'N/A', 15),
+            'Nom': safe_get_display_name(item, ['nom'], 'N/A', 25),
+            'Type': safe_get_display_name(item, ['type_produit'], 'N/A', 15),
             'Quantité': f"{item.get('quantite_metric', 0):.2f}",
             'Limite Min': f"{item.get('limite_minimale_metric', 0):.2f}",
             'Statut': f"{status_icon} {item.get('statut', '')}",
-            'Fournisseur': item.get('fournisseur_principal', '')[:20]
+            'Fournisseur': safe_get_display_name(item, ['fournisseur_principal'], 'N/A', 20)
         })
     
     df = pd.DataFrame(table_data)
@@ -674,7 +702,7 @@ def render_items_table(items, inventory_manager):
     selected_item = st.selectbox(
         "Sélectionner un article:",
         options=[None] + items,
-        format_func=lambda x: f"{x.get('code_interne', '')} - {x.get('nom', '')}" if x else "Choisir...",
+        format_func=lambda x: f"{safe_get_display_name(x, ['code_interne'], '', 10)} - {safe_get_display_name(x, ['nom'], '', 25)}" if x else "Choisir...",
         key="selected_item_table"
     )
     
@@ -718,6 +746,10 @@ def render_items_cards(items, inventory_manager):
                     'ÉPUISÉ': '#dc2626'
                 }.get(item.get('statut', ''), '#6b7280')
                 
+                code_interne = safe_get_display_name(item, ['code_interne'], 'N/A', 10)
+                nom = safe_get_display_name(item, ['nom'], 'N/A', 25)
+                type_produit = safe_get_display_name(item, ['type_produit'], 'N/A', 15)
+                
                 with col:
                     st.markdown(f"""
                     <div style="
@@ -729,7 +761,7 @@ def render_items_cards(items, inventory_manager):
                         background: white;
                     ">
                         <h5 style="margin: 0 0 0.5rem 0; color: #1e40af;">
-                            {item.get('code_interne', '')} - {item.get('nom', '')[:25]}
+                            {code_interne} - {nom}
                         </h5>
                         <p style="margin: 0.25rem 0; font-size: 0.9em;">
                             📦 Quantité: {item.get('quantite_metric', 0):.2f}
@@ -738,7 +770,7 @@ def render_items_cards(items, inventory_manager):
                             ⚠️ Limite: {item.get('limite_minimale_metric', 0):.2f}
                         </p>
                         <p style="margin: 0.25rem 0; font-size: 0.9em;">
-                            🏷️ Type: {item.get('type_produit', 'N/A')}
+                            🏷️ Type: {type_produit}
                         </p>
                         <p style="margin: 0.25rem 0; font-size: 0.9em; color: {status_color}; font-weight: 600;">
                             📊 {item.get('statut', 'N/A')}
@@ -819,7 +851,7 @@ def render_add_item_tab(inventory_manager):
                     st.error("❌ Erreur lors de l'ajout de l'article.")
 
 def render_movements_tab(inventory_manager):
-    """Onglet mouvements de stock"""
+    """Onglet mouvements de stock - CORRIGÉ pour gérer les valeurs None"""
     st.markdown("#### 📊 Mouvements de Stock")
     
     # Section ajout de mouvement
@@ -834,7 +866,7 @@ def render_movements_tab(inventory_manager):
             selected_item = st.selectbox(
                 "Article:",
                 options=items,
-                format_func=lambda x: f"{x.get('code_interne', '')} - {x.get('nom', '')} (Stock: {x.get('quantite_metric', 0):.2f})"
+                format_func=lambda x: f"{safe_get_display_name(x, ['code_interne'], 'N/A', 10)} - {safe_get_display_name(x, ['nom'], 'N/A', 30)} (Stock: {x.get('quantite_metric', 0):.2f})"
             )
             
             col1, col2 = st.columns(2)
@@ -852,7 +884,7 @@ def render_movements_tab(inventory_manager):
                         selected_employee = st.selectbox(
                             "Employé responsable:",
                             options=employee_options,
-                            format_func=lambda x: f"{x.get('prenom', '')} {x.get('nom', '')}" if x else "Non spécifié"
+                            format_func=lambda x: f"{safe_get_display_name(x, ['prenom'], '', 10)} {safe_get_display_name(x, ['nom'], '', 15)}" if x else "Non spécifié"
                         )
                         employee_id = selected_employee.get('id') if selected_employee else None
                     else:
@@ -893,7 +925,7 @@ def render_movements_tab(inventory_manager):
             filter_item = st.selectbox(
                 "Filtrer par article:",
                 options=[None] + items,
-                format_func=lambda x: f"{x.get('code_interne', '')} - {x.get('nom', '')}" if x else "Tous"
+                format_func=lambda x: f"{safe_get_display_name(x, ['code_interne'], 'N/A', 10)} - {safe_get_display_name(x, ['nom'], 'N/A', 25)}" if x else "Tous"
             )
         else:
             filter_item = None
@@ -905,17 +937,18 @@ def render_movements_tab(inventory_manager):
         movements = inventory_manager.get_stock_movements(None, 100)
     
     if movements:
-        # Affichage en tableau
+        # Affichage en tableau - CORRIGÉ pour gérer les valeurs None
         movement_data = []
         for mov in movements:
+            # CORRECTION PRINCIPALE : Gestion sécurisée des valeurs None
             movement_data.append({
-                'Date': mov.get('created_at', '')[:16].replace('T', ' '),
-                'Article': f"{mov.get('code_interne', '')} - {mov.get('item_nom', '')}"[:30],
-                'Action': mov.get('action', ''),
-                'Avant': mov.get('quantite_avant', ''),
-                'Après': mov.get('quantite_apres', ''),
-                'Employé': mov.get('employee_nom', 'Système')[:20],
-                'Notes': (mov.get('notes', '') or '')[:40]
+                'Date': safe_string_slice(mov.get('created_at', ''), 16, 'N/A').replace('T', ' '),
+                'Article': safe_string_slice(f"{safe_get_display_name(mov, ['code_interne'], '', 10)} - {safe_get_display_name(mov, ['item_nom'], '', 20)}", 30, 'N/A'),
+                'Action': safe_get_display_name(mov, ['action'], 'N/A', 15),
+                'Avant': safe_get_display_name(mov, ['quantite_avant'], 'N/A', 10),
+                'Après': safe_get_display_name(mov, ['quantite_apres'], 'N/A', 10),
+                'Employé': safe_string_slice(mov.get('employee_nom', 'Système'), 20, 'Système'),
+                'Notes': safe_string_slice(mov.get('notes', ''), 40, '')
             })
         
         df_movements = pd.DataFrame(movement_data)
@@ -993,12 +1026,12 @@ def render_statistics_tab(inventory_manager):
         critical_data = []
         for item in critical_items[:10]:  # Top 10
             critical_data.append({
-                'Code': item.get('code_interne', ''),
-                'Nom': item.get('nom', ''),
+                'Code': safe_get_display_name(item, ['code_interne'], 'N/A', 15),
+                'Nom': safe_get_display_name(item, ['nom'], 'N/A', 25),
                 'Stock Actuel': f"{item.get('quantite_metric', 0):.2f}",
                 'Limite Min': f"{item.get('limite_minimale_metric', 0):.2f}",
-                'Statut': item.get('statut', ''),
-                'Fournisseur': item.get('fournisseur_principal', '')
+                'Statut': safe_get_display_name(item, ['statut'], 'N/A', 10),
+                'Fournisseur': safe_get_display_name(item, ['fournisseur_principal'], 'N/A', 20)
             })
         
         df_critical = pd.DataFrame(critical_data)
@@ -1012,7 +1045,7 @@ def render_statistics_tab(inventory_manager):
         suppliers_data = []
         for supplier in stats['top_suppliers']:
             suppliers_data.append({
-                'Fournisseur': supplier.get('fournisseur_principal', ''),
+                'Fournisseur': safe_get_display_name(supplier, ['fournisseur_principal'], 'N/A', 30),
                 'Nombre d\'Articles': supplier.get('items_count', 0)
             })
         
@@ -1121,17 +1154,17 @@ def show_item_details_modal(inventory_manager, item_id):
         st.error("Article non trouvé.")
         return
     
-    with st.expander(f"👁️ Détails - {item.get('nom', 'N/A')}", expanded=True):
+    with st.expander(f"👁️ Détails - {safe_get_display_name(item, ['nom'], 'N/A')}", expanded=True):
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown(f"""
             **📋 Informations Générales**
             - **ID:** {item.get('id', 'N/A')}
-            - **Nom:** {item.get('nom', 'N/A')}
-            - **Code interne:** {item.get('code_interne', 'N/A')}
-            - **Type:** {item.get('type_produit', 'N/A')}
-            - **Statut:** {item.get('statut', 'N/A')}
+            - **Nom:** {safe_get_display_name(item, ['nom'], 'N/A')}
+            - **Code interne:** {safe_get_display_name(item, ['code_interne'], 'N/A')}
+            - **Type:** {safe_get_display_name(item, ['type_produit'], 'N/A')}
+            - **Statut:** {safe_get_display_name(item, ['statut'], 'N/A')}
             """)
         
         with col2:
@@ -1140,24 +1173,26 @@ def show_item_details_modal(inventory_manager, item_id):
             - **Stock actuel:** {item.get('quantite_metric', 0):.2f}
             - **Limite minimale:** {item.get('limite_minimale_metric', 0):.2f}
             - **Stock réservé:** {item.get('quantite_reservee_metric', 0):.2f}
-            - **Fournisseur:** {item.get('fournisseur_principal', 'N/A')}
+            - **Fournisseur:** {safe_get_display_name(item, ['fournisseur_principal'], 'N/A')}
             """)
         
-        if item.get('description'):
-            st.markdown(f"**📝 Description:** {item.get('description', 'N/A')}")
+        description = safe_get_display_name(item, ['description'], '')
+        if description:
+            st.markdown(f"**📝 Description:** {description}")
         
-        if item.get('notes'):
-            st.markdown(f"**📌 Notes:** {item.get('notes', 'N/A')}")
+        notes = safe_get_display_name(item, ['notes'], '')
+        if notes:
+            st.markdown(f"**📌 Notes:** {notes}")
         
         # Historique récent
         st.markdown("**📋 Derniers Mouvements**")
         movements = inventory_manager.get_stock_movements(item_id, 5)
         if movements:
             for mov in movements:
-                date = mov.get('created_at', '')[:16].replace('T', ' ')
-                action = mov.get('action', '')
-                qty_before = mov.get('quantite_avant', '')
-                qty_after = mov.get('quantite_apres', '')
+                date = safe_string_slice(mov.get('created_at', ''), 16, 'N/A').replace('T', ' ')
+                action = safe_get_display_name(mov, ['action'], 'N/A')
+                qty_before = safe_get_display_name(mov, ['quantite_avant'], 'N/A')
+                qty_after = safe_get_display_name(mov, ['quantite_apres'], 'N/A')
                 st.markdown(f"- {date}: {action} ({qty_before} → {qty_after})")
         else:
             st.info("Aucun mouvement enregistré.")
@@ -1174,28 +1209,33 @@ def show_edit_item_modal(inventory_manager, item_id):
         st.error("Article non trouvé.")
         return
     
-    with st.expander(f"✏️ Modifier - {item.get('nom', 'N/A')}", expanded=True):
+    with st.expander(f"✏️ Modifier - {safe_get_display_name(item, ['nom'], 'N/A')}", expanded=True):
         with st.form("edit_item_form"):
             col1, col2 = st.columns(2)
             
             with col1:
-                nom = st.text_input("Nom:", value=item.get('nom', ''))
-                code_interne = st.text_input("Code interne:", value=item.get('code_interne', ''))
-                type_produit = st.selectbox(
-                    "Type:",
-                    ["", "Matière première", "Tube/Profilé", "Tôle/Plaque", "Visserie", "Outil", "Consommable", "Produit fini", "Autre"],
-                    index=["", "Matière première", "Tube/Profilé", "Tôle/Plaque", "Visserie", "Outil", "Consommable", "Produit fini", "Autre"].index(item.get('type_produit', '')) if item.get('type_produit') in ["", "Matière première", "Tube/Profilé", "Tôle/Plaque", "Visserie", "Outil", "Consommable", "Produit fini", "Autre"] else 0
-                )
-                fournisseur = st.text_input("Fournisseur:", value=item.get('fournisseur_principal', ''))
+                nom = st.text_input("Nom:", value=safe_get_display_name(item, ['nom'], ''))
+                code_interne = st.text_input("Code interne:", value=safe_get_display_name(item, ['code_interne'], ''))
+                
+                # Type de produit avec gestion sécurisée
+                type_options = ["", "Matière première", "Tube/Profilé", "Tôle/Plaque", "Visserie", "Outil", "Consommable", "Produit fini", "Autre"]
+                current_type = safe_get_display_name(item, ['type_produit'], '')
+                try:
+                    type_index = type_options.index(current_type) if current_type in type_options else 0
+                except (ValueError, TypeError):
+                    type_index = 0
+                
+                type_produit = st.selectbox("Type:", type_options, index=type_index)
+                fournisseur = st.text_input("Fournisseur:", value=safe_get_display_name(item, ['fournisseur_principal'], ''))
             
             with col2:
                 quantite_metric = st.number_input("Quantité:", value=float(item.get('quantite_metric', 0)), step=0.01)
                 limite_min = st.number_input("Limite min:", value=float(item.get('limite_minimale_metric', 0)), step=0.01)
-                quantite_imperial = st.text_input("Qté impériale:", value=item.get('quantite_imperial', ''))
-                limite_imperial = st.text_input("Limite imp.:", value=item.get('limite_minimale_imperial', ''))
+                quantite_imperial = st.text_input("Qté impériale:", value=safe_get_display_name(item, ['quantite_imperial'], ''))
+                limite_imperial = st.text_input("Limite imp.:", value=safe_get_display_name(item, ['limite_minimale_imperial'], ''))
             
-            description = st.text_area("Description:", value=item.get('description', ''))
-            notes = st.text_area("Notes:", value=item.get('notes', ''))
+            description = st.text_area("Description:", value=safe_get_display_name(item, ['description'], ''))
+            notes = st.text_area("Notes:", value=safe_get_display_name(item, ['notes'], ''))
             
             col_btn1, col_btn2 = st.columns(2)
             
@@ -1238,8 +1278,8 @@ def show_delete_item_modal(inventory_manager, item_id):
         st.error("Article non trouvé.")
         return
     
-    with st.expander(f"🗑️ Supprimer - {item.get('nom', 'N/A')}", expanded=True):
-        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer l'article **{item.get('nom', 'N/A')}** ?")
+    with st.expander(f"🗑️ Supprimer - {safe_get_display_name(item, ['nom'], 'N/A')}", expanded=True):
+        st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer l'article **{safe_get_display_name(item, ['nom'], 'N/A')}** ?")
         st.markdown("Cette action supprimera également tout l'historique des mouvements associés.")
         
         col1, col2 = st.columns(2)
@@ -1267,7 +1307,7 @@ def show_add_movement_modal(inventory_manager, item_id):
         st.error("Article non trouvé.")
         return
     
-    with st.expander(f"📦 Mouvement - {item.get('nom', 'N/A')}", expanded=True):
+    with st.expander(f"📦 Mouvement - {safe_get_display_name(item, ['nom'], 'N/A')}", expanded=True):
         st.markdown(f"**Stock actuel:** {item.get('quantite_metric', 0):.2f}")
         
         with st.form("quick_movement_form"):
@@ -1351,12 +1391,11 @@ if __name__ == "__main__":
     st.session_state.erp_db = MockDB()
     show_inventory_page()
 
-print("📦 Module Inventaire SQLite créé avec succès !")
-print("✅ Fonctionnalités incluses:")
-print("   - CRUD complet des articles")
-print("   - Gestion des mouvements de stock")
-print("   - Alertes de stock critique")
-print("   - Statistiques et graphiques")
-print("   - Import/Export CSV")
-print("   - Interface Streamlit complète")
-print("   - Intégration ERPDatabase SQLite")
+print("📦 Module Inventaire SQLite CORRIGÉ avec succès !")
+print("✅ Corrections apportées:")
+print("   - Gestion sécurisée des valeurs None")
+print("   - Fonctions utilitaires safe_string_slice et safe_get_display_name")
+print("   - Protection contre les erreurs de slicing sur None")
+print("   - Gestion robuste des champs optionnels")
+print("   - Validation des données avant affichage")
+print("🔧 L'erreur 'NoneType object is not subscriptable' est maintenant résolue")
