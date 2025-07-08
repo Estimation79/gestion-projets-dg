@@ -2154,7 +2154,6 @@ def show_portal_home():
     # Header principal
     current_time = datetime.now().strftime("%H:%M")
     current_date = datetime.now().strftime("%d/%m/%Y")
-
     st.markdown(f"""
     <div class="portal-header">
         <h1>🏭 PORTAIL</h1>
@@ -2164,12 +2163,12 @@ def show_portal_home():
         </div>
     </div>
     """, unsafe_allow_html=True)
-
+    
     st.markdown("## 🚪 Choisissez votre mode d'accès")
-
+    
     # Cartes d'accès
     col1, col2 = st.columns(2)
-
+    
     with col1:
         st.markdown("""
         <div class="access-card employee">
@@ -2187,12 +2186,12 @@ def show_portal_home():
             </ul>
         </div>
         """, unsafe_allow_html=True)
-
+        
         if st.button("👥 ACCÈS EMPLOYÉ", key="employee_btn", use_container_width=True, type="primary"):
             st.session_state.app_mode = "employee"
             st.session_state.user_role = "employee"
             st.rerun()
-
+    
     with col2:
         st.markdown("""
         <div class="access-card admin">
@@ -2210,24 +2209,11 @@ def show_portal_home():
             </ul>
         </div>
         """, unsafe_allow_html=True)
-
+        
         if st.button("👨‍💼 ACCÈS ADMIN", key="admin_btn", use_container_width=True, type="secondary"):
             st.session_state.app_mode = "admin_auth"
             st.rerun()
-
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div class="portal-footer">
-        <h4>🏭 ERP</h4>
-        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); text-align: center;">
-            <small style="color: var(--text-color-muted); font-style: italic;">
-                💻 Développé par <strong>Sylvain Leduc</strong> • 2025
-            </small>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
+            
 def show_employee_interface():
     """Interface simplifiée pour les employés - TimeTracker uniquement"""
     st.markdown("""
