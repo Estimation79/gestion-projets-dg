@@ -4383,6 +4383,367 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             col_base1, col_base2 = st.columns(2)
             
             with col_base1:
+                # Client
+                clients = crm_manager.entreprises
+                client_options = [(c['id'], c['nom']) for c in clients]
+                client_id = st.selectbox("Client *", options=[opt[0] for opt in client_options],
+                                         format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), ''),
+                                         key="nouveau_devis_client")
+                
+                if crm_manager.use_sqlite:
+                    employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
+                    emp_options = [(e['id'], e['nom']) for e in employees] if employees else []
+                    responsable_id = st.selectbox("Responsable *", options=[opt[0] for opt in emp_options],
+                                                  format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
+                                                  key="nouveau_devis_responsable")
+                else:
+                    responsable_id = 1
+
+            with col_base2:
+                echeance = st.date_input("Date d'échéance *", value=datetime.now().date() + timedelta(days=30),
+                                         key="nouveau_devis_echeance")
+                
+                if crm_manager.use_sqlite:
+                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
+                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets] if projets else [("", "Aucun projet")]
+                    projet_id = st.selectbox("Projet lié", options=[opt[0] for opt in projet_options],
+                                             format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
+                                             key="nouveau_devis_projet")
+                else:
+                    projet_id = None
+            
+            notes = st.text_area("Notes ou conditions", key="nouveau_devis_notes")
+            
+            # Boutons de soumission
+            submitted = st.form_submit_button("💾 Créer le Devis en Brouillon", type="primary", use_container_width=True)
+            
+            if submitted:
+                if not client_id or not responsable_id or not st.session_state.devis_lignes:
+                    st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
+                else:
+                    devis_data = {
+                        'client_company_id': client_id,
+                        'employee_id': responsable_id,
+                        'project_id': projet_id if projet_id else None,
+                        'date_echeance': echeance.strftime('%Y-%m-%d'),
+                        'notes': notes,
+                        'lignes': st.session_state.devis_lignes
+                    }
+                    
+                    devis_id = crm_manager.create_devis(devis_data)
+                    
+                    if devis_id:
+                        devis_cree = crm_manager.get_devis_complet(devis_id)
+                        st.success(f"✅ Devis créé avec succès ! Numéro : {devis_cree.get('numero_document')}")
+                        st.session_state.devis_lignes = []  # Vider les lignes pour le prochain devis
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de la création du devis.")
+    
+    with tab3:
+        st.subheader("Statistiques des Devis")
+        
+        if stats.get('total_devis', 0) > 0:
+            if stats.get('par_statut'):
+                statut_data = pd.DataFrame([
+                    {'Statut': k, 'Nombre': v['count'], 'Montant HT': v['montant']}
+                    for k, v in stats['par_statut'].items() if isinstance(v, dict)
+                ])
+                
+                col_graph1, col_graph2 = st.columns(2)
+                
+                with col_graph1:
+                    st.markdown("**Répartition par Statut (Nombre)**")
+                    st.bar_chart(statut_data.set_index('Statut')['Nombre'])
+                
+                with col_graph2:
+                    st.markdown("**Répartition par Statut (Montant HT)**")
+                    st.bar_chart(statut_data.set_index('Statut')['Montant HT'])
+        else:
+            st.info("Aucune donnée de devis disponible pour les statistiques.")
+
+def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
+    """Affiche les détails d'un devis avec option de suppression et export HTML"""
+    if not devis_data:
+        st.error("Devis non trouvé.")
+        return
+
+    st.subheader(f"🧾 Détails du Devis: {devis_data.get('numero_document')} (SQLite)")
+
+    # Informations principales
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info(f"**ID:** {devis_data.get('id')}")
+        st.write(f"**Client:** {devis_data.get('client_nom', 'N/A')}")
+        st.write(f"**Responsable:** {devis_data.get('responsable_nom', 'N/A')}")
+        st.write(f"**Statut:** {devis_data.get('statut', 'N/A')}")
+    with c2:
+        date_creation = devis_data.get('date_creation')
+        st.write(f"**Date création:** {date_creation[:10] if date_creation else 'N/A'}")
+        st.write(f"**Date échéance:** {devis_data.get('date_echeance', 'N/A')}")
+        st.write(f"**Projet lié:** {devis_data.get('nom_projet', 'Aucun')}")
+
+    # Adresse du client
+    if devis_data.get('client_adresse_complete'):
+        st.markdown("### 📍 Adresse du Client")
+        st.text_area("client_adresse_devis", value=devis_data['client_adresse_complete'], height=100, disabled=True, label_visibility="collapsed")
+
+    # Totaux
+    totaux = devis_data.get('totaux', {})
+    st.markdown("### 💰 Totaux")
+    col_total1, col_total2, col_total3 = st.columns(3)
+    with col_total1:
+        st.metric("Total HT", f"{totaux.get('total_ht', 0):,.2f} $")
+    with col_total2:
+        st.metric("TVA", f"{totaux.get('montant_tva', 0):,.2f} $")
+    with col_total3:
+        st.metric("Total TTC", f"{totaux.get('total_ttc', 0):,.2f} $")
+
+    # Lignes du devis
+    st.markdown("### 📋 Lignes du Devis")
+    if devis_data.get('lignes'):
+        lignes_df_data = []
+        for ligne in devis_data['lignes']:
+            lignes_df_data.append({
+                "Description": ligne.get('description', ''),
+                "Quantité": ligne.get('quantite', 0),
+                "Unité": ligne.get('unite', ''),
+                "Prix unitaire": f"{ligne.get('prix_unitaire', 0):,.2f} $",
+                "Montant": f"{ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0):,.2f} $"
+            })
+        
+        st.dataframe(pd.DataFrame(lignes_df_data), use_container_width=True)
+    else:
+        st.info("Aucune ligne dans ce devis.")
+
+    # Notes
+    st.markdown("### 📝 Notes")
+    st.text_area("devis_detail_notes_display", value=devis_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
+
+    # Historique
+    st.markdown("### 📜 Historique")
+    if devis_data.get('historique'):
+        for hist in devis_data['historique']:
+            date_validation = hist.get('date_validation')
+            st.markdown(f"**{hist.get('type_validation', 'N/A')}** - {date_validation[:16] if date_validation else 'N/A'} par {hist.get('employee_nom', 'Système')}")
+            if hist.get('commentaires'):
+                st.caption(hist['commentaires'])
+            st.markdown("---")
+    else:
+        st.info("Aucun historique disponible.")
+
+    # Actions MODIFIÉES avec suppression + export HTML
+    st.markdown("### 🔧 Actions")
+    
+    # Déterminer si le devis peut être supprimé
+    statuts_non_supprimables = ['APPROUVÉ', 'TERMINÉ']
+    peut_supprimer = devis_data.get('statut') not in statuts_non_supprimables
+    
+    responsable_id = devis_data.get('employee_id', 1)
+
+    if peut_supprimer:
+        # 6 colonnes si suppression possible
+        col_action1, col_action2, col_action3, col_action4, col_action5, col_action6 = st.columns(6)
+    else:
+        # 5 colonnes si pas de suppression
+        col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+
+    with col_action1:
+        if st.button("✅ Accepter", key="accepter_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'APPROUVÉ', responsable_id, "Approuvé via interface"):
+                st.success("Devis approuvé !")
+                st.rerun()
+    
+    with col_action2:
+        if st.button("❌ Refuser", key="refuser_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ANNULÉ', responsable_id, "Refusé/Annulé via interface"):
+                st.success("Devis annulé.")
+                st.rerun()
+    
+    with col_action3:
+        if st.button("📧 Envoyer", key="envoyer_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', responsable_id, "Envoyé via interface"):
+                st.success("Devis marqué comme envoyé!")
+                st.rerun()
+    
+    with col_action4:
+        if st.button("📄 Dupliquer", key="dupliquer_devis"):
+            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], responsable_id)
+            if nouveau_id:
+                st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
+                st.rerun()
+
+    with col_action5:
+        if st.button("📑 Export HTML", key="export_html_devis_details"):
+            html_content = crm_manager.export_devis_html(devis_data['id'])
+            if html_content:
+                # Afficher un lien de téléchargement
+                st.download_button(
+                    label="💾 Télécharger le devis HTML",
+                    data=html_content,
+                    file_name=f"devis_{devis_data.get('numero_document')}.html",
+                    mime="text/html",
+                    key="download_html_devis_details"
+                )
+                st.success("✅ Devis HTML généré avec succès !")
+            else:
+                st.error("❌ Erreur lors de l'export HTML.")
+
+    # Bouton de suppression (si possible)
+    if peut_supprimer:
+        with col_action6:
+            if st.button("🗑️ Supprimer", key="supprimer_devis_btn", type="secondary"):
+                st.session_state.crm_confirm_delete_devis_id = devis_data['id']
+                st.rerun()
+
+    # Gestion de la confirmation de suppression
+    if 'crm_confirm_delete_devis_id' in st.session_state and st.session_state.crm_confirm_delete_devis_id == devis_data['id']:
+        st.markdown("---")
+        st.error(f"⚠️ **ATTENTION : Suppression définitive du devis {devis_data.get('numero_document')}**")
+        st.warning("Cette action est irréversible. Le devis et toutes ses données seront définitivement supprimés de la base de données.")
+        
+        # Champ pour le motif de suppression
+        motif_suppression = st.text_input(
+            "Motif de suppression (optionnel):", 
+            placeholder="Ex: Erreur de saisie, doublon, demande client...",
+            key="motif_suppression_devis"
+        )
+        
+        col_confirm, col_cancel = st.columns(2)
+        
+        with col_confirm:
+            if st.button("🗑️ CONFIRMER LA SUPPRESSION", key="confirm_delete_devis", type="primary"):
+                if crm_manager.supprimer_devis(devis_data['id'], responsable_id, motif_suppression):
+                    # Suppression réussie, nettoyer la session et retourner à la liste
+                    del st.session_state.crm_confirm_delete_devis_id
+                    st.session_state.crm_action = None
+                    st.session_state.crm_selected_id = None
+                    st.rerun()
+                else:
+                    # En cas d'erreur, rester sur la page
+                    del st.session_state.crm_confirm_delete_devis_id
+        
+        with col_cancel:
+            if st.button("❌ Annuler la suppression", key="cancel_delete_devis"):
+                del st.session_state.crm_confirm_delete_devis_id
+                st.rerun()
+
+    if st.button("Retour à la liste des devis", key="back_to_devis_list_from_details"):
+        st.session_state.crm_action = None
+        st.rerun()
+
+def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
+    """Formulaire de modification d'un devis existant"""
+    if not devis_data:
+        st.error("Devis non trouvé pour modification.")
+        return
+
+    st.subheader(f"✏️ Modifier le Devis: {devis_data.get('numero_document')}")
+    
+    # Vérifier que le devis est modifiable
+    statuts_non_modifiables = ['APPROUVÉ', 'TERMINÉ', 'ANNULÉ']
+    if devis_data.get('statut') in statuts_non_modifiables:
+        st.error(f"Ce devis ne peut pas être modifié car il est au statut '{devis_data.get('statut')}'")
+        if st.button("Retour aux détails du devis"):
+            st.session_state.crm_action = "view_devis_details"
+            st.rerun()
+        return
+
+    # Initialiser les lignes dans la session si ce n'est pas déjà fait
+    if 'edit_devis_lignes' not in st.session_state or st.session_state.get('edit_devis_id') != devis_data['id']:
+        st.session_state.edit_devis_lignes = devis_data.get('lignes', [])
+        st.session_state.edit_devis_id = devis_data['id']
+
+    # --- PARTIE 1 : GESTION DES LIGNES (COMME DANS LA CRÉATION) ---
+    st.markdown("##### Lignes du devis")
+    
+    # Section pour sélectionner un produit existant
+    st.markdown("**Option 1: Ajouter depuis le catalogue produits**")
+    with st.container(border=True):
+        col_prod1, col_prod2, col_prod3 = st.columns([2, 1, 1])
+        
+        with col_prod1:
+            produits_options = [("", "Sélectionner un produit...")] + [(p['id'], f"{p['code_produit']} - {p['nom']}") for p in crm_manager.produits]
+            produit_selectionne_edit = st.selectbox(
+                "Produit du catalogue",
+                options=[opt[0] for opt in produits_options],
+                format_func=lambda x: next((opt[1] for opt in produits_options if opt[0] == x), "Sélectionner un produit..."),
+                key="produit_catalogue_select_edit"
+            )
+        
+        with col_prod2:
+            quantite_produit_edit = st.number_input("Quantité", min_value=0.01, value=1.0, step=0.1, key="quantite_produit_catalogue_edit", format="%.2f")
+        
+        with col_prod3:
+            st.write("")
+            if st.button("➕ Ajouter depuis catalogue", key="add_from_catalog_edit", use_container_width=True):
+                if produit_selectionne_edit:
+                    produit_data = crm_manager.get_produit_by_id(produit_selectionne_edit)
+                    if produit_data:
+                        st.session_state.edit_devis_lignes.append({
+                            'description': f"{produit_data['code_produit']} - {produit_data['nom']}",
+                            'quantite': quantite_produit_edit,
+                            'unite': produit_data['unite_vente'],
+                            'prix_unitaire': produit_data['prix_unitaire'],
+                            'code_article': produit_data['code_produit']
+                        })
+                        st.success(f"Produit {produit_data['code_produit']} ajouté au devis!")
+                        st.rerun()
+                else:
+                    st.warning("Veuillez sélectionner un produit.")
+
+    st.markdown("**Option 2: Saisie manuelle**")
+    # Formulaire pour ajouter/modifier une ligne
+    with st.container(border=True):
+        col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
+        with col_ligne1:
+            description = st.text_input("Description", key="edit_ligne_description")
+        with col_ligne2:
+            quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="edit_ligne_quantite", format="%.2f")
+        with col_ligne3:
+            unite = st.selectbox("Unité", options=UNITES_VENTE, key="edit_ligne_unite")
+        with col_ligne4:
+            prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="edit_ligne_prix", format="%.2f")
+        with col_ligne5:
+            st.write("")
+            if st.button("➕ Ajouter", key="edit_ajouter_ligne_btn", use_container_width=True):
+                if description and quantite > 0:
+                    st.session_state.edit_devis_lignes.append({
+                        'description': description,
+                        'quantite': quantite,
+                        'unite': unite,
+                        'prix_unitaire': prix_unitaire
+                    })
+                    st.rerun()
+                else:
+                    st.warning("La description et la quantité sont requises.")
+
+    # Affichage des lignes avec possibilité de suppression
+    if st.session_state.edit_devis_lignes:
+        st.markdown("**Lignes actuelles :**")
+        total_ht_preview = 0
+        with st.container(border=True):
+            for i, ligne in enumerate(st.session_state.edit_devis_lignes):
+                col_disp, col_del = st.columns([10, 1])
+                with col_disp:
+                    montant = ligne['quantite'] * ligne['prix_unitaire']
+                    total_ht_preview += montant
+                    st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
+                with col_del:
+                    if st.button("🗑️", key=f"edit_remove_ligne_{i}", help="Supprimer la ligne"):
+                        st.session_state.edit_devis_lignes.pop(i)
+                        st.rerun()
+            st.markdown(f"**Total (HT) : {total_ht_preview:,.2f} $**")
+    
+    st.markdown("---")
+
+    # --- PARTIE 2 : FORMULAIRE PRINCIPAL ---
+    st.markdown("##### Informations générales")
+
+    with st.form("formulaire_modifier_devis"):
+        col_base1, col_base2 = st.columns(2)
+        
+        with col_base1:
             # Client
             clients = crm_manager.entreprises
             client_options = [(c['id'], c['nom']) for c in clients]
@@ -4856,363 +5217,3 @@ if __name__ == "__main__":
         st.error(f"Une erreur est survenue lors de l'initialisation: {e}")
         st.info("Lancement en mode démo JSON de secours.")
         demo_crm_with_products_and_devis()
-                clients = crm_manager.entreprises
-                client_options = [(c['id'], c['nom']) for c in clients]
-                client_id = st.selectbox("Client *", options=[opt[0] for opt in client_options],
-                                         format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), ''),
-                                         key="nouveau_devis_client")
-                
-                if crm_manager.use_sqlite:
-                    employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
-                    emp_options = [(e['id'], e['nom']) for e in employees] if employees else []
-                    responsable_id = st.selectbox("Responsable *", options=[opt[0] for opt in emp_options],
-                                                  format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
-                                                  key="nouveau_devis_responsable")
-                else:
-                    responsable_id = 1
-            
-            with col_base2:
-                echeance = st.date_input("Date d'échéance *", value=datetime.now().date() + timedelta(days=30),
-                                         key="nouveau_devis_echeance")
-                
-                if crm_manager.use_sqlite:
-                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
-                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets] if projets else [("", "Aucun projet")]
-                    projet_id = st.selectbox("Projet lié", options=[opt[0] for opt in projet_options],
-                                             format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
-                                             key="nouveau_devis_projet")
-                else:
-                    projet_id = None
-            
-            notes = st.text_area("Notes ou conditions", key="nouveau_devis_notes")
-            
-            # Boutons de soumission
-            submitted = st.form_submit_button("💾 Créer le Devis en Brouillon", type="primary", use_container_width=True)
-            
-            if submitted:
-                if not client_id or not responsable_id or not st.session_state.devis_lignes:
-                    st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
-                else:
-                    devis_data = {
-                        'client_company_id': client_id,
-                        'employee_id': responsable_id,
-                        'project_id': projet_id if projet_id else None,
-                        'date_echeance': echeance.strftime('%Y-%m-%d'),
-                        'notes': notes,
-                        'lignes': st.session_state.devis_lignes
-                    }
-                    
-                    devis_id = crm_manager.create_devis(devis_data)
-                    
-                    if devis_id:
-                        devis_cree = crm_manager.get_devis_complet(devis_id)
-                        st.success(f"✅ Devis créé avec succès ! Numéro : {devis_cree.get('numero_document')}")
-                        st.session_state.devis_lignes = []  # Vider les lignes pour le prochain devis
-                        st.rerun()
-                    else:
-                        st.error("Erreur lors de la création du devis.")
-    
-    with tab3:
-        st.subheader("Statistiques des Devis")
-        
-        if stats.get('total_devis', 0) > 0:
-            if stats.get('par_statut'):
-                statut_data = pd.DataFrame([
-                    {'Statut': k, 'Nombre': v['count'], 'Montant HT': v['montant']}
-                    for k, v in stats['par_statut'].items() if isinstance(v, dict)
-                ])
-                
-                col_graph1, col_graph2 = st.columns(2)
-                
-                with col_graph1:
-                    st.markdown("**Répartition par Statut (Nombre)**")
-                    st.bar_chart(statut_data.set_index('Statut')['Nombre'])
-                
-                with col_graph2:
-                    st.markdown("**Répartition par Statut (Montant HT)**")
-                    st.bar_chart(statut_data.set_index('Statut')['Montant HT'])
-        else:
-            st.info("Aucune donnée de devis disponible pour les statistiques.")
-
-def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
-    """Affiche les détails d'un devis avec option de suppression et export HTML"""
-    if not devis_data:
-        st.error("Devis non trouvé.")
-        return
-
-    st.subheader(f"🧾 Détails du Devis: {devis_data.get('numero_document')} (SQLite)")
-
-    # Informations principales
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info(f"**ID:** {devis_data.get('id')}")
-        st.write(f"**Client:** {devis_data.get('client_nom', 'N/A')}")
-        st.write(f"**Responsable:** {devis_data.get('responsable_nom', 'N/A')}")
-        st.write(f"**Statut:** {devis_data.get('statut', 'N/A')}")
-    with c2:
-        date_creation = devis_data.get('date_creation')
-        st.write(f"**Date création:** {date_creation[:10] if date_creation else 'N/A'}")
-        st.write(f"**Date échéance:** {devis_data.get('date_echeance', 'N/A')}")
-        st.write(f"**Projet lié:** {devis_data.get('nom_projet', 'Aucun')}")
-
-    # Adresse du client
-    if devis_data.get('client_adresse_complete'):
-        st.markdown("### 📍 Adresse du Client")
-        st.text_area("client_adresse_devis", value=devis_data['client_adresse_complete'], height=100, disabled=True, label_visibility="collapsed")
-
-    # Totaux
-    totaux = devis_data.get('totaux', {})
-    st.markdown("### 💰 Totaux")
-    col_total1, col_total2, col_total3 = st.columns(3)
-    with col_total1:
-        st.metric("Total HT", f"{totaux.get('total_ht', 0):,.2f} $")
-    with col_total2:
-        st.metric("TVA", f"{totaux.get('montant_tva', 0):,.2f} $")
-    with col_total3:
-        st.metric("Total TTC", f"{totaux.get('total_ttc', 0):,.2f} $")
-
-    # Lignes du devis
-    st.markdown("### 📋 Lignes du Devis")
-    if devis_data.get('lignes'):
-        lignes_df_data = []
-        for ligne in devis_data['lignes']:
-            lignes_df_data.append({
-                "Description": ligne.get('description', ''),
-                "Quantité": ligne.get('quantite', 0),
-                "Unité": ligne.get('unite', ''),
-                "Prix unitaire": f"{ligne.get('prix_unitaire', 0):,.2f} $",
-                "Montant": f"{ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0):,.2f} $"
-            })
-        
-        st.dataframe(pd.DataFrame(lignes_df_data), use_container_width=True)
-    else:
-        st.info("Aucune ligne dans ce devis.")
-
-    # Notes
-    st.markdown("### 📝 Notes")
-    st.text_area("devis_detail_notes_display", value=devis_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
-
-    # Historique
-    st.markdown("### 📜 Historique")
-    if devis_data.get('historique'):
-        for hist in devis_data['historique']:
-            date_validation = hist.get('date_validation')
-            st.markdown(f"**{hist.get('type_validation', 'N/A')}** - {date_validation[:16] if date_validation else 'N/A'} par {hist.get('employee_nom', 'Système')}")
-            if hist.get('commentaires'):
-                st.caption(hist['commentaires'])
-            st.markdown("---")
-    else:
-        st.info("Aucun historique disponible.")
-
-    # Actions MODIFIÉES avec suppression + export HTML
-    st.markdown("### 🔧 Actions")
-    
-    # Déterminer si le devis peut être supprimé
-    statuts_non_supprimables = ['APPROUVÉ', 'TERMINÉ']
-    peut_supprimer = devis_data.get('statut') not in statuts_non_supprimables
-    
-    responsable_id = devis_data.get('employee_id', 1)
-
-    if peut_supprimer:
-        # 6 colonnes si suppression possible
-        col_action1, col_action2, col_action3, col_action4, col_action5, col_action6 = st.columns(6)
-    else:
-        # 5 colonnes si pas de suppression
-        col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
-
-    with col_action1:
-        if st.button("✅ Accepter", key="accepter_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'APPROUVÉ', responsable_id, "Approuvé via interface"):
-                st.success("Devis approuvé !")
-                st.rerun()
-    
-    with col_action2:
-        if st.button("❌ Refuser", key="refuser_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ANNULÉ', responsable_id, "Refusé/Annulé via interface"):
-                st.success("Devis annulé.")
-                st.rerun()
-    
-    with col_action3:
-        if st.button("📧 Envoyer", key="envoyer_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', responsable_id, "Envoyé via interface"):
-                st.success("Devis marqué comme envoyé!")
-                st.rerun()
-    
-    with col_action4:
-        if st.button("📄 Dupliquer", key="dupliquer_devis"):
-            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], responsable_id)
-            if nouveau_id:
-                st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
-                st.rerun()
-
-    with col_action5:
-        if st.button("📑 Export HTML", key="export_html_devis_details"):
-            html_content = crm_manager.export_devis_html(devis_data['id'])
-            if html_content:
-                # Afficher un lien de téléchargement
-                st.download_button(
-                    label="💾 Télécharger le devis HTML",
-                    data=html_content,
-                    file_name=f"devis_{devis_data.get('numero_document')}.html",
-                    mime="text/html",
-                    key="download_html_devis_details"
-                )
-                st.success("✅ Devis HTML généré avec succès !")
-            else:
-                st.error("❌ Erreur lors de l'export HTML.")
-
-    # Bouton de suppression (si possible)
-    if peut_supprimer:
-        with col_action6:
-            if st.button("🗑️ Supprimer", key="supprimer_devis_btn", type="secondary"):
-                st.session_state.crm_confirm_delete_devis_id = devis_data['id']
-                st.rerun()
-
-    # Gestion de la confirmation de suppression
-    if 'crm_confirm_delete_devis_id' in st.session_state and st.session_state.crm_confirm_delete_devis_id == devis_data['id']:
-        st.markdown("---")
-        st.error(f"⚠️ **ATTENTION : Suppression définitive du devis {devis_data.get('numero_document')}**")
-        st.warning("Cette action est irréversible. Le devis et toutes ses données seront définitivement supprimés de la base de données.")
-        
-        # Champ pour le motif de suppression
-        motif_suppression = st.text_input(
-            "Motif de suppression (optionnel):", 
-            placeholder="Ex: Erreur de saisie, doublon, demande client...",
-            key="motif_suppression_devis"
-        )
-        
-        col_confirm, col_cancel = st.columns(2)
-        
-        with col_confirm:
-            if st.button("🗑️ CONFIRMER LA SUPPRESSION", key="confirm_delete_devis", type="primary"):
-                if crm_manager.supprimer_devis(devis_data['id'], responsable_id, motif_suppression):
-                    # Suppression réussie, nettoyer la session et retourner à la liste
-                    del st.session_state.crm_confirm_delete_devis_id
-                    st.session_state.crm_action = None
-                    st.session_state.crm_selected_id = None
-                    st.rerun()
-                else:
-                    # En cas d'erreur, rester sur la page
-                    del st.session_state.crm_confirm_delete_devis_id
-        
-        with col_cancel:
-            if st.button("❌ Annuler la suppression", key="cancel_delete_devis"):
-                del st.session_state.crm_confirm_delete_devis_id
-                st.rerun()
-
-    if st.button("Retour à la liste des devis", key="back_to_devis_list_from_details"):
-        st.session_state.crm_action = None
-        st.rerun()
-
-def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
-    """Formulaire de modification d'un devis existant"""
-    if not devis_data:
-        st.error("Devis non trouvé pour modification.")
-        return
-
-    st.subheader(f"✏️ Modifier le Devis: {devis_data.get('numero_document')}")
-    
-    # Vérifier que le devis est modifiable
-    statuts_non_modifiables = ['APPROUVÉ', 'TERMINÉ', 'ANNULÉ']
-    if devis_data.get('statut') in statuts_non_modifiables:
-        st.error(f"Ce devis ne peut pas être modifié car il est au statut '{devis_data.get('statut')}'")
-        if st.button("Retour aux détails du devis"):
-            st.session_state.crm_action = "view_devis_details"
-            st.rerun()
-        return
-
-    # Initialiser les lignes dans la session si ce n'est pas déjà fait
-    if 'edit_devis_lignes' not in st.session_state or st.session_state.get('edit_devis_id') != devis_data['id']:
-        st.session_state.edit_devis_lignes = devis_data.get('lignes', [])
-        st.session_state.edit_devis_id = devis_data['id']
-
-    # --- PARTIE 1 : GESTION DES LIGNES (COMME DANS LA CRÉATION) ---
-    st.markdown("##### Lignes du devis")
-    
-    # Section pour sélectionner un produit existant
-    st.markdown("**Option 1: Ajouter depuis le catalogue produits**")
-    with st.container(border=True):
-        col_prod1, col_prod2, col_prod3 = st.columns([2, 1, 1])
-        
-        with col_prod1:
-            produits_options = [("", "Sélectionner un produit...")] + [(p['id'], f"{p['code_produit']} - {p['nom']}") for p in crm_manager.produits]
-            produit_selectionne_edit = st.selectbox(
-                "Produit du catalogue",
-                options=[opt[0] for opt in produits_options],
-                format_func=lambda x: next((opt[1] for opt in produits_options if opt[0] == x), "Sélectionner un produit..."),
-                key="produit_catalogue_select_edit"
-            )
-        
-        with col_prod2:
-            quantite_produit_edit = st.number_input("Quantité", min_value=0.01, value=1.0, step=0.1, key="quantite_produit_catalogue_edit", format="%.2f")
-        
-        with col_prod3:
-            st.write("")
-            if st.button("➕ Ajouter depuis catalogue", key="add_from_catalog_edit", use_container_width=True):
-                if produit_selectionne_edit:
-                    produit_data = crm_manager.get_produit_by_id(produit_selectionne_edit)
-                    if produit_data:
-                        st.session_state.edit_devis_lignes.append({
-                            'description': f"{produit_data['code_produit']} - {produit_data['nom']}",
-                            'quantite': quantite_produit_edit,
-                            'unite': produit_data['unite_vente'],
-                            'prix_unitaire': produit_data['prix_unitaire'],
-                            'code_article': produit_data['code_produit']
-                        })
-                        st.success(f"Produit {produit_data['code_produit']} ajouté au devis!")
-                        st.rerun()
-                else:
-                    st.warning("Veuillez sélectionner un produit.")
-
-    st.markdown("**Option 2: Saisie manuelle**")
-    # Formulaire pour ajouter/modifier une ligne
-    with st.container(border=True):
-        col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
-        with col_ligne1:
-            description = st.text_input("Description", key="edit_ligne_description")
-        with col_ligne2:
-            quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="edit_ligne_quantite", format="%.2f")
-        with col_ligne3:
-            unite = st.selectbox("Unité", options=UNITES_VENTE, key="edit_ligne_unite")
-        with col_ligne4:
-            prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="edit_ligne_prix", format="%.2f")
-        with col_ligne5:
-            st.write("")
-            if st.button("➕ Ajouter", key="edit_ajouter_ligne_btn", use_container_width=True):
-                if description and quantite > 0:
-                    st.session_state.edit_devis_lignes.append({
-                        'description': description,
-                        'quantite': quantite,
-                        'unite': unite,
-                        'prix_unitaire': prix_unitaire
-                    })
-                    st.rerun()
-                else:
-                    st.warning("La description et la quantité sont requises.")
-
-    # Affichage des lignes avec possibilité de suppression
-    if st.session_state.edit_devis_lignes:
-        st.markdown("**Lignes actuelles :**")
-        total_ht_preview = 0
-        with st.container(border=True):
-            for i, ligne in enumerate(st.session_state.edit_devis_lignes):
-                col_disp, col_del = st.columns([10, 1])
-                with col_disp:
-                    montant = ligne['quantite'] * ligne['prix_unitaire']
-                    total_ht_preview += montant
-                    st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
-                with col_del:
-                    if st.button("🗑️", key=f"edit_remove_ligne_{i}", help="Supprimer la ligne"):
-                        st.session_state.edit_devis_lignes.pop(i)
-                        st.rerun()
-            st.markdown(f"**Total (HT) : {total_ht_preview:,.2f} $**")
-    
-    st.markdown("---")
-
-    # --- PARTIE 2 : FORMULAIRE PRINCIPAL ---
-    st.markdown("##### Informations générales")
-
-    with st.form("formulaire_modifier_devis"):
-        col_base1, col_base2 = st.columns(2)
-        
-        with col_base1:
