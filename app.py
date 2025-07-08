@@ -2157,7 +2157,7 @@ def show_portal_home():
 
     st.markdown(f"""
     <div class="portal-header">
-        <h1>🏭 PORTAIL DG INC.</h1>
+        <h1>🏭 PORTAIL</h1>
         <div class="portal-subtitle">
             Système de Gestion Intégré • Production & Métallurgie<br>
             📅 {current_date} • 🕒 {current_time}
