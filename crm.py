@@ -29,6 +29,7 @@ class GestionnaireCRM:
     + SUPPRESSION DE DEVIS avec sécurité et traçabilité
     + ADRESSES STRUCTURÉES (adresse, ville, province, code_postal, pays)
     + GESTION COMPLÈTE DES PRODUITS MÉTALLURGIQUES
+    + EXPORT DEVIS HTML PROFESSIONNEL
     """
     
     def __init__(self, db=None, project_manager=None):
@@ -2124,6 +2125,676 @@ class GestionnaireCRM:
             st.error(f"Erreur duplication devis: {e}")
             return None
 
+    # =========================================================================
+    # EXPORT DEVIS HTML PROFESSIONNEL
+    # =========================================================================
+    
+    def export_devis_html(self, devis_id: int) -> Optional[str]:
+        """
+        Exporte un devis au format HTML professionnel pour les clients
+        
+        Args:
+            devis_id: ID du devis à exporter
+            
+        Returns:
+            str: Contenu HTML du devis ou None si erreur
+        """
+        if not self.use_sqlite:
+            st.error("Export HTML disponible uniquement en mode SQLite")
+            return None
+        
+        try:
+            # Récupérer toutes les données du devis
+            devis_data = self.get_devis_complet(devis_id)
+            if not devis_data:
+                st.error(f"Devis #{devis_id} non trouvé pour export")
+                return None
+            
+            # Générer le HTML
+            html_content = self.generate_devis_html_template(devis_data)
+            
+            return html_content
+            
+        except Exception as e:
+            st.error(f"Erreur export HTML devis: {e}")
+            return None
+    
+    def generate_devis_html_template(self, devis_data: Dict[str, Any]) -> str:
+        """
+        Génère le template HTML pour un devis en utilisant le même style que le bon de travail
+        
+        Args:
+            devis_data: Données complètes du devis
+            
+        Returns:
+            str: Contenu HTML formaté
+        """
+        try:
+            # Formatage des dates
+            date_creation = devis_data.get('date_creation', '')
+            if date_creation:
+                try:
+                    date_creation_formatted = datetime.fromisoformat(date_creation).strftime('%d/%m/%Y')
+                except:
+                    date_creation_formatted = date_creation[:10] if len(date_creation) >= 10 else date_creation
+            else:
+                date_creation_formatted = 'N/A'
+            
+            date_echeance = devis_data.get('date_echeance', '')
+            try:
+                date_echeance_formatted = datetime.fromisoformat(date_echeance).strftime('%d/%m/%Y') if date_echeance else 'N/A'
+            except:
+                date_echeance_formatted = date_echeance
+            
+            # Calcul du nombre de jours de validité restants
+            jours_validite = 0
+            if date_echeance:
+                try:
+                    echeance = datetime.fromisoformat(date_echeance).date() if isinstance(date_echeance, str) else date_echeance
+                    today = datetime.now().date()
+                    jours_validite = (echeance - today).days
+                except:
+                    jours_validite = 0
+            
+            # Badge de validité
+            if jours_validite > 7:
+                validite_badge = f'<span class="badge badge-in-progress">✅ Valide ({jours_validite} jours)</span>'
+            elif jours_validite > 0:
+                validite_badge = f'<span class="badge badge-pending">⚡ Expire bientôt ({jours_validite} jours)</span>'
+            else:
+                validite_badge = '<span class="badge badge-on-hold">⚠️ Expiré</span>'
+            
+            # Récupération des totaux
+            totaux = devis_data.get('totaux', {})
+            total_ht = totaux.get('total_ht', 0)
+            taux_tva = totaux.get('taux_tva', 14.975)
+            montant_tva = totaux.get('montant_tva', 0)
+            total_ttc = totaux.get('total_ttc', 0)
+            
+            # Génération des lignes du tableau
+            lignes_html = ""
+            if devis_data.get('lignes'):
+                for ligne in devis_data['lignes']:
+                    montant_ligne = ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0)
+                    lignes_html += f"""
+                    <tr>
+                        <td><strong>{ligne.get('description', '')}</strong></td>
+                        <td style="text-align: center;">{ligne.get('quantite', 0):,.2f}</td>
+                        <td style="text-align: center;">{ligne.get('unite', '')}</td>
+                        <td style="text-align: right;">{ligne.get('prix_unitaire', 0):,.2f} $</td>
+                        <td style="text-align: right;"><strong>{montant_ligne:,.2f} $</strong></td>
+                    </tr>
+                    """
+            else:
+                lignes_html = """
+                <tr>
+                    <td colspan="5" style="text-align: center; color: #6B7280;">Aucune ligne dans ce devis</td>
+                </tr>
+                """
+            
+            # Badge de statut
+            statut = devis_data.get('statut', 'BROUILLON')
+            statut_badges = {
+                'BROUILLON': 'badge-pending',
+                'VALIDÉ': 'badge-in-progress', 
+                'ENVOYÉ': 'badge-in-progress',
+                'APPROUVÉ': 'badge-completed',
+                'TERMINÉ': 'badge-completed',
+                'ANNULÉ': 'badge-on-hold'
+            }
+            statut_badge_class = statut_badges.get(statut, 'badge-pending')
+            
+            # Conditions de paiement et validité
+            conditions_paiement = """
+            <div class="instructions-box">
+                <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">💰 Conditions de Paiement</h4>
+                <p><strong>• Acompte :</strong> 50% à la commande</p>
+                <p><strong>• Solde :</strong> À la livraison</p>
+                <p><strong>• Délai de paiement :</strong> Net 30 jours</p>
+                <p><strong>• Validité du devis :</strong> 30 jours à compter de la date d'émission</p>
+                <p><strong>• Prix :</strong> Les prix sont exprimés en dollars canadiens (CAD) et incluent les taxes applicables</p>
+            </div>
+            """
+            
+            # Template HTML complet
+            html_template = f"""
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Devis - {devis_data.get('numero_document', 'N/A')}</title>
+                <style>
+                    :root {{
+                        --primary-color: #00A971;
+                        --primary-color-darker: #00673D;
+                        --primary-color-darkest: #004C2E;
+                        --primary-color-lighter: #DCFCE7;
+                        --background-color: #F9FAFB;
+                        --secondary-background-color: #FFFFFF;
+                        --text-color: #374151;
+                        --text-color-light: #6B7280;
+                        --border-color: #E5E7EB;
+                        --border-radius-md: 0.5rem;
+                        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                    }}
+                    
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+                    
+                    body {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        line-height: 1.6;
+                        color: var(--text-color);
+                        background-color: var(--background-color);
+                        margin: 0;
+                        padding: 15px;
+                    }}
+                    
+                    .container {{
+                        max-width: 8.5in;
+                        margin: 0 auto;
+                        background-color: white;
+                        border-radius: 12px;
+                        box-shadow: var(--box-shadow-md);
+                        overflow: hidden;
+                        width: 100%;
+                    }}
+                    
+                    .header {{
+                        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+                        color: white;
+                        padding: 30px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }}
+                    
+                    .logo-container {{
+                        display: flex;
+                        align-items: center;
+                        gap: 20px;
+                    }}
+                    
+                    .logo-box {{
+                        background-color: white;
+                        width: 70px;
+                        height: 45px;
+                        border-radius: 8px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                    }}
+                    
+                    .logo-text {{
+                        font-family: 'Segoe UI', sans-serif;
+                        font-weight: 800;
+                        font-size: 24px;
+                        color: var(--primary-color);
+                        letter-spacing: 1px;
+                    }}
+                    
+                    .company-info {{
+                        text-align: left;
+                    }}
+                    
+                    .company-name {{
+                        font-weight: 700;
+                        font-size: 28px;
+                        margin-bottom: 5px;
+                        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                    }}
+                    
+                    .company-subtitle {{
+                        font-size: 16px;
+                        opacity: 0.9;
+                    }}
+                    
+                    .contact-info {{
+                        text-align: right;
+                        font-size: 14px;
+                        line-height: 1.4;
+                        opacity: 0.95;
+                    }}
+                    
+                    .document-title {{
+                        background: var(--primary-color-lighter);
+                        padding: 20px 30px;
+                        border-left: 5px solid var(--primary-color);
+                    }}
+                    
+                    .document-title h1 {{
+                        color: var(--primary-color-darker);
+                        font-size: 24px;
+                        margin-bottom: 10px;
+                    }}
+                    
+                    .document-meta {{
+                        display: flex;
+                        justify-content: space-between;
+                        color: var(--text-color-light);
+                        font-size: 14px;
+                    }}
+                    
+                    .content {{
+                        padding: 25px;
+                    }}
+                    
+                    .section {{
+                        margin-bottom: 30px;
+                    }}
+                    
+                    .section-title {{
+                        color: var(--primary-color-darker);
+                        font-size: 18px;
+                        font-weight: 600;
+                        margin-bottom: 15px;
+                        padding-bottom: 8px;
+                        border-bottom: 2px solid var(--primary-color-lighter);
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    }}
+                    
+                    .info-grid {{
+                        display: grid;
+                        grid-template-columns: 1fr 1fr 1fr;
+                        gap: 15px;
+                        margin-bottom: 20px;
+                    }}
+                    
+                    .info-item {{
+                        background: var(--background-color);
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        border-left: 3px solid var(--primary-color);
+                    }}
+                    
+                    .info-label {{
+                        font-weight: 600;
+                        color: var(--text-color-light);
+                        font-size: 12px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 5px;
+                    }}
+                    
+                    .info-value {{
+                        font-size: 16px;
+                        color: var(--text-color);
+                        font-weight: 500;
+                    }}
+                    
+                    .table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 15px 0;
+                        border-radius: var(--border-radius-md);
+                        overflow: hidden;
+                        box-shadow: var(--box-shadow-md);
+                    }}
+                    
+                    .table th {{
+                        background: var(--primary-color);
+                        color: white;
+                        padding: 12px;
+                        text-align: left;
+                        font-weight: 600;
+                        font-size: 14px;
+                    }}
+                    
+                    .table td {{
+                        padding: 12px;
+                        border-bottom: 1px solid var(--border-color);
+                        vertical-align: top;
+                    }}
+                    
+                    .table tr:nth-child(even) {{
+                        background-color: var(--background-color);
+                    }}
+                    
+                    .table tr:hover {{
+                        background-color: var(--primary-color-lighter);
+                    }}
+                    
+                    .badge {{
+                        padding: 4px 12px;
+                        border-radius: 20px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        display: inline-block;
+                    }}
+                    
+                    .badge-pending {{ background: #fef3c7; color: #92400e; }}
+                    .badge-in-progress {{ background: #dbeafe; color: #1e40af; }}
+                    .badge-completed {{ background: #d1fae5; color: #065f46; }}
+                    .badge-on-hold {{ background: #fee2e2; color: #991b1b; }}
+                    
+                    .summary-box {{
+                        background: linear-gradient(45deg, var(--primary-color-lighter), white);
+                        border: 2px solid var(--primary-color);
+                        border-radius: var(--border-radius-md);
+                        padding: 20px;
+                        margin: 20px 0;
+                    }}
+                    
+                    .summary-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 15px;
+                    }}
+                    
+                    .summary-item {{
+                        text-align: center;
+                        background: white;
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    
+                    .summary-number {{
+                        font-size: 24px;
+                        font-weight: 700;
+                        color: var(--primary-color-darker);
+                        display: block;
+                    }}
+                    
+                    .summary-label {{
+                        font-size: 12px;
+                        color: var(--text-color-light);
+                        text-transform: uppercase;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }}
+                    
+                    .instructions-box {{
+                        background: var(--background-color);
+                        border-left: 4px solid var(--primary-color);
+                        padding: 20px;
+                        border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
+                        margin: 15px 0;
+                    }}
+                    
+                    .footer {{
+                        background: var(--primary-color-darkest);
+                        color: white;
+                        padding: 20px 30px;
+                        text-align: center;
+                        font-size: 12px;
+                        line-height: 1.4;
+                    }}
+                    
+                    .client-address {{
+                        background: var(--background-color);
+                        border: 2px solid var(--primary-color-lighter);
+                        border-radius: var(--border-radius-md);
+                        padding: 15px;
+                        margin: 15px 0;
+                        font-size: 14px;
+                        line-height: 1.4;
+                    }}
+                    
+                    @media print {{
+                        body {{ 
+                            margin: 0; 
+                            padding: 0; 
+                        }}
+                        .container {{ 
+                            box-shadow: none; 
+                            max-width: 100%;
+                            width: 8.5in;
+                        }}
+                        .table {{ 
+                            break-inside: avoid; 
+                            font-size: 12px;
+                        }}
+                        .section {{ 
+                            break-inside: avoid-page; 
+                        }}
+                        .header {{
+                            padding: 20px 25px;
+                        }}
+                        .content {{
+                            padding: 20px;
+                        }}
+                        @page {{
+                            size: letter;
+                            margin: 0.5in;
+                        }}
+                    }}
+                    
+                    @media screen and (max-width: 768px) {{
+                        .container {{
+                            max-width: 100%;
+                            margin: 0 10px;
+                        }}
+                        .info-grid {{
+                            grid-template-columns: 1fr;
+                            gap: 10px;
+                        }}
+                        .summary-grid {{
+                            grid-template-columns: repeat(2, 1fr);
+                        }}
+                        .header {{
+                            flex-direction: column;
+                            text-align: center;
+                            gap: 15px;
+                        }}
+                        .contact-info {{
+                            text-align: center;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <!-- En-tête -->
+                    <div class="header">
+                        <div class="logo-container">
+                            <div class="logo-box">
+                                <div class="logo-text">DG</div>
+                            </div>
+                            <div class="company-info">
+                                <div class="company-name">Desmarais & Gagné inc.</div>
+                                <div class="company-subtitle">Fabrication et Assemblage Métallurgique</div>
+                            </div>
+                        </div>
+                        <div class="contact-info">
+                            565 rue Maisonneuve<br>
+                            Granby, QC J2G 3H5<br>
+                            Tél.: (450) 372-9630<br>
+                            Téléc.: (450) 372-8122
+                        </div>
+                    </div>
+                    
+                    <!-- Titre du document -->
+                    <div class="document-title">
+                        <h1>💰 DEVIS</h1>
+                        <div class="document-meta">
+                            <span><strong>N° Devis:</strong> {devis_data.get('numero_document', 'N/A')}</span>
+                            <span><strong>Généré le:</strong> {datetime.now().strftime('%d/%m/%Y à %H:%M')}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Contenu principal -->
+                    <div class="content">
+                        <!-- Informations générales -->
+                        <div class="section">
+                            <h2 class="section-title">📋 Informations du Devis</h2>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-label">Client</div>
+                                    <div class="info-value">{devis_data.get('client_nom', 'N/A')}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Responsable</div>
+                                    <div class="info-value">{devis_data.get('responsable_nom', 'N/A')}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Statut</div>
+                                    <div class="info-value">
+                                        <span class="badge {statut_badge_class}">
+                                            {statut}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Création</div>
+                                    <div class="info-value">{date_creation_formatted}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Échéance</div>
+                                    <div class="info-value">{date_echeance_formatted}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Validité</div>
+                                    <div class="info-value">{validite_badge}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Adresse du client -->
+                        <div class="section">
+                            <h2 class="section-title">📍 Adresse de Facturation</h2>
+                            <div class="client-address">
+                                <strong>{devis_data.get('client_nom', 'N/A')}</strong><br>
+                                {devis_data.get('client_adresse_complete', 'Adresse non disponible').replace(chr(10), '<br>')}
+                            </div>
+                        </div>
+                        
+                        <!-- Résumé financier -->
+                        <div class="summary-box">
+                            <h3 style="color: var(--primary-color-darker); margin-bottom: 15px; text-align: center;">💰 Résumé Financier</h3>
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <span class="summary-number">{len(devis_data.get('lignes', []))}</span>
+                                    <span class="summary-label">Articles</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{total_ht:,.2f} $</span>
+                                    <span class="summary-label">Total HT</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{montant_tva:,.2f} $</span>
+                                    <span class="summary-label">TVA ({taux_tva:.3f}%)</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{total_ttc:,.2f} $</span>
+                                    <span class="summary-label">Total TTC</span>
+                                </div>
+                            </div>
+                        </div>
+                
+                        <!-- Détail des articles -->
+                        <div class="section">
+                            <h2 class="section-title">📝 Détail des Articles et Services</h2>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Description</th>
+                                        <th style="text-align: center;">Quantité</th>
+                                        <th style="text-align: center;">Unité</th>
+                                        <th style="text-align: right;">Prix Unit.</th>
+                                        <th style="text-align: right;">Montant</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {lignes_html}
+                                    <!-- Ligne de total -->
+                                    <tr style="background: var(--primary-color-lighter); font-weight: bold;">
+                                        <td colspan="4" style="text-align: right; padding: 15px;"><strong>SOUS-TOTAL (HT)</strong></td>
+                                        <td style="text-align: right; padding: 15px;"><strong>{total_ht:,.2f} $ CAD</strong></td>
+                                    </tr>
+                                    <tr style="background: var(--background-color);">
+                                        <td colspan="4" style="text-align: right; padding: 10px;">TVA ({taux_tva:.3f}%)</td>
+                                        <td style="text-align: right; padding: 10px;">{montant_tva:,.2f} $ CAD</td>
+                                    </tr>
+                                    <tr style="background: var(--primary-color); color: white; font-weight: bold; font-size: 16px;">
+                                        <td colspan="4" style="text-align: right; padding: 15px;"><strong>TOTAL TTC</strong></td>
+                                        <td style="text-align: right; padding: 15px;"><strong>{total_ttc:,.2f} $ CAD</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                
+                        <!-- Notes du devis -->
+                        {f'''
+                        <div class="section">
+                            <h2 class="section-title">📝 Notes et Commentaires</h2>
+                            <div class="instructions-box">
+                                {devis_data.get('notes', 'Aucune note particulière.')}
+                            </div>
+                        </div>
+                        ''' if devis_data.get('notes') else ''}
+                        
+                        <!-- Conditions -->
+                        {conditions_paiement}
+                        
+                    </div>
+                    
+                    <!-- Pied de page -->
+                    <div class="footer">
+                        <div><strong>🏭 Desmarais & Gagné inc.</strong> - Système de Gestion CRM</div>
+                        <div>Devis généré automatiquement le {datetime.now().strftime('%d/%m/%Y à %H:%M')}</div>
+                        <div>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 www.dg-inc.com</div>
+                        <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
+                            Ce devis est valable {devis_data.get('metadonnees', {}).get('validite_jours', 30)} jours à compter de la date d'émission.
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            return html_template
+            
+        except Exception as e:
+            st.error(f"Erreur génération template HTML: {e}")
+            return ""
+    
+    def save_devis_html_file(self, devis_id: int, filename: Optional[str] = None) -> Optional[str]:
+        """
+        Sauvegarde le devis en fichier HTML
+        
+        Args:
+            devis_id: ID du devis
+            filename: Nom du fichier (optionnel, généré automatiquement si None)
+            
+        Returns:
+            str: Chemin du fichier créé ou None si erreur
+        """
+        try:
+            html_content = self.export_devis_html(devis_id)
+            if not html_content:
+                return None
+            
+            # Générer le nom de fichier si non fourni
+            if not filename:
+                devis_data = self.get_devis_complet(devis_id)
+                numero_devis = devis_data.get('numero_document', f'DEVIS-{devis_id}')
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{numero_devis}_{timestamp}.html"
+            
+            # Assurer que le fichier a une extension .html
+            if not filename.endswith('.html'):
+                filename += '.html'
+            
+            # Écrire le fichier
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            return filename
+            
+        except Exception as e:
+            st.error(f"Erreur sauvegarde fichier HTML: {e}")
+            return None
+
     # --- Méthodes JSON (Rétrocompatibilité) ---
     def charger_donnees_crm(self):
         """Charge les données CRM depuis JSON (rétrocompatibilité)"""
@@ -3430,11 +4101,11 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
         st.rerun()
 
 # =========================================================================
-# FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS AVEC SUPPRESSION
+# FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS AVEC SUPPRESSION + EXPORT HTML
 # =========================================================================
 
 def render_crm_devis_tab(crm_manager: GestionnaireCRM):
-    """Interface Streamlit pour la gestion des devis avec suppression"""
+    """Interface Streamlit pour la gestion des devis avec suppression et export HTML"""
     if not crm_manager.use_sqlite:
         st.warning("⚠️ Le système de devis n'est disponible qu'en mode SQLite.")
         return
@@ -3520,7 +4191,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             df = pd.DataFrame(display_data)
             st.dataframe(df, use_container_width=True)
             
-            # Actions sur devis sélectionné MODIFIÉES AVEC SUPPRESSION
+            # Actions sur devis sélectionné MODIFIÉES AVEC SUPPRESSION + EXPORT HTML
             st.markdown("---")
             selected_devis_id = st.selectbox(
                 "Sélectionner un devis pour actions:",
@@ -3535,9 +4206,9 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                 peut_supprimer = selected_devis and selected_devis.get('statut') not in ['APPROUVÉ', 'TERMINÉ']
                 
                 if peut_supprimer:
-                    col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+                    col_action1, col_action2, col_action3, col_action4, col_action5, col_action6 = st.columns(6)
                 else:
-                    col_action1, col_action2, col_action3, col_action4 = st.columns(4)
+                    col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
                 
                 with col_action1:
                     if st.button("👁️ Voir Détails", key="voir_devis", use_container_width=True):
@@ -3568,9 +4239,25 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                         st.session_state.crm_selected_id = selected_devis_id
                         st.rerun()
                 
+                with col_action5:
+                    if st.button("📑 Export HTML", key="export_html_devis", use_container_width=True):
+                        html_content = crm_manager.export_devis_html(selected_devis_id)
+                        if html_content:
+                            # Afficher un lien de téléchargement
+                            st.download_button(
+                                label="💾 Télécharger le devis HTML",
+                                data=html_content,
+                                file_name=f"devis_{selected_devis['numero_document']}.html",
+                                mime="text/html",
+                                key="download_html_devis"
+                            )
+                            st.success("✅ Devis HTML généré avec succès !")
+                        else:
+                            st.error("❌ Erreur lors de l'export HTML.")
+                
                 # Bouton de suppression si possible
                 if peut_supprimer:
-                    with col_action5:
+                    with col_action6:
                         if st.button("🗑️ Supprimer", key="delete_devis_liste", use_container_width=True, type="secondary"):
                             st.session_state.crm_confirm_delete_devis_id = selected_devis_id
                             st.rerun()
@@ -3696,350 +4383,6 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             col_base1, col_base2 = st.columns(2)
             
             with col_base1:
-                clients = crm_manager.entreprises
-                client_options = [(c['id'], c['nom']) for c in clients]
-                client_id = st.selectbox("Client *", options=[opt[0] for opt in client_options],
-                                         format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), ''),
-                                         key="nouveau_devis_client")
-                
-                if crm_manager.use_sqlite:
-                    employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
-                    emp_options = [(e['id'], e['nom']) for e in employees] if employees else []
-                    responsable_id = st.selectbox("Responsable *", options=[opt[0] for opt in emp_options],
-                                                  format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
-                                                  key="nouveau_devis_responsable")
-                else:
-                    responsable_id = 1
-            
-            with col_base2:
-                echeance = st.date_input("Date d'échéance *", value=datetime.now().date() + timedelta(days=30),
-                                         key="nouveau_devis_echeance")
-                
-                if crm_manager.use_sqlite:
-                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
-                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets] if projets else [("", "Aucun projet")]
-                    projet_id = st.selectbox("Projet lié", options=[opt[0] for opt in projet_options],
-                                             format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
-                                             key="nouveau_devis_projet")
-                else:
-                    projet_id = None
-            
-            notes = st.text_area("Notes ou conditions", key="nouveau_devis_notes")
-            
-            # Boutons de soumission
-            submitted = st.form_submit_button("💾 Créer le Devis en Brouillon", type="primary", use_container_width=True)
-            
-            if submitted:
-                if not client_id or not responsable_id or not st.session_state.devis_lignes:
-                    st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
-                else:
-                    devis_data = {
-                        'client_company_id': client_id,
-                        'employee_id': responsable_id,
-                        'project_id': projet_id if projet_id else None,
-                        'date_echeance': echeance.strftime('%Y-%m-%d'),
-                        'notes': notes,
-                        'lignes': st.session_state.devis_lignes
-                    }
-                    
-                    devis_id = crm_manager.create_devis(devis_data)
-                    
-                    if devis_id:
-                        devis_cree = crm_manager.get_devis_complet(devis_id)
-                        st.success(f"✅ Devis créé avec succès ! Numéro : {devis_cree.get('numero_document')}")
-                        st.session_state.devis_lignes = []  # Vider les lignes pour le prochain devis
-                        st.rerun()
-                    else:
-                        st.error("Erreur lors de la création du devis.")
-    
-    with tab3:
-        st.subheader("Statistiques des Devis")
-        
-        if stats.get('total_devis', 0) > 0:
-            if stats.get('par_statut'):
-                statut_data = pd.DataFrame([
-                    {'Statut': k, 'Nombre': v['count'], 'Montant HT': v['montant']}
-                    for k, v in stats['par_statut'].items() if isinstance(v, dict)
-                ])
-                
-                col_graph1, col_graph2 = st.columns(2)
-                
-                with col_graph1:
-                    st.markdown("**Répartition par Statut (Nombre)**")
-                    st.bar_chart(statut_data.set_index('Statut')['Nombre'])
-                
-                with col_graph2:
-                    st.markdown("**Répartition par Statut (Montant HT)**")
-                    st.bar_chart(statut_data.set_index('Statut')['Montant HT'])
-        else:
-            st.info("Aucune donnée de devis disponible pour les statistiques.")
-
-def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
-    """Affiche les détails d'un devis avec option de suppression"""
-    if not devis_data:
-        st.error("Devis non trouvé.")
-        return
-
-    st.subheader(f"🧾 Détails du Devis: {devis_data.get('numero_document')} (SQLite)")
-
-    # Informations principales
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info(f"**ID:** {devis_data.get('id')}")
-        st.write(f"**Client:** {devis_data.get('client_nom', 'N/A')}")
-        st.write(f"**Responsable:** {devis_data.get('responsable_nom', 'N/A')}")
-        st.write(f"**Statut:** {devis_data.get('statut', 'N/A')}")
-    with c2:
-        date_creation = devis_data.get('date_creation')
-        st.write(f"**Date création:** {date_creation[:10] if date_creation else 'N/A'}")
-        st.write(f"**Date échéance:** {devis_data.get('date_echeance', 'N/A')}")
-        st.write(f"**Projet lié:** {devis_data.get('nom_projet', 'Aucun')}")
-
-    # Adresse du client
-    if devis_data.get('client_adresse_complete'):
-        st.markdown("### 📍 Adresse du Client")
-        st.text_area("client_adresse_devis", value=devis_data['client_adresse_complete'], height=100, disabled=True, label_visibility="collapsed")
-
-    # Totaux
-    totaux = devis_data.get('totaux', {})
-    st.markdown("### 💰 Totaux")
-    col_total1, col_total2, col_total3 = st.columns(3)
-    with col_total1:
-        st.metric("Total HT", f"{totaux.get('total_ht', 0):,.2f} $")
-    with col_total2:
-        st.metric("TVA", f"{totaux.get('montant_tva', 0):,.2f} $")
-    with col_total3:
-        st.metric("Total TTC", f"{totaux.get('total_ttc', 0):,.2f} $")
-
-    # Lignes du devis
-    st.markdown("### 📋 Lignes du Devis")
-    if devis_data.get('lignes'):
-        lignes_df_data = []
-        for ligne in devis_data['lignes']:
-            lignes_df_data.append({
-                "Description": ligne.get('description', ''),
-                "Quantité": ligne.get('quantite', 0),
-                "Unité": ligne.get('unite', ''),
-                "Prix unitaire": f"{ligne.get('prix_unitaire', 0):,.2f} $",
-                "Montant": f"{ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0):,.2f} $"
-            })
-        
-        st.dataframe(pd.DataFrame(lignes_df_data), use_container_width=True)
-    else:
-        st.info("Aucune ligne dans ce devis.")
-
-    # Notes
-    st.markdown("### 📝 Notes")
-    st.text_area("devis_detail_notes_display", value=devis_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
-
-    # Historique
-    st.markdown("### 📜 Historique")
-    if devis_data.get('historique'):
-        for hist in devis_data['historique']:
-            date_validation = hist.get('date_validation')
-            st.markdown(f"**{hist.get('type_validation', 'N/A')}** - {date_validation[:16] if date_validation else 'N/A'} par {hist.get('employee_nom', 'Système')}")
-            if hist.get('commentaires'):
-                st.caption(hist['commentaires'])
-            st.markdown("---")
-    else:
-        st.info("Aucun historique disponible.")
-
-    # Actions MODIFIÉES avec suppression
-    st.markdown("### 🔧 Actions")
-    
-    # Déterminer si le devis peut être supprimé
-    statuts_non_supprimables = ['APPROUVÉ', 'TERMINÉ']
-    peut_supprimer = devis_data.get('statut') not in statuts_non_supprimables
-    
-    responsable_id = devis_data.get('employee_id', 1)
-
-    if peut_supprimer:
-        # 5 colonnes si suppression possible
-        col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
-    else:
-        # 4 colonnes si pas de suppression
-        col_action1, col_action2, col_action3, col_action4 = st.columns(4)
-
-    with col_action1:
-        if st.button("✅ Accepter", key="accepter_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'APPROUVÉ', responsable_id, "Approuvé via interface"):
-                st.success("Devis approuvé !")
-                st.rerun()
-    
-    with col_action2:
-        if st.button("❌ Refuser", key="refuser_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ANNULÉ', responsable_id, "Refusé/Annulé via interface"):
-                st.success("Devis annulé.")
-                st.rerun()
-    
-    with col_action3:
-        if st.button("📧 Envoyer", key="envoyer_devis"):
-            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', responsable_id, "Envoyé via interface"):
-                st.success("Devis marqué comme envoyé!")
-                st.rerun()
-    
-    with col_action4:
-        if st.button("📄 Dupliquer", key="dupliquer_devis"):
-            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], responsable_id)
-            if nouveau_id:
-                st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
-                st.rerun()
-
-    # Bouton de suppression (si possible)
-    if peut_supprimer:
-        with col_action5:
-            if st.button("🗑️ Supprimer", key="supprimer_devis_btn", type="secondary"):
-                st.session_state.crm_confirm_delete_devis_id = devis_data['id']
-                st.rerun()
-
-    # Gestion de la confirmation de suppression
-    if 'crm_confirm_delete_devis_id' in st.session_state and st.session_state.crm_confirm_delete_devis_id == devis_data['id']:
-        st.markdown("---")
-        st.error(f"⚠️ **ATTENTION : Suppression définitive du devis {devis_data.get('numero_document')}**")
-        st.warning("Cette action est irréversible. Le devis et toutes ses données seront définitivement supprimés de la base de données.")
-        
-        # Champ pour le motif de suppression
-        motif_suppression = st.text_input(
-            "Motif de suppression (optionnel):", 
-            placeholder="Ex: Erreur de saisie, doublon, demande client...",
-            key="motif_suppression_devis"
-        )
-        
-        col_confirm, col_cancel = st.columns(2)
-        
-        with col_confirm:
-            if st.button("🗑️ CONFIRMER LA SUPPRESSION", key="confirm_delete_devis", type="primary"):
-                if crm_manager.supprimer_devis(devis_data['id'], responsable_id, motif_suppression):
-                    # Suppression réussie, nettoyer la session et retourner à la liste
-                    del st.session_state.crm_confirm_delete_devis_id
-                    st.session_state.crm_action = None
-                    st.session_state.crm_selected_id = None
-                    st.rerun()
-                else:
-                    # En cas d'erreur, rester sur la page
-                    del st.session_state.crm_confirm_delete_devis_id
-        
-        with col_cancel:
-            if st.button("❌ Annuler la suppression", key="cancel_delete_devis"):
-                del st.session_state.crm_confirm_delete_devis_id
-                st.rerun()
-
-    if st.button("Retour à la liste des devis", key="back_to_devis_list_from_details"):
-        st.session_state.crm_action = None
-        st.rerun()
-
-def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
-    """Formulaire de modification d'un devis existant"""
-    if not devis_data:
-        st.error("Devis non trouvé pour modification.")
-        return
-
-    st.subheader(f"✏️ Modifier le Devis: {devis_data.get('numero_document')}")
-    
-    # Vérifier que le devis est modifiable
-    statuts_non_modifiables = ['APPROUVÉ', 'TERMINÉ', 'ANNULÉ']
-    if devis_data.get('statut') in statuts_non_modifiables:
-        st.error(f"Ce devis ne peut pas être modifié car il est au statut '{devis_data.get('statut')}'")
-        if st.button("Retour aux détails du devis"):
-            st.session_state.crm_action = "view_devis_details"
-            st.rerun()
-        return
-
-    # Initialiser les lignes dans la session si ce n'est pas déjà fait
-    if 'edit_devis_lignes' not in st.session_state or st.session_state.get('edit_devis_id') != devis_data['id']:
-        st.session_state.edit_devis_lignes = devis_data.get('lignes', [])
-        st.session_state.edit_devis_id = devis_data['id']
-
-    # --- PARTIE 1 : GESTION DES LIGNES (COMME DANS LA CRÉATION) ---
-    st.markdown("##### Lignes du devis")
-    
-    # Section pour sélectionner un produit existant
-    st.markdown("**Option 1: Ajouter depuis le catalogue produits**")
-    with st.container(border=True):
-        col_prod1, col_prod2, col_prod3 = st.columns([2, 1, 1])
-        
-        with col_prod1:
-            produits_options = [("", "Sélectionner un produit...")] + [(p['id'], f"{p['code_produit']} - {p['nom']}") for p in crm_manager.produits]
-            produit_selectionne_edit = st.selectbox(
-                "Produit du catalogue",
-                options=[opt[0] for opt in produits_options],
-                format_func=lambda x: next((opt[1] for opt in produits_options if opt[0] == x), "Sélectionner un produit..."),
-                key="produit_catalogue_select_edit"
-            )
-        
-        with col_prod2:
-            quantite_produit_edit = st.number_input("Quantité", min_value=0.01, value=1.0, step=0.1, key="quantite_produit_catalogue_edit", format="%.2f")
-        
-        with col_prod3:
-            st.write("")
-            if st.button("➕ Ajouter depuis catalogue", key="add_from_catalog_edit", use_container_width=True):
-                if produit_selectionne_edit:
-                    produit_data = crm_manager.get_produit_by_id(produit_selectionne_edit)
-                    if produit_data:
-                        st.session_state.edit_devis_lignes.append({
-                            'description': f"{produit_data['code_produit']} - {produit_data['nom']}",
-                            'quantite': quantite_produit_edit,
-                            'unite': produit_data['unite_vente'],
-                            'prix_unitaire': produit_data['prix_unitaire'],
-                            'code_article': produit_data['code_produit']
-                        })
-                        st.success(f"Produit {produit_data['code_produit']} ajouté au devis!")
-                        st.rerun()
-                else:
-                    st.warning("Veuillez sélectionner un produit.")
-
-    st.markdown("**Option 2: Saisie manuelle**")
-    # Formulaire pour ajouter/modifier une ligne
-    with st.container(border=True):
-        col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
-        with col_ligne1:
-            description = st.text_input("Description", key="edit_ligne_description")
-        with col_ligne2:
-            quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="edit_ligne_quantite", format="%.2f")
-        with col_ligne3:
-            unite = st.selectbox("Unité", options=UNITES_VENTE, key="edit_ligne_unite")
-        with col_ligne4:
-            prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="edit_ligne_prix", format="%.2f")
-        with col_ligne5:
-            st.write("")
-            if st.button("➕ Ajouter", key="edit_ajouter_ligne_btn", use_container_width=True):
-                if description and quantite > 0:
-                    st.session_state.edit_devis_lignes.append({
-                        'description': description,
-                        'quantite': quantite,
-                        'unite': unite,
-                        'prix_unitaire': prix_unitaire
-                    })
-                    st.rerun()
-                else:
-                    st.warning("La description et la quantité sont requises.")
-
-    # Affichage des lignes avec possibilité de suppression
-    if st.session_state.edit_devis_lignes:
-        st.markdown("**Lignes actuelles :**")
-        total_ht_preview = 0
-        with st.container(border=True):
-            for i, ligne in enumerate(st.session_state.edit_devis_lignes):
-                col_disp, col_del = st.columns([10, 1])
-                with col_disp:
-                    montant = ligne['quantite'] * ligne['prix_unitaire']
-                    total_ht_preview += montant
-                    st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
-                with col_del:
-                    if st.button("🗑️", key=f"edit_remove_ligne_{i}", help="Supprimer la ligne"):
-                        st.session_state.edit_devis_lignes.pop(i)
-                        st.rerun()
-            st.markdown(f"**Total (HT) : {total_ht_preview:,.2f} $**")
-    
-    st.markdown("---")
-
-    # --- PARTIE 2 : FORMULAIRE PRINCIPAL ---
-    st.markdown("##### Informations générales")
-
-    with st.form("formulaire_modifier_devis"):
-        col_base1, col_base2 = st.columns(2)
-        
-        with col_base1:
             # Client
             clients = crm_manager.entreprises
             client_options = [(c['id'], c['nom']) for c in clients]
@@ -4156,11 +4499,11 @@ def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
                         st.error("Erreur lors de la modification du devis.")
 
 # =========================================================================
-# FONCTIONS DE GESTION DES ACTIONS CRM + DEVIS + PRODUITS
+# FONCTIONS DE GESTION DES ACTIONS CRM + DEVIS + PRODUITS + EXPORT HTML
 # =========================================================================
 
 def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
-    """Gestionnaire centralisé des actions CRM + Devis + Produits"""
+    """Gestionnaire centralisé des actions CRM + Devis + Produits + Export HTML"""
     
     action = st.session_state.get('crm_action')
     selected_id = st.session_state.get('crm_selected_id')
@@ -4208,7 +4551,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
         product_data = crm_manager.get_produit_by_id(selected_id)
         render_crm_stock_adjustment(crm_manager, product_data)
 
-    # Actions pour les devis (AVEC SUPPRESSION)
+    # Actions pour les devis (AVEC SUPPRESSION + EXPORT HTML)
     elif action == "view_devis_details" and selected_id:
         devis_data = crm_manager.get_devis_complet(selected_id)
         render_crm_devis_details(crm_manager, devis_data)
@@ -4217,7 +4560,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
         render_crm_devis_edit_form(crm_manager, devis_data)
 
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
-    """Interface principale CRM avec support des devis, produits et suppression"""
+    """Interface principale CRM avec support des devis, produits, suppression et export HTML"""
     
     st.title("📋 Gestion CRM")
     
@@ -4391,7 +4734,7 @@ def main_crm_interface(db_instance=None, project_manager_instance=None):
 def demo_crm_with_products_and_devis():
     """Démonstration du système CRM avec produits et devis"""
     
-    st.title("🎯 Démonstration CRM + Produits + Devis + Adresses Structurées")
+    st.title("🎯 Démonstration CRM + Produits + Devis + Export HTML")
     
     # Note: En production, vous initialiseriez avec votre instance ERPDatabase réelle
     # from erp_database import ERPDatabase
@@ -4403,7 +4746,7 @@ def demo_crm_with_products_and_devis():
     # Pour la démo, utilisation du mode JSON (sans devis)
     crm_manager = GestionnaireCRM()
     
-    st.info("💡 Cette démonstration utilise le mode JSON. Pour les devis, il faut un environnement SQLite avec ERPDatabase et GestionnaireProjetSQL.")
+    st.info("💡 Cette démonstration utilise le mode JSON. Pour les devis et l'export HTML, il faut un environnement SQLite avec ERPDatabase et GestionnaireProjetSQL.")
     
     # Afficher les statistiques
     stats = get_crm_statistics_summary(crm_manager)
@@ -4476,6 +4819,14 @@ def test_crm_functionality():
     
     print("✅ Tous les tests CRM (mode JSON) passent!")
 
+def test_devis_html_export():
+    """Test de l'export HTML des devis"""
+    
+    # Ce test nécessite un environnement SQLite complet
+    # En production, créer un devis de test et vérifier l'export HTML
+    
+    print("💡 Test export HTML : nécessite un environnement SQLite complet")
+
 if __name__ == "__main__":
     st.set_page_config(layout="wide")
     
@@ -4505,3 +4856,363 @@ if __name__ == "__main__":
         st.error(f"Une erreur est survenue lors de l'initialisation: {e}")
         st.info("Lancement en mode démo JSON de secours.")
         demo_crm_with_products_and_devis()
+                clients = crm_manager.entreprises
+                client_options = [(c['id'], c['nom']) for c in clients]
+                client_id = st.selectbox("Client *", options=[opt[0] for opt in client_options],
+                                         format_func=lambda x: next((opt[1] for opt in client_options if opt[0] == x), ''),
+                                         key="nouveau_devis_client")
+                
+                if crm_manager.use_sqlite:
+                    employees = crm_manager.db.execute_query("SELECT id, prenom || ' ' || nom as nom FROM employees WHERE statut = 'ACTIF'")
+                    emp_options = [(e['id'], e['nom']) for e in employees] if employees else []
+                    responsable_id = st.selectbox("Responsable *", options=[opt[0] for opt in emp_options],
+                                                  format_func=lambda x: next((opt[1] for opt in emp_options if opt[0] == x), ''),
+                                                  key="nouveau_devis_responsable")
+                else:
+                    responsable_id = 1
+            
+            with col_base2:
+                echeance = st.date_input("Date d'échéance *", value=datetime.now().date() + timedelta(days=30),
+                                         key="nouveau_devis_echeance")
+                
+                if crm_manager.use_sqlite:
+                    projets = crm_manager.db.execute_query("SELECT id, nom_projet FROM projects WHERE statut != 'TERMINÉ'")
+                    projet_options = [("", "Aucun projet")] + [(p['id'], p['nom_projet']) for p in projets] if projets else [("", "Aucun projet")]
+                    projet_id = st.selectbox("Projet lié", options=[opt[0] for opt in projet_options],
+                                             format_func=lambda x: next((opt[1] for opt in projet_options if opt[0] == x), 'Aucun projet'),
+                                             key="nouveau_devis_projet")
+                else:
+                    projet_id = None
+            
+            notes = st.text_area("Notes ou conditions", key="nouveau_devis_notes")
+            
+            # Boutons de soumission
+            submitted = st.form_submit_button("💾 Créer le Devis en Brouillon", type="primary", use_container_width=True)
+            
+            if submitted:
+                if not client_id or not responsable_id or not st.session_state.devis_lignes:
+                    st.error("Veuillez remplir le client, le responsable et ajouter au moins une ligne au devis.")
+                else:
+                    devis_data = {
+                        'client_company_id': client_id,
+                        'employee_id': responsable_id,
+                        'project_id': projet_id if projet_id else None,
+                        'date_echeance': echeance.strftime('%Y-%m-%d'),
+                        'notes': notes,
+                        'lignes': st.session_state.devis_lignes
+                    }
+                    
+                    devis_id = crm_manager.create_devis(devis_data)
+                    
+                    if devis_id:
+                        devis_cree = crm_manager.get_devis_complet(devis_id)
+                        st.success(f"✅ Devis créé avec succès ! Numéro : {devis_cree.get('numero_document')}")
+                        st.session_state.devis_lignes = []  # Vider les lignes pour le prochain devis
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de la création du devis.")
+    
+    with tab3:
+        st.subheader("Statistiques des Devis")
+        
+        if stats.get('total_devis', 0) > 0:
+            if stats.get('par_statut'):
+                statut_data = pd.DataFrame([
+                    {'Statut': k, 'Nombre': v['count'], 'Montant HT': v['montant']}
+                    for k, v in stats['par_statut'].items() if isinstance(v, dict)
+                ])
+                
+                col_graph1, col_graph2 = st.columns(2)
+                
+                with col_graph1:
+                    st.markdown("**Répartition par Statut (Nombre)**")
+                    st.bar_chart(statut_data.set_index('Statut')['Nombre'])
+                
+                with col_graph2:
+                    st.markdown("**Répartition par Statut (Montant HT)**")
+                    st.bar_chart(statut_data.set_index('Statut')['Montant HT'])
+        else:
+            st.info("Aucune donnée de devis disponible pour les statistiques.")
+
+def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
+    """Affiche les détails d'un devis avec option de suppression et export HTML"""
+    if not devis_data:
+        st.error("Devis non trouvé.")
+        return
+
+    st.subheader(f"🧾 Détails du Devis: {devis_data.get('numero_document')} (SQLite)")
+
+    # Informations principales
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info(f"**ID:** {devis_data.get('id')}")
+        st.write(f"**Client:** {devis_data.get('client_nom', 'N/A')}")
+        st.write(f"**Responsable:** {devis_data.get('responsable_nom', 'N/A')}")
+        st.write(f"**Statut:** {devis_data.get('statut', 'N/A')}")
+    with c2:
+        date_creation = devis_data.get('date_creation')
+        st.write(f"**Date création:** {date_creation[:10] if date_creation else 'N/A'}")
+        st.write(f"**Date échéance:** {devis_data.get('date_echeance', 'N/A')}")
+        st.write(f"**Projet lié:** {devis_data.get('nom_projet', 'Aucun')}")
+
+    # Adresse du client
+    if devis_data.get('client_adresse_complete'):
+        st.markdown("### 📍 Adresse du Client")
+        st.text_area("client_adresse_devis", value=devis_data['client_adresse_complete'], height=100, disabled=True, label_visibility="collapsed")
+
+    # Totaux
+    totaux = devis_data.get('totaux', {})
+    st.markdown("### 💰 Totaux")
+    col_total1, col_total2, col_total3 = st.columns(3)
+    with col_total1:
+        st.metric("Total HT", f"{totaux.get('total_ht', 0):,.2f} $")
+    with col_total2:
+        st.metric("TVA", f"{totaux.get('montant_tva', 0):,.2f} $")
+    with col_total3:
+        st.metric("Total TTC", f"{totaux.get('total_ttc', 0):,.2f} $")
+
+    # Lignes du devis
+    st.markdown("### 📋 Lignes du Devis")
+    if devis_data.get('lignes'):
+        lignes_df_data = []
+        for ligne in devis_data['lignes']:
+            lignes_df_data.append({
+                "Description": ligne.get('description', ''),
+                "Quantité": ligne.get('quantite', 0),
+                "Unité": ligne.get('unite', ''),
+                "Prix unitaire": f"{ligne.get('prix_unitaire', 0):,.2f} $",
+                "Montant": f"{ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0):,.2f} $"
+            })
+        
+        st.dataframe(pd.DataFrame(lignes_df_data), use_container_width=True)
+    else:
+        st.info("Aucune ligne dans ce devis.")
+
+    # Notes
+    st.markdown("### 📝 Notes")
+    st.text_area("devis_detail_notes_display", value=devis_data.get('notes', 'Aucune note.'), height=100, disabled=True, label_visibility="collapsed")
+
+    # Historique
+    st.markdown("### 📜 Historique")
+    if devis_data.get('historique'):
+        for hist in devis_data['historique']:
+            date_validation = hist.get('date_validation')
+            st.markdown(f"**{hist.get('type_validation', 'N/A')}** - {date_validation[:16] if date_validation else 'N/A'} par {hist.get('employee_nom', 'Système')}")
+            if hist.get('commentaires'):
+                st.caption(hist['commentaires'])
+            st.markdown("---")
+    else:
+        st.info("Aucun historique disponible.")
+
+    # Actions MODIFIÉES avec suppression + export HTML
+    st.markdown("### 🔧 Actions")
+    
+    # Déterminer si le devis peut être supprimé
+    statuts_non_supprimables = ['APPROUVÉ', 'TERMINÉ']
+    peut_supprimer = devis_data.get('statut') not in statuts_non_supprimables
+    
+    responsable_id = devis_data.get('employee_id', 1)
+
+    if peut_supprimer:
+        # 6 colonnes si suppression possible
+        col_action1, col_action2, col_action3, col_action4, col_action5, col_action6 = st.columns(6)
+    else:
+        # 5 colonnes si pas de suppression
+        col_action1, col_action2, col_action3, col_action4, col_action5 = st.columns(5)
+
+    with col_action1:
+        if st.button("✅ Accepter", key="accepter_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'APPROUVÉ', responsable_id, "Approuvé via interface"):
+                st.success("Devis approuvé !")
+                st.rerun()
+    
+    with col_action2:
+        if st.button("❌ Refuser", key="refuser_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ANNULÉ', responsable_id, "Refusé/Annulé via interface"):
+                st.success("Devis annulé.")
+                st.rerun()
+    
+    with col_action3:
+        if st.button("📧 Envoyer", key="envoyer_devis"):
+            if crm_manager.changer_statut_devis(devis_data['id'], 'ENVOYÉ', responsable_id, "Envoyé via interface"):
+                st.success("Devis marqué comme envoyé!")
+                st.rerun()
+    
+    with col_action4:
+        if st.button("📄 Dupliquer", key="dupliquer_devis"):
+            nouveau_id = crm_manager.dupliquer_devis(devis_data['id'], responsable_id)
+            if nouveau_id:
+                st.success(f"Devis dupliqué! Nouveau ID: {nouveau_id}")
+                st.rerun()
+
+    with col_action5:
+        if st.button("📑 Export HTML", key="export_html_devis_details"):
+            html_content = crm_manager.export_devis_html(devis_data['id'])
+            if html_content:
+                # Afficher un lien de téléchargement
+                st.download_button(
+                    label="💾 Télécharger le devis HTML",
+                    data=html_content,
+                    file_name=f"devis_{devis_data.get('numero_document')}.html",
+                    mime="text/html",
+                    key="download_html_devis_details"
+                )
+                st.success("✅ Devis HTML généré avec succès !")
+            else:
+                st.error("❌ Erreur lors de l'export HTML.")
+
+    # Bouton de suppression (si possible)
+    if peut_supprimer:
+        with col_action6:
+            if st.button("🗑️ Supprimer", key="supprimer_devis_btn", type="secondary"):
+                st.session_state.crm_confirm_delete_devis_id = devis_data['id']
+                st.rerun()
+
+    # Gestion de la confirmation de suppression
+    if 'crm_confirm_delete_devis_id' in st.session_state and st.session_state.crm_confirm_delete_devis_id == devis_data['id']:
+        st.markdown("---")
+        st.error(f"⚠️ **ATTENTION : Suppression définitive du devis {devis_data.get('numero_document')}**")
+        st.warning("Cette action est irréversible. Le devis et toutes ses données seront définitivement supprimés de la base de données.")
+        
+        # Champ pour le motif de suppression
+        motif_suppression = st.text_input(
+            "Motif de suppression (optionnel):", 
+            placeholder="Ex: Erreur de saisie, doublon, demande client...",
+            key="motif_suppression_devis"
+        )
+        
+        col_confirm, col_cancel = st.columns(2)
+        
+        with col_confirm:
+            if st.button("🗑️ CONFIRMER LA SUPPRESSION", key="confirm_delete_devis", type="primary"):
+                if crm_manager.supprimer_devis(devis_data['id'], responsable_id, motif_suppression):
+                    # Suppression réussie, nettoyer la session et retourner à la liste
+                    del st.session_state.crm_confirm_delete_devis_id
+                    st.session_state.crm_action = None
+                    st.session_state.crm_selected_id = None
+                    st.rerun()
+                else:
+                    # En cas d'erreur, rester sur la page
+                    del st.session_state.crm_confirm_delete_devis_id
+        
+        with col_cancel:
+            if st.button("❌ Annuler la suppression", key="cancel_delete_devis"):
+                del st.session_state.crm_confirm_delete_devis_id
+                st.rerun()
+
+    if st.button("Retour à la liste des devis", key="back_to_devis_list_from_details"):
+        st.session_state.crm_action = None
+        st.rerun()
+
+def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
+    """Formulaire de modification d'un devis existant"""
+    if not devis_data:
+        st.error("Devis non trouvé pour modification.")
+        return
+
+    st.subheader(f"✏️ Modifier le Devis: {devis_data.get('numero_document')}")
+    
+    # Vérifier que le devis est modifiable
+    statuts_non_modifiables = ['APPROUVÉ', 'TERMINÉ', 'ANNULÉ']
+    if devis_data.get('statut') in statuts_non_modifiables:
+        st.error(f"Ce devis ne peut pas être modifié car il est au statut '{devis_data.get('statut')}'")
+        if st.button("Retour aux détails du devis"):
+            st.session_state.crm_action = "view_devis_details"
+            st.rerun()
+        return
+
+    # Initialiser les lignes dans la session si ce n'est pas déjà fait
+    if 'edit_devis_lignes' not in st.session_state or st.session_state.get('edit_devis_id') != devis_data['id']:
+        st.session_state.edit_devis_lignes = devis_data.get('lignes', [])
+        st.session_state.edit_devis_id = devis_data['id']
+
+    # --- PARTIE 1 : GESTION DES LIGNES (COMME DANS LA CRÉATION) ---
+    st.markdown("##### Lignes du devis")
+    
+    # Section pour sélectionner un produit existant
+    st.markdown("**Option 1: Ajouter depuis le catalogue produits**")
+    with st.container(border=True):
+        col_prod1, col_prod2, col_prod3 = st.columns([2, 1, 1])
+        
+        with col_prod1:
+            produits_options = [("", "Sélectionner un produit...")] + [(p['id'], f"{p['code_produit']} - {p['nom']}") for p in crm_manager.produits]
+            produit_selectionne_edit = st.selectbox(
+                "Produit du catalogue",
+                options=[opt[0] for opt in produits_options],
+                format_func=lambda x: next((opt[1] for opt in produits_options if opt[0] == x), "Sélectionner un produit..."),
+                key="produit_catalogue_select_edit"
+            )
+        
+        with col_prod2:
+            quantite_produit_edit = st.number_input("Quantité", min_value=0.01, value=1.0, step=0.1, key="quantite_produit_catalogue_edit", format="%.2f")
+        
+        with col_prod3:
+            st.write("")
+            if st.button("➕ Ajouter depuis catalogue", key="add_from_catalog_edit", use_container_width=True):
+                if produit_selectionne_edit:
+                    produit_data = crm_manager.get_produit_by_id(produit_selectionne_edit)
+                    if produit_data:
+                        st.session_state.edit_devis_lignes.append({
+                            'description': f"{produit_data['code_produit']} - {produit_data['nom']}",
+                            'quantite': quantite_produit_edit,
+                            'unite': produit_data['unite_vente'],
+                            'prix_unitaire': produit_data['prix_unitaire'],
+                            'code_article': produit_data['code_produit']
+                        })
+                        st.success(f"Produit {produit_data['code_produit']} ajouté au devis!")
+                        st.rerun()
+                else:
+                    st.warning("Veuillez sélectionner un produit.")
+
+    st.markdown("**Option 2: Saisie manuelle**")
+    # Formulaire pour ajouter/modifier une ligne
+    with st.container(border=True):
+        col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
+        with col_ligne1:
+            description = st.text_input("Description", key="edit_ligne_description")
+        with col_ligne2:
+            quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="edit_ligne_quantite", format="%.2f")
+        with col_ligne3:
+            unite = st.selectbox("Unité", options=UNITES_VENTE, key="edit_ligne_unite")
+        with col_ligne4:
+            prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="edit_ligne_prix", format="%.2f")
+        with col_ligne5:
+            st.write("")
+            if st.button("➕ Ajouter", key="edit_ajouter_ligne_btn", use_container_width=True):
+                if description and quantite > 0:
+                    st.session_state.edit_devis_lignes.append({
+                        'description': description,
+                        'quantite': quantite,
+                        'unite': unite,
+                        'prix_unitaire': prix_unitaire
+                    })
+                    st.rerun()
+                else:
+                    st.warning("La description et la quantité sont requises.")
+
+    # Affichage des lignes avec possibilité de suppression
+    if st.session_state.edit_devis_lignes:
+        st.markdown("**Lignes actuelles :**")
+        total_ht_preview = 0
+        with st.container(border=True):
+            for i, ligne in enumerate(st.session_state.edit_devis_lignes):
+                col_disp, col_del = st.columns([10, 1])
+                with col_disp:
+                    montant = ligne['quantite'] * ligne['prix_unitaire']
+                    total_ht_preview += montant
+                    st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
+                with col_del:
+                    if st.button("🗑️", key=f"edit_remove_ligne_{i}", help="Supprimer la ligne"):
+                        st.session_state.edit_devis_lignes.pop(i)
+                        st.rerun()
+            st.markdown(f"**Total (HT) : {total_ht_preview:,.2f} $**")
+    
+    st.markdown("---")
+
+    # --- PARTIE 2 : FORMULAIRE PRINCIPAL ---
+    st.markdown("##### Informations générales")
+
+    with st.form("formulaire_modifier_devis"):
+        col_base1, col_base2 = st.columns(2)
+        
+        with col_base1:
