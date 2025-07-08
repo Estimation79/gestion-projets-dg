@@ -19,6 +19,11 @@ class ERPDatabase:
     VERSION CONSOLIDÉE + INTERFACE UNIFIÉE TIMETRACKER + POSTES + MODULE PRODUCTION + INTÉGRATION OPERATIONS ↔ BT
     VERSION COMMUNICANTE + MÉTHODES TIMETRACKER UNIFIÉES
     
+    NOUVELLE INTÉGRATION : INVENTAIRE ↔ CRM (DEVIS)
+    - Colonne 'prix_vente_unitaire' ajoutée à 'inventory_items'
+    - Colonne 'inventory_item_id' ajoutée à 'formulaire_lignes' pour lier les devis à l'inventaire
+    - Méthode 'get_inventory_items_for_selection()' pour le CRM
+    
     Remplace tous les fichiers JSON par une base de données relationnelle cohérente :
     - projets_data.json → tables projects, operations, materials
     - crm_data.json → tables companies, contacts, interactions  
@@ -28,7 +33,7 @@ class ERPDatabase:
     
     MODULE FORMULAIRES COMPLET :
     - formulaires → table formulaires (BT, BA, BC, DP, EST)
-    - formulaire_lignes → détails des documents
+    - formulaire_lignes → détails des documents avec liaison inventaire
     - formulaire_validations → historique et traçabilité
     - formulaire_pieces_jointes → gestion fichiers
     - formulaire_templates → standardisation
@@ -39,7 +44,7 @@ class ERPDatabase:
     - bt_reservations_postes → réservations postes de travail
     - Traçabilité complète des pointages par BT
     
-    NOUVELLE INTÉGRATION OPERATIONS ↔ BONS DE TRAVAIL :
+    INTÉGRATION OPERATIONS ↔ BONS DE TRAVAIL :
     - operations.formulaire_bt_id → liaison opérations aux BT qui les ont créées
     - Traçabilité des gammes de fabrication par BT
     - Gestion unifiée des opérations de production
@@ -51,7 +56,7 @@ class ERPDatabase:
     - Optimisations pour l'analyse de capacité
     - Vues spécialisées pour l'interface unifiée
     
-    MODULE PRODUCTION UNIFIÉ (ÉTAPE 3) :
+    MODULE PRODUCTION UNIFIÉ :
     - Gestion complète des nomenclatures (BOM)
     - Gammes de fabrication et itinéraires
     - Intégration inventaire ↔ production
@@ -64,22 +69,14 @@ class ERPDatabase:
     - recalculate_all_bt_progress() → Recalcul progression basé TimeTracker
     - sync_bt_timetracker_data() → Synchronisation données
     - cleanup_empty_bt_sessions() → Nettoyage sessions orphelines
-    
-    CORRECTIONS AUTOMATIQUES INTÉGRÉES :
-    - Colonnes projects corrigées (date_debut_reel, date_fin_reel)
-    - Tables BT spécialisées (bt_assignations, bt_reservations_postes)
-    - Colonne formulaire_bt_id dans time_entries (ÉTAPE 2)
-    - Colonne formulaire_bt_id dans operations (NOUVEAU)
-    - Toutes les améliorations de fix_database.py
     """
     
     def __init__(self, db_path: str = "erp_production_dg.db"):
         self.db_path = db_path
         self.backup_dir = "backup_json"
         self.init_database()
-        logger.info(f"ERPDatabase consolidé + Interface Unifiée + Production + Operations↔BT + Communication TT initialisé : {db_path}")
+        logger.info(f"ERPDatabase consolidé + Interface Unifiée + Production + Operations↔BT + Communication TT + CRM↔Inventaire initialisé : {db_path}")
         
-        # 🆕 REMPLACEZ LA LIGNE 89 PAR CECI :
         logger.info("🔧 DEBUG: Avant appel check_and_upgrade_schema()")
         try:
             self.check_and_upgrade_schema()
@@ -89,7 +86,6 @@ class ERPDatabase:
             import traceback
             logger.error(f"🔧 DEBUG: Traceback: {traceback.format_exc()}")
 
-    # 🆕 NOUVELLE MÉTHODE À AJOUTER ICI
     def get_schema_version(self):
         """Récupère la version actuelle du schéma de base de données"""
         try:
@@ -127,7 +123,7 @@ class ERPDatabase:
         """Vérifie et met à jour le schéma de base de données"""
         logger.info("🔧 DEBUG: check_and_upgrade_schema() appelé")
         
-        LATEST_SCHEMA_VERSION = 5  # 🎯 CHANGÉ de 4 à 5 pour forcer les migrations
+        LATEST_SCHEMA_VERSION = 6  # 🎯 CHANGÉ de 5 à 6 pour intégration CRM-Inventaire
         
         current_version = self.get_schema_version()
         logger.info(f"🔧 DEBUG: Version actuelle = {current_version}")
@@ -320,6 +316,30 @@ class ERPDatabase:
                     import traceback
                     logger.error(f"Traceback: {traceback.format_exc()}")
             
+            if from_version < 6:
+                logger.info("📝 Migration v6: Intégration CRM-Inventaire...")
+                try:
+                    # Ajouter le prix de vente aux articles d'inventaire
+                    try:
+                        self.execute_update("ALTER TABLE inventory_items ADD COLUMN prix_vente_unitaire REAL DEFAULT 0.0")
+                        logger.info("✅ Colonne 'prix_vente_unitaire' ajoutée à inventory_items")
+                    except Exception:
+                        logger.info("ℹ️ Colonne 'prix_vente_unitaire' existe déjà dans inventory_items")
+                    
+                    # Ajouter la liaison dans les lignes de formulaire
+                    try:
+                        self.execute_update("ALTER TABLE formulaire_lignes ADD COLUMN inventory_item_id INTEGER")
+                        logger.info("✅ Colonne 'inventory_item_id' ajoutée à formulaire_lignes")
+                    except Exception:
+                        logger.info("ℹ️ Colonne 'inventory_item_id' existe déjà dans formulaire_lignes")
+                    
+                    # Créer un index pour la performance
+                    self.execute_update("CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_inventory ON formulaire_lignes(inventory_item_id)")
+                    logger.info("✅ Index 'idx_formulaire_lignes_inventory' créé")
+
+                except Exception as e:
+                    logger.warning(f"Avertissement migration v6: {e}. Les colonnes existaient peut-être déjà.")
+            
             # Marquer comme migré
             self.set_schema_version(to_version)
             logger.info(f"✅ Migration terminée: schéma v{to_version}")
@@ -494,7 +514,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 9. INVENTAIRE
+            # 9. INVENTAIRE - MODIFIÉ avec prix de vente
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS inventory_items (
                     id INTEGER PRIMARY KEY,
@@ -506,6 +526,7 @@ class ERPDatabase:
                     limite_minimale_metric REAL,
                     quantite_reservee_imperial TEXT,
                     quantite_reservee_metric REAL,
+                    prix_vente_unitaire REAL DEFAULT 0.0,
                     statut TEXT,
                     description TEXT,
                     notes TEXT,
@@ -616,7 +637,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 15. LIGNES DE DÉTAIL DES FORMULAIRES
+            # 15. LIGNES DE DÉTAIL DES FORMULAIRES - MODIFIÉ avec liaison inventaire
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_lignes (
                     id INTEGER PRIMARY KEY,
@@ -624,6 +645,7 @@ class ERPDatabase:
                     sequence_ligne INTEGER NOT NULL,
                     description TEXT NOT NULL,
                     code_article TEXT,
+                    inventory_item_id INTEGER,
                     quantite REAL NOT NULL DEFAULT 0,
                     unite TEXT DEFAULT 'UN',
                     prix_unitaire REAL DEFAULT 0.0,
@@ -634,7 +656,8 @@ class ERPDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (formulaire_id) REFERENCES formulaires(id) ON DELETE CASCADE,
                     FOREIGN KEY (reference_materiau) REFERENCES materials(id),
-                    FOREIGN KEY (reference_operation) REFERENCES operations(id)
+                    FOREIGN KEY (reference_operation) REFERENCES operations(id),
+                    FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id) ON DELETE SET NULL
                 )
             ''')
             
@@ -825,6 +848,7 @@ class ERPDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_formulaire ON formulaire_lignes(formulaire_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_sequence ON formulaire_lignes(formulaire_id, sequence_ligne)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_materiau ON formulaire_lignes(reference_materiau)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_inventory ON formulaire_lignes(inventory_item_id)')  # NOUVEAU
             
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_validations_formulaire ON formulaire_validations(formulaire_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_formulaire_validations_employee ON formulaire_validations(employee_id)')
@@ -1326,13 +1350,13 @@ class ERPDatabase:
             self._apply_automatic_fixes(cursor)
             
             conn.commit()
-            logger.info("Base de données ERP consolidée + Interface Unifiée + Production + Operations↔BT + Communication TT initialisée avec succès")
+            logger.info("Base de données ERP consolidée + Interface Unifiée + Production + Operations↔BT + Communication TT + CRM↔Inventaire initialisée avec succès")
             
             # Optimisation finale de la base
             cursor.execute("PRAGMA optimize")
     
     def _apply_automatic_fixes(self, cursor):
-        """Applique automatiquement toutes les corrections nécessaires - ÉTAPE 2 AMÉLIORÉE + OPERATIONS↔BT"""
+        """Applique automatiquement toutes les corrections nécessaires - ÉTAPE 2 AMÉLIORÉE + OPERATIONS↔BT + CRM↔Inventaire"""
         try:
             # Vérifier les colonnes existantes dans projects
             cursor.execute("PRAGMA table_info(projects)")
@@ -1366,15 +1390,114 @@ class ERPDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_operations_bt ON operations(formulaire_bt_id)")
                 logger.info("✅ NOUVEAU : Colonne formulaire_bt_id ajoutée à operations")
                 logger.info("✅ NOUVEAU : Index idx_operations_bt créé pour performance")
+                
+            # INTÉGRATION CRM-INVENTAIRE : Vérifier les nouvelles colonnes
+            cursor.execute("PRAGMA table_info(inventory_items)")
+            inventory_columns = [col[1] for col in cursor.fetchall()]
             
-            # Vérifier et corriger d'autres tables si nécessaire
-            # (Cette section peut être étendue pour d'autres corrections automatiques)
+            if 'prix_vente_unitaire' not in inventory_columns:
+                cursor.execute("ALTER TABLE inventory_items ADD COLUMN prix_vente_unitaire REAL DEFAULT 0.0")
+                logger.info("✅ CRM-INVENTAIRE : Colonne prix_vente_unitaire ajoutée à inventory_items")
             
-            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 + Interface Unifiée + Production + Lien Operations-BT + Communication TT INTÉGRÉE")
+            cursor.execute("PRAGMA table_info(formulaire_lignes)")
+            lignes_columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'inventory_item_id' not in lignes_columns:
+                cursor.execute("ALTER TABLE formulaire_lignes ADD COLUMN inventory_item_id INTEGER")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_formulaire_lignes_inventory ON formulaire_lignes(inventory_item_id)")
+                logger.info("✅ CRM-INVENTAIRE : Colonne inventory_item_id ajoutée à formulaire_lignes")
+                logger.info("✅ CRM-INVENTAIRE : Index idx_formulaire_lignes_inventory créé pour performance")
+            
+            logger.info("🔧 Corrections automatiques appliquées avec succès - ÉTAPE 2 + Interface Unifiée + Production + Lien Operations-BT + Communication TT + CRM-Inventaire INTÉGRÉE")
             
         except Exception as e:
             logger.warning(f"Avertissement lors des corrections automatiques: {e}")
+
+    # =========================================================================
+    # NOUVELLE MÉTHODE POUR LE CRM-INVENTAIRE
+    # =========================================================================
     
+    def get_inventory_items_for_selection(self) -> List[Dict]:
+        """
+        Récupère les articles d'inventaire avec les informations nécessaires 
+        pour la sélection dans un devis CRM.
+        """
+        try:
+            query = '''
+                SELECT id, nom, code_interne, description, type_produit, 
+                       quantite_metric, prix_vente_unitaire, statut
+                FROM inventory_items
+                WHERE statut IN ('DISPONIBLE', 'FAIBLE') OR quantite_metric > 0
+                ORDER BY nom ASC
+            '''
+            rows = self.execute_query(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération articles pour sélection CRM: {e}")
+            return []
+
+    def update_inventory_item_price(self, item_id: int, new_price: float) -> bool:
+        """Met à jour le prix de vente d'un article d'inventaire"""
+        try:
+            affected = self.execute_update(
+                "UPDATE inventory_items SET prix_vente_unitaire = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (new_price, item_id)
+            )
+            return affected > 0
+        except Exception as e:
+            logger.error(f"Erreur mise à jour prix article: {e}")
+            return False
+
+    def add_formulaire_ligne_with_inventory(self, formulaire_id: int, ligne_data: Dict) -> Optional[int]:
+        """Ajoute une ligne de formulaire avec liaison vers l'inventaire"""
+        try:
+            query = '''
+                INSERT INTO formulaire_lignes 
+                (formulaire_id, sequence_ligne, description, code_article, inventory_item_id,
+                 quantite, unite, prix_unitaire, notes_ligne)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            ligne_id = self.execute_insert(query, (
+                formulaire_id,
+                ligne_data.get('sequence_ligne', 1),
+                ligne_data.get('description', ''),
+                ligne_data.get('code_article', ''),
+                ligne_data.get('inventory_item_id'),
+                ligne_data.get('quantite', 0),
+                ligne_data.get('unite', 'UN'),
+                ligne_data.get('prix_unitaire', 0.0),
+                ligne_data.get('notes_ligne', '')
+            ))
+            
+            logger.info(f"✅ Ligne formulaire créée avec liaison inventaire: ID={ligne_id}")
+            return ligne_id
+            
+        except Exception as e:
+            logger.error(f"Erreur ajout ligne formulaire avec inventaire: {e}")
+            return None
+
+    def get_formulaire_lignes_with_inventory(self, formulaire_id: int) -> List[Dict]:
+        """Récupère les lignes d'un formulaire avec les détails de l'inventaire"""
+        try:
+            query = '''
+                SELECT fl.*, 
+                       i.nom as inventory_nom,
+                       i.code_interne as inventory_code,
+                       i.quantite_metric as inventory_quantite,
+                       i.statut as inventory_statut,
+                       i.prix_vente_unitaire as inventory_prix_vente
+                FROM formulaire_lignes fl
+                LEFT JOIN inventory_items i ON fl.inventory_item_id = i.id
+                WHERE fl.formulaire_id = ?
+                ORDER BY fl.sequence_ligne
+            '''
+            rows = self.execute_query(query, (formulaire_id,))
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération lignes avec inventaire: {e}")
+            return []
+
     # =========================================================================
     # MÉTHODES SPÉCIFIQUES AUX POSTES DE TRAVAIL - INTERFACE UNIFIÉE
     # =========================================================================
@@ -3025,7 +3148,7 @@ class ERPDatabase:
                 ''')
                 checks['operations_work_centers_fk'] = cursor.fetchone()['orphans'] == 0
                 
-                # NOUVEAU : Operations → Formulaires BT
+                # Operations → Formulaires BT
                 cursor.execute('''
                     SELECT COUNT(*) as orphans FROM operations o
                     WHERE o.formulaire_bt_id IS NOT NULL
@@ -3047,8 +3170,6 @@ class ERPDatabase:
                     AND e.manager_id NOT IN (SELECT id FROM employees)
                 ''')
                 checks['employees_hierarchy_fk'] = cursor.fetchone()['orphans'] == 0
-                
-                # VÉRIFICATIONS MODULE FORMULAIRES
                 
                 # Formulaires → Projects
                 cursor.execute('''
@@ -3081,6 +3202,14 @@ class ERPDatabase:
                 ''')
                 checks['formulaire_lignes_formulaires_fk'] = cursor.fetchone()['orphans'] == 0
                 
+                # Formulaire_lignes → Inventory (NOUVELLE VÉRIFICATION)
+                cursor.execute('''
+                    SELECT COUNT(*) as orphans FROM formulaire_lignes fl
+                    WHERE fl.inventory_item_id IS NOT NULL
+                    AND fl.inventory_item_id NOT IN (SELECT id FROM inventory_items)
+                ''')
+                checks['formulaire_lignes_inventory_fk'] = cursor.fetchone()['orphans'] == 0
+                
                 # Formulaire_validations → Formulaires
                 cursor.execute('''
                     SELECT COUNT(*) as orphans FROM formulaire_validations fv
@@ -3109,8 +3238,6 @@ class ERPDatabase:
                 ''')
                 checks['bt_reservations_work_centers_fk'] = cursor.fetchone()['orphans'] == 0
                 
-                # ÉTAPE 2 : Vérifications intégration TimeTracker ↔ BT
-                
                 # Time entries avec BT → Formulaires BT
                 cursor.execute('''
                     SELECT COUNT(*) as orphans FROM time_entries te
@@ -3128,8 +3255,6 @@ class ERPDatabase:
                     AND te.employee_id IS NULL
                 ''')
                 checks['time_entries_bt_employee_required'] = cursor.fetchone()['orphans'] == 0
-                
-                # INTERFACE UNIFIÉE : Vérifications postes de travail
                 
                 # Work centers avec noms uniques
                 cursor.execute('''
@@ -3155,17 +3280,19 @@ class ERPDatabase:
             'fournisseurs_info': {},
             'stocks_critiques': 0,
             'bt_info': {},
-            'timetracker_bt_integration': {},  # ÉTAPE 2
-            'work_centers_unified': {},  # INTERFACE UNIFIÉE
-            'production_module': {},  # ÉTAPE 3
-            'operations_bt_integration': {},  # NOUVEAU : Intégration Operations ↔ BT
-            'communication_tt_integration': {},  # NOUVEAU : Méthodes Communication TT
+            'timetracker_bt_integration': {},
+            'work_centers_unified': {},
+            'production_module': {},
+            'operations_bt_integration': {},
+            'communication_tt_integration': {},
+            'crm_inventory_integration': {},  # NOUVEAU
             'corrections_appliquees': True,
-            'etape_2_complete': True,  # ÉTAPE 2
-            'etape_3_complete': True,  # ÉTAPE 3
-            'interface_unifiee_complete': True,  # INTERFACE UNIFIÉE
-            'operations_bt_integration_complete': True,  # NOUVEAU
-            'communication_tt_complete': True  # NOUVEAU
+            'etape_2_complete': True,
+            'etape_3_complete': True,
+            'interface_unifiee_complete': True,
+            'operations_bt_integration_complete': True,
+            'communication_tt_complete': True,
+            'crm_inventory_integration_complete': True  # NOUVEAU
         }
         
         with self.get_connection() as conn:
@@ -3221,14 +3348,12 @@ class ERPDatabase:
                 result = cursor.fetchone()
                 info['bt_info']['avancements'] = result['count'] if result else 0
             
-            # ÉTAPE 2 : Informations intégration TimeTracker ↔ BT
+            # Informations intégration TimeTracker ↔ BT
             if 'time_entries' in tables:
-                # Pointages liés à des BT
                 cursor.execute('SELECT COUNT(*) as count FROM time_entries WHERE formulaire_bt_id IS NOT NULL')
                 result = cursor.fetchone()
                 info['timetracker_bt_integration']['pointages_bt'] = result['count'] if result else 0
                 
-                # BT avec pointages
                 cursor.execute('''
                     SELECT COUNT(DISTINCT formulaire_bt_id) as count 
                     FROM time_entries 
@@ -3237,7 +3362,6 @@ class ERPDatabase:
                 result = cursor.fetchone()
                 info['timetracker_bt_integration']['bt_avec_pointages'] = result['count'] if result else 0
                 
-                # Heures totales sur BT
                 cursor.execute('''
                     SELECT COALESCE(SUM(total_hours), 0) as total_heures,
                            COALESCE(SUM(total_cost), 0) as total_cout
@@ -3249,7 +3373,6 @@ class ERPDatabase:
                     info['timetracker_bt_integration']['total_heures_bt'] = round(result['total_heures'], 2)
                     info['timetracker_bt_integration']['total_cout_bt'] = round(result['total_cout'], 2)
                 
-                # Employés actifs sur BT
                 cursor.execute('''
                     SELECT COUNT(DISTINCT employee_id) as count
                     FROM time_entries 
@@ -3258,7 +3381,7 @@ class ERPDatabase:
                 result = cursor.fetchone()
                 info['timetracker_bt_integration']['employes_actifs_bt'] = result['count'] if result else 0
             
-            # INTERFACE UNIFIÉE : Informations postes de travail
+            # Informations postes de travail
             if 'work_centers' in tables:
                 cursor.execute('SELECT COUNT(*) as count FROM work_centers')
                 result = cursor.fetchone()
@@ -3272,7 +3395,6 @@ class ERPDatabase:
                 result = cursor.fetchone()
                 info['work_centers_unified']['capacite_totale'] = round(result['capacite'], 2) if result else 0
                 
-                # Postes avec pointages TimeTracker
                 cursor.execute('''
                     SELECT COUNT(DISTINCT wc.id) as count
                     FROM work_centers wc
@@ -3283,56 +3405,46 @@ class ERPDatabase:
                 result = cursor.fetchone()
                 info['work_centers_unified']['postes_avec_pointages'] = result['count'] if result else 0
             
-            # ÉTAPE 3 : Informations module production unifié
+            # Informations module production
             if 'materials' in tables and 'operations' in tables:
-                # Projets avec BOM (nomenclatures)
                 cursor.execute('SELECT COUNT(DISTINCT project_id) as count FROM materials WHERE project_id IS NOT NULL')
                 result = cursor.fetchone()
                 info['production_module']['projets_avec_bom'] = result['count'] if result else 0
                 
-                # Projets avec itinéraires
                 cursor.execute('SELECT COUNT(DISTINCT project_id) as count FROM operations WHERE project_id IS NOT NULL')
                 result = cursor.fetchone()
                 info['production_module']['projets_avec_itineraires'] = result['count'] if result else 0
                 
-                # Matériaux total dans BOM
                 cursor.execute('SELECT COUNT(*) as count FROM materials')
                 result = cursor.fetchone()
                 info['production_module']['materiaux_total'] = result['count'] if result else 0
                 
-                # Opérations total dans itinéraires
                 cursor.execute('SELECT COUNT(*) as count FROM operations')
                 result = cursor.fetchone()
                 info['production_module']['operations_total'] = result['count'] if result else 0
                 
-                # Valeur totale des BOM
                 cursor.execute('SELECT COALESCE(SUM(quantite * prix_unitaire), 0) as valeur FROM materials')
                 result = cursor.fetchone()
                 info['production_module']['valeur_totale_bom'] = round(result['valeur'], 2) if result else 0
                 
-                # Temps total planifié
                 cursor.execute('SELECT COALESCE(SUM(temps_estime), 0) as temps FROM operations')
                 result = cursor.fetchone()
                 info['production_module']['temps_total_planifie'] = round(result['temps'], 2) if result else 0
             
-            # NOUVEAU : Informations intégration Operations ↔ BT
+            # Informations intégration Operations ↔ BT
             if 'operations' in tables:
-                # Opérations liées à des BT
                 cursor.execute('SELECT COUNT(*) as count FROM operations WHERE formulaire_bt_id IS NOT NULL')
                 result = cursor.fetchone()
                 info['operations_bt_integration']['operations_liees_bt'] = result['count'] if result else 0
                 
-                # BT avec opérations
                 cursor.execute('SELECT COUNT(DISTINCT formulaire_bt_id) as count FROM operations WHERE formulaire_bt_id IS NOT NULL')
                 result = cursor.fetchone()
                 info['operations_bt_integration']['bt_avec_operations'] = result['count'] if result else 0
                 
-                # Temps total des opérations BT
                 cursor.execute('SELECT COALESCE(SUM(temps_estime), 0) as temps FROM operations WHERE formulaire_bt_id IS NOT NULL')
                 result = cursor.fetchone()
                 info['operations_bt_integration']['temps_total_operations_bt'] = round(result['temps'], 2) if result else 0
                 
-                # Postes utilisés par les opérations BT
                 cursor.execute('''
                     SELECT COUNT(DISTINCT work_center_id) as count 
                     FROM operations 
@@ -3341,7 +3453,7 @@ class ERPDatabase:
                 result = cursor.fetchone()
                 info['operations_bt_integration']['postes_utilises_bt'] = result['count'] if result else 0
             
-            # NOUVEAU : Informations méthodes communication TimeTracker
+            # Informations méthodes communication TimeTracker
             info['communication_tt_integration'] = {
                 'get_employee_productivity_stats': 'DISPONIBLE',
                 'get_unified_analytics': 'DISPONIBLE',
@@ -3351,6 +3463,40 @@ class ERPDatabase:
                 'cleanup_empty_bt_sessions': 'DISPONIBLE',
                 'methodes_communication_count': 6
             }
+            
+            # NOUVEAU : Informations intégration CRM-Inventaire
+            if 'formulaire_lignes' in tables and 'inventory_items' in tables:
+                cursor.execute('''
+                    SELECT COUNT(*) as count 
+                    FROM formulaire_lignes 
+                    WHERE inventory_item_id IS NOT NULL
+                ''')
+                result = cursor.fetchone()
+                info['crm_inventory_integration']['lignes_avec_inventaire'] = result['count'] if result else 0
+                
+                cursor.execute('''
+                    SELECT COUNT(DISTINCT inventory_item_id) as count 
+                    FROM formulaire_lignes 
+                    WHERE inventory_item_id IS NOT NULL
+                ''')
+                result = cursor.fetchone()
+                info['crm_inventory_integration']['articles_utilises_devis'] = result['count'] if result else 0
+                
+                cursor.execute('''
+                    SELECT COUNT(*) as count 
+                    FROM inventory_items 
+                    WHERE prix_vente_unitaire > 0
+                ''')
+                result = cursor.fetchone()
+                info['crm_inventory_integration']['articles_avec_prix_vente'] = result['count'] if result else 0
+                
+                cursor.execute('''
+                    SELECT COALESCE(AVG(prix_vente_unitaire), 0) as prix_moyen
+                    FROM inventory_items 
+                    WHERE prix_vente_unitaire > 0
+                ''')
+                result = cursor.fetchone()
+                info['crm_inventory_integration']['prix_vente_moyen'] = round(result['prix_moyen'], 2) if result else 0
         
         return info
     
@@ -3372,7 +3518,8 @@ class ERPDatabase:
                 'top_fournisseurs': [],
                 'conversion_ba_bc': {'total_ba': 0, 'convertis_bc': 0, 'taux_conversion': 0.0},
                 'bt_statistiques': {'total_bt': 0, 'assignations': 0, 'postes_reserves': 0},
-                'bt_timetracker_stats': {}  # ÉTAPE 2
+                'bt_timetracker_stats': {},
+                'crm_inventory_stats': {}  # NOUVEAU
             }
             
             # Statistiques globales
@@ -3477,7 +3624,7 @@ class ERPDatabase:
             result_bt_postes = self.execute_query(query_bt_postes)
             stats['bt_statistiques']['postes_reserves'] = result_bt_postes[0]['count'] if result_bt_postes else 0
             
-            # ÉTAPE 2 : Statistiques BT ↔ TimeTracker
+            # Statistiques BT ↔ TimeTracker
             query_bt_tt = '''
                 SELECT 
                     COUNT(DISTINCT te.formulaire_bt_id) as bt_avec_pointages,
@@ -3491,6 +3638,21 @@ class ERPDatabase:
             result_bt_tt = self.execute_query(query_bt_tt)
             if result_bt_tt:
                 stats['bt_timetracker_stats'] = dict(result_bt_tt[0])
+            
+            # NOUVEAU : Statistiques CRM-Inventaire
+            query_crm_inv = '''
+                SELECT 
+                    COUNT(DISTINCT fl.inventory_item_id) as articles_utilises,
+                    COUNT(fl.id) as lignes_avec_inventaire,
+                    COALESCE(SUM(fl.quantite * i.prix_vente_unitaire), 0) as valeur_totale_inventaire,
+                    COUNT(DISTINCT fl.formulaire_id) as formulaires_avec_inventaire
+                FROM formulaire_lignes fl
+                JOIN inventory_items i ON fl.inventory_item_id = i.id
+                WHERE fl.inventory_item_id IS NOT NULL
+            '''
+            result_crm_inv = self.execute_query(query_crm_inv)
+            if result_crm_inv:
+                stats['crm_inventory_stats'] = dict(result_crm_inv[0])
             
             return stats
             
@@ -3533,14 +3695,8 @@ class ERPDatabase:
             
             formulaire = dict(result[0])
             
-            # Ajouter les lignes de détail
-            query_lignes = '''
-                SELECT * FROM formulaire_lignes 
-                WHERE formulaire_id = ? 
-                ORDER BY sequence_ligne
-            '''
-            lignes = self.execute_query(query_lignes, (formulaire_id,))
-            formulaire['lignes'] = [dict(ligne) for ligne in lignes]
+            # Ajouter les lignes de détail avec inventaire
+            formulaire['lignes'] = self.get_formulaire_lignes_with_inventory(formulaire_id)
             
             # Ajouter l'historique des validations
             query_validations = '''
@@ -3578,10 +3734,10 @@ class ERPDatabase:
                 reservations = self.execute_query(query_reservations, (formulaire_id,))
                 formulaire['reservations_postes'] = [dict(res) for res in reservations]
                 
-                # ÉTAPE 2 : Ajouter les statistiques TimeTracker
+                # Ajouter les statistiques TimeTracker
                 formulaire['timetracker_stats'] = self.get_statistiques_bt_timetracker(formulaire_id)
                 
-                # NOUVEAU : Ajouter les opérations liées au BT
+                # Ajouter les opérations liées au BT
                 formulaire['operations_bt'] = self.get_operations_by_bt(formulaire_id)
             
             return formulaire
@@ -3688,15 +3844,16 @@ class ERPDatabase:
                 for ligne in formulaire_original['lignes']:
                     query_ligne = '''
                         INSERT INTO formulaire_lignes
-                        (formulaire_id, sequence_ligne, description, code_article,
+                        (formulaire_id, sequence_ligne, description, code_article, inventory_item_id,
                          quantite, unite, prix_unitaire, reference_materiau, notes_ligne)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     '''
                     self.execute_insert(query_ligne, (
                         nouveau_id,
                         ligne['sequence_ligne'],
                         ligne['description'],
                         ligne.get('code_article'),
+                        ligne.get('inventory_item_id'),
                         ligne['quantite'],
                         ligne['unite'],
                         ligne['prix_unitaire'],
@@ -4044,7 +4201,6 @@ class ERPDatabase:
                 'employees': {'total': 0, 'actifs': 0},
                 'bt_specialise': {'total': 0, 'assignations': 0, 'postes_reserves': 0},
                 'timetracker_bt_integration': {'total_pointages_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},
-                # NOUVEAU: Métriques postes de travail unifiées
                 'work_centers_unified': {
                     'total_postes': 0,
                     'postes_actifs': 0,
@@ -4053,7 +4209,6 @@ class ERPDatabase:
                     'revenus_generes': 0.0,
                     'goulots_detectes': 0
                 },
-                # ÉTAPE 3: Métriques production
                 'production_unified': {
                     'projets_avec_bom': 0,
                     'projets_avec_itineraires': 0,
@@ -4062,18 +4217,22 @@ class ERPDatabase:
                     'valeur_bom_total': 0.0,
                     'temps_planifie_total': 0.0
                 },
-                # NOUVEAU: Métriques Operations ↔ BT
                 'operations_bt_integration': {
                     'operations_liees_bt': 0,
                     'bt_avec_operations': 0,
                     'temps_operations_bt': 0.0,
                     'postes_utilises_bt': 0
                 },
-                # NOUVEAU: Métriques Communication TimeTracker
                 'communication_tt_integration': {
                     'methodes_disponibles': 6,
                     'integration_active': True,
                     'derniere_sync': datetime.now().isoformat()
+                },
+                'crm_inventory_integration': {  # NOUVEAU
+                    'articles_avec_prix_vente': 0,
+                    'lignes_formulaires_avec_inventaire': 0,
+                    'valeur_totale_inventaire_vendu': 0.0,
+                    'articles_les_plus_vendus': 0
                 }
             }
             
@@ -4137,7 +4296,7 @@ class ERPDatabase:
             if result:
                 metrics['bt_specialise']['postes_reserves'] = result[0]['reservations']
             
-            # ÉTAPE 2 : Métriques intégration TimeTracker ↔ BT
+            # Métriques intégration TimeTracker ↔ BT
             result = self.execute_query('''
                 SELECT 
                     COUNT(*) as total_pointages_bt,
@@ -4151,7 +4310,7 @@ class ERPDatabase:
                 metrics['timetracker_bt_integration']['heures_bt'] = round(result[0]['heures_bt'], 1)
                 metrics['timetracker_bt_integration']['cout_bt'] = round(result[0]['cout_bt'], 2)
             
-            # NOUVEAU: Métriques postes de travail unifiées
+            # Métriques postes de travail unifiées
             wc_stats_result = self.execute_query('''
                 SELECT 
                     COUNT(*) as total_postes,
@@ -4187,7 +4346,7 @@ class ERPDatabase:
             if bottlenecks_result:
                 metrics['work_centers_unified']['goulots_detectes'] = bottlenecks_result[0]['goulots_count']
             
-            # ÉTAPE 3: Métriques production unifiées
+            # Métriques production unifiées
             production_metrics = self.get_production_dashboard_metrics()
             if production_metrics:
                 metrics['production_unified'] = {
@@ -4199,7 +4358,7 @@ class ERPDatabase:
                     'temps_planifie_total': production_metrics.get('itineraires', {}).get('temps_total_planifie', 0.0)
                 }
             
-            # NOUVEAU: Métriques Operations ↔ BT
+            # Métriques Operations ↔ BT
             operations_bt_result = self.execute_query('''
                 SELECT 
                     COUNT(*) as operations_liees_bt,
@@ -4212,6 +4371,24 @@ class ERPDatabase:
             if operations_bt_result:
                 ops_bt_data = dict(operations_bt_result[0])
                 metrics['operations_bt_integration'].update(ops_bt_data)
+            
+            # NOUVEAU : Métriques CRM-Inventaire
+            crm_inv_result = self.execute_query('''
+                SELECT 
+                    COUNT(CASE WHEN prix_vente_unitaire > 0 THEN 1 END) as articles_avec_prix_vente,
+                    (SELECT COUNT(*) FROM formulaire_lignes WHERE inventory_item_id IS NOT NULL) as lignes_avec_inventaire,
+                    COALESCE((SELECT SUM(fl.quantite * i.prix_vente_unitaire) 
+                             FROM formulaire_lignes fl 
+                             JOIN inventory_items i ON fl.inventory_item_id = i.id 
+                             WHERE fl.inventory_item_id IS NOT NULL), 0) as valeur_totale_vendue,
+                    (SELECT COUNT(DISTINCT inventory_item_id) 
+                     FROM formulaire_lignes 
+                     WHERE inventory_item_id IS NOT NULL) as articles_les_plus_vendus
+                FROM inventory_items
+            ''')
+            if crm_inv_result:
+                crm_inv_data = dict(crm_inv_result[0])
+                metrics['crm_inventory_integration'].update(crm_inv_data)
             
             return metrics
             
@@ -4230,11 +4407,17 @@ class ERPDatabase:
                 'stocks_mouvements': 0,
                 'performances_fournisseurs': [],
                 'bt_performance': {'total_bt': 0, 'assignations_mois': 0, 'completion_rate': 0.0},
-                'timetracker_bt_mensuel': {'sessions_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},  # ÉTAPE 2
-                'work_centers_performance': {'nouveaux_postes': 0, 'utilisation_moyenne': 0.0, 'revenus_generes': 0.0},  # INTERFACE UNIFIÉE
-                'production_performance': {'nouveaux_bom': 0, 'nouvelles_operations': 0, 'projets_production': 0},  # ÉTAPE 3
-                'operations_bt_performance': {'operations_bt_creees': 0, 'bt_operations_mois': 0, 'temps_operations_bt': 0.0},  # NOUVEAU
-                'communication_tt_performance': {'syncs_effectuees': 0, 'progressions_recalculees': 0, 'sessions_nettoyees': 0},  # NOUVEAU
+                'timetracker_bt_mensuel': {'sessions_bt': 0, 'heures_bt': 0.0, 'cout_bt': 0.0},
+                'work_centers_performance': {'nouveaux_postes': 0, 'utilisation_moyenne': 0.0, 'revenus_generes': 0.0},
+                'production_performance': {'nouveaux_bom': 0, 'nouvelles_operations': 0, 'projets_production': 0},
+                'operations_bt_performance': {'operations_bt_creees': 0, 'bt_operations_mois': 0, 'temps_operations_bt': 0.0},
+                'communication_tt_performance': {'syncs_effectuees': 0, 'progressions_recalculees': 0, 'sessions_nettoyees': 0},
+                'crm_inventory_performance': {  # NOUVEAU
+                    'articles_prix_ajoutes': 0,
+                    'devis_avec_inventaire': 0,
+                    'valeur_inventaire_vendu': 0.0,
+                    'nouveaux_articles_vendus': 0
+                },
                 'alertes': []
             }
             
@@ -4318,7 +4501,7 @@ class ERPDatabase:
                     termines = result[0]['termines']
                     report['bt_performance']['completion_rate'] = (termines / report['bt_performance']['total_bt']) * 100
             
-            # ÉTAPE 2 : Performance TimeTracker BT mensuelle
+            # Performance TimeTracker BT mensuelle
             query = '''
                 SELECT 
                     COUNT(*) as sessions_bt,
@@ -4334,7 +4517,7 @@ class ERPDatabase:
                 report['timetracker_bt_mensuel']['heures_bt'] = round(result[0]['heures_bt'], 1)
                 report['timetracker_bt_mensuel']['cout_bt'] = round(result[0]['cout_bt'], 2)
             
-            # INTERFACE UNIFIÉE : Performance postes de travail mensuelle
+            # Performance postes de travail mensuelle
             query = '''
                 SELECT COUNT(*) as nouveaux_postes
                 FROM work_centers
@@ -4368,7 +4551,7 @@ class ERPDatabase:
                 
                 report['work_centers_performance']['revenus_generes'] = round(data['revenus_generes'], 2)
             
-            # ÉTAPE 3 : Performance production mensuelle
+            # Performance production mensuelle
             query = '''
                 SELECT COUNT(*) as nouveaux_bom
                 FROM materials
@@ -4397,7 +4580,7 @@ class ERPDatabase:
             if result:
                 report['production_performance']['projets_production'] = result[0]['projets_production']
             
-            # NOUVEAU : Performance Operations ↔ BT mensuelle
+            # Performance Operations ↔ BT mensuelle
             query = '''
                 SELECT COUNT(*) as operations_bt_creees
                 FROM operations
@@ -4428,459 +4611,325 @@ class ERPDatabase:
             if result:
                 report['operations_bt_performance']['temps_operations_bt'] = round(result[0]['temps_operations_bt'], 2)
             
-            # NOUVEAU : Performance Communication TimeTracker mensuelle (simulée)
+            # Performance Communication TimeTracker mensuelle (simulée)
             report['communication_tt_performance'] = {
                 'syncs_effectuees': 30,  # Une par jour approximativement
                 'progressions_recalculees': report['bt_performance']['total_bt'] * 2,  # Estimation
                 'sessions_nettoyees': 5  # Estimation du nettoyage
             }
             
+            # NOUVEAU : Performance CRM-Inventaire mensuelle
+            query = '''
+                SELECT COUNT(*) as articles_prix_ajoutes
+                FROM inventory_items
+                WHERE prix_vente_unitaire > 0
+                AND strftime('%Y-%m', updated_at) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['crm_inventory_performance']['articles_prix_ajoutes'] = result[0]['articles_prix_ajoutes']
+            
+            query = '''
+                SELECT COUNT(DISTINCT fl.formulaire_id) as devis_avec_inventaire
+                FROM formulaire_lignes fl
+                JOIN formulaires f ON fl.formulaire_id = f.id
+                WHERE fl.inventory_item_id IS NOT NULL
+                AND strftime('%Y-%m', f.date_creation) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['crm_inventory_performance']['devis_avec_inventaire'] = result[0]['devis_avec_inventaire']
+            
+            query = '''
+                SELECT COALESCE(SUM(fl.quantite * i.prix_vente_unitaire), 0) as valeur_inventaire_vendu
+                FROM formulaire_lignes fl
+                JOIN inventory_items i ON fl.inventory_item_id = i.id
+                JOIN formulaires f ON fl.formulaire_id = f.id
+                WHERE fl.inventory_item_id IS NOT NULL
+                AND strftime('%Y-%m', f.date_creation) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['crm_inventory_performance']['valeur_inventaire_vendu'] = round(result[0]['valeur_inventaire_vendu'], 2)
+            
+            query = '''
+                SELECT COUNT(DISTINCT fl.inventory_item_id) as nouveaux_articles_vendus
+                FROM formulaire_lignes fl
+                JOIN formulaires f ON fl.formulaire_id = f.id
+                WHERE fl.inventory_item_id IS NOT NULL
+                AND strftime('%Y-%m', f.date_creation) = ?
+            '''
+            result = self.execute_query(query, (f"{year}-{month:02d}",))
+            if result:
+                report['crm_inventory_performance']['nouveaux_articles_vendus'] = result[0]['nouveaux_articles_vendus']
+            
             return report
             
         except Exception as e:
             logger.error(f"Erreur génération rapport mensuel: {e}")
             return {}
-# === AMÉLIORATIONS D'INTÉGRATION KANBAN ↔ ERP_DATABASE ===
 
-# 1. Méthodes à ajouter dans erp_database.py (classe ERPDatabase)
+    # =========================================================================
+    # MÉTHODES KANBAN INTÉGRÉES
+    # =========================================================================
 
-def get_projets_for_kanban(self) -> List[Dict]:
-    """Récupère les projets formatés pour le Kanban avec toutes les jointures nécessaires"""
-    try:
-        query = '''
-            SELECT p.*, 
-                   c.nom as client_company_nom,
-                   c.secteur as client_secteur,
-                   COUNT(DISTINCT o.id) as nb_operations,
-                   COUNT(DISTINCT m.id) as nb_materiaux,
-                   COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux_estime
-            FROM projects p
-            LEFT JOIN companies c ON p.client_company_id = c.id
-            LEFT JOIN operations o ON p.id = o.project_id
-            LEFT JOIN materials m ON p.id = m.project_id
-            GROUP BY p.id
-            ORDER BY 
-                CASE p.priorite 
-                    WHEN 'ÉLEVÉ' THEN 1
-                    WHEN 'MOYEN' THEN 2
-                    WHEN 'BAS' THEN 3
-                    ELSE 4
-                END,
-                p.date_prevu ASC
-        '''
-        rows = self.execute_query(query)
-        return [dict(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Erreur récupération projets pour kanban: {e}")
-        return []
+    def get_projets_for_kanban(self) -> List[Dict]:
+        """Récupère les projets formatés pour le Kanban avec toutes les jointures nécessaires"""
+        try:
+            query = '''
+                SELECT p.*, 
+                       c.nom as client_company_nom,
+                       c.secteur as client_secteur,
+                       COUNT(DISTINCT o.id) as nb_operations,
+                       COUNT(DISTINCT m.id) as nb_materiaux,
+                       COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux_estime
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                LEFT JOIN operations o ON p.id = o.project_id
+                LEFT JOIN materials m ON p.id = m.project_id
+                GROUP BY p.id
+                ORDER BY 
+                    CASE p.priorite 
+                        WHEN 'ÉLEVÉ' THEN 1
+                        WHEN 'MOYEN' THEN 2
+                        WHEN 'BAS' THEN 3
+                        ELSE 4
+                    END,
+                    p.date_prevu ASC
+            '''
+            rows = self.execute_query(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Erreur récupération projets pour kanban: {e}")
+            return []
 
-def update_project_status_for_kanban(self, project_id: int, new_status: str, employee_id: int = None) -> bool:
-    """Met à jour le statut d'un projet avec traçabilité (pour drag & drop kanban)"""
-    try:
-        # Récupérer l'ancien statut
-        old_status_result = self.execute_query("SELECT statut FROM projects WHERE id = ?", (project_id,))
-        if not old_status_result:
-            return False
-        
-        old_status = old_status_result[0]['statut']
-        
-        # Mettre à jour le statut
-        affected = self.execute_update(
-            "UPDATE projects SET statut = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (new_status, project_id)
-        )
-        
-        if affected > 0:
-            # Enregistrer dans l'historique si c'est un projet avec BT
-            bt_result = self.execute_query(
-                "SELECT id FROM formulaires WHERE project_id = ? AND type_formulaire = 'BON_TRAVAIL'",
-                (project_id,)
+    def update_project_status_for_kanban(self, project_id: int, new_status: str, employee_id: int = None) -> bool:
+        """Met à jour le statut d'un projet avec traçabilité (pour drag & drop kanban)"""
+        try:
+            # Récupérer l'ancien statut
+            old_status_result = self.execute_query("SELECT statut FROM projects WHERE id = ?", (project_id,))
+            if not old_status_result:
+                return False
+            
+            old_status = old_status_result[0]['statut']
+            
+            # Mettre à jour le statut
+            affected = self.execute_update(
+                "UPDATE projects SET statut = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (new_status, project_id)
             )
             
-            if bt_result and employee_id:
-                for bt in bt_result:
-                    self.execute_insert(
-                        """INSERT INTO formulaire_validations 
-                           (formulaire_id, employee_id, type_validation, ancien_statut, nouveau_statut, commentaires)
-                           VALUES (?, ?, 'CHANGEMENT_STATUT_PROJET', ?, ?, ?)""",
-                        (bt['id'], employee_id, old_status, new_status, f"Projet déplacé via Kanban: {old_status} → {new_status}")
-                    )
+            if affected > 0:
+                # Enregistrer dans l'historique si c'est un projet avec BT
+                bt_result = self.execute_query(
+                    "SELECT id FROM formulaires WHERE project_id = ? AND type_formulaire = 'BON_TRAVAIL'",
+                    (project_id,)
+                )
+                
+                if bt_result and employee_id:
+                    for bt in bt_result:
+                        self.execute_insert(
+                            """INSERT INTO formulaire_validations 
+                               (formulaire_id, employee_id, type_validation, ancien_statut, nouveau_statut, commentaires)
+                               VALUES (?, ?, 'CHANGEMENT_STATUT_PROJET', ?, ?, ?)""",
+                            (bt['id'], employee_id, old_status, new_status, f"Projet déplacé via Kanban: {old_status} → {new_status}")
+                        )
+                
+                logger.info(f"✅ Statut projet #{project_id} mis à jour: {old_status} → {new_status}")
+                return True
             
-            logger.info(f"✅ Statut projet #{project_id} mis à jour: {old_status} → {new_status}")
-            return True
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"Erreur mise à jour statut projet kanban: {e}")
-        return False
+            return False
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour statut projet kanban: {e}")
+            return False
 
-def get_kanban_statistics(self) -> Dict[str, Any]:
-    """Statistiques spécialisées pour les vues Kanban"""
-    try:
-        stats = {
-            'projets': {
-                'par_statut': {},
-                'par_priorite': {},
-                'total': 0,
-                'ca_total': 0.0
-            },
-            'bts': {
-                'par_poste': {},
-                'par_statut': {},
-                'total_assignes': 0
-            },
-            'operations': {
-                'par_poste': {},
-                'par_statut': {},
-                'charge_totale': 0.0
+    def get_kanban_statistics(self) -> Dict[str, Any]:
+        """Statistiques spécialisées pour les vues Kanban"""
+        try:
+            stats = {
+                'projets': {
+                    'par_statut': {},
+                    'par_priorite': {},
+                    'total': 0,
+                    'ca_total': 0.0
+                },
+                'bts': {
+                    'par_poste': {},
+                    'par_statut': {},
+                    'total_assignes': 0
+                },
+                'operations': {
+                    'par_poste': {},
+                    'par_statut': {},
+                    'charge_totale': 0.0
+                }
             }
-        }
-        
-        # Statistiques projets
-        projets_stats = self.execute_query('''
-            SELECT statut, priorite, COUNT(*) as count, SUM(prix_estime) as ca
-            FROM projects
-            GROUP BY statut, priorite
-        ''')
-        
-        for row in projets_stats:
-            statut, priorite = row['statut'], row['priorite']
-            count, ca = row['count'], row['ca'] or 0
             
-            if statut not in stats['projets']['par_statut']:
-                stats['projets']['par_statut'][statut] = 0
-            stats['projets']['par_statut'][statut] += count
+            # Statistiques projets
+            projets_stats = self.execute_query('''
+                SELECT statut, priorite, COUNT(*) as count, SUM(prix_estime) as ca
+                FROM projects
+                GROUP BY statut, priorite
+            ''')
             
-            if priorite not in stats['projets']['par_priorite']:
-                stats['projets']['par_priorite'][priorite] = 0
-            stats['projets']['par_priorite'][priorite] += count
-            
-            stats['projets']['total'] += count
-            stats['projets']['ca_total'] += ca
-        
-        # Statistiques BTs par postes
-        bt_postes_stats = self.execute_query('''
-            SELECT wc.nom as poste_nom, f.statut, COUNT(*) as count
-            FROM formulaires f
-            JOIN operations o ON f.id = o.formulaire_bt_id
-            JOIN work_centers wc ON o.work_center_id = wc.id
-            WHERE f.type_formulaire = 'BON_TRAVAIL'
-            GROUP BY wc.nom, f.statut
-        ''')
-        
-        for row in bt_postes_stats:
-            poste, statut, count = row['poste_nom'], row['statut'], row['count']
-            
-            if poste not in stats['bts']['par_poste']:
-                stats['bts']['par_poste'][poste] = 0
-            stats['bts']['par_poste'][poste] += count
-            
-            if statut not in stats['bts']['par_statut']:
-                stats['bts']['par_statut'][statut] = 0
-            stats['bts']['par_statut'][statut] += count
-        
-        # Statistiques opérations
-        ops_stats = self.execute_query('''
-            SELECT wc.nom as poste_nom, o.statut, COUNT(*) as count, SUM(o.temps_estime) as temps_total
-            FROM operations o
-            JOIN work_centers wc ON o.work_center_id = wc.id
-            GROUP BY wc.nom, o.statut
-        ''')
-        
-        for row in ops_stats:
-            poste, statut = row['poste_nom'], row['statut']
-            count, temps = row['count'], row['temps_total'] or 0
-            
-            if poste not in stats['operations']['par_poste']:
-                stats['operations']['par_poste'][poste] = {'count': 0, 'temps': 0.0}
-            stats['operations']['par_poste'][poste]['count'] += count
-            stats['operations']['par_poste'][poste]['temps'] += temps
-            
-            if statut not in stats['operations']['par_statut']:
-                stats['operations']['par_statut'][statut] = 0
-            stats['operations']['par_statut'][statut] += count
-            
-            stats['operations']['charge_totale'] += temps
-        
-        return stats
-        
-    except Exception as e:
-        logger.error(f"Erreur statistiques kanban: {e}")
-        return {}
-
-def reassign_operation_to_work_center(self, operation_id: int, new_work_center_name: str, employee_id: int = None) -> bool:
-    """Réassigne une opération à un nouveau poste de travail (pour drag & drop kanban)"""
-    try:
-        # Trouver le nouveau work_center_id
-        wc_result = self.execute_query(
-            "SELECT id FROM work_centers WHERE nom = ? AND statut = 'ACTIF'",
-            (new_work_center_name,)
-        )
-        
-        if not wc_result:
-            logger.error(f"Poste de travail '{new_work_center_name}' non trouvé ou inactif")
-            return False
-        
-        new_wc_id = wc_result[0]['id']
-        
-        # Récupérer l'ancienne assignation
-        old_assignment = self.execute_query(
-            "SELECT work_center_id, poste_travail FROM operations WHERE id = ?",
-            (operation_id,)
-        )
-        
-        if not old_assignment:
-            return False
-        
-        old_poste = old_assignment[0]['poste_travail']
-        
-        # Mettre à jour l'opération
-        affected = self.execute_update(
-            "UPDATE operations SET work_center_id = ?, poste_travail = ? WHERE id = ?",
-            (new_wc_id, new_work_center_name, operation_id)
-        )
-        
-        if affected > 0:
-            logger.info(f"✅ Opération #{operation_id} réassignée: {old_poste} → {new_work_center_name}")
-            return True
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"Erreur réassignation opération kanban: {e}")
-        return False
-
-def show_kanban_unified_improved():
-    """Version améliorée du Kanban utilisant uniquement erp_db"""
-    if 'erp_db' not in st.session_state:
-        st.error("⚠️ Base de données ERP non initialisée.")
-        return
-    
-    erp_db = st.session_state.erp_db
-    
-    # Interface de sélection de vue
-    st.markdown("### 🔄 Vue Kanban Unifiée - Version Améliorée")
-    
-    vue_kanban = st.radio(
-        "**Choisissez la vue:**",
-        ["📋 Projets par Statuts", "🏭 BTs par Postes", "⚙️ Opérations par Postes"],
-        horizontal=True,
-        key="kanban_vue_amelioree"
-    )
-    
-    try:
-        if vue_kanban == "📋 Projets par Statuts":
-            show_kanban_projets_improved(erp_db)
-        elif vue_kanban == "🏭 BTs par Postes":
-            show_kanban_bts_improved(erp_db)
-        else:
-            show_kanban_operations_improved(erp_db)
-            
-        # Afficher les statistiques unifiées
-        show_kanban_stats_unified(erp_db)
-        
-    except Exception as e:
-        st.error(f"❌ Erreur affichage Kanban: {e}")
-        logger.error(f"Erreur kanban unifié: {e}")
-
-def show_kanban_projets_improved(erp_db):
-    """Version améliorée de la vue projets"""
-    try:
-        # Utiliser la nouvelle méthode centralisée
-        projets = erp_db.get_projets_for_kanban()
-        
-        if not projets:
-            st.info("📋 Aucun projet trouvé.")
-            return
-        
-        # Organiser par statut
-        statuts = ["À FAIRE", "EN COURS", "EN ATTENTE", "TERMINÉ", "LIVRAISON", "ANNULÉ"]
-        projets_par_statut = {statut: [] for statut in statuts}
-        
-        for projet in projets:
-            statut = projet.get('statut', 'À FAIRE')
-            if statut in projets_par_statut:
-                projets_par_statut[statut].append(projet)
-        
-        # Affichage en colonnes
-        colonnes = st.columns(len(statuts))
-        
-        for idx, statut in enumerate(statuts):
-            with colonnes[idx]:
-                st.markdown(f"**{statut}** ({len(projets_par_statut[statut])})")
+            for row in projets_stats:
+                statut, priorite = row['statut'], row['priorite']
+                count, ca = row['count'], row['ca'] or 0
                 
-                # Zone de dépôt pour drag & drop
-                if st.session_state.get('dragged_project_id'):
-                    if st.button(f"⬇️ Déposer ici", key=f"drop_{statut}"):
-                        project_id = st.session_state.dragged_project_id
-                        if erp_db.update_project_status_for_kanban(project_id, statut):
-                            st.success(f"✅ Projet déplacé vers {statut}")
-                            st.session_state.dragged_project_id = None
-                            st.rerun()
+                if statut not in stats['projets']['par_statut']:
+                    stats['projets']['par_statut'][statut] = 0
+                stats['projets']['par_statut'][statut] += count
                 
-                # Afficher les projets
-                for projet in projets_par_statut[statut]:
-                    afficher_carte_projet_improved(projet, statut)
-        
-    except Exception as e:
-        st.error(f"Erreur vue projets: {e}")
-
-def afficher_carte_projet_improved(projet, statut):
-    """Carte projet améliorée avec plus d'informations"""
-    project_id = projet.get('id')
-    nom_projet = projet.get('nom_projet', 'N/A')
-    client_nom = projet.get('client_company_nom', 'Client non spécifié')
-    priorite = projet.get('priorite', 'MOYEN')
-    prix_estime = projet.get('prix_estime', 0)
-    nb_operations = projet.get('nb_operations', 0)
-    nb_materiaux = projet.get('nb_materiaux', 0)
-    
-    # Couleur selon priorité
-    couleur_priorite = {
-        'ÉLEVÉ': '#ef4444',
-        'MOYEN': '#f59e0b', 
-        'BAS': '#10b981'
-    }.get(priorite, '#6b7280')
-    
-    with st.container():
-        st.markdown(f"""
-        <div style='
-            border-left: 4px solid {couleur_priorite};
-            background: white;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        '>
-            <div style='font-weight: 600; color: #374151;'>#{project_id} - {nom_projet[:30]}{'...' if len(nom_projet) > 30 else ''}</div>
-            <div style='font-size: 0.85em; color: #6b7280; margin: 4px 0;'>👤 {client_nom}</div>
-            <div style='font-size: 0.85em; color: #6b7280; margin: 4px 0;'>💰 {prix_estime:,.0f}$</div>
-            <div style='font-size: 0.8em; color: #9ca3af;'>⚙️ {nb_operations} ops | 📦 {nb_materiaux} mat.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("👁️", key=f"view_{project_id}_{statut}", help="Voir détails"):
-                st.session_state.selected_project = projet
-                st.session_state.show_project_modal = True
-        with col2:
-            if st.button("➡️", key=f"move_{project_id}_{statut}", help="Déplacer"):
-                st.session_state.dragged_project_id = project_id
-                st.rerun()
-
-def show_kanban_stats_unified(erp_db):
-    """Affiche les statistiques unifiées en bas du Kanban"""
-    try:
-        stats = erp_db.get_kanban_statistics()
-        
-        if not stats:
-            return
-        
-        st.markdown("---")
-        st.markdown("### 📊 Statistiques Unifiées")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("**📋 Projets**")
-            st.metric("Total", stats['projets']['total'])
-            st.metric("CA Total", f"{stats['projets']['ca_total']:,.0f}$")
+                if priorite not in stats['projets']['par_priorite']:
+                    stats['projets']['par_priorite'][priorite] = 0
+                stats['projets']['par_priorite'][priorite] += count
+                
+                stats['projets']['total'] += count
+                stats['projets']['ca_total'] += ca
             
-        with col2:
-            st.markdown("**🏭 Bons de Travail**")
-            total_bts = sum(stats['bts']['par_statut'].values())
-            st.metric("Total BTs", total_bts)
-            if stats['bts']['par_poste']:
-                poste_le_plus_charge = max(stats['bts']['par_poste'].items(), key=lambda x: x[1])
-                st.metric("Poste le + chargé", f"{poste_le_plus_charge[0]} ({poste_le_plus_charge[1]})")
+            # Statistiques BTs par postes
+            bt_postes_stats = self.execute_query('''
+                SELECT wc.nom as poste_nom, f.statut, COUNT(*) as count
+                FROM formulaires f
+                JOIN operations o ON f.id = o.formulaire_bt_id
+                JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                GROUP BY wc.nom, f.statut
+            ''')
             
-        with col3:
-            st.markdown("**⚙️ Opérations**")
-            total_ops = sum(stats['operations']['par_statut'].values())
-            st.metric("Total Opérations", total_ops)
-            st.metric("Charge Totale", f"{stats['operations']['charge_totale']:.1f}h")
-        
-    except Exception as e:
-        st.error(f"Erreur statistiques: {e}")
+            for row in bt_postes_stats:
+                poste, statut, count = row['poste_nom'], row['statut'], row['count']
+                
+                if poste not in stats['bts']['par_poste']:
+                    stats['bts']['par_poste'][poste] = 0
+                stats['bts']['par_poste'][poste] += count
+                
+                if statut not in stats['bts']['par_statut']:
+                    stats['bts']['par_statut'][statut] = 0
+                stats['bts']['par_statut'][statut] += count
+            
+            # Statistiques opérations
+            ops_stats = self.execute_query('''
+                SELECT wc.nom as poste_nom, o.statut, COUNT(*) as count, SUM(o.temps_estime) as temps_total
+                FROM operations o
+                JOIN work_centers wc ON o.work_center_id = wc.id
+                GROUP BY wc.nom, o.statut
+            ''')
+            
+            for row in ops_stats:
+                poste, statut = row['poste_nom'], row['statut']
+                count, temps = row['count'], row['temps_total'] or 0
+                
+                if poste not in stats['operations']['par_poste']:
+                    stats['operations']['par_poste'][poste] = {'count': 0, 'temps': 0.0}
+                stats['operations']['par_poste'][poste]['count'] += count
+                stats['operations']['par_poste'][poste]['temps'] += temps
+                
+                if statut not in stats['operations']['par_statut']:
+                    stats['operations']['par_statut'][statut] = 0
+                stats['operations']['par_statut'][statut] += count
+                
+                stats['operations']['charge_totale'] += temps
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur statistiques kanban: {e}")
+            return {}
 
-# 3. Configuration d'intégration pour app.py
+    def reassign_operation_to_work_center(self, operation_id: int, new_work_center_name: str, employee_id: int = None) -> bool:
+        """Réassigne une opération à un nouveau poste de travail (pour drag & drop kanban)"""
+        try:
+            # Trouver le nouveau work_center_id
+            wc_result = self.execute_query(
+                "SELECT id FROM work_centers WHERE nom = ? AND statut = 'ACTIF'",
+                (new_work_center_name,)
+            )
+            
+            if not wc_result:
+                logger.error(f"Poste de travail '{new_work_center_name}' non trouvé ou inactif")
+                return False
+            
+            new_wc_id = wc_result[0]['id']
+            
+            # Récupérer l'ancienne assignation
+            old_assignment = self.execute_query(
+                "SELECT work_center_id, poste_travail FROM operations WHERE id = ?",
+                (operation_id,)
+            )
+            
+            if not old_assignment:
+                return False
+            
+            old_poste = old_assignment[0]['poste_travail']
+            
+            # Mettre à jour l'opération
+            affected = self.execute_update(
+                "UPDATE operations SET work_center_id = ?, poste_travail = ? WHERE id = ?",
+                (new_wc_id, new_work_center_name, operation_id)
+            )
+            
+            if affected > 0:
+                logger.info(f"✅ Opération #{operation_id} réassignée: {old_poste} → {new_work_center_name}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Erreur réassignation opération kanban: {e}")
+            return False
 
-def setup_kanban_integration():
-    """Configure l'intégration Kanban dans l'application principale"""
-    if 'erp_db' not in st.session_state:
-        st.error("⚠️ ERPDatabase non initialisé")
-        return False
-    
-    # Vérifier que toutes les méthodes nécessaires existent
-    erp_db = st.session_state.erp_db
-    required_methods = [
-        'get_projets_for_kanban',
-        'update_project_status_for_kanban', 
-        'get_kanban_statistics',
-        'reassign_operation_to_work_center'
-    ]
-    
-    missing_methods = []
-    for method in required_methods:
-        if not hasattr(erp_db, method):
-            missing_methods.append(method)
-    
-    if missing_methods:
-        st.warning(f"⚠️ Méthodes manquantes dans ERPDatabase: {', '.join(missing_methods)}")
-        return False
-    
-    return True
+    # =========================================================================
+    # UTILITAIRES POUR CONVERSION MESURES IMPÉRIALES
+    # =========================================================================
 
-# Utilitaires pour conversion mesures impériales (préservation fonction existante)
-def convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_str: str) -> float:
-    """
-    Convertit une mesure impériale en valeur décimale
-    Préserve la fonction existante du système
-    """
-    try:
-        import re
-        from fractions import Fraction
-        from math import gcd
-        
-        mesure_str = str(mesure_str).strip().lower()
-        mesure_str = mesure_str.replace('"', '"').replace("''", "'")
-        mesure_str = mesure_str.replace('ft', "'").replace('pieds', "'").replace('pied', "'")
-        mesure_str = mesure_str.replace('in', '"').replace('pouces', '"').replace('pouce', '"')
-        
-        if mesure_str == "0":
+    def convertir_pieds_pouces_fractions_en_valeur_decimale(self, mesure_str: str) -> float:
+        """
+        Convertit une mesure impériale en valeur décimale
+        Préserve la fonction existante du système
+        """
+        try:
+            import re
+            from fractions import Fraction
+            from math import gcd
+            
+            mesure_str = str(mesure_str).strip().lower()
+            mesure_str = mesure_str.replace('"', '"').replace("''", "'")
+            mesure_str = mesure_str.replace('ft', "'").replace('pieds', "'").replace('pied', "'")
+            mesure_str = mesure_str.replace('in', '"').replace('pouces', '"').replace('pouce', '"')
+            
+            if mesure_str == "0":
+                return 0.0
+            
+            total_pieds = 0.0
+            
+            # Pattern pour parsing
+            pattern = re.compile(
+                r"^\s*(?:(?P<feet>\d+(?:\.\d+)?)\s*(?:'|\sft|\spieds?)?)?"
+                r"\s*(?:(?P<inches>\d+(?:\.\d+)?)\s*(?:\"|\sin|\spouces?)?)?"
+                r"\s*(?:(?P<frac_num>\d+)\s*\/\s*(?P<frac_den>\d+)\s*(?:\"|\sin|\spouces?)?)?\s*$"
+            )
+            
+            match = pattern.match(mesure_str)
+            
+            if match and (match.group('feet') or match.group('inches') or match.group('frac_num')):
+                pieds = float(match.group('feet')) if match.group('feet') else 0.0
+                pouces = float(match.group('inches')) if match.group('inches') else 0.0
+                
+                if match.group('frac_num') and match.group('frac_den'):
+                    num, den = int(match.group('frac_num')), int(match.group('frac_den'))
+                    if den != 0:
+                        pouces += num / den
+                
+                total_pieds = pieds + (pouces / 12.0)
+            
+            return total_pieds
+            
+        except Exception:
             return 0.0
-        
-        total_pieds = 0.0
-        
-        # Pattern pour parsing
-        pattern = re.compile(
-            r"^\s*(?:(?P<feet>\d+(?:\.\d+)?)\s*(?:'|\sft|\spieds?)?)?"
-            r"\s*(?:(?P<inches>\d+(?:\.\d+)?)\s*(?:\"|\sin|\spouces?)?)?"
-            r"\s*(?:(?P<frac_num>\d+)\s*\/\s*(?P<frac_den>\d+)\s*(?:\"|\sin|\spouces?)?)?\s*$"
-        )
-        
-        match = pattern.match(mesure_str)
-        
-        if match and (match.group('feet') or match.group('inches') or match.group('frac_num')):
-            pieds = float(match.group('feet')) if match.group('feet') else 0.0
-            pouces = float(match.group('inches')) if match.group('inches') else 0.0
-            
-            if match.group('frac_num') and match.group('frac_den'):
-                num, den = int(match.group('frac_num')), int(match.group('frac_den'))
-                if den != 0:
-                    pouces += num / den
-            
-            total_pieds = pieds + (pouces / 12.0)
-        
-        return total_pieds
-        
-    except Exception:
-        return 0.0
 
-def convertir_imperial_vers_metrique(mesure_imperial: str) -> float:
-    """Convertit une mesure impériale en mètres"""
-    pieds = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperial)
-    return pieds * 0.3048  # 1 pied = 0.3048 mètres
-
+    def convertir_imperial_vers_metrique(self, mesure_imperial: str) -> float:
+        """Convertit une mesure impériale en mètres"""
+        pieds = self.convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperial)
+        return pieds * 0.3048  # 1 pied = 0.3048 mètres
