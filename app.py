@@ -2752,6 +2752,15 @@ def show_erp_main():
         else:
             st.error("❌ Module Production non disponible")
             st.info("Le module production_management.py est requis pour cette fonctionnalité.")
+            
+    # NOUVEAU : ROUTAGE INVENTAIRE - AJOUTEZ ICI
+    elif page_to_show_val == "inventory_page":
+        if INVENTORY_AVAILABLE:
+            show_inventory_page()
+        else:
+            st.error("❌ Module Inventaire non disponible")
+            st.info("Le module inventory.py est requis pour cette fonctionnalité.")
+    
     elif page_to_show_val == "timetracker_admin_complete":
         # TimeTracker Pro Unifié (CORRECTION: une seule interface)
         if TIMETRACKER_AVAILABLE:
