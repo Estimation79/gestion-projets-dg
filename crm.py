@@ -1,5 +1,5 @@
-# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + ADRESSES STRUCTURÉES + INVENTAIRE ---
-# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis + Adresses Structurées + Intégration Inventaire
+# --- START OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + ADRESSES STRUCTURÉES ---
+# CRM Module pour ERP Production DG Inc. - Architecture SQLite + Devis + Adresses Structurées
 
 import json
 import os
@@ -20,7 +20,6 @@ class GestionnaireCRM:
     + SYSTÈME DEVIS INTÉGRÉ utilisant l'infrastructure formulaires existante
     + SUPPRESSION DE DEVIS avec sécurité et traçabilité
     + ADRESSES STRUCTURÉES (adresse, ville, province, code_postal, pays)
-    + INTÉGRATION INVENTAIRE pour les devis (recherche et ajout de produits)
     """
     
     def __init__(self, db=None, project_manager=None):
@@ -924,30 +923,8 @@ class GestionnaireCRM:
             return []
 
     # =========================================================================
-    # SYSTÈME DE DEVIS INTÉGRÉ - UTILISE L'INFRASTRUCTURE FORMULAIRES + INVENTAIRE
+    # SYSTÈME DE DEVIS INTÉGRÉ - UTILISE L'INFRASTRUCTURE FORMULAIRES
     # =========================================================================
-    
-    def get_inventory_items_for_selection(self):
-        """Récupère les articles d'inventaire pour sélection dans les devis"""
-        if not self.use_sqlite:
-            return []
-        
-        try:
-            # Requête pour récupérer les articles d'inventaire disponibles
-            query = '''
-                SELECT id, code_interne, nom, description, quantite_metric, 
-                       prix_vente_unitaire, unite_mesure
-                FROM inventory_items 
-                WHERE statut = 'ACTIF' AND quantite_metric > 0
-                ORDER BY nom
-            '''
-            
-            rows = self.db.execute_query(query)
-            return [dict(row) for row in rows] if rows else []
-            
-        except Exception as e:
-            st.error(f"Erreur récupération articles inventaire: {e}")
-            return []
     
     def generer_numero_devis(self):
         """
@@ -995,7 +972,6 @@ class GestionnaireCRM:
         """
         Crée un nouveau devis en utilisant la table formulaires existante
         Supporte le mode compatibilité ESTIMATION si DEVIS n'est pas disponible
-        + SUPPORT INVENTAIRE pour les lignes
         
         Args:
             devis_data: {
@@ -1010,8 +986,7 @@ class GestionnaireCRM:
                         'description': str,
                         'quantite': float,
                         'prix_unitaire': float,
-                        'unite': str,
-                        'inventory_item_id': int (optionnel)
+                        'unite': str
                     }
                 ]
             }
@@ -1217,7 +1192,7 @@ class GestionnaireCRM:
             return False
     
     def ajouter_ligne_devis(self, devis_id: int, sequence: int, ligne_data: Dict[str, Any]) -> Optional[int]:
-        """Ajoute une ligne à un devis (avec support ID inventaire) - MODIFIÉ"""
+        """Ajoute une ligne à un devis"""
         if not self.use_sqlite:
             return None
         
@@ -1225,8 +1200,8 @@ class GestionnaireCRM:
             query = '''
                 INSERT INTO formulaire_lignes
                 (formulaire_id, sequence_ligne, description, code_article,
-                 quantite, unite, prix_unitaire, notes_ligne, inventory_item_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 quantite, unite, prix_unitaire, notes_ligne)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             '''
             
             ligne_id = self.db.execute_insert(query, (
@@ -1237,8 +1212,7 @@ class GestionnaireCRM:
                 ligne_data['quantite'],
                 ligne_data.get('unite', 'UN'),
                 ligne_data['prix_unitaire'],
-                ligne_data.get('notes', ''),
-                ligne_data.get('inventory_item_id', None)  # NOUVEAU: ID article inventaire
+                ligne_data.get('notes', '')
             ))
             
             return ligne_id
@@ -1248,7 +1222,7 @@ class GestionnaireCRM:
             return None
     
     def get_devis_complet(self, devis_id: int) -> Dict[str, Any]:
-        """Récupère un devis avec tous ses détails (avec infos inventaire) - MODIFIÉ"""
+        """Récupère un devis avec tous ses détails"""
         if not self.use_sqlite:
             return {}
         
@@ -1281,13 +1255,11 @@ class GestionnaireCRM:
             if devis.get('client_nom'):
                 devis['client_adresse_complete'] = self.format_adresse_complete(devis)
             
-            # Récupérer les lignes avec jointure sur l'inventaire - MODIFIÉ
+            # Récupérer les lignes
             query_lignes = '''
-                SELECT fl.*, ii.nom as inventory_item_nom, ii.code_interne as inventory_item_code
-                FROM formulaire_lignes fl
-                LEFT JOIN inventory_items ii ON fl.inventory_item_id = ii.id
-                WHERE fl.formulaire_id = ? 
-                ORDER BY fl.sequence_ligne
+                SELECT * FROM formulaire_lignes 
+                WHERE formulaire_id = ? 
+                ORDER BY sequence_ligne
             '''
             lignes = self.db.execute_query(query_lignes, (devis_id,))
             devis['lignes'] = [dict(ligne) for ligne in lignes]
@@ -1809,7 +1781,7 @@ class GestionnaireCRM:
         self.sauvegarder_donnees_crm()
         return True
 
-# --- Fonctions d'affichage Streamlit avec adresses structurées + INVENTAIRE ---
+# --- Fonctions d'affichage Streamlit avec adresses structurées ---
 
 def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
     st.subheader("👤 Liste des Contacts")
@@ -2525,11 +2497,11 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
         st.rerun()
 
 # =========================================================================
-# FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS AVEC SUPPRESSION + INVENTAIRE
+# FONCTIONS D'AFFICHAGE STREAMLIT POUR DEVIS AVEC SUPPRESSION
 # =========================================================================
 
 def render_crm_devis_tab(crm_manager: GestionnaireCRM):
-    """Interface Streamlit pour la gestion des devis avec intégration inventaire"""
+    """Interface Streamlit pour la gestion des devis avec suppression"""
     if not crm_manager.use_sqlite:
         st.warning("⚠️ Le système de devis n'est disponible qu'en mode SQLite.")
         return
@@ -2697,7 +2669,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
     with tab2:
         st.subheader("Créer un Nouveau Devis")
 
-        # --- PARTIE 1 : AJOUT INTERACTIF DES LIGNES (MODIFIÉ POUR INVENTAIRE) ---
+        # --- PARTIE 1 : AJOUT INTERACTIF DES LIGNES (HORS FORMULAIRE) ---
         st.markdown("##### Étape 1 : Ajouter les lignes du devis")
         
         # Initialisation du conteneur de lignes dans la session
@@ -2706,58 +2678,29 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
 
         # Formulaire pour ajouter une ligne (pour l'organisation visuelle)
         with st.container(border=True):
-            st.markdown("**Ajouter une ligne à partir de l'inventaire**")
-            
-            # Récupérer les articles de l'inventaire pour la sélection
-            inventory_items = crm_manager.get_inventory_items_for_selection()
-            item_options = [None] + inventory_items
-            
-            selected_item = st.selectbox(
-                "Rechercher un produit dans l'inventaire...",
-                options=item_options,
-                format_func=lambda item: f"({item['code_interne']}) {item['nom']} - {item['quantite_metric']:.2f} {item.get('unite_mesure', 'UN')} en stock - {item['prix_vente_unitaire']:.2f} $" if item else "Sélectionner un produit...",
-                key="inventory_item_selector"
-            )
-
-            # Pré-remplir les champs si un article est sélectionné
-            default_desc = ""
-            default_price = 0.0
-            item_id_to_add = None
-            code_article_to_add = ""
-
-            if selected_item:
-                default_desc = selected_item.get('description') or selected_item.get('nom')
-                default_price = selected_item.get('prix_vente_unitaire', 0.0)
-                item_id_to_add = selected_item.get('id')
-                code_article_to_add = selected_item.get('code_interne')
-
-            # Formulaire d'ajout de la ligne
-            col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([4, 1, 1, 1, 1])
+            col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
             with col_ligne1:
-                description = st.text_input("Description", value=default_desc, key="ligne_description")
+                description = st.text_input("Description", key="ligne_description")
             with col_ligne2:
                 quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="ligne_quantite", format="%.2f")
             with col_ligne3:
-                unite = st.selectbox("Unité", options=["UN", "H", "JOUR", "M", "KG", "FORFAIT"], key="ligne_unite")
+                unite = st.selectbox("Unité", options=["UN", "H", "JOUR", "FORFAIT"], key="ligne_unite")
             with col_ligne4:
-                prix_unitaire = st.number_input("Prix U.", min_value=0.0, value=default_price, step=0.01, key="ligne_prix", format="%.2f")
+                prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="ligne_prix", format="%.2f")
             with col_ligne5:
-                st.write("") 
+                st.write("") # Espace pour aligner le bouton
                 if st.button("➕ Ajouter", key="ajouter_ligne_btn", use_container_width=True):
                     if description and quantite > 0:
                         st.session_state.devis_lignes.append({
                             'description': description,
                             'quantite': quantite,
                             'unite': unite,
-                            'prix_unitaire': prix_unitaire,
-                            'inventory_item_id': item_id_to_add,  # Ajout de l'ID
-                            'code_article': code_article_to_add
+                            'prix_unitaire': prix_unitaire
                         })
-                        # On ne fait pas de rerun pour permettre d'ajouter plusieurs lignes rapidement
-                        st.success(f"Ligne '{description[:30]}...' ajoutée.")
+                        # Pas besoin de rerun ici, Streamlit rafraîchira la partie ci-dessous
                     else:
                         st.warning("La description et la quantité sont requises.")
-
+        
         # Affichage des lignes déjà ajoutées
         if st.session_state.devis_lignes:
             st.markdown("**Lignes du devis :**")
@@ -2768,12 +2711,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
                     with col_disp:
                         montant = ligne['quantite'] * ligne['prix_unitaire']
                         total_ht_preview += montant
-                        
-                        # Affichage différent si la ligne vient de l'inventaire
-                        if ligne.get('inventory_item_id'):
-                            st.markdown(f"📦 ({ligne['code_article']}) {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
-                        else:
-                            st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
+                        st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
                     with col_del:
                         if st.button("🗑️", key=f"remove_ligne_{i}", help="Supprimer la ligne"):
                             st.session_state.devis_lignes.pop(i)
@@ -2867,7 +2805,7 @@ def render_crm_devis_tab(crm_manager: GestionnaireCRM):
             st.info("Aucune donnée de devis disponible pour les statistiques.")
 
 def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
-    """Affiche les détails d'un devis avec option de suppression + infos inventaire"""
+    """Affiche les détails d'un devis avec option de suppression"""
     if not devis_data:
         st.error("Devis non trouvé.")
         return
@@ -2903,17 +2841,13 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
     with col_total3:
         st.metric("Total TTC", f"{totaux.get('total_ttc', 0):,.2f} $")
 
-    # Lignes du devis - MODIFIÉ POUR INVENTAIRE
+    # Lignes du devis
     st.markdown("### 📋 Lignes du Devis")
     if devis_data.get('lignes'):
         lignes_df_data = []
         for ligne in devis_data['lignes']:
-            # Indiquer si l'article vient de l'inventaire
-            is_inventory_item = ligne.get('inventory_item_id') is not None
-            desc_prefix = f"📦 ({ligne.get('inventory_item_code')}) " if is_inventory_item else ""
-            
             lignes_df_data.append({
-                "Description": desc_prefix + ligne.get('description', ''),
+                "Description": ligne.get('description', ''),
                 "Quantité": ligne.get('quantite', 0),
                 "Unité": ligne.get('unite', ''),
                 "Prix unitaire": f"{ligne.get('prix_unitaire', 0):,.2f} $",
@@ -3025,7 +2959,7 @@ def render_crm_devis_details(crm_manager: GestionnaireCRM, devis_data):
         st.rerun()
 
 def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
-    """Formulaire de modification d'un devis existant avec support inventaire"""
+    """Formulaire de modification d'un devis existant"""
     if not devis_data:
         st.error("Devis non trouvé pour modification.")
         return
@@ -3046,46 +2980,20 @@ def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
         st.session_state.edit_devis_lignes = devis_data.get('lignes', [])
         st.session_state.edit_devis_id = devis_data['id']
 
-    # --- PARTIE 1 : GESTION DES LIGNES (AVEC INVENTAIRE) ---
+    # --- PARTIE 1 : GESTION DES LIGNES (COMME DANS LA CRÉATION) ---
     st.markdown("##### Lignes du devis")
     
-    # Section pour ajouter des articles depuis l'inventaire
+    # Formulaire pour ajouter/modifier une ligne
     with st.container(border=True):
-        st.markdown("**Ajouter un article de l'inventaire**")
-        
-        # Récupérer les articles de l'inventaire
-        inventory_items = crm_manager.get_inventory_items_for_selection()
-        item_options = [None] + inventory_items
-        
-        selected_item = st.selectbox(
-            "Rechercher un produit...",
-            options=item_options,
-            format_func=lambda item: f"({item['code_interne']}) {item['nom']} - {item['quantite_metric']:.2f} {item.get('unite_mesure', 'UN')} en stock - {item['prix_vente_unitaire']:.2f} $" if item else "Sélectionner un produit...",
-            key="edit_inventory_item_selector"
-        )
-
-        # Pré-remplir les champs si un article est sélectionné
-        default_desc = ""
-        default_price = 0.0
-        item_id_to_add = None
-        code_article_to_add = ""
-
-        if selected_item:
-            default_desc = selected_item.get('description') or selected_item.get('nom')
-            default_price = selected_item.get('prix_vente_unitaire', 0.0)
-            item_id_to_add = selected_item.get('id')
-            code_article_to_add = selected_item.get('code_interne')
-
-        # Formulaire pour ajouter/modifier une ligne
         col_ligne1, col_ligne2, col_ligne3, col_ligne4, col_ligne5 = st.columns([3, 1, 1, 1, 1])
         with col_ligne1:
-            description = st.text_input("Description", value=default_desc, key="edit_ligne_description")
+            description = st.text_input("Description", key="edit_ligne_description")
         with col_ligne2:
             quantite = st.number_input("Qté", min_value=0.01, value=1.0, step=0.1, key="edit_ligne_quantite", format="%.2f")
         with col_ligne3:
-            unite = st.selectbox("Unité", options=["UN", "H", "JOUR", "M", "KG", "FORFAIT"], key="edit_ligne_unite")
+            unite = st.selectbox("Unité", options=["UN", "H", "JOUR", "FORFAIT"], key="edit_ligne_unite")
         with col_ligne4:
-            prix_unitaire = st.number_input("Prix U.", min_value=0.0, value=default_price, step=0.01, key="edit_ligne_prix", format="%.2f")
+            prix_unitaire = st.number_input("Prix U.", min_value=0.0, step=0.01, key="edit_ligne_prix", format="%.2f")
         with col_ligne5:
             st.write("")
             if st.button("➕ Ajouter", key="edit_ajouter_ligne_btn", use_container_width=True):
@@ -3094,9 +3002,7 @@ def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
                         'description': description,
                         'quantite': quantite,
                         'unite': unite,
-                        'prix_unitaire': prix_unitaire,
-                        'inventory_item_id': item_id_to_add,
-                        'code_article': code_article_to_add
+                        'prix_unitaire': prix_unitaire
                     })
                     st.rerun()
                 else:
@@ -3112,12 +3018,7 @@ def render_crm_devis_edit_form(crm_manager: GestionnaireCRM, devis_data):
                 with col_disp:
                     montant = ligne['quantite'] * ligne['prix_unitaire']
                     total_ht_preview += montant
-                    
-                    # Affichage différent si la ligne vient de l'inventaire
-                    if ligne.get('inventory_item_id'):
-                        st.markdown(f"📦 ({ligne.get('code_article', ligne.get('inventory_item_code', ''))}) {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
-                    else:
-                        st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
+                    st.write(f"• {ligne['description']} ({ligne['quantite']} {ligne['unite']} x {ligne['prix_unitaire']:.2f} $) = **{montant:.2f} $**")
                 with col_del:
                     if st.button("🗑️", key=f"edit_remove_ligne_{i}", help="Supprimer la ligne"):
                         st.session_state.edit_devis_lignes.pop(i)
@@ -3297,20 +3198,20 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
         render_crm_devis_edit_form(crm_manager, devis_data)
 
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
-    """Interface principale CRM avec support des devis et suppression + inventaire"""
+    """Interface principale CRM avec support des devis et suppression"""
     
     st.title("📋 Gestion CRM")
     
     # Vérification du mode
     if crm_manager.use_sqlite:
-        st.success("✅ Mode SQLite actif - Toutes les fonctionnalités disponibles (avec intégration inventaire)")
+        st.success("✅ Mode SQLite actif - Toutes les fonctionnalités disponibles")
         
         # Bouton de diagnostic (en développement)
         if st.checkbox("🔍 Afficher diagnostic base de données"):
             debug_info = crm_manager.debug_database_structure()
             st.json(debug_info)
     else:
-        st.warning("⚠️ Mode JSON (rétrocompatibilité) - Fonctionnalités devis et inventaire limitées")
+        st.warning("⚠️ Mode JSON (rétrocompatibilité) - Fonctionnalités devis limitées")
     
     # Menu principal avec devis
     if crm_manager.use_sqlite:
@@ -3457,7 +3358,7 @@ def main_crm_interface(db_instance=None, project_manager_instance=None):
 def demo_crm_with_devis():
     """Démonstration du système CRM avec devis"""
     
-    st.title("🎯 Démonstration CRM + Devis + Adresses Structurées + Inventaire")
+    st.title("🎯 Démonstration CRM + Devis + Adresses Structurées")
     
     # Note: En production, vous initialiseriez avec votre instance ERPDatabase réelle
     # from erp_database import ERPDatabase
@@ -3469,7 +3370,7 @@ def demo_crm_with_devis():
     # Pour la démo, utilisation du mode JSON (sans devis)
     crm_manager = GestionnaireCRM()
     
-    st.info("💡 Cette démonstration utilise le mode JSON. Pour les devis et l'intégration inventaire, il faut un environnement SQLite avec ERPDatabase et GestionnaireProjetSQL.")
+    st.info("💡 Cette démonstration utilise le mode JSON. Pour les devis, il faut un environnement SQLite avec ERPDatabase et GestionnaireProjetSQL.")
     
     # Afficher les statistiques
     stats = get_crm_statistics_summary(crm_manager)
@@ -3555,4 +3456,4 @@ if __name__ == "__main__":
         st.info("Lancement en mode démo JSON de secours.")
         demo_crm_with_devis()
 
-# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + ADRESSES STRUCTURÉES + INVENTAIRE COMPLÈTE ---
+# --- END OF FILE crm.py - VERSION SQLITE UNIFIÉE + SYSTÈME DEVIS INTÉGRÉ + ADRESSES STRUCTURÉES COMPLÈTE ---
