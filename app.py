@@ -4318,6 +4318,14 @@ def show_footer():
 # ========================
 
 def main():
+    # IMMÉDIATEMENT au début
+    force_green_theme()
+    
+    # Puis charger le CSS
+    css_loaded = load_external_css()
+    if not css_loaded:
+        apply_fallback_styles()
+    
     """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ"""
 
     # NOUVEAU : Charger le CSS externe en priorité
