@@ -3200,7 +3200,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
     """Interface principale CRM avec support des devis et suppression"""
     
-    st.title("📋 Gestion CRM + Devis + Adresses Structurées")
+    st.title("📋 Gestion CRM")
     
     # Vérification du mode
     if crm_manager.use_sqlite:
