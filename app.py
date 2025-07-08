@@ -75,186 +75,19 @@ def clean_price_for_sum(price_value):
     except (ValueError, TypeError):
         return 0.0
 
-# ============================================================
-# SOLUTION SIMPLE - Remplacez votre fonction load_external_css() par celle-ci
-# ============================================================
-
 def load_external_css():
-    """Charge le fichier CSS externe pour un design uniforme + correction thème vert"""
+    """Charge le fichier CSS externe pour un design uniforme"""
     try:
         with open('style.css', 'r', encoding='utf-8') as f:
             css_content = f.read()
         st.markdown(f'<style>{css_content}</style>', unsafe_allow_html=True)
-        
-        # NOUVEAU : Correction immédiate du thème vert (CSS + JavaScript)
-        st.markdown("""
-        <style>
-        /* Correction immédiate des éléments rouges */
-        *[style*="rgb(255, 75, 75)"],
-        *[style*="#ff4b4b"] {
-            background-color: var(--primary-color) !important;
-            color: white !important;
-            border-color: var(--primary-color) !important;
-        }
-        
-        .stRadio input[type="radio"]:checked + div,
-        .stRadio label[data-checked="true"] > div,
-        div[data-baseweb="radio"] > div {
-            background-color: var(--primary-color) !important;
-            border-color: var(--primary-color) !important;
-        }
-        
-        div[data-testid="stTabs"] button[aria-selected="true"] {
-            background-color: var(--primary-color-lighter) !important;
-            color: var(--primary-color-darker) !important;
-        }
-        </style>
-        
-        <script>
-        // Correction JavaScript pour les éléments dynamiques
-        function fixRedElements() {
-            const GREEN_PRIMARY = '#00A971';
-            const GREEN_LIGHT = '#DCFCE7';
-            const GREEN_DARK = '#00673D';
-            
-            // Traiter tous les éléments
-            document.querySelectorAll('*').forEach(element => {
-                const style = window.getComputedStyle(element);
-                
-                // Corriger background rouge
-                if (style.backgroundColor === 'rgb(255, 75, 75)' || 
-                    style.backgroundColor === '#ff4b4b') {
-                    element.style.setProperty('background-color', GREEN_PRIMARY, 'important');
-                }
-                
-                // Corriger color rouge
-                if (style.color === 'rgb(255, 75, 75)' || 
-                    style.color === '#ff4b4b') {
-                    element.style.setProperty('color', 'white', 'important');
-                }
-                
-                // Corriger border rouge
-                if (style.borderColor === 'rgb(255, 75, 75)' || 
-                    style.borderColor === '#ff4b4b') {
-                    element.style.setProperty('border-color', GREEN_PRIMARY, 'important');
-                }
-                
-                // Corriger styles inline
-                const inlineStyle = element.getAttribute('style');
-                if (inlineStyle && (inlineStyle.includes('rgb(255, 75, 75)') || 
-                    inlineStyle.includes('#ff4b4b'))) {
-                    const newStyle = inlineStyle
-                        .replace(/rgb\\(255,\\s*75,\\s*75\\)/g, GREEN_PRIMARY)
-                        .replace(/#ff4b4b/g, GREEN_PRIMARY);
-                    element.setAttribute('style', newStyle);
-                }
-            });
-        }
-        
-        // Exécuter maintenant et répéter
-        fixRedElements();
-        setInterval(fixRedElements, 1000);
-        
-        // Observer les changements
-        if (typeof window.redFixObserver === 'undefined') {
-            window.redFixObserver = new MutationObserver(fixRedElements);
-            window.redFixObserver.observe(document.body, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['style', 'aria-selected']
-            });
-        }
-        </script>
-        """, unsafe_allow_html=True)
-        
         return True
     except FileNotFoundError:
         st.warning("⚠️ Fichier style.css non trouvé. Utilisation du style par défaut.")
-        
-        # Même en cas d'erreur, appliquer la correction
-        st.markdown("""
-        <style>
-        *[style*="rgb(255, 75, 75)"], *[style*="#ff4b4b"] {
-            background-color: #00A971 !important;
-            color: white !important;
-        }
-        </style>
-        <script>
-        setInterval(function() {
-            document.querySelectorAll('*').forEach(el => {
-                const style = window.getComputedStyle(el);
-                if (style.backgroundColor === 'rgb(255, 75, 75)') {
-                    el.style.setProperty('background-color', '#00A971', 'important');
-                }
-            });
-        }, 1000);
-        </script>
-        """, unsafe_allow_html=True)
-        
         return False
-
-# ============================================================
-# ALTERNATIVE ENCORE PLUS SIMPLE - Si vous préférez
-# ============================================================
-
-def apply_fallback_styles():
-    """Styles CSS de secours si le fichier externe n'est pas disponible"""
-    st.markdown("""
-    <style>
-    /* Styles de secours minimaux + correction rouge */
-    :root {
-        --primary-color: #00A971;
-        --primary-color-light: #33BF85;
-        --primary-color-lighter: #DCFCE7;
-        --text-color: #374151;
-        --background-color: #F9FAFB;
-        --card-background: #F0FDF4;
-        --border-radius-lg: 0.75rem;
-        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-    }
-    
-    /* CORRECTION IMMÉDIATE DES ROUGES */
-    *[style*="rgb(255, 75, 75)"],
-    *[style*="#ff4b4b"],
-    *[style*="255, 75, 75"] {
-        background-color: var(--primary-color) !important;
-        color: white !important;
-        border-color: var(--primary-color) !important;
-    }
-    
-    .stRadio input[type="radio"]:checked + div,
-    .stRadio label[data-checked="true"] > div,
-    div[data-baseweb="radio"] > div {
-        background-color: var(--primary-color) !important;
-        border-color: var(--primary-color) !important;
-    }
-    
-    .stButton > button {
-        background: linear-gradient(145deg, #00A971 0%, #1F2937 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: var(--border-radius-lg) !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    /* Masquer éléments Streamlit */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .css-1d391kg {display: none;}
-    </style>
-    
-    <script>
-    // Correction automatique continue
-    setInterval(function() {
-        document.querySelectorAll('*[style*="255, 75, 75"], *[style*="#ff4b4b"]').forEach(function(el) {
-            el.style.setProperty('background-color', '#00A971', 'important');
-            el.style.setProperty('color', 'white', 'important');
-            el.style.setProperty('border-color', '#00A971', 'important');
-        });
-    }, 500);
-    </script>
-    """, unsafe_allow_html=True)
+    except Exception as e:
+        st.warning(f"⚠️ Erreur chargement CSS: {e}")
+        return False
 
 def apply_fallback_styles():
     """Styles CSS de secours si le fichier externe n'est pas disponible"""
@@ -4485,14 +4318,6 @@ def show_footer():
 # ========================
 
 def main():
-    # IMMÉDIATEMENT au début
-    force_green_theme()
-    
-    # Puis charger le CSS
-    css_loaded = load_external_css()
-    if not css_loaded:
-        apply_fallback_styles()
-    
     """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ"""
 
     # NOUVEAU : Charger le CSS externe en priorité
