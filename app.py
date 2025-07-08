@@ -467,7 +467,7 @@ def show_admin_header():
 
     st.markdown(f"""
     <div class="admin-welcome">
-        <h3>🏭 ERP Production DG Inc. - Mode Administrateur</h3>
+        <h3>🏭 ERP - Mode Administrateur</h3>
         <p>Bienvenue <strong>{display_name}</strong> ! {session_info}</p>
     </div>
     """, unsafe_allow_html=True)
