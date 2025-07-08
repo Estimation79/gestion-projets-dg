@@ -80,8 +80,13 @@ except ImportError:
 try:
     from erp_database import ERPDatabase, convertir_pieds_pouces_fractions_en_valeur_decimale, convertir_imperial_vers_metrique
     ERP_DATABASE_AVAILABLE = True
-except ImportError:
+    print("✅ Module erp_database chargé avec succès")
+except ImportError as e:
     ERP_DATABASE_AVAILABLE = False
+    print(f"❌ Module erp_database non disponible: {e}")
+except Exception as e:
+    ERP_DATABASE_AVAILABLE = False
+    print(f"❌ Erreur lors du chargement de erp_database: {e}")
 
 # NOUVEAU : Import du module unifié
 try:
@@ -174,13 +179,96 @@ except ImportError:
 # INITIALISATION CENTRALE DU SYSTÈME (NOUVELLE FONCTION CLÉ)
 # ========================
 
+def check_required_modules():
+    """Vérifie la disponibilité des modules requis et affiche un diagnostic"""
+    st.markdown("### 🔍 Diagnostic des Modules")
+    
+    modules_status = [
+        ("📊 ERPDatabase", ERP_DATABASE_AVAILABLE, "erp_database.py", "Base de données SQLite principale"),
+        ("💾 Stockage Persistant", PERSISTENT_STORAGE_AVAILABLE, "database_persistent.py", "Gestion du stockage persistant"),
+        ("🏭 Production", PRODUCTION_MANAGEMENT_AVAILABLE, "production_management.py", "Module de gestion de production"),
+        ("🤝 CRM", CRM_AVAILABLE, "crm.py", "Gestion de la relation client"),
+        ("👥 Employés", EMPLOYEES_AVAILABLE, "employees.py", "Gestion des employés"),
+        ("📑 Formulaires", FORMULAIRES_AVAILABLE, "formulaires.py", "Gestion des formulaires"),
+        ("🏪 Fournisseurs", FOURNISSEURS_AVAILABLE, "fournisseurs.py", "Gestion des fournisseurs"),
+        ("⏱️ TimeTracker", TIMETRACKER_AVAILABLE, "timetracker_unified.py", "Suivi du temps de travail"),
+        ("🔄 Kanban", KANBAN_AVAILABLE, "kanban.py", "Vue Kanban des projets"),
+        ("📎 Pièces Jointes", ATTACHMENTS_AVAILABLE, "attachments_manager.py", "Gestion des fichiers"),
+        ("📦 Inventaire", INVENTORY_AVAILABLE, "inventory.py", "Gestion de l'inventaire")
+    ]
+    
+    # Modules critiques (obligatoires)
+    critical_modules = ["📊 ERPDatabase"]
+    
+    all_good = True
+    missing_critical = []
+    
+    for name, available, filename, description in modules_status:
+        col1, col2, col3 = st.columns([1, 2, 3])
+        
+        with col1:
+            if available:
+                st.success(f"✅ {name}")
+            else:
+                st.error(f"❌ {name}")
+                if name in critical_modules:
+                    missing_critical.append((name, filename))
+                all_good = False
+        
+        with col2:
+            st.code(filename)
+        
+        with col3:
+            st.write(description)
+    
+    st.markdown("---")
+    
+    if missing_critical:
+        st.error("🚨 **Modules critiques manquants !**")
+        st.markdown("Les modules suivants sont **obligatoires** pour le fonctionnement de l'application :")
+        
+        for name, filename in missing_critical:
+            st.markdown(f"- **{name}** : `{filename}`")
+        
+        st.markdown("### 📝 Instructions de résolution")
+        st.markdown("""
+        1. **Vérifiez que tous les fichiers sont présents** dans le répertoire de l'application
+        2. **Téléchargez les modules manquants** depuis votre source de code
+        3. **Redémarrez l'application** après avoir ajouté les fichiers
+        4. **Contactez le support technique** si le problème persiste
+        """)
+        
+        return False
+    
+    elif not all_good:
+        st.warning("⚠️ **Certains modules optionnels sont manquants**")
+        st.info("L'application peut fonctionner, mais certaines fonctionnalités seront limitées.")
+        return True
+    
+    else:
+        st.success("🎉 **Tous les modules sont disponibles !**")
+        st.info("L'application est prête à être utilisée avec toutes ses fonctionnalités.")
+        return True
+
 def initialize_core_services():
     """
     Initialise la base de données et tous les gestionnaires de modules.
     Cette fonction est le cœur du démarrage de l'application.
     Elle garantit que tout est prêt avant l'affichage de l'interface.
     """
-    # 1. Initialiser le stockage persistant si disponible
+    # 1. Vérification des modules critiques
+    if not ERP_DATABASE_AVAILABLE:
+        st.error("❌ Module ERPDatabase non disponible")
+        st.info("Le fichier `erp_database.py` est requis pour utiliser cette application.")
+        
+        # Afficher le diagnostic complet
+        if st.button("🔍 Voir le diagnostic complet des modules"):
+            check_required_modules()
+        
+        st.info("Veuillez vous assurer que le module est présent dans le répertoire.")
+        st.stop()
+    
+    # 2. Initialiser le stockage persistant si disponible
     if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
         try:
             st.session_state.storage_manager = init_persistent_storage()
@@ -199,8 +287,8 @@ def initialize_core_services():
     else:
         db_path = st.session_state.storage_manager.db_path if st.session_state.get('storage_manager') else "erp_production_dg.db"
 
-    # 2. Initialiser la base de données
-    if ERP_DATABASE_AVAILABLE and 'erp_db' not in st.session_state:
+    # 3. Initialiser la base de données
+    if 'erp_db' not in st.session_state:
         try:
             st.session_state.erp_db = ERPDatabase(db_path)
             
@@ -220,14 +308,12 @@ def initialize_core_services():
                 except Exception as e:
                     print(f"⚠️ Erreur sauvegarde de démarrage: {e}")
                     
+            st.toast("🗄️ Base de données initialisée avec succès", icon="✅")
+                    
         except Exception as e:
             st.error(f"❌ Erreur critique de connexion à la base de données: {e}")
+            st.info("Vérifiez que le fichier de base de données est accessible et que les permissions sont correctes.")
             st.stop()  # Arrête l'application si la DB est inaccessible
-
-    # Si la DB n'est pas prête, on ne peut pas continuer.
-    if 'erp_db' not in st.session_state:
-        st.error("❌ ERPDatabase non disponible - Initialisation impossible.")
-        st.stop()
     
     db = st.session_state.erp_db
 
@@ -2109,6 +2195,25 @@ def show_portal_home():
             st.session_state.app_mode = "admin_auth"
             st.rerun()
 
+    # Section diagnostic
+    st.markdown("---")
+    st.markdown("### 🔧 Outils de Diagnostic")
+    
+    diagnostic_col1, diagnostic_col2 = st.columns(2)
+    
+    with diagnostic_col1:
+        if st.button("🔍 Diagnostic des Modules", use_container_width=True):
+            st.session_state.app_mode = "diagnostic"
+            st.rerun()
+    
+    with diagnostic_col2:
+        # Affichage rapide du statut
+        modules_ok = ERP_DATABASE_AVAILABLE
+        if modules_ok:
+            st.success("✅ Modules critiques disponibles")
+        else:
+            st.error("❌ Modules critiques manquants")
+
     # Footer
     st.markdown("---")
     st.markdown("""
@@ -3342,7 +3447,7 @@ def _validate_project_id_format(project_id):
     
     # Autoriser lettres, chiffres, tirets et underscore
     # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}
     return bool(re.match(pattern, project_id.strip()))
 
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
@@ -3413,7 +3518,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             try:
                 prix_str = str(project_data.get('prix_estime', '0'))
                 # Nettoyer la chaîne de tous les caractères non numériques sauf le point décimal
-                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace('$', '')
+                prix_str = prix_str.replace(' ', '').replace(',', '.').replace('€', '').replace(', '')
                 # Traitement des formats de prix différents
                 if ',' in prix_str and ('.' not in prix_str or prix_str.find(',') > prix_str.find('.')):
                     prix_str = prix_str.replace('.', '').replace(',', '.')
@@ -4275,28 +4380,61 @@ def main():
     if st.session_state.app_mode in ["employee", "erp"]:
         initialize_core_services()
 
-    # Routage selon le mode
-    if st.session_state.app_mode == "portal":
-        show_portal_home()
-
-    elif st.session_state.app_mode == "employee":
-        show_employee_interface()
-
-    elif st.session_state.app_mode == "admin_auth":
-        show_admin_auth()
-
-    elif st.session_state.app_mode == "erp":
-        if check_admin_session():
-            show_erp_main()
-        else:
-            st.error("Session expirée. Veuillez vous reconnecter.")
-            st.session_state.app_mode = "admin_auth"
-            st.rerun()
-
-    else:
-        # Mode par défaut - retour au portail
+def show_diagnostic_page():
+    """Affiche la page de diagnostic des modules"""
+    st.markdown("### 🔍 Diagnostic du Système")
+    
+    if st.button("🏠 Retour au Portail", use_container_width=True):
         st.session_state.app_mode = "portal"
         st.rerun()
+    
+    st.markdown("---")
+    
+    # Diagnostic complet
+    modules_ok = check_required_modules()
+    
+    if modules_ok:
+        st.markdown("### ✅ Actions Disponibles")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("👥 Tester Interface Employé", use_container_width=True):
+                st.session_state.app_mode = "employee"
+                st.rerun()
+        
+        with col2:
+            if st.button("👨‍💼 Tester Interface Admin", use_container_width=True):
+                st.session_state.app_mode = "admin_auth"
+                st.rerun()
+    
+    # Informations système
+    st.markdown("---")
+    st.markdown("### 💻 Informations Système")
+    
+    import sys
+    import platform
+    import streamlit as st
+    
+    info_col1, info_col2 = st.columns(2)
+    
+    with info_col1:
+        st.markdown("**Environnement Python:**")
+        st.code(f"Python {sys.version}")
+        st.markdown(f"**Plateforme:** {platform.system()} {platform.release()}")
+        st.markdown(f"**Architecture:** {platform.machine()}")
+    
+    with info_col2:
+        st.markdown("**Streamlit:**")
+        st.code(f"Streamlit {st.__version__}")
+        
+        # Vérification des variables d'environnement importantes
+        import os
+        st.markdown("**Variables d'environnement:**")
+        env_vars = ['RENDER', 'RENDER_SERVICE_NAME', 'PYTHONPATH']
+        for var in env_vars:
+            value = os.environ.get(var, 'Non définie')
+            st.markdown(f"- `{var}`: {value}")
 
     # Sauvegarde périodique automatique
     if st.session_state.get('storage_manager'):
