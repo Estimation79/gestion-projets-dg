@@ -15,6 +15,26 @@ from fractions import Fraction
 import csv
 import pytz  # NOUVEAU : Pour la gestion du fuseau horaire du Québec
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
+import streamlit as st
+import traceback
+import logging
+
+# Configuration de debug
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+print("🔥 DEBUT DU CHARGEMENT APP.PY")
+logger.info("🔥 DEBUT DU CHARGEMENT APP.PY")
+
+try:
+    # Votre code existant ici...
+    st.write("✅ Test de base Streamlit - Si vous voyez ceci, Streamlit fonctionne")
+    
+except Exception as e:
+    print(f"❌ ERREUR CRITIQUE: {e}")
+    print(f"📋 TRACEBACK: {traceback.format_exc()}")
+    st.error(f"Erreur critique: {e}")
+    st.code(traceback.format_exc())
 
 # ========================
 # CONSTANTES GLOBALES
