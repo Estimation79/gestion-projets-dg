@@ -51,7 +51,7 @@ class GestionnaireInventaire:
             return None
     
     def add_item(self, item_data: Dict) -> Optional[int]:
-        """Ajoute un nouvel article d'inventaire"""
+        """Ajoute un nouvel article d'inventaire avec prix de vente"""
         try:
             # Validation des données
             if not item_data.get('nom'):
@@ -66,8 +66,9 @@ class GestionnaireInventaire:
                 (nom, type_produit, quantite_imperial, quantite_metric, 
                  limite_minimale_imperial, limite_minimale_metric,
                  quantite_reservee_imperial, quantite_reservee_metric,
-                 statut, description, notes, fournisseur_principal, code_interne)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 statut, description, notes, fournisseur_principal, code_interne,
+                 prix_vente_unitaire)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             '''
             
             # Calcul automatique du statut
@@ -89,7 +90,8 @@ class GestionnaireInventaire:
                 item_data.get('description', ''),
                 item_data.get('notes', ''),
                 item_data.get('fournisseur_principal', ''),
-                item_data['code_interne']
+                item_data['code_interne'],
+                float(item_data.get('prix_vente_unitaire', 0.0))
             ))
             
             # Enregistrer dans l'historique
@@ -110,7 +112,7 @@ class GestionnaireInventaire:
             return None
     
     def update_item(self, item_id: int, item_data: Dict) -> bool:
-        """Met à jour un article d'inventaire"""
+        """Met à jour un article d'inventaire avec prix de vente"""
         try:
             # Récupérer l'article existant pour comparaison
             existing = self.get_item_by_id(item_id)
@@ -129,7 +131,7 @@ class GestionnaireInventaire:
                 limite_minimale_imperial = ?, limite_minimale_metric = ?,
                 quantite_reservee_imperial = ?, quantite_reservee_metric = ?,
                 statut = ?, description = ?, notes = ?, fournisseur_principal = ?,
-                code_interne = ?, updated_at = CURRENT_TIMESTAMP
+                code_interne = ?, prix_vente_unitaire = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             '''
             
@@ -147,6 +149,7 @@ class GestionnaireInventaire:
                 item_data.get('notes', existing['notes']),
                 item_data.get('fournisseur_principal', existing['fournisseur_principal']),
                 item_data.get('code_interne', existing['code_interne']),
+                float(item_data.get('prix_vente_unitaire', existing.get('prix_vente_unitaire', 0.0))),
                 item_id
             ))
             
@@ -316,7 +319,8 @@ class GestionnaireInventaire:
                     COUNT(CASE WHEN statut = 'FAIBLE' THEN 1 END) as faible,
                     COUNT(CASE WHEN statut = 'CRITIQUE' THEN 1 END) as critique,
                     COUNT(CASE WHEN statut = 'ÉPUISÉ' THEN 1 END) as epuise,
-                    COUNT(CASE WHEN quantite_metric <= limite_minimale_metric THEN 1 END) as alerts
+                    COUNT(CASE WHEN quantite_metric <= limite_minimale_metric THEN 1 END) as alerts,
+                    COALESCE(SUM(quantite_metric * prix_vente_unitaire), 0) as total_value
                 FROM inventory_items
             ''')
             
@@ -331,6 +335,7 @@ class GestionnaireInventaire:
                 }
                 stats['critical_items'] = base['critique'] + base['epuise']
                 stats['low_stock_alerts'] = base['alerts']
+                stats['total_value'] = base['total_value']
             
             # Par type de produit
             type_stats = self.db.execute_query('''
@@ -411,7 +416,7 @@ class GestionnaireInventaire:
     # =========================================================================
     
     def export_to_csv(self, items: List[Dict] = None) -> str:
-        """Exporte les articles en CSV"""
+        """Exporte les articles en CSV avec prix de vente"""
         try:
             if items is None:
                 items = self.get_all_items()
@@ -419,8 +424,8 @@ class GestionnaireInventaire:
             output = io.StringIO()
             fieldnames = [
                 'id', 'nom', 'type_produit', 'code_interne', 'quantite_metric',
-                'limite_minimale_metric', 'statut', 'description', 'fournisseur_principal',
-                'created_at', 'updated_at'
+                'limite_minimale_metric', 'prix_vente_unitaire', 'statut', 'description',
+                'fournisseur_principal', 'created_at', 'updated_at'
             ]
             
             writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -439,7 +444,7 @@ class GestionnaireInventaire:
             return ""
     
     def import_from_csv(self, csv_content: str) -> Dict[str, int]:
-        """Importe des articles depuis un CSV"""
+        """Importe des articles depuis un CSV avec prix de vente"""
         try:
             result = {'success': 0, 'errors': 0, 'skipped': 0}
             
@@ -455,6 +460,7 @@ class GestionnaireInventaire:
                         'code_interne': row.get('code_interne', '').strip(),
                         'quantite_metric': float(row.get('quantite_metric', 0)),
                         'limite_minimale_metric': float(row.get('limite_minimale_metric', 0)),
+                        'prix_vente_unitaire': float(row.get('prix_vente_unitaire', 0.0)),
                         'description': row.get('description', '').strip(),
                         'fournisseur_principal': row.get('fournisseur_principal', '').strip()
                     }
@@ -651,6 +657,7 @@ def render_items_table(items, inventory_manager):
             'Type': item.get('type_produit', ''),
             'Quantité': f"{item.get('quantite_metric', 0):.2f}",
             'Limite Min': f"{item.get('limite_minimale_metric', 0):.2f}",
+            'Prix Unit.': f"{item.get('prix_vente_unitaire', 0):.2f}$",
             'Statut': f"{status_icon} {item.get('statut', '')}",
             'Fournisseur': item.get('fournisseur_principal', '')[:20]
         })
@@ -664,6 +671,7 @@ def render_items_table(items, inventory_manager):
             "ID": st.column_config.NumberColumn("ID", width="small"),
             "Quantité": st.column_config.NumberColumn("Quantité", format="%.2f"),
             "Limite Min": st.column_config.NumberColumn("Limite Min", format="%.2f"),
+            "Prix Unit.": st.column_config.TextColumn("Prix Unit.", width="small"),
         }
     )
     
@@ -738,6 +746,9 @@ def render_items_cards(items, inventory_manager):
                             ⚠️ Limite: {item.get('limite_minimale_metric', 0):.2f}
                         </p>
                         <p style="margin: 0.25rem 0; font-size: 0.9em;">
+                            💰 Prix: {item.get('prix_vente_unitaire', 0):.2f}$
+                        </p>
+                        <p style="margin: 0.25rem 0; font-size: 0.9em;">
                             🏷️ Type: {item.get('type_produit', 'N/A')}
                         </p>
                         <p style="margin: 0.25rem 0; font-size: 0.9em; color: {status_color}; font-weight: 600;">
@@ -765,7 +776,7 @@ def render_items_cards(items, inventory_manager):
                             st.session_state.selected_item_id = item['id']
 
 def render_add_item_tab(inventory_manager):
-    """Onglet ajout d'article"""
+    """Onglet ajout d'article avec prix de vente"""
     st.markdown("#### ➕ Ajouter un Nouvel Article")
     
     with st.form("add_item_form", clear_on_submit=True):
@@ -779,6 +790,7 @@ def render_add_item_tab(inventory_manager):
                 "Outil", "Consommable", "Produit fini", "Autre"
             ])
             fournisseur = st.text_input("Fournisseur principal:", placeholder="Ex: Acier ABC Inc.")
+            prix_vente = st.number_input("Prix de Vente Unitaire ($) *:", min_value=0.0, value=0.0, step=0.01)
         
         with col2:
             quantite_metric = st.number_input("Quantité initiale:", min_value=0.0, value=0.0, step=0.01)
@@ -801,6 +813,7 @@ def render_add_item_tab(inventory_manager):
                     'type_produit': type_produit,
                     'quantite_metric': quantite_metric,
                     'limite_minimale_metric': limite_min,
+                    'prix_vente_unitaire': prix_vente,
                     'quantite_imperial': quantite_imperial.strip(),
                     'limite_minimale_imperial': limite_imperial.strip(),
                     'quantite_reservee_metric': 0,
@@ -938,7 +951,7 @@ def render_statistics_tab(inventory_manager):
         return
     
     # Métriques principales
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         st.metric("📦 Total Articles", stats.get('total_items', 0))
@@ -948,6 +961,8 @@ def render_statistics_tab(inventory_manager):
         st.metric("⚠️ Alertes Stock Bas", stats.get('low_stock_alerts', 0))
     with col4:
         st.metric("📊 Mouvements (30j)", stats.get('movements_last_30_days', 0))
+    with col5:
+        st.metric("💰 Valeur Totale", f"{stats.get('total_value', 0):.2f}$")
     
     # Graphiques
     col_chart1, col_chart2 = st.columns(2)
@@ -997,6 +1012,7 @@ def render_statistics_tab(inventory_manager):
                 'Nom': item.get('nom', ''),
                 'Stock Actuel': f"{item.get('quantite_metric', 0):.2f}",
                 'Limite Min': f"{item.get('limite_minimale_metric', 0):.2f}",
+                'Prix Unit.': f"{item.get('prix_vente_unitaire', 0):.2f}$",
                 'Statut': item.get('statut', ''),
                 'Fournisseur': item.get('fournisseur_principal', '')
             })
@@ -1064,7 +1080,7 @@ def render_import_export_tab(inventory_manager):
     uploaded_file = st.file_uploader(
         "Choisir un fichier CSV à importer:",
         type=['csv'],
-        help="Le fichier doit contenir les colonnes: nom, type_produit, code_interne, quantite_metric, limite_minimale_metric, description, fournisseur_principal"
+        help="Le fichier doit contenir les colonnes: nom, type_produit, code_interne, quantite_metric, limite_minimale_metric, prix_vente_unitaire, description, fournisseur_principal"
     )
     
     if uploaded_file is not None:
@@ -1132,6 +1148,7 @@ def show_item_details_modal(inventory_manager, item_id):
             - **Code interne:** {item.get('code_interne', 'N/A')}
             - **Type:** {item.get('type_produit', 'N/A')}
             - **Statut:** {item.get('statut', 'N/A')}
+            - **Prix de vente:** {item.get('prix_vente_unitaire', 0):.2f}$
             """)
         
         with col2:
@@ -1141,6 +1158,7 @@ def show_item_details_modal(inventory_manager, item_id):
             - **Limite minimale:** {item.get('limite_minimale_metric', 0):.2f}
             - **Stock réservé:** {item.get('quantite_reservee_metric', 0):.2f}
             - **Fournisseur:** {item.get('fournisseur_principal', 'N/A')}
+            - **Valeur stock:** {(item.get('quantite_metric', 0) * item.get('prix_vente_unitaire', 0)):.2f}$
             """)
         
         if item.get('description'):
@@ -1168,7 +1186,7 @@ def show_item_details_modal(inventory_manager, item_id):
             st.rerun()
 
 def show_edit_item_modal(inventory_manager, item_id):
-    """Modal édition d'un article"""
+    """Modal édition d'un article avec prix de vente"""
     item = inventory_manager.get_item_by_id(item_id)
     if not item:
         st.error("Article non trouvé.")
@@ -1187,6 +1205,7 @@ def show_edit_item_modal(inventory_manager, item_id):
                     index=["", "Matière première", "Tube/Profilé", "Tôle/Plaque", "Visserie", "Outil", "Consommable", "Produit fini", "Autre"].index(item.get('type_produit', '')) if item.get('type_produit') in ["", "Matière première", "Tube/Profilé", "Tôle/Plaque", "Visserie", "Outil", "Consommable", "Produit fini", "Autre"] else 0
                 )
                 fournisseur = st.text_input("Fournisseur:", value=item.get('fournisseur_principal', ''))
+                prix_vente = st.number_input("Prix de Vente Unitaire ($):", min_value=0.0, value=float(item.get('prix_vente_unitaire', 0.0)), step=0.01)
             
             with col2:
                 quantite_metric = st.number_input("Quantité:", value=float(item.get('quantite_metric', 0)), step=0.01)
@@ -1211,6 +1230,7 @@ def show_edit_item_modal(inventory_manager, item_id):
                     'type_produit': type_produit,
                     'quantite_metric': quantite_metric,
                     'limite_minimale_metric': limite_min,
+                    'prix_vente_unitaire': prix_vente,
                     'quantite_imperial': quantite_imperial.strip(),
                     'limite_minimale_imperial': limite_imperial.strip(),
                     'description': description.strip(),
@@ -1269,6 +1289,7 @@ def show_add_movement_modal(inventory_manager, item_id):
     
     with st.expander(f"📦 Mouvement - {item.get('nom', 'N/A')}", expanded=True):
         st.markdown(f"**Stock actuel:** {item.get('quantite_metric', 0):.2f}")
+        st.markdown(f"**Prix unitaire:** {item.get('prix_vente_unitaire', 0):.2f}$")
         
         with st.form("quick_movement_form"):
             col1, col2 = st.columns(2)
@@ -1324,7 +1345,8 @@ def get_inventory_summary_stats():
         return {
             'total_items': stats.get('total_items', 0),
             'critical_items': stats.get('critical_items', 0),
-            'available_items': stats.get('by_status', {}).get('DISPONIBLE', 0)
+            'available_items': stats.get('by_status', {}).get('DISPONIBLE', 0),
+            'total_value': stats.get('total_value', 0)
         }
     except Exception as e:
         logger.error(f"Erreur stats résumé inventaire: {e}")
@@ -1351,12 +1373,13 @@ if __name__ == "__main__":
     st.session_state.erp_db = MockDB()
     show_inventory_page()
 
-print("📦 Module Inventaire SQLite créé avec succès !")
+print("📦 Module Inventaire SQLite avec Prix de Vente créé avec succès !")
 print("✅ Fonctionnalités incluses:")
-print("   - CRUD complet des articles")
+print("   - CRUD complet des articles avec prix de vente")
 print("   - Gestion des mouvements de stock")
+print("   - Calcul de la valeur totale du stock")
 print("   - Alertes de stock critique")
-print("   - Statistiques et graphiques")
-print("   - Import/Export CSV")
+print("   - Statistiques et graphiques enrichis")
+print("   - Import/Export CSV avec prix")
 print("   - Interface Streamlit complète")
 print("   - Intégration ERPDatabase SQLite")
