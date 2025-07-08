@@ -2159,7 +2159,7 @@ def show_portal_home():
     <div class="portal-header">
         <h1>🏭 PORTAIL</h1>
         <div class="portal-subtitle">
-            Système de Gestion Intégré • Production & Métallurgie<br>
+            Système de Gestion Intégré<br>
             📅 {current_date} • 🕒 {current_time}
         </div>
     </div>
