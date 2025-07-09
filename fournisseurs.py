@@ -5,6 +5,8 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 import json
 from typing import Dict, List, Optional, Any
+import os
+import tempfile
 
 class GestionnaireFournisseurs:
     """
@@ -14,6 +16,7 @@ class GestionnaireFournisseurs:
     + INTÉGRATION CRM : Utilise les produits du catalogue CRM
     + NETTOYAGE : Suppression complète du système d'activation/désactivation
     + SIMPLIFICATION : Code Fournisseur automatique + Catégorie optionnelle
+    + EXPORT HTML : Templates professionnels pour DP et BA
     """
     
     def __init__(self, db, crm_manager=None):
@@ -608,6 +611,1254 @@ class GestionnaireFournisseurs:
         except Exception as e:
             st.error(f"Erreur récupération détails formulaire: {e}")
             return {}
+
+    # =========================================================================
+    # NOUVELLES MÉTHODES POUR EXPORT HTML
+    # =========================================================================
+    
+    def generate_demande_prix_html(self, formulaire_id: int) -> str:
+        """Génère le HTML d'une demande de prix"""
+        try:
+            # Récupérer les données du formulaire
+            formulaire = self.get_formulaire_details_with_lines(formulaire_id)
+            if not formulaire:
+                return ""
+            
+            # Récupérer les informations du fournisseur
+            fournisseur = self.get_fournisseur_by_id_from_company(formulaire['company_id'])
+            
+            # Calculer les statistiques
+            lignes = formulaire.get('lignes', [])
+            nb_articles = len(lignes)
+            
+            # Métadonnées
+            metadonnees = {}
+            try:
+                metadonnees = json.loads(formulaire.get('metadonnees_json', '{}'))
+            except:
+                pass
+            
+            # Générer le HTML
+            html_content = self._get_demande_prix_template(formulaire, fournisseur, lignes, metadonnees)
+            return html_content
+            
+        except Exception as e:
+            st.error(f"Erreur génération HTML DP: {e}")
+            return ""
+    
+    def generate_bon_achat_html(self, formulaire_id: int) -> str:
+        """Génère le HTML d'un bon d'achat"""
+        try:
+            # Récupérer les données du formulaire
+            formulaire = self.get_formulaire_details_with_lines(formulaire_id)
+            if not formulaire:
+                return ""
+            
+            # Récupérer les informations du fournisseur
+            fournisseur = self.get_fournisseur_by_id_from_company(formulaire['company_id'])
+            
+            # Calculer les totaux
+            lignes = formulaire.get('lignes', [])
+            sous_total = sum(ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0) for ligne in lignes)
+            tva_taux = 14.975  # TVA du Québec
+            tva_montant = sous_total * (tva_taux / 100)
+            total_ttc = sous_total + tva_montant
+            
+            # Métadonnées
+            metadonnees = {}
+            try:
+                metadonnees = json.loads(formulaire.get('metadonnees_json', '{}'))
+            except:
+                pass
+            
+            # Générer le HTML
+            html_content = self._get_bon_achat_template(formulaire, fournisseur, lignes, sous_total, tva_montant, total_ttc, metadonnees)
+            return html_content
+            
+        except Exception as e:
+            st.error(f"Erreur génération HTML BA: {e}")
+            return ""
+    
+    def get_fournisseur_by_id_from_company(self, company_id: int) -> Dict:
+        """Récupère un fournisseur par company_id"""
+        try:
+            query = '''
+                SELECT f.*, c.nom, c.secteur, c.adresse, c.site_web, c.notes as company_notes
+                FROM fournisseurs f
+                JOIN companies c ON f.company_id = c.id
+                WHERE f.company_id = ?
+            '''
+            result = self.db.execute_query(query, (company_id,))
+            return dict(result[0]) if result else {}
+        except Exception as e:
+            st.error(f"Erreur récupération fournisseur par company_id: {e}")
+            return {}
+    
+    def _get_demande_prix_template(self, formulaire: Dict, fournisseur: Dict, lignes: List[Dict], metadonnees: Dict) -> str:
+        """Template HTML pour Demande de Prix"""
+        
+        # Formatage des dates
+        date_creation = datetime.now().strftime('%d/%m/%Y à %H:%M')
+        date_echeance = ""
+        if formulaire.get('date_echeance'):
+            date_echeance = pd.to_datetime(formulaire['date_echeance']).strftime('%d/%m/%Y')
+        
+        # Badge statut
+        statut_badge_class = {
+            'BROUILLON': 'badge-pending',
+            'VALIDÉ': 'badge-in-progress',
+            'ENVOYÉ': 'badge-completed',
+            'APPROUVÉ': 'badge-completed',
+            'TERMINÉ': 'badge-completed',
+            'ANNULÉ': 'badge-on-hold'
+        }.get(formulaire.get('statut', 'BROUILLON'), 'badge-pending')
+        
+        # Badge priorité
+        priorite_badge_class = {
+            'NORMAL': 'badge-in-progress',
+            'URGENT': 'badge-pending',
+            'CRITIQUE': 'badge-on-hold'
+        }.get(formulaire.get('priorite', 'NORMAL'), 'badge-in-progress')
+        
+        # Génération des lignes de produits
+        lignes_html = ""
+        for ligne in lignes:
+            is_crm = metadonnees.get('source_crm', False)
+            source_icon = "🔗" if is_crm else "📝"
+            
+            lignes_html += f"""
+                <tr>
+                    <td><strong>{source_icon} {ligne.get('description', '')}</strong>
+                        {f"<br><small>Code: {ligne.get('code_article', '')}</small>" if ligne.get('code_article') else ""}
+                        {f"<br><em>{ligne.get('notes_ligne', '')}</em>" if ligne.get('notes_ligne') else ""}
+                    </td>
+                    <td style="text-align: center;">{ligne.get('quantite', 0)}</td>
+                    <td style="text-align: center;">{ligne.get('unite', 'UN')}</td>
+                    <td style="text-align: center;">À chiffrer</td>
+                </tr>
+            """
+        
+        # Informations source CRM
+        source_info = ""
+        if metadonnees.get('source_crm'):
+            nb_crm = metadonnees.get('nb_produits_crm', 0)
+            nb_manuels = metadonnees.get('nb_produits_manuels', 0)
+            source_info = f"""
+                <div class="instructions-box">
+                    <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">🔗 Source des Produits</h4>
+                    <p><strong>• Produits du catalogue CRM :</strong> {nb_crm}</p>
+                    <p><strong>• Produits saisis manuellement :</strong> {nb_manuels}</p>
+                    <p><em>Cette demande utilise notre système CRM intégré pour une gestion optimisée.</em></p>
+                </div>
+            """
+        
+        # Notes du formulaire
+        notes_section = ""
+        if formulaire.get('notes'):
+            notes_section = f"""
+                <div class="instructions-box">
+                    <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">📝 Instructions Spéciales</h4>
+                    <p>{formulaire['notes']}</p>
+                </div>
+            """
+        
+        return f"""
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Demande de Prix - {formulaire.get('numero_document', '')}</title>
+                <style>
+                    :root {{
+                        --primary-color: #00A971;
+                        --primary-color-darker: #00673D;
+                        --primary-color-darkest: #004C2E;
+                        --primary-color-lighter: #DCFCE7;
+                        --background-color: #F9FAFB;
+                        --secondary-background-color: #FFFFFF;
+                        --text-color: #374151;
+                        --text-color-light: #6B7280;
+                        --border-color: #E5E7EB;
+                        --border-radius-md: 0.5rem;
+                        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                    }}
+                    
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+                    
+                    body {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        line-height: 1.6;
+                        color: var(--text-color);
+                        background-color: var(--background-color);
+                        margin: 0;
+                        padding: 15px;
+                    }}
+                    
+                    .container {{
+                        max-width: 8.5in;
+                        margin: 0 auto;
+                        background-color: white;
+                        border-radius: 12px;
+                        box-shadow: var(--box-shadow-md);
+                        overflow: hidden;
+                        width: 100%;
+                    }}
+                    
+                    .header {{
+                        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+                        color: white;
+                        padding: 30px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }}
+                    
+                    .logo-container {{
+                        display: flex;
+                        align-items: center;
+                        gap: 20px;
+                    }}
+                    
+                    .logo-box {{
+                        background-color: white;
+                        width: 70px;
+                        height: 45px;
+                        border-radius: 8px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                    }}
+                    
+                    .logo-text {{
+                        font-family: 'Segoe UI', sans-serif;
+                        font-weight: 800;
+                        font-size: 24px;
+                        color: var(--primary-color);
+                        letter-spacing: 1px;
+                    }}
+                    
+                    .company-info {{
+                        text-align: left;
+                    }}
+                    
+                    .company-name {{
+                        font-weight: 700;
+                        font-size: 28px;
+                        margin-bottom: 5px;
+                        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                    }}
+                    
+                    .company-subtitle {{
+                        font-size: 16px;
+                        opacity: 0.9;
+                    }}
+                    
+                    .contact-info {{
+                        text-align: right;
+                        font-size: 14px;
+                        line-height: 1.4;
+                        opacity: 0.95;
+                    }}
+                    
+                    .document-title {{
+                        background: var(--primary-color-lighter);
+                        padding: 20px 30px;
+                        border-left: 5px solid var(--primary-color);
+                    }}
+                    
+                    .document-title h1 {{
+                        color: var(--primary-color-darker);
+                        font-size: 24px;
+                        margin-bottom: 10px;
+                    }}
+                    
+                    .document-meta {{
+                        display: flex;
+                        justify-content: space-between;
+                        color: var(--text-color-light);
+                        font-size: 14px;
+                    }}
+                    
+                    .content {{
+                        padding: 25px;
+                    }}
+                    
+                    .section {{
+                        margin-bottom: 30px;
+                    }}
+                    
+                    .section-title {{
+                        color: var(--primary-color-darker);
+                        font-size: 18px;
+                        font-weight: 600;
+                        margin-bottom: 15px;
+                        padding-bottom: 8px;
+                        border-bottom: 2px solid var(--primary-color-lighter);
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    }}
+                    
+                    .info-grid {{
+                        display: grid;
+                        grid-template-columns: 1fr 1fr 1fr;
+                        gap: 15px;
+                        margin-bottom: 20px;
+                    }}
+                    
+                    .info-item {{
+                        background: var(--background-color);
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        border-left: 3px solid var(--primary-color);
+                    }}
+                    
+                    .info-label {{
+                        font-weight: 600;
+                        color: var(--text-color-light);
+                        font-size: 12px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 5px;
+                    }}
+                    
+                    .info-value {{
+                        font-size: 16px;
+                        color: var(--text-color);
+                        font-weight: 500;
+                    }}
+                    
+                    .table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 15px 0;
+                        border-radius: var(--border-radius-md);
+                        overflow: hidden;
+                        box-shadow: var(--box-shadow-md);
+                    }}
+                    
+                    .table th {{
+                        background: var(--primary-color);
+                        color: white;
+                        padding: 12px;
+                        text-align: left;
+                        font-weight: 600;
+                        font-size: 14px;
+                    }}
+                    
+                    .table td {{
+                        padding: 12px;
+                        border-bottom: 1px solid var(--border-color);
+                        vertical-align: top;
+                    }}
+                    
+                    .table tr:nth-child(even) {{
+                        background-color: var(--background-color);
+                    }}
+                    
+                    .table tr:hover {{
+                        background-color: var(--primary-color-lighter);
+                    }}
+                    
+                    .badge {{
+                        padding: 4px 12px;
+                        border-radius: 20px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        display: inline-block;
+                    }}
+                    
+                    .badge-pending {{ background: #fef3c7; color: #92400e; }}
+                    .badge-in-progress {{ background: #dbeafe; color: #1e40af; }}
+                    .badge-completed {{ background: #d1fae5; color: #065f46; }}
+                    .badge-on-hold {{ background: #fee2e2; color: #991b1b; }}
+                    
+                    .summary-box {{
+                        background: linear-gradient(45deg, var(--primary-color-lighter), white);
+                        border: 2px solid var(--primary-color);
+                        border-radius: var(--border-radius-md);
+                        padding: 20px;
+                        margin: 20px 0;
+                    }}
+                    
+                    .summary-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 15px;
+                    }}
+                    
+                    .summary-item {{
+                        text-align: center;
+                        background: white;
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    
+                    .summary-number {{
+                        font-size: 24px;
+                        font-weight: 700;
+                        color: var(--primary-color-darker);
+                        display: block;
+                    }}
+                    
+                    .summary-label {{
+                        font-size: 12px;
+                        color: var(--text-color-light);
+                        text-transform: uppercase;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }}
+                    
+                    .instructions-box {{
+                        background: var(--background-color);
+                        border-left: 4px solid var(--primary-color);
+                        padding: 20px;
+                        border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
+                        margin: 15px 0;
+                    }}
+                    
+                    .footer {{
+                        background: var(--primary-color-darkest);
+                        color: white;
+                        padding: 20px 30px;
+                        text-align: center;
+                        font-size: 12px;
+                        line-height: 1.4;
+                    }}
+                    
+                    .client-address {{
+                        background: var(--background-color);
+                        border: 2px solid var(--primary-color-lighter);
+                        border-radius: var(--border-radius-md);
+                        padding: 15px;
+                        margin: 15px 0;
+                        font-size: 14px;
+                        line-height: 1.4;
+                    }}
+                    
+                    @media print {{
+                        body {{ 
+                            margin: 0; 
+                            padding: 0; 
+                        }}
+                        .container {{ 
+                            box-shadow: none; 
+                            max-width: 100%;
+                            width: 8.5in;
+                        }}
+                        .table {{ 
+                            break-inside: avoid; 
+                            font-size: 12px;
+                        }}
+                        .section {{ 
+                            break-inside: avoid-page; 
+                        }}
+                        .header {{
+                            padding: 20px 25px;
+                        }}
+                        .content {{
+                            padding: 20px;
+                        }}
+                        @page {{
+                            size: letter;
+                            margin: 0.5in;
+                        }}
+                    }}
+                    
+                    @media screen and (max-width: 768px) {{
+                        .container {{
+                            max-width: 100%;
+                            margin: 0 10px;
+                        }}
+                        .info-grid {{
+                            grid-template-columns: 1fr;
+                            gap: 10px;
+                        }}
+                        .summary-grid {{
+                            grid-template-columns: repeat(2, 1fr);
+                        }}
+                        .header {{
+                            flex-direction: column;
+                            text-align: center;
+                            gap: 15px;
+                        }}
+                        .contact-info {{
+                            text-align: center;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <!-- En-tête -->
+                    <div class="header">
+                        <div class="logo-container">
+                            <div class="logo-box">
+                                <div class="logo-text">DG</div>
+                            </div>
+                            <div class="company-info">
+                                <div class="company-name">Desmarais & Gagné inc.</div>
+                                <div class="company-subtitle">Fabrication et Assemblage Métallurgique</div>
+                            </div>
+                        </div>
+                        <div class="contact-info">
+                            565 rue Maisonneuve<br>
+                            Granby, QC J2G 3H5<br>
+                            Tél.: (450) 372-9630<br>
+                            Téléc.: (450) 372-8122
+                        </div>
+                    </div>
+                    
+                    <!-- Titre du document -->
+                    <div class="document-title">
+                        <h1>📋 DEMANDE DE PRIX</h1>
+                        <div class="document-meta">
+                            <span><strong>N° Demande:</strong> {formulaire.get('numero_document', '')}</span>
+                            <span><strong>Généré le:</strong> {date_creation}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Contenu principal -->
+                    <div class="content">
+                        <!-- Informations générales -->
+                        <div class="section">
+                            <h2 class="section-title">📋 Informations de la Demande</h2>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-label">Fournisseur</div>
+                                    <div class="info-value">{fournisseur.get('nom', 'N/A')}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Statut</div>
+                                    <div class="info-value">
+                                        <span class="badge {statut_badge_class}">
+                                            {formulaire.get('statut', 'BROUILLON')}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Priorité</div>
+                                    <div class="info-value">
+                                        <span class="badge {priorite_badge_class}">
+                                            {formulaire.get('priorite', 'NORMAL')}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Création</div>
+                                    <div class="info-value">{pd.to_datetime(formulaire.get('date_creation', datetime.now())).strftime('%d/%m/%Y')}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Limite Réponse</div>
+                                    <div class="info-value">{date_echeance if date_echeance else 'N/A'}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Nb Articles</div>
+                                    <div class="info-value">{len(lignes)} article(s)</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Adresse du fournisseur -->
+                        <div class="section">
+                            <h2 class="section-title">📍 Fournisseur</h2>
+                            <div class="client-address">
+                                <strong>{fournisseur.get('nom', 'N/A')}</strong><br>
+                                {fournisseur.get('adresse', 'N/A')}<br>
+                                {fournisseur.get('site_web', '')}<br>
+                                <em>Code fournisseur: {fournisseur.get('code_fournisseur', 'N/A')}</em>
+                            </div>
+                        </div>
+                        
+                        <!-- Résumé -->
+                        <div class="summary-box">
+                            <h3 style="color: var(--primary-color-darker); margin-bottom: 15px; text-align: center;">📋 Résumé de la Demande</h3>
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <span class="summary-number">{len(lignes)}</span>
+                                    <span class="summary-label">Articles à chiffrer</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{formulaire.get('priorite', 'NORMAL')}</span>
+                                    <span class="summary-label">Priorité</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{date_echeance if date_echeance else 'N/A'}</span>
+                                    <span class="summary-label">Échéance</span>
+                                </div>
+                            </div>
+                        </div>
+                
+                        <!-- Détail des articles -->
+                        <div class="section">
+                            <h2 class="section-title">📝 Articles à Chiffrer</h2>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Description</th>
+                                        <th style="text-align: center;">Quantité</th>
+                                        <th style="text-align: center;">Unité</th>
+                                        <th style="text-align: center;">Prix à Proposer</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {lignes_html}
+                                </tbody>
+                            </table>
+                        </div>
+                
+                        <!-- Notes du devis -->
+                        {notes_section}
+                        
+                        <!-- Source CRM -->
+                        {source_info}
+                        
+                        <!-- Instructions -->
+                        <div class="instructions-box">
+                            <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">📋 Instructions pour Réponse</h4>
+                            <p><strong>• Merci de chiffrer tous les articles listés ci-dessus</strong></p>
+                            <p><strong>• Indiquer les délais de livraison pour chaque article</strong></p>
+                            <p><strong>• Préciser les conditions de paiement proposées</strong></p>
+                            <p><strong>• Date limite de réponse :</strong> {date_echeance if date_echeance else 'À convenir'}</p>
+                            <p><strong>• Envoyer votre proposition à :</strong> achats@dg-inc.com</p>
+                        </div>
+                        
+                    </div>
+                    
+                    <!-- Pied de page -->
+                    <div class="footer">
+                        <div><strong>🏭 Desmarais & Gagné inc.</strong> - Système de Gestion des Achats</div>
+                        <div>Demande de Prix générée automatiquement le {date_creation}</div>
+                        <div>📞 (450) 372-9630 | 📧 achats@dg-inc.com | 🌐 www.dg-inc.com</div>
+                        <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
+                            Merci de mentionner le numéro de demande {formulaire.get('numero_document', '')} dans votre réponse.
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """
+    
+    def _get_bon_achat_template(self, formulaire: Dict, fournisseur: Dict, lignes: List[Dict], sous_total: float, tva_montant: float, total_ttc: float, metadonnees: Dict) -> str:
+        """Template HTML pour Bon d'Achat"""
+        
+        # Formatage des dates
+        date_creation = datetime.now().strftime('%d/%m/%Y à %H:%M')
+        date_livraison = ""
+        if formulaire.get('date_echeance'):
+            date_livraison = pd.to_datetime(formulaire['date_echeance']).strftime('%d/%m/%Y')
+        
+        # Badge statut
+        statut_badge_class = {
+            'BROUILLON': 'badge-pending',
+            'VALIDÉ': 'badge-in-progress',
+            'ENVOYÉ': 'badge-completed',
+            'APPROUVÉ': 'badge-completed',
+            'TERMINÉ': 'badge-completed',
+            'ANNULÉ': 'badge-on-hold'
+        }.get(formulaire.get('statut', 'BROUILLON'), 'badge-pending')
+        
+        # Badge priorité
+        priorite_badge_class = {
+            'NORMAL': 'badge-in-progress',
+            'URGENT': 'badge-pending',
+            'CRITIQUE': 'badge-on-hold'
+        }.get(formulaire.get('priorite', 'NORMAL'), 'badge-in-progress')
+        
+        # Génération des lignes de produits
+        lignes_html = ""
+        for ligne in lignes:
+            is_crm = metadonnees.get('source_crm', False)
+            source_icon = "🔗" if is_crm else "📝"
+            montant_ligne = ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0)
+            
+            lignes_html += f"""
+                <tr>
+                    <td><strong>{source_icon} {ligne.get('description', '')}</strong>
+                        {f"<br><small>Code: {ligne.get('code_article', '')}</small>" if ligne.get('code_article') else ""}
+                        {f"<br><em>{ligne.get('notes_ligne', '')}</em>" if ligne.get('notes_ligne') else ""}
+                    </td>
+                    <td style="text-align: center;">{ligne.get('quantite', 0)}</td>
+                    <td style="text-align: center;">{ligne.get('unite', 'UN')}</td>
+                    <td style="text-align: right;">{ligne.get('prix_unitaire', 0):.2f} $</td>
+                    <td style="text-align: right;"><strong>{montant_ligne:.2f} $</strong></td>
+                </tr>
+            """
+        
+        # Informations source CRM
+        source_info = ""
+        if metadonnees.get('source_crm'):
+            nb_crm = metadonnees.get('nb_produits_crm', 0)
+            nb_manuels = metadonnees.get('nb_produits_manuels', 0)
+            source_info = f"""
+                <div class="instructions-box">
+                    <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">🔗 Source des Produits</h4>
+                    <p><strong>• Produits du catalogue CRM :</strong> {nb_crm}</p>
+                    <p><strong>• Produits saisis manuellement :</strong> {nb_manuels}</p>
+                    <p><em>Cette commande utilise notre système CRM intégré pour une gestion optimisée.</em></p>
+                </div>
+            """
+        
+        # Notes du formulaire
+        notes_section = ""
+        if formulaire.get('notes'):
+            notes_section = f"""
+                <div class="instructions-box">
+                    <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">📝 Instructions de Livraison</h4>
+                    <p>{formulaire['notes']}</p>
+                </div>
+            """
+        
+        return f"""
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Bon d'Achat - {formulaire.get('numero_document', '')}</title>
+                <style>
+                    :root {{
+                        --primary-color: #00A971;
+                        --primary-color-darker: #00673D;
+                        --primary-color-darkest: #004C2E;
+                        --primary-color-lighter: #DCFCE7;
+                        --background-color: #F9FAFB;
+                        --secondary-background-color: #FFFFFF;
+                        --text-color: #374151;
+                        --text-color-light: #6B7280;
+                        --border-color: #E5E7EB;
+                        --border-radius-md: 0.5rem;
+                        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                    }}
+                    
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+                    
+                    body {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        line-height: 1.6;
+                        color: var(--text-color);
+                        background-color: var(--background-color);
+                        margin: 0;
+                        padding: 15px;
+                    }}
+                    
+                    .container {{
+                        max-width: 8.5in;
+                        margin: 0 auto;
+                        background-color: white;
+                        border-radius: 12px;
+                        box-shadow: var(--box-shadow-md);
+                        overflow: hidden;
+                        width: 100%;
+                    }}
+                    
+                    .header {{
+                        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+                        color: white;
+                        padding: 30px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }}
+                    
+                    .logo-container {{
+                        display: flex;
+                        align-items: center;
+                        gap: 20px;
+                    }}
+                    
+                    .logo-box {{
+                        background-color: white;
+                        width: 70px;
+                        height: 45px;
+                        border-radius: 8px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                    }}
+                    
+                    .logo-text {{
+                        font-family: 'Segoe UI', sans-serif;
+                        font-weight: 800;
+                        font-size: 24px;
+                        color: var(--primary-color);
+                        letter-spacing: 1px;
+                    }}
+                    
+                    .company-info {{
+                        text-align: left;
+                    }}
+                    
+                    .company-name {{
+                        font-weight: 700;
+                        font-size: 28px;
+                        margin-bottom: 5px;
+                        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                    }}
+                    
+                    .company-subtitle {{
+                        font-size: 16px;
+                        opacity: 0.9;
+                    }}
+                    
+                    .contact-info {{
+                        text-align: right;
+                        font-size: 14px;
+                        line-height: 1.4;
+                        opacity: 0.95;
+                    }}
+                    
+                    .document-title {{
+                        background: var(--primary-color-lighter);
+                        padding: 20px 30px;
+                        border-left: 5px solid var(--primary-color);
+                    }}
+                    
+                    .document-title h1 {{
+                        color: var(--primary-color-darker);
+                        font-size: 24px;
+                        margin-bottom: 10px;
+                    }}
+                    
+                    .document-meta {{
+                        display: flex;
+                        justify-content: space-between;
+                        color: var(--text-color-light);
+                        font-size: 14px;
+                    }}
+                    
+                    .content {{
+                        padding: 25px;
+                    }}
+                    
+                    .section {{
+                        margin-bottom: 30px;
+                    }}
+                    
+                    .section-title {{
+                        color: var(--primary-color-darker);
+                        font-size: 18px;
+                        font-weight: 600;
+                        margin-bottom: 15px;
+                        padding-bottom: 8px;
+                        border-bottom: 2px solid var(--primary-color-lighter);
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    }}
+                    
+                    .info-grid {{
+                        display: grid;
+                        grid-template-columns: 1fr 1fr 1fr;
+                        gap: 15px;
+                        margin-bottom: 20px;
+                    }}
+                    
+                    .info-item {{
+                        background: var(--background-color);
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        border-left: 3px solid var(--primary-color);
+                    }}
+                    
+                    .info-label {{
+                        font-weight: 600;
+                        color: var(--text-color-light);
+                        font-size: 12px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 5px;
+                    }}
+                    
+                    .info-value {{
+                        font-size: 16px;
+                        color: var(--text-color);
+                        font-weight: 500;
+                    }}
+                    
+                    .table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 15px 0;
+                        border-radius: var(--border-radius-md);
+                        overflow: hidden;
+                        box-shadow: var(--box-shadow-md);
+                    }}
+                    
+                    .table th {{
+                        background: var(--primary-color);
+                        color: white;
+                        padding: 12px;
+                        text-align: left;
+                        font-weight: 600;
+                        font-size: 14px;
+                    }}
+                    
+                    .table td {{
+                        padding: 12px;
+                        border-bottom: 1px solid var(--border-color);
+                        vertical-align: top;
+                    }}
+                    
+                    .table tr:nth-child(even) {{
+                        background-color: var(--background-color);
+                    }}
+                    
+                    .table tr:hover {{
+                        background-color: var(--primary-color-lighter);
+                    }}
+                    
+                    .badge {{
+                        padding: 4px 12px;
+                        border-radius: 20px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        display: inline-block;
+                    }}
+                    
+                    .badge-pending {{ background: #fef3c7; color: #92400e; }}
+                    .badge-in-progress {{ background: #dbeafe; color: #1e40af; }}
+                    .badge-completed {{ background: #d1fae5; color: #065f46; }}
+                    .badge-on-hold {{ background: #fee2e2; color: #991b1b; }}
+                    
+                    .summary-box {{
+                        background: linear-gradient(45deg, var(--primary-color-lighter), white);
+                        border: 2px solid var(--primary-color);
+                        border-radius: var(--border-radius-md);
+                        padding: 20px;
+                        margin: 20px 0;
+                    }}
+                    
+                    .summary-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 15px;
+                    }}
+                    
+                    .summary-item {{
+                        text-align: center;
+                        background: white;
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    
+                    .summary-number {{
+                        font-size: 24px;
+                        font-weight: 700;
+                        color: var(--primary-color-darker);
+                        display: block;
+                    }}
+                    
+                    .summary-label {{
+                        font-size: 12px;
+                        color: var(--text-color-light);
+                        text-transform: uppercase;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }}
+                    
+                    .instructions-box {{
+                        background: var(--background-color);
+                        border-left: 4px solid var(--primary-color);
+                        padding: 20px;
+                        border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
+                        margin: 15px 0;
+                    }}
+                    
+                    .footer {{
+                        background: var(--primary-color-darkest);
+                        color: white;
+                        padding: 20px 30px;
+                        text-align: center;
+                        font-size: 12px;
+                        line-height: 1.4;
+                    }}
+                    
+                    .client-address {{
+                        background: var(--background-color);
+                        border: 2px solid var(--primary-color-lighter);
+                        border-radius: var(--border-radius-md);
+                        padding: 15px;
+                        margin: 15px 0;
+                        font-size: 14px;
+                        line-height: 1.4;
+                    }}
+                    
+                    @media print {{
+                        body {{ 
+                            margin: 0; 
+                            padding: 0; 
+                        }}
+                        .container {{ 
+                            box-shadow: none; 
+                            max-width: 100%;
+                            width: 8.5in;
+                        }}
+                        .table {{ 
+                            break-inside: avoid; 
+                            font-size: 12px;
+                        }}
+                        .section {{ 
+                            break-inside: avoid-page; 
+                        }}
+                        .header {{
+                            padding: 20px 25px;
+                        }}
+                        .content {{
+                            padding: 20px;
+                        }}
+                        @page {{
+                            size: letter;
+                            margin: 0.5in;
+                        }}
+                    }}
+                    
+                    @media screen and (max-width: 768px) {{
+                        .container {{
+                            max-width: 100%;
+                            margin: 0 10px;
+                        }}
+                        .info-grid {{
+                            grid-template-columns: 1fr;
+                            gap: 10px;
+                        }}
+                        .summary-grid {{
+                            grid-template-columns: repeat(2, 1fr);
+                        }}
+                        .header {{
+                            flex-direction: column;
+                            text-align: center;
+                            gap: 15px;
+                        }}
+                        .contact-info {{
+                            text-align: center;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <!-- En-tête -->
+                    <div class="header">
+                        <div class="logo-container">
+                            <div class="logo-box">
+                                <div class="logo-text">DG</div>
+                            </div>
+                            <div class="company-info">
+                                <div class="company-name">Desmarais & Gagné inc.</div>
+                                <div class="company-subtitle">Fabrication et Assemblage Métallurgique</div>
+                            </div>
+                        </div>
+                        <div class="contact-info">
+                            565 rue Maisonneuve<br>
+                            Granby, QC J2G 3H5<br>
+                            Tél.: (450) 372-9630<br>
+                            Téléc.: (450) 372-8122
+                        </div>
+                    </div>
+                    
+                    <!-- Titre du document -->
+                    <div class="document-title">
+                        <h1>🛒 BON D'ACHAT</h1>
+                        <div class="document-meta">
+                            <span><strong>N° Bon d'Achat:</strong> {formulaire.get('numero_document', '')}</span>
+                            <span><strong>Généré le:</strong> {date_creation}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Contenu principal -->
+                    <div class="content">
+                        <!-- Informations générales -->
+                        <div class="section">
+                            <h2 class="section-title">📋 Informations du Bon d'Achat</h2>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-label">Fournisseur</div>
+                                    <div class="info-value">{fournisseur.get('nom', 'N/A')}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Statut</div>
+                                    <div class="info-value">
+                                        <span class="badge {statut_badge_class}">
+                                            {formulaire.get('statut', 'BROUILLON')}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Priorité</div>
+                                    <div class="info-value">
+                                        <span class="badge {priorite_badge_class}">
+                                            {formulaire.get('priorite', 'NORMAL')}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Création</div>
+                                    <div class="info-value">{pd.to_datetime(formulaire.get('date_creation', datetime.now())).strftime('%d/%m/%Y')}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Livraison Souhaitée</div>
+                                    <div class="info-value">{date_livraison if date_livraison else 'N/A'}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Délai Fournisseur</div>
+                                    <div class="info-value">{fournisseur.get('delai_livraison_moyen', 'N/A')} jours</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Adresse du fournisseur -->
+                        <div class="section">
+                            <h2 class="section-title">📍 Fournisseur</h2>
+                            <div class="client-address">
+                                <strong>{fournisseur.get('nom', 'N/A')}</strong><br>
+                                {fournisseur.get('adresse', 'N/A')}<br>
+                                {fournisseur.get('site_web', '')}<br>
+                                <em>Code fournisseur: {fournisseur.get('code_fournisseur', 'N/A')}</em><br>
+                                <em>Contact commercial: {fournisseur.get('contact_commercial', 'N/A')}</em>
+                            </div>
+                        </div>
+                        
+                        <!-- Résumé financier -->
+                        <div class="summary-box">
+                            <h3 style="color: var(--primary-color-darker); margin-bottom: 15px; text-align: center;">💰 Résumé Financier</h3>
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <span class="summary-number">{len(lignes)}</span>
+                                    <span class="summary-label">Articles</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{sous_total:,.2f} $</span>
+                                    <span class="summary-label">Total HT</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{tva_montant:,.2f} $</span>
+                                    <span class="summary-label">TVA (14.975%)</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{total_ttc:,.2f} $</span>
+                                    <span class="summary-label">Total TTC</span>
+                                </div>
+                            </div>
+                        </div>
+                
+                        <!-- Détail des articles -->
+                        <div class="section">
+                            <h2 class="section-title">📝 Détail des Articles Commandés</h2>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Description</th>
+                                        <th style="text-align: center;">Quantité</th>
+                                        <th style="text-align: center;">Unité</th>
+                                        <th style="text-align: right;">Prix Unit.</th>
+                                        <th style="text-align: right;">Montant</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {lignes_html}
+                                    <!-- Ligne de total -->
+                                    <tr style="background: var(--primary-color-lighter); font-weight: bold;">
+                                        <td colspan="4" style="text-align: right; padding: 15px;"><strong>SOUS-TOTAL (HT)</strong></td>
+                                        <td style="text-align: right; padding: 15px;"><strong>{sous_total:,.2f} $ CAD</strong></td>
+                                    </tr>
+                                    <tr style="background: var(--background-color);">
+                                        <td colspan="4" style="text-align: right; padding: 10px;">TVA (14.975%)</td>
+                                        <td style="text-align: right; padding: 10px;">{tva_montant:,.2f} $ CAD</td>
+                                    </tr>
+                                    <tr style="background: var(--primary-color); color: white; font-weight: bold; font-size: 16px;">
+                                        <td colspan="4" style="text-align: right; padding: 15px;"><strong>TOTAL TTC</strong></td>
+                                        <td style="text-align: right; padding: 15px;"><strong>{total_ttc:,.2f} $ CAD</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                
+                        <!-- Notes du bon d'achat -->
+                        {notes_section}
+                        
+                        <!-- Source CRM -->
+                        {source_info}
+                        
+                        <!-- Conditions -->
+                        <div class="instructions-box">
+                            <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">💰 Conditions de Commande</h4>
+                            <p><strong>• Conditions de paiement :</strong> {fournisseur.get('conditions_paiement', '30 jours net')}</p>
+                            <p><strong>• Délai de livraison :</strong> {fournisseur.get('delai_livraison_moyen', 'À convenir')} jours</p>
+                            <p><strong>• Date de livraison souhaitée :</strong> {date_livraison if date_livraison else 'À convenir'}</p>
+                            <p><strong>• Lieu de livraison :</strong> 565 rue Maisonneuve, Granby, QC J2G 3H5</p>
+                            <p><strong>• Prix :</strong> Les prix sont exprimés en dollars canadiens (CAD) et incluent les taxes applicables</p>
+                        </div>
+                        
+                    </div>
+                    
+                    <!-- Pied de page -->
+                    <div class="footer">
+                        <div><strong>🏭 Desmarais & Gagné inc.</strong> - Système de Gestion des Achats</div>
+                        <div>Bon d'Achat généré automatiquement le {date_creation}</div>
+                        <div>📞 (450) 372-9630 | 📧 achats@dg-inc.com | 🌐 www.dg-inc.com</div>
+                        <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
+                            Merci de mentionner le numéro de bon d'achat {formulaire.get('numero_document', '')} lors de la livraison.
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """
+    
+    def export_formulaire_to_html_file(self, formulaire_id: int, type_formulaire: str) -> str:
+        """Exporte un formulaire vers un fichier HTML temporaire"""
+        try:
+            # Générer le contenu HTML
+            if type_formulaire == 'DEMANDE_PRIX':
+                html_content = self.generate_demande_prix_html(formulaire_id)
+                prefix = "demande_prix_"
+            elif type_formulaire == 'BON_ACHAT':
+                html_content = self.generate_bon_achat_html(formulaire_id)
+                prefix = "bon_achat_"
+            else:
+                st.error(f"Type de formulaire non supporté: {type_formulaire}")
+                return ""
+            
+            if not html_content:
+                st.error("Impossible de générer le contenu HTML")
+                return ""
+            
+            # Récupérer le numéro de document pour le nom du fichier
+            formulaire = self.get_formulaire_details_with_lines(formulaire_id)
+            numero_document = formulaire.get('numero_document', f'DOC_{formulaire_id}')
+            
+            # Créer un fichier temporaire
+            temp_dir = tempfile.gettempdir()
+            filename = f"{prefix}{numero_document}.html"
+            filepath = os.path.join(temp_dir, filename)
+            
+            # Écrire le contenu HTML
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            return filepath
+            
+        except Exception as e:
+            st.error(f"Erreur export HTML: {e}")
+            return ""
 
 def show_fournisseurs_page():
     """Page principale du module Fournisseurs - VERSION INTÉGRÉE CRM"""
@@ -1354,7 +2605,7 @@ def render_create_bon_achat_form(gestionnaire):
                     'type_formulaire': 'BON_ACHAT',
                     'numero_document': numero_ba,
                     'company_id': selected_fournisseur['company_id'],
-                    'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                    'employee_id': None,  # À adapter selon l'utilisateur connecté
                     'statut': 'VALIDÉ' if submitted else 'BROUILLON',
                     'priorite': priorite,
                     'date_echeance': date_echeance.isoformat(),
@@ -1383,9 +2634,6 @@ def render_create_bon_achat_form(gestionnaire):
                     st.rerun()
                 else:
                     st.error("❌ Erreur lors de la création du bon d'achat.")
-
-# Reste du code inchangé pour les autres fonctions...
-# [Les autres fonctions restent identiques]
 
 def render_list_demandes_prix(gestionnaire):
     """Liste des demandes de prix"""
@@ -1461,7 +2709,7 @@ def render_list_demandes_prix(gestionnaire):
             )
             
             if selected_dp_id:
-                action_col1, action_col2, action_col3 = st.columns(3)
+                action_col1, action_col2, action_col3, action_col4 = st.columns(4)
                 
                 with action_col1:
                     if st.button("👁️ Voir Détails", use_container_width=True, key="view_dp_details"):
@@ -1481,6 +2729,27 @@ def render_list_demandes_prix(gestionnaire):
                 with action_col3:
                     if st.button("🛒 Convertir en BA", use_container_width=True, key="convert_dp_to_ba"):
                         st.info("💡 Consultez l'onglet 'Bon d'Achat' pour créer un nouveau BA basé sur cette DP.")
+                
+                with action_col4:
+                    if st.button("📄 Export HTML", use_container_width=True, key="export_dp_html"):
+                        # Générer et proposer le téléchargement HTML
+                        html_content = gestionnaire.generate_demande_prix_html(selected_dp_id)
+                        if html_content:
+                            # Récupérer le numéro de document
+                            formulaire = gestionnaire.get_formulaire_details_with_lines(selected_dp_id)
+                            numero_doc = formulaire.get('numero_document', f'DP_{selected_dp_id}')
+                            
+                            st.download_button(
+                                label="⬇️ Télécharger HTML",
+                                data=html_content,
+                                file_name=f"demande_prix_{numero_doc}.html",
+                                mime="text/html",
+                                use_container_width=True,
+                                key=f"download_dp_{selected_dp_id}"
+                            )
+                            st.success("✅ Export HTML généré avec succès !")
+                        else:
+                            st.error("❌ Erreur lors de la génération HTML")
         
     except Exception as e:
         st.error(f"Erreur récupération demandes: {e}")
@@ -1603,7 +2872,7 @@ def render_list_bons_achat(gestionnaire):
             )
             
             if selected_ba_id:
-                action_col1, action_col2, action_col3 = st.columns(3)
+                action_col1, action_col2, action_col3, action_col4 = st.columns(4)
                 
                 with action_col1:
                     if st.button("👁️ Voir Détails", use_container_width=True, key="view_ba_details"):
@@ -1627,6 +2896,27 @@ def render_list_bons_achat(gestionnaire):
                         )
                         st.success("Bon d'achat marqué comme livré !")
                         st.rerun()
+                
+                with action_col4:
+                    if st.button("📄 Export HTML", use_container_width=True, key="export_ba_html"):
+                        # Générer et proposer le téléchargement HTML
+                        html_content = gestionnaire.generate_bon_achat_html(selected_ba_id)
+                        if html_content:
+                            # Récupérer le numéro de document
+                            formulaire = gestionnaire.get_formulaire_details_with_lines(selected_ba_id)
+                            numero_doc = formulaire.get('numero_document', f'BA_{selected_ba_id}')
+                            
+                            st.download_button(
+                                label="⬇️ Télécharger HTML",
+                                data=html_content,
+                                file_name=f"bon_achat_{numero_doc}.html",
+                                mime="text/html",
+                                use_container_width=True,
+                                key=f"download_ba_{selected_ba_id}"
+                            )
+                            st.success("✅ Export HTML généré avec succès !")
+                        else:
+                            st.error("❌ Erreur lors de la génération HTML")
         
     except Exception as e:
         st.error(f"Erreur récupération bons d'achat: {e}")
@@ -1704,7 +2994,7 @@ def render_view_demande_prix(gestionnaire):
     
     # Actions
     st.markdown("---")
-    action_col1, action_col2, action_col3 = st.columns(3)
+    action_col1, action_col2, action_col3, action_col4 = st.columns(4)
     
     with action_col1:
         if st.button("🔙 Retour à la liste", use_container_width=True, key="return_to_dp_list"):
@@ -1713,8 +3003,21 @@ def render_view_demande_prix(gestionnaire):
             st.rerun()
     
     with action_col2:
-        if st.button("📄 Générer PDF", use_container_width=True, key="generate_dp_pdf"):
-            st.info("🚧 Fonctionnalité à développer - Génération PDF")
+        if st.button("📄 Export HTML", use_container_width=True, key="view_export_dp_html"):
+            html_content = gestionnaire.generate_demande_prix_html(formulaire_id)
+            if html_content:
+                numero_doc = dp_details.get('numero_document', f'DP_{formulaire_id}')
+                st.download_button(
+                    label="⬇️ Télécharger HTML",
+                    data=html_content,
+                    file_name=f"demande_prix_{numero_doc}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                    key=f"view_download_dp_{formulaire_id}"
+                )
+                st.success("✅ Export HTML généré !")
+            else:
+                st.error("❌ Erreur génération HTML")
     
     with action_col3:
         if st.button("🛒 Créer BA basé sur DP", use_container_width=True, key="create_ba_from_dp"):
@@ -1734,6 +3037,15 @@ def render_view_demande_prix(gestionnaire):
                 for ligne in lignes
             ]
             st.success("📋 Articles copiés vers nouveau BA ! Consultez l'onglet 'Bon d'Achat'.")
+    
+    with action_col4:
+        if st.button("📤 Marquer Envoyé", use_container_width=True, key="view_mark_dp_sent"):
+            gestionnaire.db.execute_update(
+                "UPDATE formulaires SET statut = 'ENVOYÉ' WHERE id = ?",
+                (formulaire_id,)
+            )
+            st.success("Statut mis à jour !")
+            st.rerun()
 
 def render_view_bon_achat(gestionnaire):
     """Consultation détaillée d'un bon d'achat"""
@@ -1818,7 +3130,7 @@ def render_view_bon_achat(gestionnaire):
     
     # Actions
     st.markdown("---")
-    action_col1, action_col2, action_col3 = st.columns(3)
+    action_col1, action_col2, action_col3, action_col4 = st.columns(4)
     
     with action_col1:
         if st.button("🔙 Retour à la liste", use_container_width=True, key="return_to_ba_list"):
@@ -1827,12 +3139,34 @@ def render_view_bon_achat(gestionnaire):
             st.rerun()
     
     with action_col2:
-        if st.button("📄 Générer PDF", use_container_width=True, key="generate_ba_pdf"):
-            st.info("🚧 Fonctionnalité à développer - Génération PDF")
+        if st.button("📄 Export HTML", use_container_width=True, key="view_export_ba_html"):
+            html_content = gestionnaire.generate_bon_achat_html(formulaire_id)
+            if html_content:
+                numero_doc = ba_details.get('numero_document', f'BA_{formulaire_id}')
+                st.download_button(
+                    label="⬇️ Télécharger HTML",
+                    data=html_content,
+                    file_name=f"bon_achat_{numero_doc}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                    key=f"view_download_ba_{formulaire_id}"
+                )
+                st.success("✅ Export HTML généré !")
+            else:
+                st.error("❌ Erreur génération HTML")
     
     with action_col3:
         if st.button("📦 Suivi Livraison", use_container_width=True, key="track_ba_delivery"):
             st.info("🚧 Fonctionnalité à développer - Suivi livraison")
+    
+    with action_col4:
+        if st.button("✅ Marquer Livré", use_container_width=True, key="view_mark_ba_delivered"):
+            gestionnaire.db.execute_update(
+                "UPDATE formulaires SET statut = 'TERMINÉ' WHERE id = ?",
+                (formulaire_id,)
+            )
+            st.success("Bon d'achat marqué comme livré !")
+            st.rerun()
 
 # =========================================================================
 # FONCTIONS D'AFFICHAGE SIMPLIFIÉES (sans logique d'activation)
@@ -2846,12 +4180,14 @@ def demo_fournisseurs_crm_integration():
     ✅ **Pré-remplissage intelligent** - Prix et unités automatiques  
     ✅ **Double source** - Produits CRM + saisie manuelle  
     ✅ **Traçabilité** - Lien entre commandes et catalogue  
+    ✅ **Export HTML** - Documents professionnels pour DP et BA
     
     ### 📋 Fonctionnalités Disponibles :
     - **Demandes de Prix** avec produits CRM
     - **Bons d'Achat** avec prix pré-remplis
     - **Stock CRM** visible lors de la sélection
     - **Métadonnées** pour traçabilité source
+    - **Export HTML** professionnel pour impression/envoi
     """)
     
     # Test d'intégration en temps réel
@@ -2860,7 +4196,7 @@ def demo_fournisseurs_crm_integration():
 
 if __name__ == "__main__":
     # Point d'entrée pour test standalone
-    st.set_page_config(layout="wide", page_title="Fournisseurs + CRM")
+    st.set_page_config(layout="wide", page_title="Fournisseurs + CRM + Export HTML")
     
     # Simuler l'environnement pour test
     if 'erp_db' not in st.session_state:
