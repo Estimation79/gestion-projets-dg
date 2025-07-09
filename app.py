@@ -15,6 +15,7 @@ from fractions import Fraction
 import csv
 import pytz  # NOUVEAU : Pour la gestion du fuseau horaire du Québec
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
+from fournisseurs import show_fournisseurs_page
 
 # ========================
 # CONSTANTES GLOBALES
@@ -2097,9 +2098,39 @@ def init_erp_system():
     if FORMULAIRES_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
 
-    # NOUVEAU : Gestionnaire fournisseurs
+    # ==============================================================================
+    #                             DÉBUT DE LA CORRECTION
+    # ==============================================================================
+    # CORRECTION CRITIQUE : Initialiser le CRM AVANT les fournisseurs pour l'injection de dépendance
+    if CRM_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
+        # On s'assure que le gestionnaire de projets est déjà initialisé
+        if 'gestionnaire' in st.session_state:
+            st.session_state.gestionnaire_crm = GestionnaireCRM(
+                db=st.session_state.erp_db, 
+                project_manager=st.session_state.gestionnaire
+            )
+            print("✅ Gestionnaire CRM initialisé AVANT les fournisseurs.")
+        else:
+            # Fallback si le gestionnaire de projet n'est pas prêt (ne devrait pas arriver)
+            st.session_state.gestionnaire_crm = GestionnaireCRM(db=st.session_state.erp_db)
+            print("⚠️ Gestionnaire CRM initialisé SANS accès au gestionnaire de projets.")
+
+    # NOUVEAU : Gestionnaire fournisseurs - DÉPLACÉ ET MODIFIÉ pour recevoir le CRM
     if FOURNISSEURS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_fournisseurs' not in st.session_state:
-        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
+        # S'assurer que le CRM est disponible avant d'initialiser les fournisseurs
+        crm_manager_instance = st.session_state.get('gestionnaire_crm')
+        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(
+            db=st.session_state.erp_db, 
+            crm_manager=crm_manager_instance  # <-- INJECTION DE DÉPENDANCE
+        )
+        if crm_manager_instance:
+             print("✅ Gestionnaire Fournisseurs initialisé AVEC le gestionnaire CRM.")
+        else:
+             print("⚠️ Gestionnaire Fournisseurs initialisé SANS le gestionnaire CRM.")
+    
+    # ==============================================================================
+    #                               FIN DE LA CORRECTION
+    # ==============================================================================
 
     # NOUVEAU : Gestionnaire pièces jointes
     if ATTACHMENTS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'attachments_manager' not in st.session_state:
@@ -2108,21 +2139,6 @@ def init_erp_system():
             st.session_state.get('storage_manager')
         )
         print("✅ Gestionnaire de pièces jointes initialisé")
-
-    # CORRECTION CRITIQUE : CRM avec base SQLite unifiée
-    # SECTION MODIFIÉE SELON LA DEMANDE
-    if CRM_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
-        # On s'assure que le gestionnaire de projets est déjà initialisé
-        if 'gestionnaire' in st.session_state:
-            st.session_state.gestionnaire_crm = GestionnaireCRM(
-                db=st.session_state.erp_db, 
-                project_manager=st.session_state.gestionnaire  # Injection de la dépendance ici
-            )
-            print("✅ Gestionnaire CRM initialisé avec accès au gestionnaire de projets.")
-        else:
-            # Fallback si le gestionnaire de projet n'est pas prêt (ne devrait pas arriver)
-            st.session_state.gestionnaire_crm = GestionnaireCRM(db=st.session_state.erp_db)
-            print("⚠️ Gestionnaire CRM initialisé SANS accès au gestionnaire de projets.")
 
     # Gestionnaire employés (reste identique pour l'instant)
     if EMPLOYEES_AVAILABLE and 'gestionnaire_employes' not in st.session_state:
@@ -2473,7 +2489,7 @@ def show_erp_main():
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
-    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>CRM → Devis → Projet → Production → Bons de Travail → TimeTracker</small>", unsafe_allow_html=True)
+    st.sidebar.markdown("<small>📋 <strong>Chronologie Fabrication:</strong><br/>Client → Produits → Devis → Projet → Bons de Travail → TimeTracker</small>", unsafe_allow_html=True)
     
     # Bouton déconnexion
     if st.sidebar.button("🚪 Se Déconnecter", use_container_width=True):

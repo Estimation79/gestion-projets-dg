@@ -11,12 +11,14 @@ class GestionnaireFournisseurs:
     Gestionnaire complet pour les fournisseurs.
     Intégré avec la base de données SQLite unifiée
     + NOUVEAUX : Formulaires Demande de Prix et Bon d'Achat
+    + INTÉGRATION CRM : Utilise les produits du catalogue CRM
     + NETTOYAGE : Suppression complète du système d'activation/désactivation
     + SIMPLIFICATION : Code Fournisseur automatique + Catégorie optionnelle
     """
     
-    def __init__(self, db):
+    def __init__(self, db, crm_manager=None):
         self.db = db
+        self.crm_manager = crm_manager  # ← NOUVEAU : référence vers le CRM
         # Nettoyer la base de données au démarrage si nécessaire
         self._cleanup_database()
     
@@ -401,32 +403,56 @@ class GestionnaireFournisseurs:
             return {}
 
     # =========================================================================
-    # MÉTHODES POUR FORMULAIRES DEMANDE DE PRIX ET BON D'ACHAT
+    # MÉTHODES POUR INTÉGRATION CRM - REMPLACE inventory_items
     # =========================================================================
     
-    def get_inventory_items_for_selection(self, search_term: str = None) -> List[Dict]:
-        """Récupère les articles d'inventaire pour sélection dans formulaires"""
+    def get_produits_crm_for_selection(self, search_term: str = None) -> List[Dict]:
+        """Récupère les produits du CRM pour sélection dans formulaires"""
+        if not self.crm_manager:
+            st.warning("⚠️ Module CRM non disponible. Impossible d'accéder au catalogue produits.")
+            return []
+        
         try:
-            query = '''
-                SELECT id, nom, type_produit, quantite_imperial, quantite_metric,
-                       statut, description, fournisseur_principal, code_interne
-                FROM inventory_items
-            '''
-            params = []
-            
             if search_term:
-                query += " WHERE nom LIKE ? OR code_interne LIKE ? OR description LIKE ?"
-                pattern = f"%{search_term}%"
-                params = [pattern, pattern, pattern]
+                # Utiliser la recherche du CRM
+                produits = self.crm_manager.search_produits(search_term)
+            else:
+                # Récupérer tous les produits actifs
+                produits = self.crm_manager.get_all_products()
             
-            query += " ORDER BY nom"
-            
-            rows = self.db.execute_query(query, tuple(params) if params else None)
-            return [dict(row) for row in rows]
+            return produits
             
         except Exception as e:
-            st.error(f"Erreur récupération articles: {e}")
+            st.error(f"Erreur récupération produits CRM: {e}")
             return []
+    
+    def get_produit_crm_by_id(self, produit_id: int) -> Dict:
+        """Récupère un produit CRM par ID"""
+        if not self.crm_manager:
+            return {}
+        
+        try:
+            return self.crm_manager.get_produit_by_id(produit_id) or {}
+        except Exception as e:
+            st.error(f"Erreur récupération produit CRM {produit_id}: {e}")
+            return {}
+    
+    def get_categories_produits_crm(self) -> List[str]:
+        """Récupère les catégories de produits du CRM"""
+        if not self.crm_manager:
+            return []
+        
+        try:
+            produits = self.crm_manager.get_all_products()
+            categories = list(set(p.get('categorie', '') for p in produits if p.get('categorie')))
+            return sorted(categories)
+        except Exception as e:
+            st.error(f"Erreur récupération catégories CRM: {e}")
+            return []
+
+    # =========================================================================
+    # MÉTHODES POUR FORMULAIRES DEMANDE DE PRIX ET BON D'ACHAT
+    # =========================================================================
     
     def generate_document_number(self, type_formulaire: str) -> str:
         """Génère un numéro de document automatique"""
@@ -584,14 +610,37 @@ class GestionnaireFournisseurs:
             return {}
 
 def show_fournisseurs_page():
-    """Page principale du module Fournisseurs - VERSION NETTOYÉE"""
+    """Page principale du module Fournisseurs - VERSION INTÉGRÉE CRM"""
     st.markdown("## 🏪 Gestion des Fournisseurs")
     
-    # Initialisation du gestionnaire
+    # Initialisation du gestionnaire avec CRM
     if 'gestionnaire_fournisseurs' not in st.session_state:
-        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
+        # Initialiser le CRM si pas déjà fait
+        if 'gestionnaire_crm' not in st.session_state:
+            # Import dynamique pour éviter les dépendances circulaires
+            try:
+                from crm import GestionnaireCRM
+                st.session_state.gestionnaire_crm = GestionnaireCRM(
+                    db=st.session_state.erp_db,
+                    project_manager=st.session_state.get('project_manager')
+                )
+            except ImportError:
+                st.error("⚠️ Module CRM non disponible. Fonctionnalités limitées.")
+                st.session_state.gestionnaire_crm = None
+        
+        # Initialiser le gestionnaire fournisseurs avec le CRM
+        st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(
+            db=st.session_state.erp_db,
+            crm_manager=st.session_state.gestionnaire_crm  # ← NOUVEAU
+        )
     
     gestionnaire = st.session_state.gestionnaire_fournisseurs
+    
+    # Afficher un indicateur de statut CRM
+    if gestionnaire.crm_manager:
+        st.success("✅ Module CRM connecté - Catalogue produits disponible")
+    else:
+        st.warning("⚠️ Module CRM non disponible - Fonctionnalités produits limitées")
     
     # Variables de session
     if 'fournisseur_action' not in st.session_state:
@@ -641,7 +690,7 @@ def show_fournisseurs_page():
         render_fournisseur_details(gestionnaire, fournisseur_data)
 
 # =========================================================================
-# ONGLETS POUR FORMULAIRES DEMANDE DE PRIX ET BON D'ACHAT
+# ONGLETS POUR FORMULAIRES DEMANDE DE PRIX ET BON D'ACHAT - VERSION CRM
 # =========================================================================
 
 def render_demande_prix_tab(gestionnaire):
@@ -681,18 +730,11 @@ def render_bon_achat_tab(gestionnaire):
         render_view_bon_achat(gestionnaire)
 
 def render_create_demande_prix_form(gestionnaire):
-    """Formulaire de création de Demande de Prix - VERSION CORRIGÉE"""
+    """Formulaire de création de Demande de Prix - VERSION CRM INTÉGRÉE"""
     st.markdown("#### ➕ Nouvelle Demande de Prix")
     
     # Vérification des fournisseurs
     fournisseurs = gestionnaire.get_all_fournisseurs()
-    
-    # DEBUG TEMPORAIRE - Afficher la structure des données
-    if fournisseurs and len(fournisseurs) > 0:
-        with st.expander("🔍 DEBUG - Structure des données fournisseurs", expanded=False):
-            st.write("**Premier fournisseur (exemple):**")
-            st.json(fournisseurs[0])
-            st.write("**Clés disponibles:**", list(fournisseurs[0].keys()))
     
     if not fournisseurs:
         st.warning("⚠️ Aucun fournisseur disponible.")
@@ -703,76 +745,139 @@ def render_create_demande_prix_form(gestionnaire):
             st.rerun()
         return
     
+    # Vérification CRM
+    if not gestionnaire.crm_manager:
+        st.error("⚠️ Module CRM non disponible. Impossible d'accéder au catalogue produits.")
+        st.info("💡 Activez le module CRM pour utiliser le catalogue produits intégré.")
+        return
+    
     # Initialiser les lignes si nécessaire
     if 'dp_lines' not in st.session_state:
         st.session_state.dp_lines = []
     
-    # Section pour ajouter des articles (HORS du formulaire)
-    st.markdown("#### 📦 Articles à chiffrer")
+    # Section pour ajouter des articles CRM (HORS du formulaire)
+    st.markdown("#### 📦 Articles à chiffrer (Catalogue CRM)")
     
-    with st.expander("➕ Ajouter un article", expanded=len(st.session_state.dp_lines) == 0):
+    with st.expander("➕ Ajouter un produit du catalogue", expanded=len(st.session_state.dp_lines) == 0):
         add_col1, add_col2, add_col3 = st.columns(3)
         
         with add_col1:
-            # Recherche d'article dans l'inventaire
-            search_term = st.text_input("🔍 Rechercher article:", key="dp_search_article")
-            articles = gestionnaire.get_inventory_items_for_selection(search_term)
+            # Recherche dans le catalogue CRM
+            search_term = st.text_input("🔍 Rechercher produit:", key="dp_search_produit_crm")
+            produits_crm = gestionnaire.get_produits_crm_for_selection(search_term)
             
-            if articles:
-                selected_article = st.selectbox(
-                    "Article inventaire:",
-                    options=[None] + articles,
-                    format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
-                    key="dp_selected_article"
+            if produits_crm:
+                selected_produit = st.selectbox(
+                    "Produit du catalogue CRM:",
+                    options=[None] + produits_crm,
+                    format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('code_produit', '')} - {x.get('nom', '')} ({x.get('materiau', '')}/{x.get('nuance', '')})",
+                    key="dp_selected_produit_crm"
                 )
             else:
-                selected_article = None
-                st.info("Aucun article trouvé ou saisie manuelle")
+                selected_produit = None
+                if search_term:
+                    st.info("Aucun produit trouvé")
+                else:
+                    st.info("Tapez pour rechercher des produits")
             
+            # Pré-remplir avec les données du produit CRM
             description_article = st.text_input(
                 "Description:",
-                value=selected_article.get('nom', '') if selected_article else '',
-                key="dp_description"
+                value=f"{selected_produit.get('code_produit', '')} - {selected_produit.get('nom', '')}" if selected_produit else '',
+                key="dp_description_crm"
             )
         
         with add_col2:
             code_article = st.text_input(
-                "Code article:",
-                value=selected_article.get('code_interne', '') if selected_article else '',
-                key="dp_code"
+                "Code produit:",
+                value=selected_produit.get('code_produit', '') if selected_produit else '',
+                key="dp_code_crm"
             )
             
+            # Unité pré-remplie depuis le produit CRM
+            unite_defaut = selected_produit.get('unite_vente', 'UN') if selected_produit else 'UN'
+            unite_options = ['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H', 'T', 'tonne', 'kg']
+            if unite_defaut not in unite_options:
+                unite_options.insert(0, unite_defaut)
+            
+            unite = st.selectbox(
+                "Unité:",
+                options=unite_options,
+                index=unite_options.index(unite_defaut),
+                key="dp_unite_crm"
+            )
+        
+        with add_col3:
             quantite = st.number_input(
                 "Quantité:",
                 min_value=0.01,
                 value=1.0,
                 step=0.01,
-                key="dp_quantite"
+                key="dp_quantite_crm"
             )
-        
-        with add_col3:
-            unite = st.selectbox(
-                "Unité:",
-                options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
-                key="dp_unite"
-            )
+            
+            # Afficher les infos du produit CRM
+            if selected_produit:
+                st.info(f"💰 Prix CRM: {selected_produit.get('prix_unitaire', 0):.2f} $ / {selected_produit.get('unite_vente', 'UN')}")
+                if selected_produit.get('description'):
+                    st.caption(f"📝 {selected_produit['description']}")
+                if selected_produit.get('stock_disponible'):
+                    stock = selected_produit['stock_disponible']
+                    st.caption(f"📦 Stock: {stock} {selected_produit.get('unite_vente', 'UN')}")
             
             notes_ligne = st.text_input(
                 "Notes ligne:",
-                key="dp_notes_ligne"
+                key="dp_notes_ligne_crm"
             )
         
-        if st.button("➕ Ajouter à la demande", use_container_width=True, key="dp_add_line"):
+        if st.button("➕ Ajouter à la demande", use_container_width=True, key="dp_add_line_crm"):
             if description_article and quantite > 0:
                 nouvelle_ligne = {
                     'description': description_article,
                     'code_article': code_article,
                     'quantite': quantite,
                     'unite': unite,
-                    'notes_ligne': notes_ligne
+                    'notes_ligne': notes_ligne,
+                    # Métadonnées CRM pour référence
+                    'produit_crm_id': selected_produit.get('id') if selected_produit else None,
+                    'prix_unitaire_crm': selected_produit.get('prix_unitaire', 0) if selected_produit else 0,
+                    'stock_disponible_crm': selected_produit.get('stock_disponible', 0) if selected_produit else 0
                 }
                 st.session_state.dp_lines.append(nouvelle_ligne)
-                st.success("Article ajouté !")
+                st.success("✅ Produit ajouté à la demande !")
+                st.rerun()
+            else:
+                st.error("Description et quantité sont obligatoires.")
+    
+    # Section pour ajout manuel (pour les produits non catalogués)
+    with st.expander("✏️ Ajouter un article manuel (non catalogué)", expanded=False):
+        manual_col1, manual_col2, manual_col3 = st.columns(3)
+        
+        with manual_col1:
+            description_manual = st.text_input("Description manuelle:", key="dp_desc_manual")
+            code_manual = st.text_input("Code article:", key="dp_code_manual")
+        
+        with manual_col2:
+            quantite_manual = st.number_input("Quantité:", min_value=0.01, value=1.0, step=0.01, key="dp_qty_manual")
+            unite_manual = st.selectbox("Unité:", options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H', 'T'], key="dp_unit_manual")
+        
+        with manual_col3:
+            notes_manual = st.text_input("Notes:", key="dp_notes_manual")
+        
+        if st.button("➕ Ajouter article manuel", use_container_width=True, key="dp_add_manual"):
+            if description_manual and quantite_manual > 0:
+                nouvelle_ligne_manual = {
+                    'description': description_manual,
+                    'code_article': code_manual,
+                    'quantite': quantite_manual,
+                    'unite': unite_manual,
+                    'notes_ligne': notes_manual,
+                    'produit_crm_id': None,  # Pas de lien CRM
+                    'prix_unitaire_crm': 0,
+                    'stock_disponible_crm': 0
+                }
+                st.session_state.dp_lines.append(nouvelle_ligne_manual)
+                st.success("✅ Article manuel ajouté !")
                 st.rerun()
             else:
                 st.error("Description et quantité sont obligatoires.")
@@ -782,20 +887,34 @@ def render_create_demande_prix_form(gestionnaire):
         st.markdown("**Articles dans la demande:**")
         
         for i, ligne in enumerate(st.session_state.dp_lines):
-            col_desc, col_qty, col_action = st.columns([3, 1, 1])
-            
-            with col_desc:
-                st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
-                if ligne['notes_ligne']:
-                    st.caption(f"📝 {ligne['notes_ligne']}")
-            
-            with col_qty:
-                st.markdown(f"{ligne['quantite']} {ligne['unite']}")
-            
-            with col_action:
-                if st.button("🗑️", key=f"dp_remove_{i}", help="Supprimer cette ligne"):
-                    st.session_state.dp_lines.pop(i)
-                    st.rerun()
+            with st.container():
+                col_desc, col_qty, col_info, col_action = st.columns([3, 1, 1, 1])
+                
+                with col_desc:
+                    is_crm = ligne.get('produit_crm_id') is not None
+                    icon = "🔗" if is_crm else "✏️"
+                    st.markdown(f"{icon} **{ligne['description']}** ({ligne['code_article']})")
+                    if ligne['notes_ligne']:
+                        st.caption(f"📝 {ligne['notes_ligne']}")
+                
+                with col_qty:
+                    st.markdown(f"{ligne['quantite']} {ligne['unite']}")
+                
+                with col_info:
+                    if is_crm:
+                        prix_crm = ligne.get('prix_unitaire_crm', 0)
+                        if prix_crm > 0:
+                            st.caption(f"💰 {prix_crm:.2f} $ CRM")
+                        stock_crm = ligne.get('stock_disponible_crm', 0)
+                        if stock_crm > 0:
+                            st.caption(f"📦 Stock: {stock_crm}")
+                    else:
+                        st.caption("Manuel")
+                
+                with col_action:
+                    if st.button("🗑️", key=f"dp_remove_{i}", help="Supprimer cette ligne"):
+                        st.session_state.dp_lines.pop(i)
+                        st.rerun()
     else:
         st.info("Aucun article ajouté. Ajoutez au moins un article pour créer la demande.")
     
@@ -880,6 +999,10 @@ def render_create_demande_prix_form(gestionnaire):
                     st.rerun()
                     return
                 
+                # Compter les produits CRM vs manuels
+                produits_crm = [l for l in st.session_state.dp_lines if l.get('produit_crm_id')]
+                produits_manuels = [l for l in st.session_state.dp_lines if not l.get('produit_crm_id')]
+                
                 formulaire_data = {
                     'type_formulaire': 'DEMANDE_PRIX',
                     'numero_document': numero_dp,
@@ -891,7 +1014,10 @@ def render_create_demande_prix_form(gestionnaire):
                     'notes': notes,
                     'metadonnees_json': json.dumps({
                         'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
-                        'type_document': 'demande_prix'
+                        'type_document': 'demande_prix',
+                        'source_crm': True,
+                        'nb_produits_crm': len(produits_crm),
+                        'nb_produits_manuels': len(produits_manuels)
                     })
                 }
                 
@@ -900,24 +1026,19 @@ def render_create_demande_prix_form(gestionnaire):
                 if formulaire_id:
                     action_text = "créée et envoyée" if submitted else "sauvée en brouillon"
                     st.success(f"✅ Demande de Prix {numero_dp} {action_text} ! (ID: {formulaire_id})")
+                    if produits_crm:
+                        st.info(f"📦 {len(produits_crm)} produit(s) du catalogue CRM inclus")
                     st.session_state.dp_lines = []  # Vider les lignes
                     st.rerun()
                 else:
                     st.error("❌ Erreur lors de la création de la demande.")
 
 def render_create_bon_achat_form(gestionnaire):
-    """Formulaire de création de Bon d'Achat - VERSION CORRIGÉE"""
+    """Formulaire de création de Bon d'Achat - VERSION CRM INTÉGRÉE"""
     st.markdown("#### 🛒 Nouveau Bon d'Achat")
     
     # Vérification des fournisseurs
     fournisseurs = gestionnaire.get_all_fournisseurs()
-    
-    # DEBUG TEMPORAIRE - Afficher la structure des données
-    if fournisseurs and len(fournisseurs) > 0:
-        with st.expander("🔍 DEBUG - Structure des données fournisseurs", expanded=False):
-            st.write("**Premier fournisseur (exemple):**")
-            st.json(fournisseurs[0])
-            st.write("**Clés disponibles:**", list(fournisseurs[0].keys()))
     
     if not fournisseurs:
         st.warning("⚠️ Aucun fournisseur disponible.")
@@ -928,43 +1049,53 @@ def render_create_bon_achat_form(gestionnaire):
             st.rerun()
         return
     
+    # Vérification CRM
+    if not gestionnaire.crm_manager:
+        st.error("⚠️ Module CRM non disponible. Impossible d'accéder au catalogue produits.")
+        st.info("💡 Activez le module CRM pour utiliser le catalogue produits intégré.")
+        return
+    
     # Initialiser les lignes si nécessaire
     if 'ba_lines' not in st.session_state:
         st.session_state.ba_lines = []
     
-    # Section pour ajouter des articles (HORS du formulaire)
-    st.markdown("#### 🛒 Articles à commander")
+    # Section pour ajouter des articles CRM (HORS du formulaire)
+    st.markdown("#### 🛒 Articles à commander (Catalogue CRM)")
     
-    with st.expander("➕ Ajouter un article", expanded=len(st.session_state.ba_lines) == 0):
+    with st.expander("➕ Ajouter un produit du catalogue", expanded=len(st.session_state.ba_lines) == 0):
         add_col1, add_col2, add_col3, add_col4 = st.columns(4)
         
         with add_col1:
-            # Recherche d'article dans l'inventaire
-            search_term = st.text_input("🔍 Rechercher article:", key="ba_search_article")
-            articles = gestionnaire.get_inventory_items_for_selection(search_term)
+            # Recherche dans le catalogue CRM
+            search_term = st.text_input("🔍 Rechercher produit:", key="ba_search_produit_crm")
+            produits_crm = gestionnaire.get_produits_crm_for_selection(search_term)
             
-            if articles:
-                selected_article = st.selectbox(
-                    "Article inventaire:",
-                    options=[None] + articles,
-                    format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('nom', '')} ({x.get('code_interne', '')})",
-                    key="ba_selected_article"
+            if produits_crm:
+                selected_produit = st.selectbox(
+                    "Produit du catalogue CRM:",
+                    options=[None] + produits_crm,
+                    format_func=lambda x: "-- Sélectionner --" if x is None else f"{x.get('code_produit', '')} - {x.get('nom', '')} ({x.get('materiau', '')}/{x.get('nuance', '')})",
+                    key="ba_selected_produit_crm"
                 )
             else:
-                selected_article = None
-                st.info("Aucun article trouvé")
+                selected_produit = None
+                if search_term:
+                    st.info("Aucun produit trouvé")
+                else:
+                    st.info("Tapez pour rechercher des produits")
             
+            # Pré-remplir avec les données du produit CRM
             description_article = st.text_input(
                 "Description *:",
-                value=selected_article.get('nom', '') if selected_article else '',
-                key="ba_description"
+                value=f"{selected_produit.get('code_produit', '')} - {selected_produit.get('nom', '')}" if selected_produit else '',
+                key="ba_description_crm"
             )
         
         with add_col2:
             code_article = st.text_input(
-                "Code article:",
-                value=selected_article.get('code_interne', '') if selected_article else '',
-                key="ba_code"
+                "Code produit:",
+                value=selected_produit.get('code_produit', '') if selected_produit else '',
+                key="ba_code_crm"
             )
             
             quantite = st.number_input(
@@ -972,34 +1103,56 @@ def render_create_bon_achat_form(gestionnaire):
                 min_value=0.01,
                 value=1.0,
                 step=0.01,
-                key="ba_quantite"
+                key="ba_quantite_crm"
             )
         
         with add_col3:
+            # Unité pré-remplie depuis le produit CRM
+            unite_defaut = selected_produit.get('unite_vente', 'UN') if selected_produit else 'UN'
+            unite_options = ['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H', 'T', 'tonne', 'kg']
+            if unite_defaut not in unite_options:
+                unite_options.insert(0, unite_defaut)
+            
             unite = st.selectbox(
                 "Unité:",
-                options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H'],
-                key="ba_unite"
+                options=unite_options,
+                index=unite_options.index(unite_defaut),
+                key="ba_unite_crm"
             )
             
+            # Prix pré-rempli depuis le produit CRM
+            prix_defaut = selected_produit.get('prix_unitaire', 0.0) if selected_produit else 0.0
             prix_unitaire = st.number_input(
                 "Prix unitaire $ *:",
                 min_value=0.0,
-                value=0.0,
+                value=prix_defaut,
                 step=0.01,
-                key="ba_prix"
+                key="ba_prix_crm",
+                help=f"Prix CRM: {prix_defaut:.2f} $" if prix_defaut > 0 else "Prix à négocier"
             )
         
         with add_col4:
             montant_ligne = quantite * prix_unitaire
             st.metric("💰 Montant ligne:", f"{montant_ligne:.2f} $")
             
+            # Afficher infos CRM
+            if selected_produit:
+                stock = selected_produit.get('stock_disponible', 0)
+                if stock > 0:
+                    if quantite > stock:
+                        st.warning(f"⚠️ Stock: {stock} {unite_defaut}")
+                    else:
+                        st.info(f"📦 Stock: {stock} {unite_defaut}")
+                
+                if selected_produit.get('fournisseur_principal'):
+                    st.caption(f"🏪 Fournisseur principal CRM: {selected_produit['fournisseur_principal']}")
+            
             notes_ligne = st.text_input(
                 "Notes ligne:",
-                key="ba_notes_ligne"
+                key="ba_notes_ligne_crm"
             )
         
-        if st.button("➕ Ajouter au bon d'achat", use_container_width=True, key="ba_add_line"):
+        if st.button("➕ Ajouter au bon d'achat", use_container_width=True, key="ba_add_line_crm"):
             if description_article and quantite > 0 and prix_unitaire >= 0:
                 nouvelle_ligne = {
                     'description': description_article,
@@ -1007,13 +1160,56 @@ def render_create_bon_achat_form(gestionnaire):
                     'quantite': quantite,
                     'unite': unite,
                     'prix_unitaire': prix_unitaire,
-                    'notes_ligne': notes_ligne
+                    'notes_ligne': notes_ligne,
+                    # Métadonnées CRM pour référence
+                    'produit_crm_id': selected_produit.get('id') if selected_produit else None,
+                    'prix_unitaire_crm': selected_produit.get('prix_unitaire', 0) if selected_produit else 0,
+                    'stock_disponible_crm': selected_produit.get('stock_disponible', 0) if selected_produit else 0
                 }
                 st.session_state.ba_lines.append(nouvelle_ligne)
-                st.success("Article ajouté !")
+                st.success("✅ Produit ajouté au bon d'achat !")
                 st.rerun()
             else:
                 st.error("Description, quantité et prix sont obligatoires.")
+    
+    # Section pour ajout manuel (pour les produits non catalogués)
+    with st.expander("✏️ Ajouter un article manuel (non catalogué)", expanded=False):
+        manual_col1, manual_col2, manual_col3, manual_col4 = st.columns(4)
+        
+        with manual_col1:
+            description_manual = st.text_input("Description manuelle:", key="ba_desc_manual")
+            code_manual = st.text_input("Code article:", key="ba_code_manual")
+        
+        with manual_col2:
+            quantite_manual = st.number_input("Quantité:", min_value=0.01, value=1.0, step=0.01, key="ba_qty_manual")
+            unite_manual = st.selectbox("Unité:", options=['UN', 'M', 'M²', 'M³', 'KG', 'L', 'H', 'T'], key="ba_unit_manual")
+        
+        with manual_col3:
+            prix_manual = st.number_input("Prix unitaire $:", min_value=0.0, value=0.0, step=0.01, key="ba_price_manual")
+            notes_manual = st.text_input("Notes:", key="ba_notes_manual")
+        
+        with manual_col4:
+            montant_manual = quantite_manual * prix_manual
+            st.metric("💰 Montant:", f"{montant_manual:.2f} $")
+        
+        if st.button("➕ Ajouter article manuel", use_container_width=True, key="ba_add_manual"):
+            if description_manual and quantite_manual > 0:
+                nouvelle_ligne_manual = {
+                    'description': description_manual,
+                    'code_article': code_manual,
+                    'quantite': quantite_manual,
+                    'unite': unite_manual,
+                    'prix_unitaire': prix_manual,
+                    'notes_ligne': notes_manual,
+                    'produit_crm_id': None,  # Pas de lien CRM
+                    'prix_unitaire_crm': 0,
+                    'stock_disponible_crm': 0
+                }
+                st.session_state.ba_lines.append(nouvelle_ligne_manual)
+                st.success("✅ Article manuel ajouté !")
+                st.rerun()
+            else:
+                st.error("Description et quantité sont obligatoires.")
     
     # Affichage des lignes ajoutées avec calcul du total (HORS du formulaire)
     if st.session_state.ba_lines:
@@ -1025,10 +1221,12 @@ def render_create_bon_achat_form(gestionnaire):
             total_montant += montant_ligne
             
             with st.container():
-                col_desc, col_qty, col_prix, col_montant, col_action = st.columns([3, 1, 1, 1, 1])
+                col_desc, col_qty, col_prix, col_montant, col_info, col_action = st.columns([3, 1, 1, 1, 1, 1])
                 
                 with col_desc:
-                    st.markdown(f"**{ligne['description']}** ({ligne['code_article']})")
+                    is_crm = ligne.get('produit_crm_id') is not None
+                    icon = "🔗" if is_crm else "✏️"
+                    st.markdown(f"{icon} **{ligne['description']}** ({ligne['code_article']})")
                     if ligne['notes_ligne']:
                         st.caption(f"📝 {ligne['notes_ligne']}")
                 
@@ -1040,6 +1238,20 @@ def render_create_bon_achat_form(gestionnaire):
                 
                 with col_montant:
                     st.markdown(f"**{montant_ligne:.2f} $**")
+                
+                with col_info:
+                    if is_crm:
+                        prix_crm = ligne.get('prix_unitaire_crm', 0)
+                        if prix_crm > 0 and prix_crm != ligne['prix_unitaire']:
+                            diff = ligne['prix_unitaire'] - prix_crm
+                            if diff > 0:
+                                st.caption(f"📈 +{diff:.2f}$ vs CRM")
+                            else:
+                                st.caption(f"📉 {diff:.2f}$ vs CRM")
+                        else:
+                            st.caption("🔗 CRM")
+                    else:
+                        st.caption("✏️ Manuel")
                 
                 with col_action:
                     if st.button("🗑️", key=f"ba_remove_{i}", help="Supprimer cette ligne"):
@@ -1133,6 +1345,11 @@ def render_create_bon_achat_form(gestionnaire):
                     st.rerun()
                     return
                 
+                # Calculer les totaux et statistiques
+                total_calcule = sum(l['quantite'] * l['prix_unitaire'] for l in st.session_state.ba_lines)
+                produits_crm = [l for l in st.session_state.ba_lines if l.get('produit_crm_id')]
+                produits_manuels = [l for l in st.session_state.ba_lines if not l.get('produit_crm_id')]
+                
                 formulaire_data = {
                     'type_formulaire': 'BON_ACHAT',
                     'numero_document': numero_ba,
@@ -1145,7 +1362,10 @@ def render_create_bon_achat_form(gestionnaire):
                     'metadonnees_json': json.dumps({
                         'fournisseur_nom': selected_fournisseur.get('nom', 'N/A'),
                         'type_document': 'bon_achat',
-                        'total_calcule': sum(l['quantite'] * l['prix_unitaire'] for l in st.session_state.ba_lines)
+                        'total_calcule': total_calcule,
+                        'source_crm': True,
+                        'nb_produits_crm': len(produits_crm),
+                        'nb_produits_manuels': len(produits_manuels)
                     })
                 }
                 
@@ -1154,10 +1374,18 @@ def render_create_bon_achat_form(gestionnaire):
                 if formulaire_id:
                     action_text = "créé et envoyé" if submitted else "sauvé en brouillon"
                     st.success(f"✅ Bon d'Achat {numero_ba} {action_text} ! (ID: {formulaire_id})")
+                    st.success(f"💰 Montant total: {total_calcule:,.2f} $ CAD")
+                    if produits_crm:
+                        st.info(f"🔗 {len(produits_crm)} produit(s) du catalogue CRM inclus")
+                    if produits_manuels:
+                        st.info(f"✏️ {len(produits_manuels)} produit(s) manuel(s) inclus")
                     st.session_state.ba_lines = []  # Vider les lignes
                     st.rerun()
                 else:
                     st.error("❌ Erreur lors de la création du bon d'achat.")
+
+# Reste du code inchangé pour les autres fonctions...
+# [Les autres fonctions restent identiques]
 
 def render_list_demandes_prix(gestionnaire):
     """Liste des demandes de prix"""
@@ -1199,6 +1427,15 @@ def render_list_demandes_prix(gestionnaire):
                 'CRITIQUE': '🔴'
             }.get(dp['priorite'], '⚪')
             
+            # Identifier si c'est un document CRM
+            metadonnees = {}
+            try:
+                metadonnees = json.loads(dp.get('metadonnees_json', '{}'))
+            except:
+                pass
+            
+            source_icon = "🔗" if metadonnees.get('source_crm') else "📄"
+            
             df_data.append({
                 '🆔': dp['id'],
                 '📋 Numéro': dp['numero_document'],
@@ -1206,6 +1443,7 @@ def render_list_demandes_prix(gestionnaire):
                 '📊 Statut': f"{statut_icon} {dp['statut']}",
                 '⚡ Priorité': f"{priorite_icon} {dp['priorite']}",
                 '📦 Nb Articles': dp['nombre_lignes'],
+                '🔗 Source': f"{source_icon} {'CRM' if metadonnees.get('source_crm') else 'Manuel'}",
                 '📅 Créé le': pd.to_datetime(dp['date_creation']).strftime('%d/%m/%Y'),
                 '⏰ Échéance': pd.to_datetime(dp['date_echeance']).strftime('%d/%m/%Y') if dp['date_echeance'] else 'N/A'
             })
@@ -1288,6 +1526,15 @@ def render_list_bons_achat(gestionnaire):
                 'CRITIQUE': '🔴'
             }.get(ba['priorite'], '⚪')
             
+            # Identifier si c'est un document CRM
+            metadonnees = {}
+            try:
+                metadonnees = json.loads(ba.get('metadonnees_json', '{}'))
+            except:
+                pass
+            
+            source_icon = "🔗" if metadonnees.get('source_crm') else "📄"
+            
             df_data.append({
                 '🆔': ba['id'],
                 '🛒 Numéro': ba['numero_document'],
@@ -1296,19 +1543,33 @@ def render_list_bons_achat(gestionnaire):
                 '⚡ Priorité': f"{priorite_icon} {ba['priorite']}",
                 '📦 Nb Articles': ba['nombre_lignes'],
                 '💰 Montant': f"{ba['montant_total_calcule']:,.2f} $",
+                '🔗 Source': f"{source_icon} {'CRM' if metadonnees.get('source_crm') else 'Manuel'}",
                 '📅 Créé le': pd.to_datetime(ba['date_creation']).strftime('%d/%m/%Y'),
                 '📦 Livraison': pd.to_datetime(ba['date_echeance']).strftime('%d/%m/%Y') if ba['date_echeance'] else 'N/A'
             })
         
         st.dataframe(pd.DataFrame(df_data), use_container_width=True)
         
-        # Statistiques rapides
+        # Statistiques rapides avec distinction CRM/Manuel
         if bons_achat:
             st.markdown("---")
             st.markdown("#### 📊 Statistiques Rapides")
             
             total_montant = sum(ba['montant_total_calcule'] for ba in bons_achat)
             nb_fournisseurs = len(set(ba['company_nom'] for ba in bons_achat))
+            
+            # Compter les documents CRM vs manuels
+            nb_crm = 0
+            nb_manuels = 0
+            for ba in bons_achat:
+                try:
+                    metadonnees = json.loads(ba.get('metadonnees_json', '{}'))
+                    if metadonnees.get('source_crm'):
+                        nb_crm += 1
+                    else:
+                        nb_manuels += 1
+                except:
+                    nb_manuels += 1
             
             stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
             
@@ -1321,6 +1582,15 @@ def render_list_bons_achat(gestionnaire):
             with stat_col4:
                 moyenne = total_montant / len(bons_achat) if bons_achat else 0
                 st.metric("📈 BA Moyen", f"{moyenne:,.0f} $")
+            
+            # Statistiques CRM
+            if nb_crm > 0:
+                st.markdown("##### 🔗 Répartition par Source")
+                source_col1, source_col2 = st.columns(2)
+                with source_col1:
+                    st.metric("🔗 Avec produits CRM", nb_crm)
+                with source_col2:
+                    st.metric("✏️ Entièrement manuels", nb_manuels)
         
         # Sélection pour actions
         if bons_achat:
@@ -1399,6 +1669,14 @@ def render_view_demande_prix(gestionnaire):
         **📦 Nb Articles:** {len(dp_details.get('lignes', []))}
         """)
     
+    # Informations CRM si disponibles
+    try:
+        metadonnees = json.loads(dp_details.get('metadonnees_json', '{}'))
+        if metadonnees.get('source_crm'):
+            st.info(f"🔗 **Document CRM** - {metadonnees.get('nb_produits_crm', 0)} produit(s) du catalogue, {metadonnees.get('nb_produits_manuels', 0)} manuel(s)")
+    except:
+        pass
+    
     # Notes
     if dp_details.get('notes'):
         st.markdown("---")
@@ -1448,7 +1726,10 @@ def render_view_demande_prix(gestionnaire):
                     'quantite': ligne['quantite'],
                     'unite': ligne.get('unite', 'UN'),
                     'prix_unitaire': 0.0,  # À remplir
-                    'notes_ligne': ligne.get('notes_ligne', '')
+                    'notes_ligne': ligne.get('notes_ligne', ''),
+                    'produit_crm_id': None,  # À reconnecter si possible
+                    'prix_unitaire_crm': 0,
+                    'stock_disponible_crm': 0
                 }
                 for ligne in lignes
             ]
@@ -1491,6 +1772,14 @@ def render_view_bon_achat(gestionnaire):
         
         **💰 Montant Total:** {ba_details.get('montant_total', 0):,.2f} $ CAD
         """)
+    
+    # Informations CRM si disponibles
+    try:
+        metadonnees = json.loads(ba_details.get('metadonnees_json', '{}'))
+        if metadonnees.get('source_crm'):
+            st.info(f"🔗 **Document CRM** - {metadonnees.get('nb_produits_crm', 0)} produit(s) du catalogue, {metadonnees.get('nb_produits_manuels', 0)} manuel(s)")
+    except:
+        pass
     
     # Notes
     if ba_details.get('notes'):
@@ -2272,3 +2561,311 @@ def render_fournisseur_details(gestionnaire, fournisseur_data):
             st.info("💡 Consultez l'onglet 'Bon d'Achat' - Fournisseur pré-sélectionné !")
     
     st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================================================================
+# FONCTIONS UTILITAIRES ET D'INTÉGRATION CRM
+# =========================================================================
+
+def check_crm_integration_status(gestionnaire):
+    """Vérifie le statut de l'intégration CRM"""
+    if gestionnaire.crm_manager:
+        try:
+            # Test de connectivité
+            produits_count = len(gestionnaire.crm_manager.get_all_products())
+            return {
+                'status': 'connected',
+                'message': f"✅ CRM connecté - {produits_count} produits disponibles",
+                'produits_count': produits_count
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': f"⚠️ CRM connecté mais erreur: {e}",
+                'produits_count': 0
+            }
+    else:
+        return {
+            'status': 'disconnected',
+            'message': "❌ CRM non disponible",
+            'produits_count': 0
+        }
+
+def sync_fournisseur_with_crm_products(gestionnaire, fournisseur_id):
+    """Synchronise un fournisseur avec les produits CRM correspondants"""
+    if not gestionnaire.crm_manager:
+        return []
+    
+    try:
+        fournisseur = gestionnaire.get_fournisseur_by_id(fournisseur_id)
+        if not fournisseur:
+            return []
+        
+        # Rechercher les produits CRM du même fournisseur
+        tous_produits = gestionnaire.crm_manager.get_all_products()
+        produits_fournisseur = [
+            p for p in tous_produits 
+            if p.get('fournisseur_principal', '').lower() == fournisseur.get('nom', '').lower()
+        ]
+        
+        return produits_fournisseur
+        
+    except Exception as e:
+        st.error(f"Erreur synchronisation CRM: {e}")
+        return []
+
+def suggest_crm_products_for_fournisseur(gestionnaire, fournisseur_data):
+    """Suggère des produits CRM pour un fournisseur basé sur sa catégorie"""
+    if not gestionnaire.crm_manager:
+        return []
+    
+    try:
+        categorie_fournisseur = fournisseur_data.get('categorie_produits', '')
+        if not categorie_fournisseur:
+            return []
+        
+        # Recherche de produits CRM de même catégorie
+        tous_produits = gestionnaire.crm_manager.get_all_products()
+        produits_suggeres = [
+            p for p in tous_produits 
+            if categorie_fournisseur.lower() in p.get('categorie', '').lower()
+        ]
+        
+        return produits_suggeres[:10]  # Limiter à 10 suggestions
+        
+    except Exception as e:
+        st.error(f"Erreur suggestions CRM: {e}")
+        return []
+
+def export_fournisseur_data_with_crm(gestionnaire, fournisseur_id):
+    """Exporte les données d'un fournisseur incluant les liens CRM"""
+    try:
+        fournisseur = gestionnaire.get_fournisseur_by_id(fournisseur_id)
+        if not fournisseur:
+            return None
+        
+        # Données de base
+        export_data = {
+            'fournisseur': fournisseur,
+            'performance': gestionnaire.get_fournisseur_performance(fournisseur_id, 365),
+            'formulaires': gestionnaire.get_formulaires_fournisseur(fournisseur.get('company_id')),
+        }
+        
+        # Données CRM si disponibles
+        if gestionnaire.crm_manager:
+            export_data['produits_crm_lies'] = sync_fournisseur_with_crm_products(gestionnaire, fournisseur_id)
+            export_data['produits_crm_suggeres'] = suggest_crm_products_for_fournisseur(gestionnaire, fournisseur)
+        
+        return export_data
+        
+    except Exception as e:
+        st.error(f"Erreur export données: {e}")
+        return None
+
+def create_rapport_fournisseur_crm(gestionnaire, fournisseur_id):
+    """Crée un rapport complet d'un fournisseur avec données CRM"""
+    
+    st.markdown("### 📊 Rapport Fournisseur avec Intégration CRM")
+    
+    # Récupérer toutes les données
+    export_data = export_fournisseur_data_with_crm(gestionnaire, fournisseur_id)
+    
+    if not export_data:
+        st.error("Impossible de générer le rapport.")
+        return
+    
+    fournisseur = export_data['fournisseur']
+    performance = export_data['performance']
+    
+    st.markdown(f"#### 🏪 {fournisseur.get('nom', 'N/A')}")
+    
+    # Section 1: Informations de base
+    with st.expander("📋 Informations de Base", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Code:** {fournisseur.get('code_fournisseur')}")
+            st.write(f"**Catégorie:** {fournisseur.get('categorie_produits')}")
+            st.write(f"**Évaluation:** {fournisseur.get('evaluation_qualite')}/10")
+        with col2:
+            st.write(f"**Délai:** {fournisseur.get('delai_livraison_moyen')} jours")
+            st.write(f"**Conditions:** {fournisseur.get('conditions_paiement')}")
+    
+    # Section 2: Performance
+    if performance:
+        with st.expander("📈 Performance (365 derniers jours)", expanded=True):
+            perf_col1, perf_col2, perf_col3 = st.columns(3)
+            with perf_col1:
+                st.metric("Commandes", performance.get('total_commandes', 0))
+            with perf_col2:
+                montant = performance.get('montant_total', 0) or 0
+                st.metric("Montant Total", f"{montant:,.0f} $")
+            with perf_col3:
+                ponctualite = performance.get('taux_ponctualite', 0) or 0
+                st.metric("Ponctualité", f"{ponctualite:.1f}%")
+    
+    # Section 3: Produits CRM liés
+    if 'produits_crm_lies' in export_data and export_data['produits_crm_lies']:
+        with st.expander("🔗 Produits CRM Liés", expanded=True):
+            produits_lies = export_data['produits_crm_lies']
+            st.write(f"**{len(produits_lies)} produit(s) trouvé(s) dans le catalogue CRM:**")
+            
+            for produit in produits_lies:
+                st.markdown(f"• **{produit.get('code_produit')}** - {produit.get('nom')} ({produit.get('prix_unitaire', 0):.2f} $)")
+    
+    # Section 4: Suggestions CRM
+    if 'produits_crm_suggeres' in export_data and export_data['produits_crm_suggeres']:
+        with st.expander("💡 Suggestions de Produits CRM", expanded=False):
+            produits_suggeres = export_data['produits_crm_suggeres']
+            st.write(f"**{len(produits_suggeres)} produit(s) suggéré(s) basé sur la catégorie:**")
+            
+            for produit in produits_suggeres:
+                st.markdown(f"• **{produit.get('code_produit')}** - {produit.get('nom')} ({produit.get('categorie')})")
+    
+    # Section 5: Historique des commandes
+    formulaires = export_data.get('formulaires', [])
+    if formulaires:
+        with st.expander("📋 Historique des Commandes", expanded=False):
+            df_formulaires = []
+            for form in formulaires:
+                metadonnees = {}
+                try:
+                    metadonnees = json.loads(form.get('metadonnees_json', '{}'))
+                except:
+                    pass
+                
+                source_crm = "🔗 CRM" if metadonnees.get('source_crm') else "📄 Manuel"
+                
+                df_formulaires.append({
+                    'Numéro': form.get('numero_document'),
+                    'Type': form.get('type_formulaire'),
+                    'Statut': form.get('statut'),
+                    'Date': pd.to_datetime(form.get('date_creation')).strftime('%d/%m/%Y'),
+                    'Source': source_crm
+                })
+            
+            if df_formulaires:
+                st.dataframe(pd.DataFrame(df_formulaires), use_container_width=True)
+
+# =========================================================================
+# FONCTION D'INITIALISATION PRINCIPALE AVEC CRM
+# =========================================================================
+
+def initialize_fournisseurs_with_crm(db, crm_manager=None):
+    """Initialise le module fournisseurs avec intégration CRM"""
+    
+    # Créer le gestionnaire
+    gestionnaire = GestionnaireFournisseurs(db, crm_manager)
+    
+    # Vérifier l'intégration CRM
+    crm_status = check_crm_integration_status(gestionnaire)
+    
+    return {
+        'gestionnaire': gestionnaire,
+        'crm_status': crm_status,
+        'integration_active': crm_status['status'] == 'connected'
+    }
+
+# =========================================================================
+# FONCTIONS DE TEST ET VALIDATION
+# =========================================================================
+
+def test_crm_fournisseurs_integration():
+    """Test l'intégration entre CRM et Fournisseurs"""
+    
+    st.markdown("### 🧪 Test d'Intégration CRM-Fournisseurs")
+    
+    results = {
+        'crm_available': False,
+        'products_accessible': False,
+        'search_functional': False,
+        'categories_synced': False
+    }
+    
+    try:
+        # Test 1: CRM disponible
+        if 'gestionnaire_crm' in st.session_state:
+            results['crm_available'] = True
+            st.success("✅ CRM Manager disponible")
+            
+            # Test 2: Accès aux produits
+            try:
+                produits = st.session_state.gestionnaire_crm.get_all_products()
+                results['products_accessible'] = True
+                st.success(f"✅ Accès produits CRM ({len(produits)} produits)")
+                
+                # Test 3: Recherche fonctionnelle
+                if produits:
+                    search_result = st.session_state.gestionnaire_crm.search_produits("acier")
+                    results['search_functional'] = True
+                    st.success(f"✅ Recherche fonctionnelle ({len(search_result)} résultats pour 'acier')")
+                
+                # Test 4: Catégories synchronisées
+                categories = list(set(p.get('categorie', '') for p in produits if p.get('categorie')))
+                if categories:
+                    results['categories_synced'] = True
+                    st.success(f"✅ Catégories disponibles ({len(categories)} catégories)")
+                    st.info(f"Catégories: {', '.join(categories[:5])}")
+                
+            except Exception as e:
+                st.error(f"❌ Erreur accès produits: {e}")
+        else:
+            st.error("❌ CRM Manager non disponible")
+    
+    except Exception as e:
+        st.error(f"❌ Erreur test intégration: {e}")
+    
+    # Résumé
+    st.markdown("---")
+    success_count = sum(results.values())
+    total_tests = len(results)
+    
+    if success_count == total_tests:
+        st.success(f"🎉 Intégration parfaite ! ({success_count}/{total_tests} tests réussis)")
+    elif success_count > total_tests // 2:
+        st.warning(f"⚠️ Intégration partielle ({success_count}/{total_tests} tests réussis)")
+    else:
+        st.error(f"❌ Intégration défaillante ({success_count}/{total_tests} tests réussis)")
+    
+    return results
+
+# =========================================================================
+# POINTS D'ENTRÉE ET DÉMO
+# =========================================================================
+
+def demo_fournisseurs_crm_integration():
+    """Démonstration de l'intégration CRM-Fournisseurs"""
+    
+    st.title("🎯 Démonstration Fournisseurs + CRM")
+    
+    st.markdown("""
+    ### 🔗 Intégration Réussie !
+    
+    Le module **Fournisseurs** est maintenant intégré avec le **CRM** :
+    
+    ✅ **Catalogue unifié** - Les produits du CRM sont disponibles dans les formulaires  
+    ✅ **Recherche avancée** - Recherche par code, nom, matériau, nuance  
+    ✅ **Pré-remplissage intelligent** - Prix et unités automatiques  
+    ✅ **Double source** - Produits CRM + saisie manuelle  
+    ✅ **Traçabilité** - Lien entre commandes et catalogue  
+    
+    ### 📋 Fonctionnalités Disponibles :
+    - **Demandes de Prix** avec produits CRM
+    - **Bons d'Achat** avec prix pré-remplis
+    - **Stock CRM** visible lors de la sélection
+    - **Métadonnées** pour traçabilité source
+    """)
+    
+    # Test d'intégration en temps réel
+    with st.expander("🧪 Tester l'Intégration", expanded=False):
+        test_crm_fournisseurs_integration()
+
+if __name__ == "__main__":
+    # Point d'entrée pour test standalone
+    st.set_page_config(layout="wide", page_title="Fournisseurs + CRM")
+    
+    # Simuler l'environnement pour test
+    if 'erp_db' not in st.session_state:
+        st.error("Base de données ERP non initialisée")
+        st.stop()
+    
+    # Lancer la page
+    show_fournisseurs_page()
