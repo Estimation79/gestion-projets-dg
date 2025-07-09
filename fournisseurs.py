@@ -1007,7 +1007,7 @@ def render_create_demande_prix_form(gestionnaire):
                     'type_formulaire': 'DEMANDE_PRIX',
                     'numero_document': numero_dp,
                     'company_id': selected_fournisseur['company_id'],
-                    'employee_id': 1,  # À adapter selon l'utilisateur connecté
+                    'employee_id': None,  # À adapter selon l'utilisateur connecté
                     'statut': 'VALIDÉ' if submitted else 'BROUILLON',
                     'priorite': priorite,
                     'date_echeance': date_echeance.isoformat(),
