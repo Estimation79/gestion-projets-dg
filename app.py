@@ -2454,11 +2454,11 @@ def show_erp_main():
 
     # 2. CONTACT CLIENT, OPPORTUNITÉ
     if has_all_permissions or "crm" in permissions:
-        available_pages["🤝 CRM"] = "crm_page"
+        available_pages["🤝 Ventes"] = "crm_page"
 
     # 3. CONSULTER PRIX MATÉRIAUX/SERVICES
     if has_all_permissions or "fournisseurs" in permissions:
-        available_pages["🏪 Fournisseurs"] = "fournisseurs_page"
+        available_pages["🏪 Achats"] = "fournisseurs_page"
 
     # 4. DEVIS ACCEPTÉ → PROJET CONFIRMÉ
     if has_all_permissions or "projects" in permissions:

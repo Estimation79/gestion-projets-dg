@@ -2740,7 +2740,7 @@ class GestionnaireCRM:
                     
                     <!-- Pied de page -->
                     <div class="footer">
-                        <div><strong>🏭 Desmarais & Gagné inc.</strong> - Système de Gestion CRM</div>
+                        <div><strong>🏭 Desmarais & Gagné inc.</strong> - Système de Gestion des Ventes</div>
                         <div>Devis généré automatiquement le {datetime.now().strftime('%d/%m/%Y à %H:%M')}</div>
                         <div>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 www.dg-inc.com</div>
                         <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
@@ -4923,7 +4923,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
     """Interface principale CRM avec support des devis, produits, suppression et export HTML"""
     
-    st.title("📋 Gestion CRM")
+    st.title("📋 Gestion des Ventes")
     
     # Vérification du mode
     if crm_manager.use_sqlite:

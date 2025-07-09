@@ -611,7 +611,7 @@ class GestionnaireFournisseurs:
 
 def show_fournisseurs_page():
     """Page principale du module Fournisseurs - VERSION INTÉGRÉE CRM"""
-    st.markdown("## 🏪 Gestion des Fournisseurs")
+    st.markdown("## 🏪 Gestion des Achats")
     
     # Initialisation du gestionnaire avec CRM
     if 'gestionnaire_fournisseurs' not in st.session_state:
