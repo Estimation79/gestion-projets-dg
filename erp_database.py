@@ -1,5 +1,3 @@
-# erp_database.py - Gestionnaire Base de Données SQLite Unifié CONSOLIDÉ + INTERFACE UNIFIÉE
-
 import sqlite3
 import json
 import os
@@ -2610,6 +2608,30 @@ class ERPDatabase:
             logger.error(f"Erreur récupération matériaux projet {project_id}: {e}")
             return []
     
+    def add_material_to_project(self, project_id: int, material_data: Dict) -> Optional[int]:
+        """Ajoute un seul matériau (une ligne de BOM) à un projet."""
+        try:
+            query = '''
+                INSERT INTO materials 
+                (project_id, code_materiau, designation, quantite, unite, prix_unitaire, fournisseur)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            material_id = self.execute_insert(query, (
+                project_id,
+                material_data.get('code'),
+                material_data.get('designation'),
+                material_data.get('quantite'),
+                material_data.get('unite'),
+                material_data.get('prix_unitaire'),
+                material_data.get('fournisseur')
+            ))
+            
+            return material_id
+        except Exception as e:
+            logger.error(f"Erreur ajout matériau au projet {project_id}: {e}")
+            return None
+    
     def get_bom_materials_with_suppliers(self, project_id: int) -> List[Dict]:
         """Récupère les matériaux BOM avec informations fournisseurs"""
         try:
@@ -4440,6 +4462,7 @@ class ERPDatabase:
         except Exception as e:
             logger.error(f"Erreur génération rapport mensuel: {e}")
             return {}
+
 # === AMÉLIORATIONS D'INTÉGRATION KANBAN ↔ ERP_DATABASE ===
 
 # 1. Méthodes à ajouter dans erp_database.py (classe ERPDatabase)
@@ -4883,4 +4906,3 @@ def convertir_imperial_vers_metrique(mesure_imperial: str) -> float:
     """Convertit une mesure impériale en mètres"""
     pieds = convertir_pieds_pouces_fractions_en_valeur_decimale(mesure_imperial)
     return pieds * 0.3048  # 1 pied = 0.3048 mètres
-

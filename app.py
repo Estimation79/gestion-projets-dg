@@ -1027,7 +1027,7 @@ def show_projects_detailed_view(projects, crm_manager):
         st.markdown("---")
 
 def show_projects_table_view(projects, crm_manager):
-    """Vue tableau compacte avec ordre personnalisé"""
+    """Vue tableau compacte avec ordre personnalisé ET informations produits.""" # MODIFIÉ
     df_data = []
     for p in projects:
         client_display_name = get_client_display_name(p, crm_manager)
@@ -1052,32 +1052,63 @@ def show_projects_table_view(projects, crm_manager):
                     adresse_client = entreprise.get('adresse', 'N/A')[:25] + ('...' if len(entreprise.get('adresse', '')) > 25 else '')
             except:
                 pass
-        
+
+        # =====================================================================
+        # NOUVEAU : Traitement des données produits/matériaux pour l'affichage
+        # =====================================================================
+        materiaux_projet = p.get('materiaux', [])
+        produit_display = "Aucun"
+        quantite_display = "N/A"
+        unite_display = "N/A"
+        code_article_display = "N/A"
+
+        if materiaux_projet:
+            # Pour la colonne "Produits"
+            noms_produits = [m.get('designation', 'N/A') for m in materiaux_projet]
+            if len(noms_produits) > 1:
+                produit_display = f"{noms_produits[0]} (+{len(noms_produits) - 1} autre(s))"
+            elif len(noms_produits) == 1:
+                produit_display = noms_produits[0]
+
+            # Pour la colonne "Quantité" et "Unité"
+            quantites = [str(m.get('quantite', '0')) for m in materiaux_projet]
+            unites = [m.get('unite', '') for m in materiaux_projet]
+            quantite_display = ", ".join(quantites)
+            unite_display = ", ".join(list(set(unites))) # Affiche les unités uniques
+
+            # Pour la colonne "Code Article"
+            codes = [m.get('code', 'N/A') for m in materiaux_projet if m.get('code')]
+            if codes:
+                code_article_display = ", ".join(codes)
+        # =====================================================================
+
         df_data.append({
             '🆔 ID': p.get('id', '?'),
             '🚦 Statut': p.get('statut', 'N/A'),
             '⭐ Priorité': p.get('priorite', 'N/A'),
-            '🏷️ Tâche': p.get('tache', 'N/A'),
             '📋 No. Projet': f"PRJ-{p.get('id', '?')}",
             '📝 Nom Projet': p.get('nom_projet', 'N/A')[:35] + ('...' if len(p.get('nom_projet', '')) > 35 else ''),
             '👤 Client': client_display_name[:25] + ('...' if len(client_display_name) > 25 else ''),
-            '📄 Description': (p.get('description', 'N/A')[:40] + ('...' if len(p.get('description', '')) > 40 else '')) if p.get('description') else 'N/A',
             '💰 Prix Estimé': format_currency(p.get('prix_estime', 0)),
             '📅 Début': p.get('date_soumis', 'N/A'),
-            '⏱️ Durée': duree_jours,
             '🏁 Fin': p.get('date_prevu', 'N/A'),
-            '🏢 Adresse': adresse_client
+            
+            # NOUVEAU : Ajout des colonnes produits au dictionnaire
+            '📦 Produit/Matériau': produit_display,
+            '🔢 Quantité': quantite_display,
+            '📏 Unité': unite_display,
+            '#️⃣ Code Article': code_article_display
         })
     
     df_projets = pd.DataFrame(df_data)
     
-    # Affichage du tableau avec défilement horizontal pour toutes les colonnes
+    # MODIFIÉ : Mise à jour de la configuration du dataframe pour inclure les nouvelles colonnes
     st.dataframe(
         df_projets, 
         use_container_width=True, 
         height=400,
         column_config={
-            "🆔 ID": st.column_config.NumberColumn(
+            "🆔 ID": st.column_config.TextColumn(
                 "🆔 ID",
                 help="Identifiant unique du projet",
                 width="small",
@@ -1085,11 +1116,6 @@ def show_projects_table_view(projects, crm_manager):
             "🚦 Statut": st.column_config.TextColumn(
                 "🚦 Statut",
                 help="Statut actuel du projet",
-                width="medium",
-            ),
-            "🏷️ Tâche": st.column_config.TextColumn(
-                "🏷️ Tâche",
-                help="Type de tâche du projet",
                 width="medium",
             ),
             "📝 Nom Projet": st.column_config.TextColumn(
@@ -1102,24 +1128,40 @@ def show_projects_table_view(projects, crm_manager):
                 help="Prix estimé du projet",
                 width="medium",
             ),
-            "📄 Description": st.column_config.TextColumn(
-                "📄 Description",
-                help="Description détaillée du projet",
+            # NOUVEAU : Configuration des nouvelles colonnes
+            "📦 Produit/Matériau": st.column_config.TextColumn(
+                "📦 Produit/Matériau",
+                help="Principal produit ou matériau associé au projet.",
                 width="large",
             ),
-            "🏢 Adresse": st.column_config.TextColumn(
-                "🏢 Adresse",
-                help="Adresse du client",
-                width="large",
+            "🔢 Quantité": st.column_config.TextColumn(
+                "🔢 Quantité",
+                help="Quantités des matériaux/produits.",
+                width="medium",
+            ),
+            "📏 Unité": st.column_config.TextColumn(
+                "📏 Unité",
+                help="Unités de mesure pour les quantités.",
+                width="small",
+            ),
+            "#️⃣ Code Article": st.column_config.TextColumn(
+                "#️⃣ Code Article",
+                help="Codes des articles ou matériaux.",
+                width="medium",
             )
-        }
+        },
+        # NOUVEAU : Définir l'ordre des colonnes pour un affichage logique
+        column_order=[
+            "🆔 ID", "🚦 Statut", "⭐ Priorité", "📋 No. Projet", "📝 Nom Projet", "👤 Client",
+            "📦 Produit/Matériau", "🔢 Quantité", "📏 Unité", "#️⃣ Code Article",
+            "💰 Prix Estimé", "📅 Début", "🏁 Fin"
+        ]
     )
 
-    # Section d'actions pour la vue tableau
+    # La section d'actions reste inchangée
     st.markdown("---")
     st.markdown("##### 🎯 Actions sur les Projets")
     
-    # Sélection du projet pour action
     selected_project_table = st.selectbox(
         "Sélectionner un projet pour effectuer une action:",
         options=[None] + projects,
@@ -1129,7 +1171,6 @@ def show_projects_table_view(projects, crm_manager):
     )
     
     if selected_project_table:
-        # Afficher les détails du projet sélectionné
         col_info, col_actions = st.columns([2, 1])
         
         with col_info:
@@ -1159,19 +1200,16 @@ def show_projects_table_view(projects, crm_manager):
         with col_actions:
             st.markdown("**🔧 Actions Disponibles:**")
             
-            # Bouton Voir Détails
             if st.button("👁️ Voir Détails", key=f"table_view_{selected_project_table.get('id')}", use_container_width=True, help="Afficher tous les détails du projet"):
                 st.session_state.selected_project = selected_project_table
                 st.session_state.show_project_modal = True
                 st.rerun()
             
-            # Bouton Modifier (PRINCIPAL)
             if st.button("✏️ Modifier", key=f"table_edit_{selected_project_table.get('id')}", use_container_width=True, type="primary", help="Modifier les informations du projet"):
                 st.session_state.show_edit_project = True
                 st.session_state.edit_project_data = selected_project_table
                 st.rerun()
             
-            # Bouton Supprimer
             if st.button("🗑️ Supprimer", key=f"table_delete_{selected_project_table.get('id')}", use_container_width=True, help="Supprimer définitivement le projet"):
                 st.session_state.show_delete_confirmation = True
                 st.session_state.delete_project_id = selected_project_table.get('id')
@@ -1179,26 +1217,22 @@ def show_projects_table_view(projects, crm_manager):
             
             st.markdown("**📋 Actions Rapides:**")
             
-            # Bouton Bon de Travail
             if st.button("🔧 Bon de Travail", key=f"table_bt_{selected_project_table.get('id')}", use_container_width=True, help="Créer un bon de travail pour ce projet"):
                 st.session_state.timetracker_redirect_to_bt = True
                 st.session_state.formulaire_project_preselect = selected_project_table.get('id')
                 st.session_state.page_redirect = "timetracker_pro_page"
                 st.rerun()
             
-            # Bouton Bon d'Achat
             if st.button("🛒 Bon d'Achat", key=f"table_ba_{selected_project_table.get('id')}", use_container_width=True, help="Créer un bon d'achat pour ce projet"):
                 st.session_state.form_action = "create_bon_achat"
                 st.session_state.formulaire_project_preselect = selected_project_table.get('id')
                 st.session_state.page_redirect = "formulaires_page"
                 st.rerun()
             
-            # Bouton Dupliquer
             if st.button("📋 Dupliquer", key=f"table_duplicate_{selected_project_table.get('id')}", use_container_width=True, help="Créer une copie de ce projet"):
                 duplicate_project(st.session_state.gestionnaire, selected_project_table)
                 st.rerun()
         
-        # Message d'aide
         st.markdown("""
         <div style="background:#e6f3ff;border:1px solid #bfdbfe;border-radius:6px;padding:0.75rem;margin-top:1rem;">
             <small style="color:#1e40af;">
@@ -1209,7 +1243,6 @@ def show_projects_table_view(projects, crm_manager):
         """, unsafe_allow_html=True)
     
     else:
-        # Message d'instruction si aucun projet sélectionné
         st.markdown("""
         <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:1rem;text-align:center;">
             <p style="margin:0;color:#166534;">

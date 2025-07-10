@@ -373,6 +373,7 @@ class GestionnaireDevis:
                 'tache': 'PROJET_CLIENT',
                 'bd_ft_estime': 0.0,
                 'client_legacy': '',
+                # Ces listes sont pour la compatibilité, les données seront ajoutées après
                 'operations': [],
                 'materiaux': []
             }
@@ -382,6 +383,28 @@ class GestionnaireDevis:
             project_id = self.project_manager.ajouter_projet(project_data)
             
             if project_id:
+                # ======================================================================
+                # NOUVEAU : Boucle pour transférer les lignes du devis en matériaux
+                # ======================================================================
+                lignes_devis = devis.get('lignes', [])
+                materiaux_ajoutes = 0
+                if lignes_devis:
+                    for ligne in lignes_devis:
+                        material_data = {
+                            'code': ligne.get('code_article'),
+                            'designation': ligne.get('description'),
+                            'quantite': ligne.get('quantite'),
+                            'unite': ligne.get('unite'),
+                            'prix_unitaire': ligne.get('prix_unitaire'),
+                            'fournisseur': None # Peut être enrichi plus tard
+                        }
+                        # Utilise la nouvelle méthode de erp_database.py
+                        if self.db.add_material_to_project(project_id, material_data):
+                            materiaux_ajoutes += 1
+                
+                st.success(f"✅ Devis transformé avec succès en Projet #{project_id} avec {materiaux_ajoutes} matériau(x) ajouté(s) !")
+                # ======================================================================
+                
                 # Lier le nouveau projet au devis
                 self.db.execute_update("UPDATE formulaires SET project_id = ? WHERE id = ?", (project_id, devis_id))
                 
@@ -390,7 +413,6 @@ class GestionnaireDevis:
                     devis_id, devis.get('employee_id', 1), 'TERMINAISON',
                     f"Devis transformé en Projet #{project_id}."
                 )
-                st.success(f"✅ Devis transformé avec succès en Projet #{project_id} !")
                 st.balloons()
             else:
                 st.error("❌ Échec de la création du projet. La transformation a été annulée.")
