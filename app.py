@@ -547,6 +547,13 @@ try:
 except ImportError:
     CRM_AVAILABLE = False
 
+# NOUVEAU : Importation du module Devis
+try:
+    from devis import GestionnaireDevis, show_devis_page
+    DEVIS_AVAILABLE = True
+except ImportError:
+    DEVIS_AVAILABLE = False
+
 # Importations pour les Employés
 try:
     from employees import (
@@ -2103,17 +2110,22 @@ def init_erp_system():
     # ==============================================================================
     # CORRECTION CRITIQUE : Initialiser le CRM AVANT les fournisseurs pour l'injection de dépendance
     if CRM_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
-        # On s'assure que le gestionnaire de projets est déjà initialisé
-        if 'gestionnaire' in st.session_state:
-            st.session_state.gestionnaire_crm = GestionnaireCRM(
-                db=st.session_state.erp_db, 
+        # MODIFICATION : Retirer project_manager du constructeur
+        st.session_state.gestionnaire_crm = GestionnaireCRM(db=st.session_state.erp_db)
+        print("✅ Gestionnaire CRM initialisé.")
+
+    # NOUVEAU : Initialisation du gestionnaire de devis
+    if DEVIS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_devis' not in st.session_state:
+        # S'assurer que les dépendances sont disponibles
+        if 'gestionnaire_crm' in st.session_state and 'gestionnaire' in st.session_state:
+            st.session_state.gestionnaire_devis = GestionnaireDevis(
+                db=st.session_state.erp_db,
+                crm_manager=st.session_state.gestionnaire_crm,
                 project_manager=st.session_state.gestionnaire
             )
-            print("✅ Gestionnaire CRM initialisé AVANT les fournisseurs.")
+            print("✅ Gestionnaire Devis initialisé avec toutes les dépendances.")
         else:
-            # Fallback si le gestionnaire de projet n'est pas prêt (ne devrait pas arriver)
-            st.session_state.gestionnaire_crm = GestionnaireCRM(db=st.session_state.erp_db)
-            print("⚠️ Gestionnaire CRM initialisé SANS accès au gestionnaire de projets.")
+            print("⚠️ Gestionnaire Devis en attente des dépendances.")
 
     # NOUVEAU : Gestionnaire fournisseurs - DÉPLACÉ ET MODIFIÉ pour recevoir le CRM
     if FOURNISSEURS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_fournisseurs' not in st.session_state:
@@ -2456,6 +2468,10 @@ def show_erp_main():
     if has_all_permissions or "crm" in permissions:
         available_pages["🤝 Ventes"] = "crm_page"
 
+    # 2.5. GESTION DES DEVIS
+    if has_all_permissions or "crm" in permissions:
+        available_pages["🧾 Devis"] = "devis_page"
+
     # 3. CONSULTER PRIX MATÉRIAUX/SERVICES
     if has_all_permissions or "fournisseurs" in permissions:
         available_pages["🏪 Achats"] = "fournisseurs_page"
@@ -2510,6 +2526,7 @@ def show_erp_main():
     etapes_workflow = {
         "dashboard": "📊 Vue d'ensemble",
         "crm_page": "🤝 Contact client",
+        "devis_page": "🧾 Gestion devis",
         "fournisseurs_page": "🏪 Prix matériaux",
         "formulaires_page": "📑 Création devis",
         "liste": "📋 Gestion projet",
@@ -2583,6 +2600,33 @@ def show_erp_main():
                     st.session_state.main_nav_radio = "⏱️TimeTracker"
                     st.rerun()
 
+    except Exception:
+        pass  # Silencieux si erreur
+
+    # NOUVEAU : Statistiques Devis dans la sidebar
+    try:
+        if 'gestionnaire_devis' in st.session_state:
+            devis_stats = st.session_state.gestionnaire_devis.get_devis_statistics()
+            
+            if devis_stats and devis_stats.get('total_devis', 0) > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🧾 Devis</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("Total Devis", devis_stats.get('total_devis', 0))
+                
+                # Devis en attente
+                en_attente = devis_stats.get('devis_en_attente', 0)
+                if en_attente > 0:
+                    st.sidebar.metric("⏳ En Attente", en_attente)
+                
+                # Montant total des devis
+                montant_total = devis_stats.get('montant_total', 0)
+                if montant_total > 0:
+                    st.sidebar.metric("💰 Montant Total", f"{montant_total:,.0f}$")
+                
+                # Taux de conversion
+                taux_conversion = devis_stats.get('taux_conversion', 0)
+                if taux_conversion > 0:
+                    st.sidebar.metric("📈 Taux Convert.", f"{taux_conversion:.1f}%")
     except Exception:
         pass  # Silencieux si erreur
 
@@ -2689,6 +2733,10 @@ def show_erp_main():
     st.sidebar.markdown("---")
     footer_text = "🏭 ERP <br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro Unifié<br/>🏭 Module Production Unifié"
 
+    # Indication module Devis dans footer sidebar
+    if DEVIS_AVAILABLE:
+        footer_text += "<br/>🧾 Module Devis Actif"
+
     # Indication module Kanban dans footer sidebar
     if KANBAN_AVAILABLE:
         footer_text += "<br/>🔄 Kanban Unifié (Projets + Opérations)"
@@ -2719,6 +2767,16 @@ def show_erp_main():
         show_liste_projets()
     elif page_to_show_val == "crm_page":
         show_crm_page()
+    elif page_to_show_val == "devis_page":
+        # Initialiser l'état de session spécifique au module devis si nécessaire
+        if 'devis_action' not in st.session_state:
+            st.session_state.devis_action = None
+        if 'devis_selected_id' not in st.session_state:
+            st.session_state.devis_selected_id = None
+        if DEVIS_AVAILABLE:
+            show_devis_page()
+        else:
+            st.error("❌ Module Devis non disponible")
     elif page_to_show_val == "employees_page":
         show_employees_page()
     elif page_to_show_val == "fournisseurs_page":
@@ -2920,6 +2978,32 @@ def show_dashboard():
 
         with prod_c4:
             st.metric("✅ Module Unifié", "ACTIF" if PRODUCTION_MANAGEMENT_AVAILABLE else "INACTIF")
+
+    # NOUVEAU : Métriques Devis
+    if 'gestionnaire_devis' in st.session_state:
+        try:
+            devis_stats = st.session_state.gestionnaire_devis.get_devis_statistics()
+            
+            if devis_stats and devis_stats.get('total_devis', 0) > 0:
+                st.markdown("### 🧾 Aperçu Devis")
+                devis_c1, devis_c2, devis_c3, devis_c4 = st.columns(4)
+
+                with devis_c1:
+                    st.metric("🧾 Total Devis", devis_stats.get('total_devis', 0))
+                with devis_c2:
+                    st.metric("⏳ En Attente", devis_stats.get('devis_en_attente', 0))
+                with devis_c3:
+                    st.metric("✅ Acceptés", devis_stats.get('devis_acceptes', 0))
+                with devis_c4:
+                    taux_conversion = devis_stats.get('taux_conversion', 0)
+                    st.metric("📈 Taux Convert.", f"{taux_conversion:.1f}%")
+
+                # Montant total des devis
+                montant_total_devis = devis_stats.get('montant_total', 0)
+                if montant_total_devis > 0:
+                    st.markdown(f"**💼 Valeur Totale Devis: {montant_total_devis:,.0f}$ CAD**")
+        except Exception as e:
+            pass  # Silencieux si erreur
 
     # NOUVEAU : Métriques Formulaires
     if gestionnaire_formulaires and any(form_stats.values()):
@@ -3739,14 +3823,13 @@ def render_delete_confirmation(gestionnaire):
 def show_crm_page():
     """
     Affiche l'interface CRM complète en utilisant le module CRM dédié.
-    Cette fonction appelle directement l'interface principale du module CRM,
-    qui gère ses propres onglets (y compris les Devis) et actions.
     """
     gestionnaire_crm = st.session_state.gestionnaire_crm
-    gestionnaire_projets = st.session_state.gestionnaire
+    # Le gestionnaire de projets est passé pour afficher les projets liés,
+    # mais n'est plus une dépendance critique pour le CRM.
+    projet_manager = st.session_state.get('gestionnaire')
 
-    # Appel de la nouvelle interface unifiée qui inclut les devis
-    render_crm_main_interface(gestionnaire_crm, gestionnaire_projets)
+    render_crm_main_interface(gestionnaire_crm, projet_manager)
 
 def show_employees_page():
     st.markdown("### 👥 Gestion des Employés")
@@ -4375,6 +4458,7 @@ def main():
         'edit_project_data': None, 'show_delete_confirmation': False,
         'delete_project_id': None, 'selected_date': get_quebec_datetime().date(),  # MODIFIÉ pour le fuseau horaire du Québec
         'welcome_seen': False,
+        'devis_action': None, 'devis_selected_id': None,  # NOUVEAU
         'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
         'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
         'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
@@ -4502,7 +4586,9 @@ print("✅ Toutes les modifications appliquées pour le fuseau horaire America/M
 print("✅ TimeTracker Pro Unifié maintenu")
 print("✅ Gestion des projets complète intégrée")
 print("✅ Module Kanban unifié intégré")
+print("✅ Module Devis intégré avec succès")
 print("✅ Support fuseau horaire EST/EDT automatique")
 print("✅ INVENTAIRE RETIRÉ du menu production")
 print("🕐 Heure affichée: Québec (gestion automatique heure d'été/hiver)")
+print("🧾 Module Devis disponible dans le menu Navigation ERP")
 print("🚀 Prêt pour déploiement sur Render avec heure locale correcte et menu production épuré")
