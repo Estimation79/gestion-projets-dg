@@ -597,7 +597,7 @@ class GestionnaireDevis:
             return None
     
     def generate_devis_html_template(self, devis_data: Dict[str, Any]) -> str:
-        """Génère le template HTML pour un devis."""
+        """Génère le template HTML pour un devis avec design moderne professionnel."""
         try:
             # Formatage des dates
             date_creation = devis_data.get('date_creation', '')
@@ -622,14 +622,39 @@ class GestionnaireDevis:
             montant_tva = totaux.get('montant_tva', 0)
             total_ttc = totaux.get('total_ttc', 0)
             
+            # Formatage du statut pour les badges
+            statut = devis_data.get('statut', 'BROUILLON')
+            statut_class = {
+                'BROUILLON': 'badge-pending',
+                'VALIDÉ': 'badge-in-progress',
+                'ENVOYÉ': 'badge-in-progress',
+                'APPROUVÉ': 'badge-completed',
+                'TERMINÉ': 'badge-completed',
+                'ANNULÉ': 'badge-on-hold',
+                'EXPIRÉ': 'badge-on-hold'
+            }.get(statut, 'badge-pending')
+            
+            priorite = devis_data.get('priorite', 'NORMAL')
+            priorite_class = {
+                'FAIBLE': 'badge-pending',
+                'NORMAL': 'badge-in-progress',
+                'ÉLEVÉE': 'badge-on-hold',
+                'URGENT': 'badge-on-hold'
+            }.get(priorite, 'badge-in-progress')
+            
             # Génération des lignes du tableau
             lignes_html = ""
+            nb_lignes = 0
             if devis_data.get('lignes'):
                 for ligne in devis_data['lignes']:
+                    nb_lignes += 1
                     montant_ligne = ligne.get('quantite', 0) * ligne.get('prix_unitaire', 0)
+                    code_article = ligne.get('code_article', '')
+                    code_display = f"<br><small>Code: {code_article}</small>" if code_article else ""
+                    
                     lignes_html += f"""
                     <tr>
-                        <td><strong>{ligne.get('description', '')}</strong></td>
+                        <td><strong>{ligne.get('description', '')}</strong>{code_display}</td>
                         <td style="text-align: center;">{ligne.get('quantite', 0):,.2f}</td>
                         <td style="text-align: center;">{ligne.get('unite', '')}</td>
                         <td style="text-align: right;">{ligne.get('prix_unitaire', 0):,.2f} $</td>
@@ -643,7 +668,15 @@ class GestionnaireDevis:
                 </tr>
                 """
             
-            # Template HTML simplifié pour l'exemple
+            # Adresse client formatée
+            adresse_client = devis_data.get('client_adresse_complete', f"""
+{devis_data.get('client_nom', 'N/A')}<br>
+{devis_data.get('adresse', '')}<br>
+{devis_data.get('ville', '')}, {devis_data.get('province', '')} {devis_data.get('code_postal', '')}<br>
+{devis_data.get('pays', '')}
+            """).strip()
+            
+            # Template HTML modernisé basé sur le design de la demande de prix
             html_template = f"""
             <!DOCTYPE html>
             <html lang="fr">
@@ -652,65 +685,536 @@ class GestionnaireDevis:
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Devis - {devis_data.get('numero_document', 'N/A')}</title>
                 <style>
-                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                    .header {{ text-align: center; margin-bottom: 30px; }}
-                    .company-name {{ font-size: 24px; font-weight: bold; color: #00A971; }}
-                    .devis-info {{ margin: 20px 0; }}
-                    table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-                    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                    th {{ background-color: #00A971; color: white; }}
-                    .totals {{ font-weight: bold; background-color: #f9f9f9; }}
+                    :root {{
+                        --primary-color: #00A971;
+                        --primary-color-darker: #00673D;
+                        --primary-color-darkest: #004C2E;
+                        --primary-color-lighter: #DCFCE7;
+                        --background-color: #F9FAFB;
+                        --secondary-background-color: #FFFFFF;
+                        --text-color: #374151;
+                        --text-color-light: #6B7280;
+                        --border-color: #E5E7EB;
+                        --border-radius-md: 0.5rem;
+                        --box-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                    }}
+                    
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+                    
+                    body {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        line-height: 1.6;
+                        color: var(--text-color);
+                        background-color: var(--background-color);
+                        margin: 0;
+                        padding: 15px;
+                    }}
+                    
+                    .container {{
+                        max-width: 8.5in;
+                        margin: 0 auto;
+                        background-color: white;
+                        border-radius: 12px;
+                        box-shadow: var(--box-shadow-md);
+                        overflow: hidden;
+                        width: 100%;
+                    }}
+                    
+                    .header {{
+                        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-darker) 100%);
+                        color: white;
+                        padding: 30px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }}
+                    
+                    .logo-container {{
+                        display: flex;
+                        align-items: center;
+                        gap: 20px;
+                    }}
+                    
+                    .logo-box {{
+                        background-color: white;
+                        width: 70px;
+                        height: 45px;
+                        border-radius: 8px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                    }}
+                    
+                    .logo-text {{
+                        font-family: 'Segoe UI', sans-serif;
+                        font-weight: 800;
+                        font-size: 24px;
+                        color: var(--primary-color);
+                        letter-spacing: 1px;
+                    }}
+                    
+                    .company-info {{
+                        text-align: left;
+                    }}
+                    
+                    .company-name {{
+                        font-weight: 700;
+                        font-size: 28px;
+                        margin-bottom: 5px;
+                        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                    }}
+                    
+                    .company-subtitle {{
+                        font-size: 16px;
+                        opacity: 0.9;
+                    }}
+                    
+                    .contact-info {{
+                        text-align: right;
+                        font-size: 14px;
+                        line-height: 1.4;
+                        opacity: 0.95;
+                    }}
+                    
+                    .document-title {{
+                        background: var(--primary-color-lighter);
+                        padding: 20px 30px;
+                        border-left: 5px solid var(--primary-color);
+                    }}
+                    
+                    .document-title h1 {{
+                        color: var(--primary-color-darker);
+                        font-size: 24px;
+                        margin-bottom: 10px;
+                    }}
+                    
+                    .document-meta {{
+                        display: flex;
+                        justify-content: space-between;
+                        color: var(--text-color-light);
+                        font-size: 14px;
+                    }}
+                    
+                    .content {{
+                        padding: 25px;
+                    }}
+                    
+                    .section {{
+                        margin-bottom: 30px;
+                    }}
+                    
+                    .section-title {{
+                        color: var(--primary-color-darker);
+                        font-size: 18px;
+                        font-weight: 600;
+                        margin-bottom: 15px;
+                        padding-bottom: 8px;
+                        border-bottom: 2px solid var(--primary-color-lighter);
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    }}
+                    
+                    .info-grid {{
+                        display: grid;
+                        grid-template-columns: 1fr 1fr 1fr;
+                        gap: 15px;
+                        margin-bottom: 20px;
+                    }}
+                    
+                    .info-item {{
+                        background: var(--background-color);
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        border-left: 3px solid var(--primary-color);
+                    }}
+                    
+                    .info-label {{
+                        font-weight: 600;
+                        color: var(--text-color-light);
+                        font-size: 12px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 5px;
+                    }}
+                    
+                    .info-value {{
+                        font-size: 16px;
+                        color: var(--text-color);
+                        font-weight: 500;
+                    }}
+                    
+                    .table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 15px 0;
+                        border-radius: var(--border-radius-md);
+                        overflow: hidden;
+                        box-shadow: var(--box-shadow-md);
+                    }}
+                    
+                    .table th {{
+                        background: var(--primary-color);
+                        color: white;
+                        padding: 12px;
+                        text-align: left;
+                        font-weight: 600;
+                        font-size: 14px;
+                    }}
+                    
+                    .table td {{
+                        padding: 12px;
+                        border-bottom: 1px solid var(--border-color);
+                        vertical-align: top;
+                    }}
+                    
+                    .table tr:nth-child(even) {{
+                        background-color: var(--background-color);
+                    }}
+                    
+                    .table tr:hover {{
+                        background-color: var(--primary-color-lighter);
+                    }}
+                    
+                    .badge {{
+                        padding: 4px 12px;
+                        border-radius: 20px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        display: inline-block;
+                    }}
+                    
+                    .badge-pending {{ background: #fef3c7; color: #92400e; }}
+                    .badge-in-progress {{ background: #dbeafe; color: #1e40af; }}
+                    .badge-completed {{ background: #d1fae5; color: #065f46; }}
+                    .badge-on-hold {{ background: #fee2e2; color: #991b1b; }}
+                    
+                    .summary-box {{
+                        background: linear-gradient(45deg, var(--primary-color-lighter), white);
+                        border: 2px solid var(--primary-color);
+                        border-radius: var(--border-radius-md);
+                        padding: 20px;
+                        margin: 20px 0;
+                    }}
+                    
+                    .summary-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 15px;
+                    }}
+                    
+                    .summary-item {{
+                        text-align: center;
+                        background: white;
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    
+                    .summary-number {{
+                        font-size: 24px;
+                        font-weight: 700;
+                        color: var(--primary-color-darker);
+                        display: block;
+                    }}
+                    
+                    .summary-label {{
+                        font-size: 12px;
+                        color: var(--text-color-light);
+                        text-transform: uppercase;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }}
+                    
+                    .totals-box {{
+                        background: var(--primary-color-darkest);
+                        color: white;
+                        padding: 20px;
+                        border-radius: var(--border-radius-md);
+                        margin: 20px 0;
+                    }}
+                    
+                    .totals-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 15px;
+                    }}
+                    
+                    .total-item {{
+                        text-align: center;
+                        background: rgba(255, 255, 255, 0.1);
+                        padding: 15px;
+                        border-radius: var(--border-radius-md);
+                    }}
+                    
+                    .total-amount {{
+                        font-size: 22px;
+                        font-weight: 700;
+                        display: block;
+                        margin-bottom: 5px;
+                    }}
+                    
+                    .total-label {{
+                        font-size: 12px;
+                        opacity: 0.9;
+                        text-transform: uppercase;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }}
+                    
+                    .instructions-box {{
+                        background: var(--background-color);
+                        border-left: 4px solid var(--primary-color);
+                        padding: 20px;
+                        border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
+                        margin: 15px 0;
+                    }}
+                    
+                    .footer {{
+                        background: var(--primary-color-darkest);
+                        color: white;
+                        padding: 20px 30px;
+                        text-align: center;
+                        font-size: 12px;
+                        line-height: 1.4;
+                    }}
+                    
+                    .client-address {{
+                        background: var(--background-color);
+                        border: 2px solid var(--primary-color-lighter);
+                        border-radius: var(--border-radius-md);
+                        padding: 15px;
+                        margin: 15px 0;
+                        font-size: 14px;
+                        line-height: 1.4;
+                    }}
+                    
+                    @media print {{
+                        body {{ 
+                            margin: 0; 
+                            padding: 0; 
+                        }}
+                        .container {{ 
+                            box-shadow: none; 
+                            max-width: 100%;
+                            width: 8.5in;
+                        }}
+                        .table {{ 
+                            break-inside: avoid; 
+                            font-size: 12px;
+                        }}
+                        .section {{ 
+                            break-inside: avoid-page; 
+                        }}
+                        .header {{
+                            padding: 20px 25px;
+                        }}
+                        .content {{
+                            padding: 20px;
+                        }}
+                        @page {{
+                            size: letter;
+                            margin: 0.5in;
+                        }}
+                    }}
+                    
+                    @media screen and (max-width: 768px) {{
+                        .container {{
+                            max-width: 100%;
+                            margin: 0 10px;
+                        }}
+                        .info-grid {{
+                            grid-template-columns: 1fr;
+                            gap: 10px;
+                        }}
+                        .summary-grid, .totals-grid {{
+                            grid-template-columns: repeat(2, 1fr);
+                        }}
+                        .header {{
+                            flex-direction: column;
+                            text-align: center;
+                            gap: 15px;
+                        }}
+                        .contact-info {{
+                            text-align: center;
+                        }}
+                    }}
                 </style>
             </head>
             <body>
-                <div class="header">
-                    <div class="company-name">Desmarais & Gagné inc.</div>
-                    <div>565 rue Maisonneuve, Granby, QC J2G 3H5</div>
-                    <div>Tél.: (450) 372-9630</div>
-                </div>
+                <div class="container">
+                    <!-- En-tête -->
+                    <div class="header">
+                        <div class="logo-container">
+                            <div class="logo-box">
+                                <div class="logo-text">DG</div>
+                            </div>
+                            <div class="company-info">
+                                <div class="company-name">Desmarais & Gagné inc.</div>
+                                <div class="company-subtitle">Fabrication et Assemblage Métallurgique</div>
+                            </div>
+                        </div>
+                        <div class="contact-info">
+                            565 rue Maisonneuve<br>
+                            Granby, QC J2G 3H5<br>
+                            Tél.: (450) 372-9630<br>
+                            Téléc.: (450) 372-8122
+                        </div>
+                    </div>
+                    
+                    <!-- Titre du document -->
+                    <div class="document-title">
+                        <h1>💰 DEVIS COMMERCIAL</h1>
+                        <div class="document-meta">
+                            <span><strong>N° Devis:</strong> {devis_data.get('numero_document', 'N/A')}</span>
+                            <span><strong>Généré le:</strong> {datetime.now().strftime('%d/%m/%Y à %H:%M')}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Contenu principal -->
+                    <div class="content">
+                        <!-- Informations générales -->
+                        <div class="section">
+                            <h2 class="section-title">📋 Informations du Devis</h2>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-label">Client</div>
+                                    <div class="info-value">{devis_data.get('client_nom', 'N/A')}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Statut</div>
+                                    <div class="info-value">
+                                        <span class="badge {statut_class}">
+                                            {statut}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Priorité</div>
+                                    <div class="info-value">
+                                        <span class="badge {priorite_class}">
+                                            {priorite}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Création</div>
+                                    <div class="info-value">{date_creation_formatted}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date Échéance</div>
+                                    <div class="info-value">{date_echeance_formatted}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Responsable</div>
+                                    <div class="info-value">{devis_data.get('responsable_nom', 'N/A')}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Adresse du client -->
+                        <div class="section">
+                            <h2 class="section-title">📍 Adresse de Facturation</h2>
+                            <div class="client-address">
+                                {adresse_client}
+                            </div>
+                        </div>
+                        
+                        <!-- Résumé -->
+                        <div class="summary-box">
+                            <h3 style="color: var(--primary-color-darker); margin-bottom: 15px; text-align: center;">📋 Résumé du Devis</h3>
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <span class="summary-number">{nb_lignes}</span>
+                                    <span class="summary-label">Articles</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{priorite}</span>
+                                    <span class="summary-label">Priorité</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-number">{date_echeance_formatted}</span>
+                                    <span class="summary-label">Échéance</span>
+                                </div>
+                            </div>
+                        </div>
                 
-                <div class="devis-info">
-                    <h2>DEVIS #{devis_data.get('numero_document', 'N/A')}</h2>
-                    <p><strong>Client:</strong> {devis_data.get('client_nom', 'N/A')}</p>
-                    <p><strong>Date création:</strong> {date_creation_formatted}</p>
-                    <p><strong>Date échéance:</strong> {date_echeance_formatted}</p>
-                    <p><strong>Responsable:</strong> {devis_data.get('responsable_nom', 'N/A')}</p>
-                </div>
+                        <!-- Détail des articles -->
+                        <div class="section">
+                            <h2 class="section-title">📝 Détail des Prestations</h2>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Description</th>
+                                        <th style="text-align: center;">Quantité</th>
+                                        <th style="text-align: center;">Unité</th>
+                                        <th style="text-align: center;">Prix Unit.</th>
+                                        <th style="text-align: center;">Montant</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {lignes_html}
+                                </tbody>
+                            </table>
+                        </div>
                 
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Description</th>
-                            <th>Quantité</th>
-                            <th>Unité</th>
-                            <th>Prix Unit.</th>
-                            <th>Montant</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {lignes_html}
-                        <tr class="totals">
-                            <td colspan="4">SOUS-TOTAL (HT)</td>
-                            <td>{total_ht:,.2f} $ CAD</td>
-                        </tr>
-                        <tr class="totals">
-                            <td colspan="4">TVA ({taux_tva:.3f}%)</td>
-                            <td>{montant_tva:,.2f} $ CAD</td>
-                        </tr>
-                        <tr class="totals">
-                            <td colspan="4">TOTAL TTC</td>
-                            <td>{total_ttc:,.2f} $ CAD</td>
-                        </tr>
-                    </tbody>
-                </table>
+                        <!-- Totaux -->
+                        <div class="totals-box">
+                            <h3 style="text-align: center; margin-bottom: 15px;">💰 Récapitulatif Financier</h3>
+                            <div class="totals-grid">
+                                <div class="total-item">
+                                    <span class="total-amount">{total_ht:,.2f} $</span>
+                                    <span class="total-label">Sous-total HT</span>
+                                </div>
+                                <div class="total-item">
+                                    <span class="total-amount">{montant_tva:,.2f} $</span>
+                                    <span class="total-label">TVA ({taux_tva:.3f}%)</span>
+                                </div>
+                                <div class="total-item">
+                                    <span class="total-amount">{total_ttc:,.2f} $</span>
+                                    <span class="total-label">Total TTC</span>
+                                </div>
+                            </div>
+                        </div>
                 
-                <div style="margin-top: 30px;">
-                    <p><strong>Notes:</strong> {devis_data.get('notes', 'Aucune note.')}</p>
-                </div>
-                
-                <div style="margin-top: 50px; text-align: center; font-size: 12px;">
-                    <p>Devis généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}</p>
-                    <p>Valable 30 jours à compter de la date d'émission</p>
+                        <!-- Notes du devis -->
+                        {f'''
+                        <div class="section">
+                            <h2 class="section-title">📝 Notes et Conditions</h2>
+                            <div class="instructions-box">
+                                {devis_data.get('notes', 'Aucune note particulière.')}
+                            </div>
+                        </div>
+                        ''' if devis_data.get('notes') and devis_data['notes'].strip() else ''}
+                        
+                        <!-- Instructions -->
+                        <div class="instructions-box">
+                            <h4 style="color: var(--primary-color-darker); margin-bottom: 10px;">📋 Conditions Générales</h4>
+                            <p><strong>• Validité :</strong> Ce devis est valable 30 jours à compter de la date d'émission</p>
+                            <p><strong>• Paiement :</strong> Net 30 jours sur réception de facture</p>
+                            <p><strong>• Délais :</strong> Les délais de livraison seront confirmés lors de l'acceptation</p>
+                            <p><strong>• Acceptation :</strong> Ce devis engage nos services uniquement après acceptation écrite</p>
+                            <p><strong>• Contact :</strong> Pour toute question : (450) 372-9630</p>
+                        </div>
+                        
+                    </div>
+                    
+                    <!-- Pied de page -->
+                    <div class="footer">
+                        <div><strong>🏭 Desmarais & Gagné inc.</strong> - Devis Commercial</div>
+                        <div>Document généré automatiquement le {datetime.now().strftime('%d/%m/%Y à %H:%M')}</div>
+                        <div>📞 (450) 372-9630 | 📧 info@dg-inc.com | 🌐 www.dg-inc.com</div>
+                        <div style="margin-top: 10px; font-size: 11px; opacity: 0.8;">
+                            Merci de mentionner le numéro de devis {devis_data.get('numero_document', 'N/A')} dans votre réponse.
+                        </div>
+                    </div>
                 </div>
             </body>
             </html>
