@@ -67,7 +67,7 @@ TACHES_PRODUCTION = [
 ]
 
 # ========================
-# CHARGEMENT DU CSS EXTERNE (CORRIGÉ)
+# FONCTIONS UTILITAIRES
 # ========================
 
 def safe_price_conversion(price_value, default=0.0):
@@ -91,6 +91,29 @@ def clean_price_for_sum(price_value):
         return float(price_str) if price_str else 0.0
     except (ValueError, TypeError):
         return 0.0
+
+def format_currency(value):
+    if value is None:
+        return "$0.00"
+    try:
+        s_value = str(value).replace(' ', '').replace('€', '').replace('$', '')
+        if ',' in s_value and ('.' not in s_value or s_value.find(',') > s_value.find('.')):
+            s_value = s_value.replace('.', '').replace(',', '.')
+        elif ',' in s_value and '.' in s_value and s_value.find('.') > s_value.find(','):
+            s_value = s_value.replace(',', '')
+
+        num_value = float(s_value)
+        if num_value == 0:
+            return "$0.00"
+        return f"${num_value:,.2f}"
+    except (ValueError, TypeError):
+        if isinstance(value, (int, float)):
+            return f"${value:,.2f}"
+        return str(value) + " $ (Err)"
+
+# ========================
+# CHARGEMENT DU CSS EXTERNE
+# ========================
 
 def load_external_css():
     """Charge le fichier CSS externe pour un design uniforme"""
@@ -196,65 +219,152 @@ def apply_additional_project_styles():
         margin-left: 0.5rem;
     }
     
-    .batch-actions-container {
+    .info-card {
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 1rem;
-        margin: 1rem 0;
+        margin: 0.5rem 0;
     }
     
-    .batch-actions-container h5 {
-        margin: 0 0 1rem 0;
+    .section-card {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .welcome-card {
+        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #e6f3ff 100%);
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        border: 1px solid var(--primary-color-light);
+    }
+    
+    .portal-header {
+        text-align: center;
+        margin: 2rem 0;
+        padding: 2rem;
+        background: linear-gradient(135deg, var(--primary-color) 0%, #1F2937 100%);
+        border-radius: 12px;
+        color: white;
+    }
+    
+    .portal-subtitle {
+        margin-top: 1rem;
+        font-size: 1.1rem;
+        opacity: 0.9;
+    }
+    
+    .access-card {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        text-align: center;
+    }
+    
+    .access-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+    
+    .access-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+    
+    .access-title {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+        color: var(--primary-color);
+    }
+    
+    .access-description {
+        color: #6b7280;
+        margin-bottom: 1rem;
+        font-size: 1rem;
+    }
+    
+    .access-features {
+        text-align: left;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+    
+    .access-features li {
+        margin: 0.5rem 0;
+        padding-left: 1rem;
         color: #374151;
     }
     
-    .action-buttons {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
+    .employee-header {
+        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #e6f3ff 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        text-align: center;
+        margin-bottom: 2rem;
     }
     
-    .action-buttons .stButton > button {
-        font-size: 0.8rem;
-        padding: 0.25rem 0.5rem;
-        height: auto;
-        min-height: 2rem;
-    }
-    
-    .filter-container {
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
+    .admin-welcome {
+        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #cce7ff 100%);
+        padding: 1rem 1.5rem;
         border-radius: 8px;
-        padding: 1rem;
         margin-bottom: 1rem;
+        border-left: 4px solid var(--primary-color);
     }
     
-    .project-stats {
-        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, var(--primary-color-light) 100%);
+    .admin-auth {
+        max-width: 400px;
+        margin: 2rem auto;
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        text-align: center;
+    }
+    
+    .alert-success {
+        background: #dcfce7;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+        padding: 1rem;
         border-radius: 8px;
+        margin: 1rem 0;
+    }
+    
+    .alert-error {
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        color: #dc2626;
         padding: 1rem;
-        margin-bottom: 1rem;
-        color: var(--primary-color-darker);
+        border-radius: 8px;
+        margin: 1rem 0;
     }
     
-    .project-stats h5 {
-        margin: 0;
-        font-weight: 600;
+    .main-title {
+        text-align: center;
+        margin: 2rem 0;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #f0fdf4 100%);
+        border-radius: 12px;
+        border-left: 5px solid var(--primary-color);
     }
     
-    @media (max-width: 768px) {
-        .action-buttons {
-            flex-direction: column;
-        }
-        
-        .action-buttons .stButton {
-            width: 100%;
-        }
-        
-        .project-card {
-            padding: 0.75rem;
-        }
+    .portal-footer {
+        text-align: center;
+        margin-top: 3rem;
+        padding: 2rem;
+        background: #f8fafc;
+        border-radius: 12px;
+        border-top: 3px solid var(--primary-color);
     }
     </style>
     """, unsafe_allow_html=True)
@@ -315,98 +425,6 @@ def apply_additional_attachments_styles():
     .attachment-card:hover::before {
         opacity: 1;
     }
-    
-    .attachment-category-header {
-        background: linear-gradient(135deg, var(--primary-color-lighter) 0%, #e6f3ff 100%);
-        padding: 0.75rem 1rem;
-        border-radius: 8px;
-        margin: 1.5rem 0 1rem 0;
-        font-weight: 600;
-        color: var(--primary-color-darkest);
-        border-left: 4px solid var(--primary-color);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    
-    .attachment-file-info {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.75rem;
-        background: #f8fafc;
-        border-radius: 6px;
-        margin: 0.5rem 0;
-        border: 1px solid #e2e8f0;
-        transition: background 0.2s ease;
-    }
-    
-    .attachment-file-info:hover {
-        background: #f1f5f9;
-    }
-    
-    .attachment-stats {
-        background: linear-gradient(135deg, #e6f3ff 0%, #cce7ff 100%);
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        text-align: center;
-        border: 1px solid #bfdbfe;
-    }
-    
-    .category-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.25rem 0.75rem;
-        border-radius: 16px;
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: white;
-        margin-right: 0.5rem;
-        gap: 0.25rem;
-    }
-    
-    .category-badge.DOCUMENT { 
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-    }
-    
-    .category-badge.IMAGE { 
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    }
-    
-    .category-badge.TECHNIQUE { 
-        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-    }
-    
-    .category-badge.ARCHIVE { 
-        background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-    }
-    
-    .category-badge.MEDIA { 
-        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    }
-    
-    .category-badge.AUTRE { 
-        background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
-    }
-    
-    @media (max-width: 768px) {
-        .attachment-upload-zone {
-            padding: 1.5rem 1rem;
-        }
-        
-        .attachment-file-info {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 0.5rem;
-        }
-        
-        .attachment-category-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 0.5rem;
-        }
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -445,9 +463,9 @@ def get_user_permissions(username):
     permissions = {
         "admin": ["ALL"],
         "dg_admin": ["ALL"],
-        "direction": ["projects", "crm", "employees", "reports", "formulaires", "fournisseurs"],
-        "superviseur": ["projects", "timetracker", "work_centers", "employees", "formulaires"],
-        "production": ["timetracker", "work_centers", "formulaires"]  # Retiré "inventory"
+        "direction": ["projects", "crm", "products", "employees", "reports", "formulaires", "fournisseurs"],
+        "superviseur": ["projects", "products", "timetracker", "work_centers", "employees", "formulaires"],
+        "production": ["timetracker", "work_centers", "formulaires"]
     }
     return permissions.get(username, [])
 
@@ -459,16 +477,14 @@ def check_admin_session():
     if 'admin_login_time' not in st.session_state:
         return False
 
-    # Session expire après 4 heures - MODIFIÉ pour le fuseau horaire du Québec
+    # Session expire après 4 heures
     current_time = get_quebec_datetime()
     login_time = st.session_state.admin_login_time
     
     # Convertir le temps de login en fuseau québécois si nécessaire
     if hasattr(login_time, 'tzinfo') and login_time.tzinfo is not None:
-        # Si login_time a déjà un timezone, le convertir au Québec
         login_time_quebec = login_time.astimezone(QUEBEC_TZ)
     else:
-        # Si login_time est naïf, supposer qu'il est déjà en heure du Québec
         login_time_quebec = QUEBEC_TZ.localize(login_time)
     
     session_age = current_time - login_time_quebec
@@ -480,7 +496,7 @@ def check_admin_session():
     return True
 
 def show_admin_header():
-    """Affiche l'en-tête admin avec info session - MODIFIÉ pour le fuseau horaire du Québec"""
+    """Affiche l'en-tête admin avec info session"""
     username = st.session_state.get('admin_username', 'Admin')
     display_name = get_user_display_name(username)
     login_time = st.session_state.get('admin_login_time')
@@ -490,10 +506,8 @@ def show_admin_header():
         
         # Convertir le temps de login en fuseau québécois si nécessaire
         if hasattr(login_time, 'tzinfo') and login_time.tzinfo is not None:
-            # Si login_time a déjà un timezone, le convertir au Québec
             login_time_quebec = login_time.astimezone(QUEBEC_TZ)
         else:
-            # Si login_time est naïf, supposer qu'il est déjà en heure du Québec
             login_time_quebec = QUEBEC_TZ.localize(login_time)
         
         session_duration = current_time - login_time_quebec
@@ -511,7 +525,7 @@ def show_admin_header():
     """, unsafe_allow_html=True)
 
 # ========================
-# IMPORTS MODULES ERP (MODIFIÉS POUR TIMETRACKER PRO + PIÈCES JOINTES)
+# IMPORTS MODULES ERP
 # ========================
 
 # PERSISTENT STORAGE : Import du gestionnaire de stockage persistant
@@ -528,26 +542,28 @@ try:
 except ImportError:
     ERP_DATABASE_AVAILABLE = False
 
-# ========================
-# NOUVEAU : Import du module unifié
-# ========================
+# Import du module unifié
 try:
     from production_management import show_production_management_page
     PRODUCTION_MANAGEMENT_AVAILABLE = True
 except ImportError:
     PRODUCTION_MANAGEMENT_AVAILABLE = False
 
-# --- REMPLACEZ PAR CECI DANS app.py ---
-
-# Importations pour le CRM (avec toutes les fonctions décommentées)
+# Importations pour le CRM
 try:
-    # On importe uniquement le constructeur et l'interface principale du CRM.
     from crm import GestionnaireCRM, render_crm_main_interface
     CRM_AVAILABLE = True
 except ImportError:
     CRM_AVAILABLE = False
 
-# NOUVEAU : Importation du module Devis
+# Importation du module Produits
+try:
+    from produits import GestionnaireProduits, show_produits_page
+    PRODUITS_AVAILABLE = True
+except ImportError:
+    PRODUITS_AVAILABLE = False
+
+# Importation du module Devis
 try:
     from devis import GestionnaireDevis, show_devis_page
     DEVIS_AVAILABLE = True
@@ -567,11 +583,7 @@ try:
 except ImportError:
     EMPLOYEES_AVAILABLE = False
 
-# ARCHITECTURE UNIFIÉE : Postes de travail intégrés dans TimeTracker
-# Les fonctions postes sont maintenant dans timetracker_unified.py
-POSTES_AVAILABLE = False  # Désactivé - maintenant unifié dans TimeTracker Pro
-
-# NOUVEAU : Importation du module Formulaires
+# Importation du module Formulaires
 try:
     from formulaires import (
         GestionnaireFormulaires,
@@ -581,7 +593,7 @@ try:
 except ImportError:
     FORMULAIRES_AVAILABLE = False
 
-# NOUVEAU : Importation du module Fournisseurs
+# Importation du module Fournisseurs
 try:
     from fournisseurs import (
         GestionnaireFournisseurs,
@@ -591,7 +603,7 @@ try:
 except ImportError:
     FOURNISSEURS_AVAILABLE = False
 
-# === AJOUTS POUR TIMETRACKER UNIFIÉ ===
+# TimeTracker unifié
 try:
     from timetracker_unified import (
         show_timetracker_unified_interface_main,
@@ -605,14 +617,14 @@ except ImportError as e:
     TIMETRACKER_AVAILABLE = False
     print(f"Erreur import TimeTracker Pro: {e}")
 
-# NOUVEAU : Importation du module Kanban unifié
+# Importation du module Kanban unifié
 try:
     from kanban import show_kanban_sqlite, show_kanban
     KANBAN_AVAILABLE = True
 except ImportError:
     KANBAN_AVAILABLE = False
 
-# NOUVEAU : Import du gestionnaire de pièces jointes
+# Import du gestionnaire de pièces jointes
 try:
     from attachments_manager import (
         AttachmentsManager,
@@ -633,30 +645,8 @@ st.set_page_config(
 )
 
 # ========================
-# FONCTIONS UTILITAIRES ERP (RÉDUITES - MODULE UNIFIÉ)
+# FONCTIONS UTILITAIRES ERP
 # ========================
-
-# Les constantes et fonctions utilitaires ont été déplacées vers production_management.py
-# Seules les fonctions encore utilisées dans app.py sont conservées ici
-
-def format_currency(value):
-    if value is None:
-        return "$0.00"
-    try:
-        s_value = str(value).replace(' ', '').replace('€', '').replace('$', '')
-        if ',' in s_value and ('.' not in s_value or s_value.find(',') > s_value.find('.')):
-            s_value = s_value.replace('.', '').replace(',', '.')
-        elif ',' in s_value and '.' in s_value and s_value.find('.') > s_value.find(','):
-            s_value = s_value.replace(',', '')
-
-        num_value = float(s_value)
-        if num_value == 0:
-            return "$0.00"
-        return f"${num_value:,.2f}"
-    except (ValueError, TypeError):
-        if isinstance(value, (int, float)):
-            return f"${value:,.2f}"
-        return str(value) + " $ (Err)"
 
 def get_project_statistics(gestionnaire):
     if not gestionnaire.projets:
@@ -732,7 +722,7 @@ def duplicate_project(gestionnaire, original_project):
         if 'id' in new_project_data:
             del new_project_data['id']
         
-        # Ajuster les dates - MODIFIÉ pour le fuseau horaire du Québec
+        # Ajuster les dates
         today = get_quebec_datetime().date()
         new_project_data['date_soumis'] = today.strftime('%Y-%m-%d')
         new_project_data['date_prevu'] = (today + timedelta(days=30)).strftime('%Y-%m-%d')
@@ -1037,7 +1027,7 @@ def show_projects_detailed_view(projects, crm_manager):
         st.markdown("---")
 
 def show_projects_table_view(projects, crm_manager):
-    """Vue tableau compacte avec ordre personnalisé : ID, Statut, Priorité, Tâche, No.Projet, Nom, Client, Description, Prix, Début, Durée, Fin, Adresse + ACTIONS COMPLÈTES"""
+    """Vue tableau compacte avec ordre personnalisé"""
     df_data = []
     for p in projects:
         client_display_name = get_client_display_name(p, crm_manager)
@@ -1125,7 +1115,7 @@ def show_projects_table_view(projects, crm_manager):
         }
     )
 
-    # NOUVEAU : Section d'actions pour la vue tableau
+    # Section d'actions pour la vue tableau
     st.markdown("---")
     st.markdown("##### 🎯 Actions sur les Projets")
     
@@ -1227,7 +1217,7 @@ def show_projects_table_view(projects, crm_manager):
             </p>
         </div>
         """, unsafe_allow_html=True)
-        
+
 def show_projects_card_view(projects, crm_manager):
     """Vue cartes compactes en grille"""
     # Organiser en grille de 2 colonnes
@@ -1361,7 +1351,7 @@ def handle_batch_actions():
 
 class GestionnaireProjetSQL:
     """
-    NOUVELLE ARCHITECTURE : Gestionnaire de projets utilisant SQLite avec support ID alphanumériqueе
+    Gestionnaire de projets utilisant SQLite avec support ID alphanumériqueе
     """
 
     def __init__(self, db: ERPDatabase):
@@ -1389,12 +1379,12 @@ class GestionnaireProjetSQL:
             self.next_id = 10000
 
     def check_project_id_exists(self, project_id):
-        """Vérifie si un ID de projet existe déjà (alphanumériqueе ou numérique)"""
+        """Vérifie si un ID de projet existe déjà"""
         try:
             result = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE id = ?", (str(project_id),))
             return result and result[0]['count'] > 0
         except Exception:
-            return True  # En cas d'erreur, considérer comme existant pour éviter les conflits
+            return True
 
     @property
     def projets(self):
@@ -1404,15 +1394,11 @@ class GestionnaireProjetSQL:
     def ajouter_projet(self, projet_data, custom_id=None):
         """
         Ajoute un nouveau projet en SQLite avec support ID alphanumériqueе
-        
-        Args:
-            projet_data: Données du projet
-            custom_id: ID personnalisé optionnel (peut être alphanumériqueе)
         """
         try:
             # Déterminer l'ID du projet
             if custom_id is not None:
-                # Validation de l'ID personnalisé (alphanumériqueе)
+                # Validation de l'ID personnalisé
                 project_id = str(custom_id).strip()
                 if not project_id:
                     raise ValueError("L'ID ne peut pas être vide")
@@ -1454,7 +1440,6 @@ class GestionnaireProjetSQL:
                     raise ValueError(f"Employé ID {emp_id} n'existe pas")
 
             # Insérer projet principal avec gestion NULL
-            # IMPORTANT: Utiliser l'ID comme TEXT pour supporter les formats alphanumériques
             query = '''
                 INSERT INTO projects
                 (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
@@ -1467,7 +1452,7 @@ class GestionnaireProjetSQL:
             bd_ft_estime = float(projet_data.get('bd_ft_estime', 0)) if projet_data.get('bd_ft_estime') else 0
 
             self.db.execute_update(query, (
-                project_id,  # Maintenant stocké comme TEXT
+                project_id,
                 projet_data['nom_projet'],
                 projet_data.get('client_company_id'),
                 projet_data.get('client_nom_cache'),
@@ -1482,7 +1467,7 @@ class GestionnaireProjetSQL:
                 projet_data.get('description')
             ))
 
-            # Insérer assignations employés (validation déjà faite)
+            # Insérer assignations employés
             for emp_id in employes_assignes:
                 self.db.execute_update(
                     "INSERT OR IGNORE INTO project_assignments (project_id, employee_id, role_projet) VALUES (?, ?, ?)",
@@ -1499,7 +1484,7 @@ class GestionnaireProjetSQL:
             return None
 
     def modifier_projet(self, projet_id, projet_data_update):
-        """Modifie un projet existant (projet_id peut être alphanumériqueе)"""
+        """Modifie un projet existant"""
         try:
             # Préparer les champs à mettre à jour
             update_fields = []
@@ -1521,7 +1506,7 @@ class GestionnaireProjetSQL:
 
             if update_fields:
                 query = f"UPDATE projects SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                params.append(str(projet_id))  # Convertir en string pour compatibilité
+                params.append(str(projet_id))
                 self.db.execute_update(query, tuple(params))
 
             # Mettre à jour assignations employés si fourni
@@ -1543,10 +1528,10 @@ class GestionnaireProjetSQL:
             return False
 
     def supprimer_projet(self, projet_id):
-        """Supprime un projet et ses données associées (projet_id peut être alphanumériqueе)"""
+        """Supprime un projet et ses données associées"""
         try:
             projet_id_str = str(projet_id)
-            # Supprimer en cascade (relations d'abord)
+            # Supprimer en cascade
             self.db.execute_update("DELETE FROM project_assignments WHERE project_id = ?", (projet_id_str,))
             self.db.execute_update("DELETE FROM operations WHERE project_id = ?", (projet_id_str,))
             self.db.execute_update("DELETE FROM materials WHERE project_id = ?", (projet_id_str,))
@@ -1562,7 +1547,7 @@ class GestionnaireProjetSQL:
             return False
 
     def get_all_projects(self):
-        """Récupère tous les projets depuis SQLite (compatible IDs alphanumériques)"""
+        """Récupère tous les projets depuis SQLite"""
         try:
             query = '''
                 SELECT p.*, c.nom as client_nom_company
@@ -1615,11 +1600,11 @@ class GestionnaireProjetSQL:
             return []
 
 # ========================
-# INITIALISATION ERP SYSTÈME (MODIFIÉ AVEC PIÈCES JOINTES)
+# INITIALISATION ERP SYSTÈME
 # ========================
 
 def _init_base_data_if_empty():
-    """Initialise les données de base si les tables sont vides - RÉSOUT ERREURS FK"""
+    """Initialise les données de base si les tables sont vides"""
     if not ERP_DATABASE_AVAILABLE:
         return
 
@@ -1769,10 +1754,8 @@ def _init_base_data_if_empty():
     except Exception as e:
         print(f"Erreur initialisation données de base: {e}")
 
-# Fonction à ajouter dans app.py ou dans erp_database.py
-
 def migrate_projects_table_for_alphanumeric_ids(db):
-    """Migre la table projects pour supporter les IDs alphanumériques - VERSION DIAGNOSTIQUE COMPLÈTE"""
+    """Migre la table projects pour supporter les IDs alphanumériques"""
     try:
         # DIAGNOSTIC : Vérifier la structure actuelle
         table_info = db.execute_query("PRAGMA table_info(projects)")
@@ -1833,7 +1816,6 @@ def migrate_projects_table_for_alphanumeric_ids(db):
                 print("✅ Données copiées avec succès")
             except Exception as copy_error:
                 print(f"⚠️ Erreur copie données: {copy_error}")
-                # Continuer quand même pour créer la structure
             
             # Mettre à jour tables liées avec gestion d'erreur
             print("🔗 Mise à jour des tables liées...")
@@ -1881,9 +1863,9 @@ def migrate_projects_table_for_alphanumeric_ids(db):
             # Remplacer table avec sécurité
             print("🔄 Remplacement de la table...")
             try:
-                db.execute_update("DROP TABLE IF EXISTS projects_old")  # Nettoyer ancien backup
-                db.execute_update("ALTER TABLE projects RENAME TO projects_old")  # Backup
-                db.execute_update("ALTER TABLE projects_new RENAME TO projects")  # Activer nouvelle
+                db.execute_update("DROP TABLE IF EXISTS projects_old")
+                db.execute_update("ALTER TABLE projects RENAME TO projects_old")
+                db.execute_update("ALTER TABLE projects_new RENAME TO projects")
                 print("✅ Table remplacée avec succès")
                 
                 # Vérifier le résultat
@@ -2005,7 +1987,7 @@ def force_recreate_projects_table_with_text_id(db):
             
             print(f"✅ {len(existing_projects)} projets restaurés")
         
-        # 5. Nettoyer les tables liées (optionnel - supprimer les références orphelines)
+        # 5. Nettoyer les tables liées
         print("🧹 Nettoyage des tables liées...")
         try:
             # Supprimer les assignations orphelines
@@ -2050,124 +2032,97 @@ def force_recreate_projects_table_with_text_id(db):
         print(f"📋 Traceback: {traceback.format_exc()}")
         return False
             
-def init_erp_system():
-    """Initialise le système ERP complet - MODIFIÉ avec Pièces Jointes et Support IDs Alphanumériques"""
+# app.py - NOUVELLE VERSION DE init_erp_system()
 
-    # NOUVEAU : Initialisation du gestionnaire de stockage persistant AVANT tout
+def init_erp_system():
+    """Initialise le système ERP complet et tous ses gestionnaires."""
+    
+    # -----------------------------------------------------
+    # 1. GESTIONNAIRE DE STOCKAGE PERSISTANT (PRIORITAIRE)
+    # -----------------------------------------------------
+    db_path = "erp_production_dg.db" # Chemin par défaut
     if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
         try:
             st.session_state.storage_manager = init_persistent_storage()
-
-            # Utiliser le chemin de base de données configuré par le gestionnaire de stockage
             db_path = st.session_state.storage_manager.db_path
-
-            # Notification selon le type de stockage
-            storage_info = st.session_state.storage_manager.get_storage_info()
-            if storage_info['environment_type'] == 'RENDER_PERSISTENT':
-                st.toast("💾 Stockage persistant Render activé !", icon="✅")
-            elif storage_info['environment_type'] == 'RENDER_EPHEMERAL':
-                st.toast("⚠️ Mode temporaire - Configurez le persistent disk", icon="⚠️")
-
         except Exception as e:
             st.error(f"❌ Erreur initialisation stockage persistant: {e}")
-            # Fallback vers stockage local
-            db_path = "erp_production_dg.db"
             st.session_state.storage_manager = None
-    else:
-        db_path = st.session_state.storage_manager.db_path if st.session_state.get('storage_manager') else "erp_production_dg.db"
 
-    # NOUVELLE ARCHITECTURE : Initialisation ERPDatabase avec chemin configuré
+    # -----------------------------------------------------
+    # 2. BASE DE DONNÉES (le cœur du système)
+    # -----------------------------------------------------
     if ERP_DATABASE_AVAILABLE and 'erp_db' not in st.session_state:
         st.session_state.erp_db = ERPDatabase(db_path)
-        
-        # NOUVELLE MIGRATION : Support IDs alphanumériques
-        force_recreate_projects_table_with_text_id(st.session_state.erp_db)
-        
+        # La migration et les données de base sont gérées dans le constructeur de ERPDatabase
         st.session_state.migration_completed = True
+        print("✅ Base de données ERP initialisée.")
 
-        # AJOUT CRITIQUE : Initialiser données de base si vides - RÉSOUT ERREURS FK
-        _init_base_data_if_empty()
-
-        # Créer une sauvegarde initiale si gestionnaire disponible
-        if st.session_state.get('storage_manager'):
-            try:
-                backup_path = st.session_state.storage_manager.create_backup("initial_startup")
-                if backup_path:
-                    print(f"✅ Sauvegarde de démarrage créée: {backup_path}")
-            except Exception as e:
-                print(f"⚠️ Erreur sauvegarde de démarrage: {e}")
-
-    # NOUVELLE ARCHITECTURE : Gestionnaire projets SQLite avec ID personnalisé
-    if ERP_DATABASE_AVAILABLE and 'gestionnaire' not in st.session_state:
+    # Si la DB n'est pas initialisée, on arrête ici.
+    if 'erp_db' not in st.session_state:
+        st.error("ERREUR CRITIQUE : Impossible d'initialiser la base de données ERP.")
+        st.stop()
+    
+    # -----------------------------------------------------
+    # 3. GESTIONNAIRES DE MODULES (dépendent de la DB)
+    # -----------------------------------------------------
+    
+    # Gestionnaire Projets
+    if 'gestionnaire' not in st.session_state:
         st.session_state.gestionnaire = GestionnaireProjetSQL(st.session_state.erp_db)
+        print("✅ Gestionnaire Projets initialisé.")
 
-    # NOUVEAU : Gestionnaire formulaires
-    if FORMULAIRES_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
-        st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
-
-    # ==============================================================================
-    #                             DÉBUT DE LA CORRECTION
-    # ==============================================================================
-    # CORRECTION CRITIQUE : Initialiser le CRM AVANT les fournisseurs pour l'injection de dépendance
-    if CRM_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
-        # MODIFICATION : Retirer project_manager du constructeur
+    # Gestionnaire CRM
+    if CRM_AVAILABLE and 'gestionnaire_crm' not in st.session_state:
         st.session_state.gestionnaire_crm = GestionnaireCRM(db=st.session_state.erp_db)
         print("✅ Gestionnaire CRM initialisé.")
+        
+    # Gestionnaire Employés
+    if EMPLOYEES_AVAILABLE and 'gestionnaire_employes' not in st.session_state:
+        st.session_state.gestionnaire_employes = GestionnaireEmployes()
+        print("✅ Gestionnaire Employés initialisé.")
 
-    # NOUVEAU : Initialisation du gestionnaire de devis
-    if DEVIS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_devis' not in st.session_state:
-        # S'assurer que les dépendances sont disponibles
-        if 'gestionnaire_crm' in st.session_state and 'gestionnaire' in st.session_state:
-            st.session_state.gestionnaire_devis = GestionnaireDevis(
-                db=st.session_state.erp_db,
-                crm_manager=st.session_state.gestionnaire_crm,
-                project_manager=st.session_state.gestionnaire
-            )
-            print("✅ Gestionnaire Devis initialisé avec toutes les dépendances.")
-        else:
-            print("⚠️ Gestionnaire Devis en attente des dépendances.")
+    # Gestionnaire Produits
+    if PRODUITS_AVAILABLE and 'gestionnaire_produits' not in st.session_state:
+        st.session_state.gestionnaire_produits = GestionnaireProduits(db=st.session_state.erp_db)
+        print("✅ Gestionnaire Produits initialisé.")
 
-    # NOUVEAU : Gestionnaire fournisseurs - DÉPLACÉ ET MODIFIÉ pour recevoir le CRM
-    if FOURNISSEURS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'gestionnaire_fournisseurs' not in st.session_state:
-        # S'assurer que le CRM est disponible avant d'initialiser les fournisseurs
-        crm_manager_instance = st.session_state.get('gestionnaire_crm')
+    # Gestionnaire Fournisseurs (dépend du CRM et des Produits)
+    if FOURNISSEURS_AVAILABLE and 'gestionnaire_fournisseurs' not in st.session_state:
         st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(
-            db=st.session_state.erp_db, 
-            crm_manager=crm_manager_instance  # <-- INJECTION DE DÉPENDANCE
+            db=st.session_state.erp_db,
+            crm_manager=st.session_state.get('gestionnaire_crm'),
+            product_manager=st.session_state.get('gestionnaire_produits')
         )
-        if crm_manager_instance:
-             print("✅ Gestionnaire Fournisseurs initialisé AVEC le gestionnaire CRM.")
-        else:
-             print("⚠️ Gestionnaire Fournisseurs initialisé SANS le gestionnaire CRM.")
-    
-    # ==============================================================================
-    #                               FIN DE LA CORRECTION
-    # ==============================================================================
+        print("✅ Gestionnaire Fournisseurs initialisé avec ses dépendances.")
 
-    # NOUVEAU : Gestionnaire pièces jointes
-    if ATTACHMENTS_AVAILABLE and ERP_DATABASE_AVAILABLE and 'attachments_manager' not in st.session_state:
+    # Gestionnaire Formulaires
+    if FORMULAIRES_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
+        st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
+        print("✅ Gestionnaire Formulaires initialisé.")
+
+    # Gestionnaire Devis (dépend de plusieurs autres)
+    if DEVIS_AVAILABLE and 'gestionnaire_devis' not in st.session_state:
+        st.session_state.gestionnaire_devis = GestionnaireDevis(
+            db=st.session_state.erp_db,
+            crm_manager=st.session_state.get('gestionnaire_crm'),
+            project_manager=st.session_state.get('gestionnaire'),
+            product_manager=st.session_state.get('gestionnaire_produits')
+        )
+        print("✅ Gestionnaire Devis initialisé.")
+
+    # TimeTracker Unifié
+    if TIMETRACKER_AVAILABLE and 'timetracker_unified' not in st.session_state:
+        st.session_state.timetracker_unified = initialize_timetracker_unified(st.session_state.erp_db)
+        print("✅ TimeTracker Unifié initialisé.")
+
+    # Gestionnaire Pièces Jointes
+    if ATTACHMENTS_AVAILABLE and 'attachments_manager' not in st.session_state:
         st.session_state.attachments_manager = init_attachments_manager(
             st.session_state.erp_db,
             st.session_state.get('storage_manager')
         )
-        print("✅ Gestionnaire de pièces jointes initialisé")
-
-    # Gestionnaire employés (reste identique pour l'instant)
-    if EMPLOYEES_AVAILABLE and 'gestionnaire_employes' not in st.session_state:
-        st.session_state.gestionnaire_employes = GestionnaireEmployes()
-
-    # ARCHITECTURE UNIFIÉE : Gestionnaire postes intégré dans TimeTracker
-    # Plus besoin d'initialiser gestionnaire_postes séparément
-    # Il sera initialisé automatiquement dans show_timetracker_unified_interface()
-
-    # === INITIALISATION TIMETRACKER UNIFIÉ ===
-    if TIMETRACKER_AVAILABLE and ERP_DATABASE_AVAILABLE and 'timetracker_unified' not in st.session_state:
-        try:
-            st.session_state.timetracker_unified = initialize_timetracker_unified(st.session_state.erp_db)
-            print("✅ TimeTracker Unifié initialisé avec double interface")
-        except Exception as e:
-            print(f"❌ Erreur initialisation TimeTracker: {e}")
-            st.session_state.timetracker_unified = None
+        print("✅ Gestionnaire Pièces Jointes initialisé.")
             
 def get_system_stats():
     """Récupère les statistiques système"""
@@ -2194,7 +2149,7 @@ def get_system_stats():
     }
 
 # ========================
-# GESTION REDIRECTION TIMETRACKER PRO (NOUVEAU)
+# GESTION REDIRECTION TIMETRACKER PRO
 # ========================
 
 def handle_timetracker_redirect():
@@ -2211,12 +2166,12 @@ def handle_timetracker_redirect():
     return False
 
 # ========================
-# INTERFACE PORTAIL (AVEC CLASSES CSS) - MODIFIÉ POUR LE FUSEAU HORAIRE
+# INTERFACE PORTAIL
 # ========================
 
 def show_portal_home():
-    """Affiche la page d'accueil du portail avec classes CSS - MODIFIÉ pour le fuseau horaire du Québec"""
-    # Header principal - MODIFIÉ pour utiliser le fuseau horaire du Québec
+    """Affiche la page d'accueil du portail avec classes CSS"""
+    # Header principal
     current_time = get_quebec_time()
     current_date = get_quebec_date()
 
@@ -2302,7 +2257,7 @@ def show_employee_interface():
     </div>
     """, unsafe_allow_html=True)
 
-    # === TIMETRACKER UNIFIÉ EMPLOYÉ (INTERFACE DIRECTE) ===
+    # TimeTracker unifié employé
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
             # Interface employé directe SANS sélecteur de mode
@@ -2320,7 +2275,7 @@ def show_employee_interface():
         st.rerun()
 
 def show_fallback_timetracker():
-    """Interface de pointage de substitution - MODIFIÉ pour le fuseau horaire du Québec"""
+    """Interface de pointage de substitution"""
     st.markdown("### ⏰ Pointage Simplifié")
     st.info("Interface de pointage temporaire en attendant le déploiement complet du TimeTracker Pro")
 
@@ -2343,7 +2298,7 @@ def show_fallback_timetracker():
         with col1:
             if st.button("🟢 DÉBUTER", use_container_width=True, type="primary"):
                 if employee_name and project_id:
-                    current_time = get_quebec_time()  # MODIFIÉ pour le fuseau horaire du Québec
+                    current_time = get_quebec_time()
                     st.success(f"✅ Pointage débuté à {current_time}")
                     st.balloons()
 
@@ -2356,7 +2311,7 @@ def show_fallback_timetracker():
                         'project': project_id,
                         'task': task_description,
                         'start_time': current_time,
-                        'date': get_quebec_date()  # MODIFIÉ pour le fuseau horaire du Québec
+                        'date': get_quebec_date()
                     })
                 else:
                     st.error("Veuillez remplir au minimum le nom et le projet")
@@ -2367,7 +2322,7 @@ def show_fallback_timetracker():
 
         with col3:
             if st.button("🔴 TERMINER", use_container_width=True):
-                current_time = get_quebec_time()  # MODIFIÉ pour le fuseau horaire du Québec
+                current_time = get_quebec_time()
                 st.success(f"✅ Pointage terminé à {current_time}")
 
         # Affichage des pointages temporaires
@@ -2403,7 +2358,7 @@ def show_admin_auth():
             if verify_admin_password(username, password):
                 st.session_state.admin_authenticated = True
                 st.session_state.admin_username = username
-                st.session_state.admin_login_time = get_quebec_datetime()  # MODIFIÉ pour le fuseau horaire du Québec
+                st.session_state.admin_login_time = get_quebec_datetime()
                 st.session_state.admin_permissions = get_user_permissions(username)
                 st.session_state.app_mode = "erp"
                 st.session_state.user_role = "admin"
@@ -2443,11 +2398,11 @@ def show_admin_auth():
         """)
 
 # ========================
-# ERP PRINCIPAL AVEC PORTAIL (INTÉGRATION COMPLÈTE)
+# ERP PRINCIPAL AVEC PORTAIL
 # ========================
 
 def show_erp_main():
-    """ERP principal avec authentification et permissions - MENU CHRONOLOGIQUE FABRICATION SANS INVENTAIRE"""
+    """ERP principal avec authentification et permissions"""
     # Initialiser l'ERP
     init_erp_system()
 
@@ -2458,46 +2413,50 @@ def show_erp_main():
     permissions = st.session_state.get('admin_permissions', [])
     has_all_permissions = "ALL" in permissions
 
-    # NAVIGATION PRINCIPALE - ORDRE CHRONOLOGIQUE DE FABRICATION SANS INVENTAIRE
+    # Navigation principale - Ordre chronologique de fabrication
     available_pages = {}
 
-    # 1. VUE D'ENSEMBLE
+    # 1. Vue d'ensemble
     available_pages["🏠 Tableau de Bord"] = "dashboard"
 
-    # 2. CONTACT CLIENT, OPPORTUNITÉ
+    # 2. Contact client, opportunité
     if has_all_permissions or "crm" in permissions:
         available_pages["🤝 Ventes"] = "crm_page"
 
-    # 2.5. GESTION DES DEVIS
+    # 2.1. Gestion des produits
+    if has_all_permissions or "products" in permissions:
+        available_pages["🔧 Produits"] = "produits_page"
+
+    # 2.5. Gestion des devis
     if has_all_permissions or "crm" in permissions:
         available_pages["🧾 Devis"] = "devis_page"
 
-    # 3. CONSULTER PRIX MATÉRIAUX/SERVICES
+    # 3. Consulter prix matériaux/services
     if has_all_permissions or "fournisseurs" in permissions:
         available_pages["🏪 Achats"] = "fournisseurs_page"
 
-    # 4. DEVIS ACCEPTÉ → PROJET CONFIRMÉ
+    # 4. Devis accepté → Projet confirmé
     if has_all_permissions or "projects" in permissions:
         available_pages["📋 Projets"] = "liste"
 
-    # 5. PLANIFICATION FABRICATION
+    # 5. Planification fabrication
     if has_all_permissions or "projects" in permissions:
         available_pages["🏭 Production"] = "production_management"
 
-    # 6. SUIVI TEMPS RÉEL - TimeTracker Pro Unifié (sans doublon)
+    # 6. Suivi temps réel - TimeTracker Pro Unifié
     if has_all_permissions or "timetracker" in permissions or "work_centers" in permissions:
         if TIMETRACKER_AVAILABLE:
             available_pages["⏱️TimeTracker"] = "timetracker_admin_complete"
 
-    # 7. GESTION ÉQUIPES
+    # 7. Gestion équipes
     if has_all_permissions or "employees" in permissions:
         available_pages["👥 Employés"] = "employees_page"
 
-    # 8. VUES DE SUIVI (regroupées en fin) - MISE À JOUR AVEC MODULE KANBAN
+    # 8. Vues de suivi
     if has_all_permissions or "projects" in permissions:
         available_pages["📈 Vue Gantt"] = "gantt"
         available_pages["📅 Calendrier"] = "calendrier"
-        # NOUVEAU : Utilisation du module Kanban unifié
+        # Module Kanban unifié
         if KANBAN_AVAILABLE:
             available_pages["🔄 Kanban"] = "kanban"
         else:
@@ -2526,6 +2485,7 @@ def show_erp_main():
     etapes_workflow = {
         "dashboard": "📊 Vue d'ensemble",
         "crm_page": "🤝 Contact client",
+        "produits_page": "🔧 Gestion produits",
         "devis_page": "🧾 Gestion devis",
         "fournisseurs_page": "🏪 Prix matériaux",
         "formulaires_page": "📑 Création devis",
@@ -2544,7 +2504,7 @@ def show_erp_main():
 
     st.sidebar.markdown("---")
 
-    # NOUVEAU : Affichage du statut de stockage persistant dans la sidebar
+    # Affichage du statut de stockage persistant dans la sidebar
     show_storage_status_sidebar()
 
     # Statistiques dans la sidebar
@@ -2569,7 +2529,30 @@ def show_erp_main():
     except Exception:
         pass
 
-    # NOUVEAU : Statistiques Formulaires dans la sidebar
+    # Statistiques Produits dans la sidebar
+    try:
+        if 'gestionnaire_produits' in st.session_state:
+            produits_stats = st.session_state.gestionnaire_produits.get_produits_statistics()
+            
+            if produits_stats and produits_stats.get('total_produits', 0) > 0:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("<h3 style='text-align:center;color:var(--primary-color-darkest);'>🔧 Produits</h3>", unsafe_allow_html=True)
+                st.sidebar.metric("Total Produits", produits_stats.get('total_produits', 0))
+                st.sidebar.metric("Produits Actifs", produits_stats.get('produits_actifs', 0))
+                
+                # Prix moyen des produits
+                prix_moyen = produits_stats.get('prix_moyen', 0)
+                if prix_moyen > 0:
+                    st.sidebar.metric("💰 Prix Moyen", f"{prix_moyen:,.2f}$")
+                
+                # Nombre de catégories
+                categories_count = produits_stats.get('categories_count', 0)
+                if categories_count > 0:
+                    st.sidebar.metric("📂 Catégories", categories_count)
+    except Exception:
+        pass
+
+    # Statistiques Formulaires dans la sidebar
     try:
         if 'gestionnaire_formulaires' in st.session_state:
             form_stats = st.session_state.gestionnaire_formulaires.get_statistiques_formulaires()
@@ -2601,9 +2584,9 @@ def show_erp_main():
                     st.rerun()
 
     except Exception:
-        pass  # Silencieux si erreur
+        pass
 
-    # NOUVEAU : Statistiques Devis dans la sidebar
+    # Statistiques Devis dans la sidebar
     try:
         if 'gestionnaire_devis' in st.session_state:
             devis_stats = st.session_state.gestionnaire_devis.get_devis_statistics()
@@ -2628,9 +2611,9 @@ def show_erp_main():
                 if taux_conversion > 0:
                     st.sidebar.metric("📈 Taux Convert.", f"{taux_conversion:.1f}%")
     except Exception:
-        pass  # Silencieux si erreur
+        pass
 
-    # NOUVEAU : Statistiques Fournisseurs dans la sidebar
+    # Statistiques Fournisseurs dans la sidebar
     try:
         if 'gestionnaire_fournisseurs' not in st.session_state:
             st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
@@ -2653,9 +2636,9 @@ def show_erp_main():
             if montant_total > 0:
                 st.sidebar.metric("💰 Total Commandes", f"{montant_total:,.0f}$")
     except Exception:
-        pass  # Silencieux si erreur
+        pass
 
-    # NOUVEAU : Statistiques Pièces Jointes dans la sidebar
+    # Statistiques Pièces Jointes dans la sidebar
     if ATTACHMENTS_AVAILABLE and 'attachments_manager' in st.session_state:
         try:
             attachments_stats = st.session_state.attachments_manager.get_attachments_statistics()
@@ -2671,9 +2654,9 @@ def show_erp_main():
                 if categories_count > 0:
                     st.sidebar.metric("📂 Catégories", categories_count)
         except Exception:
-            pass  # Silencieux si erreur
+            pass
 
-    # ARCHITECTURE UNIFIÉE : Statistiques postes depuis TimeTracker Pro
+    # Statistiques postes depuis TimeTracker Pro
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
             postes_stats = st.session_state.timetracker_unified.get_work_centers_statistics()
@@ -2684,9 +2667,9 @@ def show_erp_main():
                 st.sidebar.metric("🤖 Robots", postes_stats.get('postes_robotises', 0))
                 st.sidebar.metric("💻 CNC", postes_stats.get('postes_cnc', 0))
         except Exception:
-            pass  # Silencieux si erreur
+            pass
 
-    # INTÉGRATION TIMETRACKER PRO : Statistiques dans la sidebar
+    # Statistiques TimeTracker Pro dans la sidebar
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
             tt_stats = st.session_state.timetracker_unified.get_timetracker_statistics_unified()
@@ -2720,7 +2703,7 @@ def show_erp_main():
                     st.session_state.navigation_message = "🔧 Redirection vers les Bons de Travail..."
                     st.rerun()
         except Exception:
-            pass  # Silencieux si erreur
+            pass
 
     # Indication module Kanban dans la sidebar
     if KANBAN_AVAILABLE:
@@ -2732,6 +2715,10 @@ def show_erp_main():
 
     st.sidebar.markdown("---")
     footer_text = "🏭 ERP <br/>🗄️ Architecture Unifiée<br/>📑 Module Formulaires Actif<br/>🏪 Module Fournisseurs Intégré<br/>⏱️🔧 TimeTracker Pro Unifié<br/>🏭 Module Production Unifié"
+
+    # Indication module Produits dans footer sidebar
+    if PRODUITS_AVAILABLE:
+        footer_text += "<br/>🔧 Module Produits Actif"
 
     # Indication module Devis dans footer sidebar
     if DEVIS_AVAILABLE:
@@ -2760,13 +2747,24 @@ def show_erp_main():
 
     st.sidebar.markdown(f"<div style='background:var(--primary-color-lighter);padding:10px;border-radius:8px;text-align:center;'><p style='color:var(--primary-color-darkest);font-size:12px;margin:0;'>{footer_text}</p></div>", unsafe_allow_html=True)
 
-    # ROUTAGE DES PAGES (MODIFIÉ - Sans doublon TimeTracker et sans inventaire)
+    # ROUTAGE DES PAGES
     if page_to_show_val == "dashboard":
         show_dashboard()
     elif page_to_show_val == "liste":
         show_liste_projets()
     elif page_to_show_val == "crm_page":
         show_crm_page()
+    elif page_to_show_val == "produits_page":
+        if PRODUITS_AVAILABLE:
+            # Initialiser les clés de session pour le module produits
+            if 'produit_action' not in st.session_state:
+                st.session_state.produit_action = None
+            if 'produit_selected_id' not in st.session_state:
+                st.session_state.produit_selected_id = None
+            
+            show_produits_page()
+        else:
+            st.error("❌ Module Produits non disponible.")
     elif page_to_show_val == "devis_page":
         # Initialiser l'état de session spécifique au module devis si nécessaire
         if 'devis_action' not in st.session_state:
@@ -2792,7 +2790,7 @@ def show_erp_main():
             st.error("❌ Module Production non disponible")
             st.info("Le module production_management.py est requis pour cette fonctionnalité.")
     elif page_to_show_val == "timetracker_admin_complete":
-        # TimeTracker Pro Unifié (CORRECTION: une seule interface)
+        # TimeTracker Pro Unifié
         if TIMETRACKER_AVAILABLE:
             show_timetracker_admin_complete_interface()
         else:
@@ -2805,7 +2803,7 @@ def show_erp_main():
     elif page_to_show_val == "kanban":
         # Utilisation du module Kanban unifié
         if KANBAN_AVAILABLE:
-            show_kanban_sqlite()  # Utilise la fonction du module kanban.py
+            show_kanban_sqlite()
         else:
             # Fallback sur la fonction interne si le module n'est pas disponible
             show_kanban_legacy()
@@ -2820,13 +2818,9 @@ def show_erp_main():
         render_edit_project_form(st.session_state.gestionnaire, st.session_state.gestionnaire_crm, st.session_state.edit_project_data)
     if st.session_state.get('show_delete_confirmation'):
         render_delete_confirmation(st.session_state.gestionnaire)
-    
-    # Gestion des actions en lot
-    if st.session_state.get('batch_action'):
-        handle_batch_actions()
 
 # ========================
-# AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR (ORIGINAL)
+# AFFICHAGE DU STATUT DE STOCKAGE DANS LA SIDEBAR
 # ========================
 
 def show_storage_status_sidebar():
@@ -2874,11 +2868,11 @@ def show_storage_status_sidebar():
         st.sidebar.error(f"Erreur statut stockage: {str(e)[:50]}...")
 
 # ========================
-# FONCTIONS DE VUE ET DE RENDU ERP (MODIFIÉES AVEC GESTION PROJETS COMPLÈTE + PIÈCES JOINTES)
+# FONCTIONS DE VUE ET DE RENDU ERP
 # ========================
 
 def show_dashboard():
-    """Dashboard principal utilisant les classes CSS - MODIFIÉ avec Pièces Jointes et fuseau horaire du Québec"""
+    """Dashboard principal utilisant les classes CSS"""
     st.markdown("""
     <div class="main-title">
         <h1>📊 Tableau de Bord ERP Production</h1>
@@ -2888,7 +2882,7 @@ def show_dashboard():
     gestionnaire = st.session_state.gestionnaire
     gestionnaire_employes = st.session_state.gestionnaire_employes
     
-    # ARCHITECTURE UNIFIÉE : Postes via TimeTracker
+    # Postes via TimeTracker
     postes_stats = {'total_postes': 0, 'postes_robotises': 0, 'postes_cnc': 0, 'par_departement': {}}
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
@@ -2897,36 +2891,63 @@ def show_dashboard():
         except Exception:
             pass  # Utiliser les stats par défaut si erreur
 
-    # NOUVEAU : Gestionnaire fournisseurs pour métriques
+    # Gestionnaire fournisseurs pour métriques
     if 'gestionnaire_fournisseurs' not in st.session_state:
         st.session_state.gestionnaire_fournisseurs = GestionnaireFournisseurs(st.session_state.erp_db)
     gestionnaire_fournisseurs = st.session_state.gestionnaire_fournisseurs
 
-    # NOUVEAU : Gestionnaire formulaires pour métriques
+    # Gestionnaire formulaires pour métriques
     if FORMULAIRES_AVAILABLE and 'gestionnaire_formulaires' not in st.session_state:
         st.session_state.gestionnaire_formulaires = GestionnaireFormulaires(st.session_state.erp_db)
 
     gestionnaire_formulaires = st.session_state.get('gestionnaire_formulaires')
 
-    # Messages de notification supprimés pour une interface plus épurée
+    # Gestionnaire produits pour métriques
+    if PRODUITS_AVAILABLE and 'gestionnaire_produits' not in st.session_state:
+        st.session_state.gestionnaire_produits = GestionnaireProduits(st.session_state.erp_db)
+
+    gestionnaire_produits = st.session_state.get('gestionnaire_produits')
 
     stats = get_project_statistics(gestionnaire)
     emp_stats = gestionnaire_employes.get_statistiques_employes()
     
-    # ARCHITECTURE UNIFIÉE : Stats postes depuis TimeTracker
-    # postes_stats déjà initialisé plus haut
-
-    # NOUVEAU : Statistiques formulaires
+    # Statistiques formulaires
     form_stats = gestionnaire_formulaires.get_statistiques_formulaires() if gestionnaire_formulaires else {}
 
-    # NOUVEAU : Statistiques fournisseurs
+    # Statistiques fournisseurs
     fournisseurs_stats = gestionnaire_fournisseurs.get_fournisseurs_statistics()
+
+    # Statistiques produits - avec gestion d'erreur robuste
+    produits_stats = {}
+    if gestionnaire_produits:
+        try:
+            # Essayer d'abord la méthode standard
+            if hasattr(gestionnaire_produits, 'get_produits_statistics'):
+                produits_stats = gestionnaire_produits.get_produits_statistics()
+            else:
+                # Sinon, construire les statistiques manuellement
+                try:
+                    all_produits = gestionnaire_produits.get_all_produits() if hasattr(gestionnaire_produits, 'get_all_produits') else []
+                    if all_produits:
+                        produits_stats = {
+                            'total_produits': len(all_produits),
+                            'produits_actifs': len([p for p in all_produits if p.get('statut') == 'ACTIF']),
+                            'prix_moyen': sum(float(p.get('prix_unitaire', 0) or 0) for p in all_produits) / len(all_produits) if all_produits else 0,
+                            'categories_count': len(set(p.get('categorie', 'N/A') for p in all_produits)),
+                            'valeur_totale_catalogue': sum(float(p.get('prix_unitaire', 0) or 0) for p in all_produits)
+                        }
+                except Exception as calc_error:
+                    print(f"Erreur calcul stats produits: {calc_error}")
+                    produits_stats = {}
+        except Exception as e:
+            print(f"Erreur récupération stats produits: {e}")
+            produits_stats = {}
 
     if stats['total'] == 0 and emp_stats.get('total', 0) == 0:
         st.markdown("""
         <div class='welcome-card'>
             <h3>🏭 Bienvenue dans l'ERP</h3>
-            <p>Architecture unifiée avec TimeTracker Pro, Kanban Unifié et Pièces Jointes intégrés. Créez votre premier projet ou explorez les données migrées.</p>
+            <p>Architecture unifiée avec TimeTracker Pro, Module Produits, Kanban Unifié et Pièces Jointes intégrés. Créez votre premier projet ou explorez les données migrées.</p>
         </div>
         """, unsafe_allow_html=True)
         return
@@ -2944,7 +2965,28 @@ def show_dashboard():
         with c4:
             st.metric("💰 CA Total", format_currency(stats['ca_total']))
 
-    # NOUVEAU : Métriques Production Unifiée (SANS inventaire)
+    # Métriques Produits
+    if produits_stats and produits_stats.get('total_produits', 0) > 0:
+        st.markdown("### 🔧 Catalogue Produits")
+        prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
+
+        with prod_c1:
+            st.metric("🔧 Total Produits", produits_stats.get('total_produits', 0))
+        with prod_c2:
+            st.metric("✅ Produits Actifs", produits_stats.get('produits_actifs', 0))
+        with prod_c3:
+            prix_moyen = produits_stats.get('prix_moyen', 0)
+            st.metric("💰 Prix Moyen", f"{prix_moyen:,.2f}$" if prix_moyen > 0 else "N/A")
+        with prod_c4:
+            categories_count = produits_stats.get('categories_count', 0)
+            st.metric("📂 Catégories", categories_count)
+
+        # Valeur totale du catalogue
+        valeur_totale = produits_stats.get('valeur_totale_catalogue', 0)
+        if valeur_totale > 0:
+            st.markdown(f"**💼 Valeur Catalogue: {valeur_totale:,.0f}$ CAD**")
+
+    # Métriques Production Unifiée (SANS inventaire)
     if PRODUCTION_MANAGEMENT_AVAILABLE:
         st.markdown("### 🏭 Production Unifiée")
         prod_c1, prod_c2, prod_c3, prod_c4 = st.columns(4)
@@ -2979,7 +3021,7 @@ def show_dashboard():
         with prod_c4:
             st.metric("✅ Module Unifié", "ACTIF" if PRODUCTION_MANAGEMENT_AVAILABLE else "INACTIF")
 
-    # NOUVEAU : Métriques Devis
+    # Métriques Devis
     if 'gestionnaire_devis' in st.session_state:
         try:
             devis_stats = st.session_state.gestionnaire_devis.get_devis_statistics()
@@ -3005,7 +3047,7 @@ def show_dashboard():
         except Exception as e:
             pass  # Silencieux si erreur
 
-    # NOUVEAU : Métriques Formulaires
+    # Métriques Formulaires
     if gestionnaire_formulaires and any(form_stats.values()):
         st.markdown("### 📑 Aperçu Formulaires")
         form_c1, form_c2, form_c3, form_c4, form_c5 = st.columns(5)
@@ -3035,7 +3077,7 @@ def show_dashboard():
         if montant_total_forms > 0:
             st.markdown(f"**💼 Valeur Documents: {montant_total_forms:,.0f}$ CAD**")
 
-    # NOUVEAU : Métriques Fournisseurs
+    # Métriques Fournisseurs
     if fournisseurs_stats and fournisseurs_stats.get('total_fournisseurs', 0) > 0:
         st.markdown("### 🏪 Fournisseurs")
         fournisseur_c1, fournisseur_c2, fournisseur_c3, fournisseur_c4 = st.columns(4)
@@ -3056,7 +3098,7 @@ def show_dashboard():
         if montant_total_fournisseurs > 0:
             st.markdown(f"**💰 Volume Total Commandes: {montant_total_fournisseurs:,.0f}$ CAD**")
 
-    # NOUVEAU : Métriques Pièces Jointes
+    # Métriques Pièces Jointes
     if ATTACHMENTS_AVAILABLE and 'attachments_manager' in st.session_state:
         try:
             attachments_stats = st.session_state.attachments_manager.get_attachments_statistics()
@@ -3100,7 +3142,7 @@ def show_dashboard():
             efficacite_globale = random.uniform(82, 87)  # Simulation temps réel
             st.metric("⚡ Efficacité", f"{efficacite_globale:.1f}%")
 
-    # CHECKPOINT 6 : INTÉGRATION TIMETRACKER PRO : Métriques temps et revenus
+    # Métriques TimeTracker Pro
     if TIMETRACKER_AVAILABLE and 'timetracker_unified' in st.session_state:
         try:
             timetracker_stats = st.session_state.timetracker_unified.get_timetracker_statistics_unified()
@@ -3198,13 +3240,13 @@ def show_dashboard():
                 if st.button("👁️", key=f"view_rec_{p.get('id')}", help="Voir détails"):
                     st.session_state.selected_project = p
                     st.session_state.show_project_modal = True
-                # NOUVEAU : Bouton création BT depuis projet récent
+                # Bouton création BT depuis projet récent
                 if st.button("🔧", key=f"bt_rec_{p.get('id')}", help="Créer Bon de Travail"):
                     st.session_state.form_action = "create_bon_travail"
                     st.session_state.formulaire_project_preselect = p.get('id')
                     st.session_state.page_redirect = "formulaires_page"
                     st.rerun()
-                # NOUVEAU : Bouton création BA depuis projet récent
+                # Bouton création BA depuis projet récent
                 if st.button("🛒", key=f"ba_rec_{p.get('id')}", help="Créer Bon d'Achat"):
                     st.session_state.form_action = "create_bon_achat"
                     st.session_state.formulaire_project_preselect = p.get('id')
@@ -3213,7 +3255,7 @@ def show_dashboard():
             st.markdown("</div>", unsafe_allow_html=True)
 
 def show_liste_projets():
-    """Liste des projets avec fonctionnalités CRUD complètes - VERSION FINALE"""
+    """Liste des projets avec fonctionnalités CRUD complètes"""
     
     # Appliquer les styles CSS supplémentaires
     apply_additional_project_styles()
@@ -3388,14 +3430,25 @@ def show_liste_projets():
             </div>
             """, unsafe_allow_html=True)
 
+def _validate_project_id_format(project_id):
+    """Valide le format d'un ID de projet personnalisé"""
+    import re
+    if not project_id:
+        return False
+    
+    # Autoriser lettres, chiffres, tirets et underscore
+    # Longueur entre 1 et 50 caractères
+    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
+    return bool(re.match(pattern, project_id.strip()))
+
 def render_create_project_form(gestionnaire, crm_manager):
-    """FORMULAIRE CRÉATION PROJET - MODIFIÉ avec choix ID alphanumériqueе et TACHES_PRODUCTION - VERSION FINALE COMPLÈTE avec fuseau horaire du Québec"""
+    """Formulaire création projet - Version finale complète avec fuseau horaire du Québec"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     st.markdown("### ➕ Créer Projet")
 
-    # VALIDATION PRÉALABLE des données de base
+    # Validation préalable des données de base
     companies_count = st.session_state.erp_db.get_table_count('companies')
     if companies_count == 0:
         st.warning("⚠️ Aucune entreprise en base. Initialisation...")
@@ -3438,10 +3491,10 @@ def render_create_project_form(gestionnaire, crm_manager):
     
     st.markdown("---")
 
-    # MAINTENANT le formulaire pour les autres champs
+    # Formulaire pour les autres champs
     with st.form("create_form", clear_on_submit=True):
         
-        # Reste du formulaire (inchangé)
+        # Reste du formulaire
         fc1, fc2 = st.columns(2)
         with fc1:
             nom = st.text_input("Nom *:")
@@ -3466,16 +3519,16 @@ def render_create_project_form(gestionnaire, crm_manager):
             priorite = st.selectbox("Priorité:", ["BAS", "MOYEN", "ÉLEVÉ"])
 
         with fc2:
-            # CORRECTION : Utilisation de TACHES_PRODUCTION
+            # Utilisation de TACHES_PRODUCTION
             tache = st.selectbox("Tâches:", TACHES_PRODUCTION)
-            d_debut = st.date_input("Début:", get_quebec_datetime().date())  # MODIFIÉ pour le fuseau horaire du Québec
-            d_fin = st.date_input("Fin Prévue:", get_quebec_datetime().date() + timedelta(days=30))  # MODIFIÉ pour le fuseau horaire du Québec
+            d_debut = st.date_input("Début:", get_quebec_datetime().date())
+            d_fin = st.date_input("Fin Prévue:", get_quebec_datetime().date() + timedelta(days=30))
             bd_ft = st.number_input("BD-FT (h):", 0, value=40, step=1)
             prix = st.number_input("Prix ($):", 0.0, value=10000.0, step=100.0, format="%.2f")
 
         desc = st.text_area("Description:")
 
-        # Assignation d'employés (inchangé)
+        # Assignation d'employés
         employes_assignes = []
         if gestionnaire_employes.employes:
             st.markdown("##### 👥 Assignation d'Employés")
@@ -3496,7 +3549,7 @@ def render_create_project_form(gestionnaire, crm_manager):
             cancel = st.form_submit_button("❌ Annuler", use_container_width=True)
 
         if submit:
-            # VALIDATION RENFORCÉE incluant l'ID personnalisé
+            # Validation renforcée incluant l'ID personnalisé
             if not nom:
                 st.error("Nom du projet obligatoire.")
             elif not selected_entreprise_id_form and not client_nom_direct_form:
@@ -3511,7 +3564,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                 else:
                     st.error("Numéro de projet déjà existant.")
             else:
-                # Validation clés étrangères (inchangé)
+                # Validation clés étrangères
                 client_company_id = None
                 client_nom_cache_val = ""
 
@@ -3529,7 +3582,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                 elif client_nom_direct_form:
                     client_nom_cache_val = client_nom_direct_form
 
-                # Validation employés assignés (inchangé)
+                # Validation employés assignés
                 employes_valides = []
                 if employes_assignes:
                     for emp_id in employes_assignes:
@@ -3542,7 +3595,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                         else:
                             st.warning(f"Employé ID {emp_id} non trouvé - ignoré")
 
-                # DONNÉES PROJET VALIDÉES
+                # Données projet validées
                 data = {
                     'nom_projet': nom,
                     'client_company_id': client_company_id,
@@ -3560,12 +3613,12 @@ def render_create_project_form(gestionnaire, crm_manager):
                 }
 
                 try:
-                    # MODIFICATION PRINCIPALE : Passer l'ID personnalisé (maintenant alphanumériqueе)
+                    # Passer l'ID personnalisé
                     final_custom_id = custom_project_id if id_choice == "✏️ Numéro personnalisé" else None
                     pid = gestionnaire.ajouter_projet(data, custom_id=final_custom_id)
 
                     if pid:
-                        # Mettre à jour les assignations des employés (inchangé)
+                        # Mettre à jour les assignations des employés
                         if employes_valides:
                             for emp_id in employes_valides:
                                 employe = gestionnaire_employes.get_employe_by_id(emp_id)
@@ -3595,19 +3648,8 @@ def render_create_project_form(gestionnaire, crm_manager):
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-def _validate_project_id_format(project_id):
-    """Valide le format d'un ID de projet personnalisé"""
-    import re
-    if not project_id:
-        return False
-    
-    # Autoriser lettres, chiffres, tirets et underscore
-    # Longueur entre 1 et 50 caractères
-    pattern = r'^[a-zA-Z0-9\-_]{1,50}$'
-    return bool(re.match(pattern, project_id.strip()))
-    
 def render_edit_project_form(gestionnaire, crm_manager, project_data):
-    """Formulaire d'édition de projet - VERSION COMPLÈTE CORRIGÉE avec TACHES_PRODUCTION"""
+    """Formulaire d'édition de projet - Version complète corrigée avec TACHES_PRODUCTION"""
     gestionnaire_employes = st.session_state.gestionnaire_employes
 
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -3648,11 +3690,11 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
             priorite = st.selectbox("Priorité:", priorites, index=priorites.index(current_priorite) if current_priorite in priorites else 1)
 
         with fc2:
-            # CORRECTION : Gestion du type de tâche avec TACHES_PRODUCTION
+            # Gestion du type de tâche avec TACHES_PRODUCTION
             current_tache = project_data.get('tache', 'Général')
             tache = st.selectbox("Tâches:", TACHES_PRODUCTION, index=TACHES_PRODUCTION.index(current_tache) if current_tache in TACHES_PRODUCTION else 0)
 
-            # Gestion des dates - MODIFIÉ pour le fuseau horaire du Québec
+            # Gestion des dates
             try:
                 d_debut = st.date_input("Début:", datetime.strptime(project_data.get('date_soumis', ''), '%Y-%m-%d').date())
             except (ValueError, TypeError):
@@ -3821,12 +3863,8 @@ def render_delete_confirmation(gestionnaire):
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_crm_page():
-    """
-    Affiche l'interface CRM complète en utilisant le module CRM dédié.
-    """
+    """Affiche l'interface CRM complète en utilisant le module CRM dédié"""
     gestionnaire_crm = st.session_state.gestionnaire_crm
-    # Le gestionnaire de projets est passé pour afficher les projets liés,
-    # mais n'est plus une dépendance critique pour le CRM.
     projet_manager = st.session_state.get('gestionnaire')
 
     render_crm_main_interface(gestionnaire_crm, projet_manager)
@@ -3950,7 +3988,7 @@ def show_gantt():
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_calendrier():
-    """Vue calendrier - MODIFIÉ pour le fuseau horaire du Québec"""
+    """Vue calendrier"""
     st.markdown("### 📅 Vue Calendrier")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
@@ -3973,7 +4011,7 @@ def show_calendrier():
             st.rerun()
 
     if st.button("📅 Aujourd'hui", key="cal_today", use_container_width=True):
-        st.session_state.selected_date = get_quebec_datetime().date()  # MODIFIÉ pour le fuseau horaire du Québec
+        st.session_state.selected_date = get_quebec_datetime().date()
         st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -4032,7 +4070,7 @@ def show_calendrier():
                 day_classes = ["calendar-day-cell"]
                 if day_date_obj.month != curr_date.month:
                     day_classes.append("other-month")
-                if day_date_obj == get_quebec_datetime().date():  # MODIFIÉ pour le fuseau horaire du Québec
+                if day_date_obj == get_quebec_datetime().date():
                     day_classes.append("today")
 
                 events_html = ""
@@ -4051,10 +4089,7 @@ def show_calendrier():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_kanban_legacy():
-    """
-    ANCIENNE FONCTION KANBAN (renommée pour éviter conflit avec le module)
-    Gardée comme fallback si le module kanban.py n'est pas disponible
-    """
+    """Vue Kanban legacy (fallback)"""
     st.markdown("### 🔄 Vue Kanban")
     gestionnaire = st.session_state.gestionnaire
     crm_manager = st.session_state.gestionnaire_crm
@@ -4111,7 +4146,7 @@ def show_kanban_legacy():
                 st.session_state.dragged_from_status = None
                 st.rerun()
 
-    # STRUCTURE HORIZONTALE
+    # Structure horizontale
     st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
 
     # Créer colonnes pour chaque statut
@@ -4165,7 +4200,7 @@ def show_kanban_legacy():
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Boutons d'action pour la carte - MODIFIÉ avec BT et BA
+                # Boutons d'action pour la carte
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     if st.button("👁️", key=f"view_kanban_{pk['id']}", help="Voir les détails", use_container_width=True):
@@ -4173,14 +4208,14 @@ def show_kanban_legacy():
                         st.session_state.show_project_modal = True
                         st.rerun()
                 with col2:
-                    # NOUVEAU : Bouton création BT dans Kanban - REDIRECTION vers 
+                    # Bouton création BT dans Kanban
                     if st.button("🔧", key=f"bt_kanban_{pk['id']}", help="Créer Bon de Travail", use_container_width=True):
                         st.session_state.timetracker_redirect_to_bt = True
                         st.session_state.formulaire_project_preselect = pk['id']
                         st.session_state.page_redirect = "timetracker_pro_page"
                         st.rerun()
                 with col3:
-                    # NOUVEAU : Bouton création BA dans Kanban
+                    # Bouton création BA dans Kanban
                     if st.button("🛒", key=f"ba_kanban_{pk['id']}", help="Créer Bon d'Achat", use_container_width=True):
                         st.session_state.form_action = "create_bon_achat"
                         st.session_state.formulaire_project_preselect = pk['id']
@@ -4195,7 +4230,7 @@ def show_kanban_legacy():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_project_modal():
-    """Affichage des détails d'un projet dans un expander - MODIFIÉ avec opérations complètes BT incluses"""
+    """Affichage des détails d'un projet dans un expander"""
     if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
         return
 
@@ -4208,7 +4243,7 @@ def show_project_modal():
 
         st.markdown("---")
 
-        # Informations principales (inchangé)
+        # Informations principales
         mc1, mc2 = st.columns(2)
         with mc1:
             st.markdown(f"""
@@ -4242,11 +4277,10 @@ def show_project_modal():
         else:
             tabs_mod = st.tabs(["🔧 Opérations Complètes"])
 
-        # Onglet Opérations MODIFIÉ - Récupération complète via base de données
+        # Onglet Opérations
         with tabs_mod[0]:
             try:
-                # NOUVEAU : Récupérer TOUTES les opérations du projet via la base de données
-                # Cela inclut les opérations directes ET celles créées via les Bons de Travail
+                # Récupérer TOUTES les opérations du projet via la base de données
                 project_id = proj_mod.get('id')
                 if project_id and hasattr(st.session_state, 'erp_db'):
                     all_operations = st.session_state.erp_db.get_project_operations_with_work_centers(project_id)
@@ -4346,7 +4380,7 @@ def show_project_modal():
                     </div>
                     """, unsafe_allow_html=True)
 
-        # Onglet Pièces Jointes (maintenant à l'indice 1)
+        # Onglet Pièces Jointes
         if ATTACHMENTS_AVAILABLE:
             with tabs_mod[1]:
                 show_attachments_tab_in_project_modal(proj_mod)
@@ -4355,7 +4389,6 @@ def show_project_modal():
         if st.button("✖️ Fermer", use_container_width=True, key="close_modal_details_btn_bottom"):
             st.session_state.show_project_modal = False
             st.rerun()
-
 
 def _afficher_operation_dans_modal(operation, border_color):
     """Fonction helper pour afficher une opération dans la modal avec informations complètes"""
@@ -4430,20 +4463,20 @@ def show_footer():
 # ========================
 
 def main():
-    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET REFACTORISÉ avec fuseau horaire du Québec"""
+    """Fonction principale avec routage des modes - PORTAIL + ERP COMPLET"""
 
-    # NOUVEAU : Charger le CSS externe en priorité
+    # Charger le CSS externe en priorité
     css_loaded = load_external_css()
     
     # Fallback si CSS externe indisponible
     if not css_loaded:
         apply_fallback_styles()
 
-    # NOUVEAU : Appliquer les styles supplémentaires pour les pièces jointes
+    # Appliquer les styles supplémentaires pour les pièces jointes
     if ATTACHMENTS_AVAILABLE:
         apply_additional_attachments_styles()
 
-    # Initialisation des variables de session - COMPLÈTE
+    # Initialisation des variables de session
     if 'app_mode' not in st.session_state:
         st.session_state.app_mode = "portal"
     if 'admin_authenticated' not in st.session_state:
@@ -4451,14 +4484,15 @@ def main():
     if 'user_role' not in st.session_state:
         st.session_state.user_role = None
 
-    # Initialisation des variables de session (MISES À JOUR)
+    # Initialisation des variables de session
     session_defs = {
         'show_project_modal': False, 'selected_project': None,
         'show_create_project': False, 'show_edit_project': False,
         'edit_project_data': None, 'show_delete_confirmation': False,
-        'delete_project_id': None, 'selected_date': get_quebec_datetime().date(),  # MODIFIÉ pour le fuseau horaire du Québec
+        'delete_project_id': None, 'selected_date': get_quebec_datetime().date(),
         'welcome_seen': False,
-        'devis_action': None, 'devis_selected_id': None,  # NOUVEAU
+        'produit_action': None, 'produit_selected_id': None,
+        'devis_action': None, 'devis_selected_id': None,
         'crm_action': None, 'crm_selected_id': None, 'crm_confirm_delete_contact_id': None,
         'crm_confirm_delete_entreprise_id': None, 'crm_confirm_delete_interaction_id': None,
         'emp_action': None, 'emp_selected_id': None, 'emp_confirm_delete_id': None,
@@ -4483,10 +4517,8 @@ def main():
         'current_page': None,
         'admin_permissions': [],
         'pointages_temp': [],
-        # CHECKPOINT 6 : NOUVELLES VARIABLES TIMETRACKER PRO
         'timetracker_focus_tab': None,
         'timetracker_redirect_to_bt': False,
-        # NOUVELLES VARIABLES POUR GESTION PROJETS AMÉLIORÉE
         'batch_action': None,
         'batch_selected_ids': None,
         'show_project_stats': False,
@@ -4500,7 +4532,7 @@ def main():
         if k not in st.session_state:
             st.session_state[k] = v_def
 
-    # CHECKPOINT 6 : GESTION REDIRECTION TIMETRACKER PRO
+    # Gestion redirection TimeTracker Pro
     if handle_timetracker_redirect():
         return
 
@@ -4581,14 +4613,12 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 6 - MIGRATION APP.PY TERMINÉE AVEC FUSEAU HORAIRE DU QUÉBEC - SANS INVENTAIRE DANS MENU PRODUCTION")
-print("✅ Toutes les modifications appliquées pour le fuseau horaire America/Montreal")
-print("✅ TimeTracker Pro Unifié maintenu")
-print("✅ Gestion des projets complète intégrée")
-print("✅ Module Kanban unifié intégré")
-print("✅ Module Devis intégré avec succès")
-print("✅ Support fuseau horaire EST/EDT automatique")
-print("✅ INVENTAIRE RETIRÉ du menu production")
-print("🕐 Heure affichée: Québec (gestion automatique heure d'été/hiver)")
-print("🧾 Module Devis disponible dans le menu Navigation ERP")
-print("🚀 Prêt pour déploiement sur Render avec heure locale correcte et menu production épuré")
+print("🎯 CHECKPOINT 3/5 - INTÉGRATION MODULE PRODUITS TERMINÉE")
+print("✅ Import du module produits ajouté")
+print("✅ Initialisation du gestionnaire produits intégrée")
+print("✅ Permissions 'products' ajoutées aux rôles appropriés")
+print("✅ Entrée navigation '🔧 Produits' ajoutée au menu ERP")
+print("✅ Routage vers produits_page configuré")
+print("✅ Statistiques produits intégrées dans la sidebar")
+print("✅ Métriques produits ajoutées au dashboard")
+print("✅ Variables de session produits initialisées")

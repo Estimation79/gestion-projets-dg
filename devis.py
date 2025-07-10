@@ -15,7 +15,7 @@ class GestionnaireDevis:
     Interagit avec les modules CRM (pour les clients/produits) et Projets (pour la transformation).
     """
 
-    def __init__(self, db, crm_manager, project_manager):
+    def __init__(self, db, crm_manager, project_manager, product_manager):
         """
         Initialise le gestionnaire de devis.
 
@@ -23,10 +23,12 @@ class GestionnaireDevis:
             db: Instance de ERPDatabase.
             crm_manager: Instance de GestionnaireCRM.
             project_manager: Instance de GestionnaireProjetSQL.
+            product_manager: Instance de GestionnaireProduits.
         """
         self.db = db
         self.crm_manager = crm_manager
         self.project_manager = project_manager
+        self.product_manager = product_manager  # NOUVELLE DÉPENDANCE
         self._init_devis_support()
 
     def _init_devis_support(self):
@@ -867,7 +869,7 @@ def render_nouveau_devis_form(gestionnaire: GestionnaireDevis):
         
         with col_prod1:
             # Sélection d'un produit
-            produits_options = [("", "Sélectionner un produit...")] + [(p['id'], f"{p['code_produit']} - {p['nom']}") for p in gestionnaire.crm_manager.produits]
+            produits_options = [("", "Sélectionner un produit...")] + [(p['id'], f"{p['code_produit']} - {p['nom']}") for p in gestionnaire.product_manager.get_all_products()]
             produit_selectionne = st.selectbox(
                 "Produit du catalogue",
                 options=[opt[0] for opt in produits_options],
@@ -882,7 +884,7 @@ def render_nouveau_devis_form(gestionnaire: GestionnaireDevis):
             st.write("")  # Espacement
             if st.button("➕ Ajouter depuis catalogue", key="add_from_catalog", use_container_width=True):
                 if produit_selectionne:
-                    produit_data = gestionnaire.crm_manager.get_produit_by_id(produit_selectionne)
+                    produit_data = gestionnaire.product_manager.get_produit_by_id(produit_selectionne)
                     if produit_data:
                         st.session_state.devis_lignes.append({
                             'description': f"{produit_data['code_produit']} - {produit_data['nom']}",
