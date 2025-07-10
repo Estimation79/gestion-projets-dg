@@ -2229,11 +2229,11 @@ def show_portal_home():
             <div class="access-icon">👥</div>
             <div class="access-title">EMPLOYÉ</div>
             <div class="access-description">
-                Interface unifiée TimeTracker Pro & Postes de travail
+                TimeTracker & Postes de travail
             </div>
             <ul class="access-features">
-                <li>⏱️🔧 TimeTracker Pro & Postes Unifiés</li>
-                <li>🔧 Bons de Travail Intégrés</li>
+                <li>⏱️ TimeTracker</li>
+                <li>🔧 Bons de Travail</li>
                 <li>📊 Suivi temps réel</li>
                 <li>📱 Interface simplifiée</li>
                 <li>🎯 Gestion centralisée</li>

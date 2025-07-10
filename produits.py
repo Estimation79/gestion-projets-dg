@@ -1007,7 +1007,7 @@ def handle_produits_actions(gestionnaire_produits: GestionnaireProduits):
 
 def show_produits_page():
     """Point d'entrée principal pour l'interface de gestion des produits."""
-    st.title("🔧 Gestion du Catalogue Produits")
+    st.title("🔧 Gestion des Produits")
     
     if 'gestionnaire_produits' not in st.session_state:
         st.error("Le gestionnaire de produits n'est pas initialisé.")

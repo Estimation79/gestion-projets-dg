@@ -1775,7 +1775,7 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
 
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
     """Interface principale CRM."""
-    st.title("📋 Gestion des Relations Client")
+    st.title("📋 Gestion des Ventes")
     
     if crm_manager.use_sqlite:
         st.success("✅ Mode SQLite actif - Données centralisées.")
