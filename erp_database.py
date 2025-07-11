@@ -381,6 +381,7 @@ class ERPDatabase:
                     client_contact_id INTEGER,
                     client_nom_cache TEXT,
                     client_legacy TEXT,
+                    po_client TEXT,
                     statut TEXT DEFAULT 'À FAIRE',
                     priorite TEXT DEFAULT 'MOYEN',
                     tache TEXT,

@@ -748,6 +748,7 @@ def export_projects_to_csv(projects, crm_manager):
                 'ID': p.get('id', ''),
                 'Nom du Projet': p.get('nom_projet', ''),
                 'Client': client_name,
+                'No. PO Client': p.get('po_client', ''),
                 'Statut': p.get('statut', ''),
                 'Priorité': p.get('priorite', ''),
                 'Type de Tâche': p.get('tache', ''),
@@ -760,7 +761,7 @@ def export_projects_to_csv(projects, crm_manager):
         
         # Créer le fichier CSV en mémoire
         output = io.StringIO()
-        fieldnames = ['ID', 'Nom du Projet', 'Client', 'Statut', 'Priorité', 'Type de Tâche', 
+        fieldnames = ['ID', 'Nom du Projet', 'Client', 'No. PO Client', 'Statut', 'Priorité', 'Type de Tâche', 
                      'Date de Soumission', 'Date Prévue', 'BD-FT Estimé (h)', 'Prix Estimé', 'Description']
         
         writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -855,6 +856,7 @@ def advanced_project_search(projects, search_term, crm_manager):
             str(p.get('tache', '')),
             str(p.get('statut', '')),
             str(p.get('priorite', '')),
+            str(p.get('po_client', '')),
             get_client_display_name(p, crm_manager),
             str(p.get('id', ''))
         ]
@@ -1027,7 +1029,7 @@ def show_projects_detailed_view(projects, crm_manager):
         st.markdown("---")
 
 def show_projects_table_view(projects, crm_manager):
-    """Vue tableau compacte avec ordre personnalisé ET informations produits.""" # MODIFIÉ
+    """Vue tableau compacte avec ordre personnalisé ET informations produits."""
     df_data = []
     for p in projects:
         client_display_name = get_client_display_name(p, crm_manager)
@@ -1087,6 +1089,7 @@ def show_projects_table_view(projects, crm_manager):
             '🚦 Statut': p.get('statut', 'N/A'),
             '⭐ Priorité': p.get('priorite', 'N/A'),
             '📋 No. Projet': f"PRJ-{p.get('id', '?')}",
+            '🧾 No. PO Client': p.get('po_client', ''),
             '📝 Nom Projet': p.get('nom_projet', 'N/A')[:35] + ('...' if len(p.get('nom_projet', '')) > 35 else ''),
             '👤 Client': client_display_name[:25] + ('...' if len(client_display_name) > 25 else ''),
             '💰 Prix Estimé': format_currency(p.get('prix_estime', 0)),
@@ -1123,6 +1126,11 @@ def show_projects_table_view(projects, crm_manager):
                 help="Nom complet du projet",
                 width="large",
             ),
+            "🧾 No. PO Client": st.column_config.TextColumn(
+                "🧾 No. PO Client",
+                help="Numéro de bon de commande fourni par le client",
+                width="medium",
+            ),
             "💰 Prix Estimé": st.column_config.TextColumn(
                 "💰 Prix Estimé",
                 help="Prix estimé du projet",
@@ -1152,7 +1160,7 @@ def show_projects_table_view(projects, crm_manager):
         },
         # NOUVEAU : Définir l'ordre des colonnes pour un affichage logique
         column_order=[
-            "🆔 ID", "🚦 Statut", "⭐ Priorité", "📋 No. Projet", "📝 Nom Projet", "👤 Client",
+            "🆔 ID", "🚦 Statut", "⭐ Priorité", "📋 No. Projet", "🧾 No. PO Client", "📝 Nom Projet", "👤 Client",
             "📦 Produit/Matériau", "🔢 Quantité", "📏 Unité", "#️⃣ Code Article",
             "💰 Prix Estimé", "📅 Début", "🏁 Fin"
         ]
@@ -1475,10 +1483,10 @@ class GestionnaireProjetSQL:
             # Insérer projet principal avec gestion NULL
             query = '''
                 INSERT INTO projects
-                (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                (id, nom_projet, client_company_id, client_nom_cache, client_legacy, po_client,
                  statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
                  prix_estime, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             '''
 
             prix_estime = float(str(projet_data.get('prix_estime', 0)).replace('$', '').replace(',', '')) if projet_data.get('prix_estime') else 0
@@ -1490,6 +1498,7 @@ class GestionnaireProjetSQL:
                 projet_data.get('client_company_id'),
                 projet_data.get('client_nom_cache'),
                 projet_data.get('client_legacy', ''),
+                projet_data.get('po_client', ''),
                 projet_data.get('statut', 'À FAIRE'),
                 projet_data.get('priorite', 'MOYEN'),
                 projet_data['tache'],
@@ -1525,7 +1534,7 @@ class GestionnaireProjetSQL:
 
             for field, value in projet_data_update.items():
                 if field in ['nom_projet', 'client_company_id', 'client_nom_cache', 'client_legacy',
-                           'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
+                           'po_client', 'statut', 'priorite', 'tache', 'date_soumis', 'date_prevu',
                            'bd_ft_estime', 'prix_estime', 'description']:
                     update_fields.append(f"{field} = ?")
 
@@ -1820,6 +1829,7 @@ def migrate_projects_table_for_alphanumeric_ids(db):
                     client_company_id INTEGER,
                     client_nom_cache TEXT,
                     client_legacy TEXT,
+                    po_client TEXT,
                     statut TEXT DEFAULT 'À FAIRE',
                     priorite TEXT DEFAULT 'MOYEN',
                     tache TEXT,
@@ -1840,7 +1850,7 @@ def migrate_projects_table_for_alphanumeric_ids(db):
                 db.execute_update("""
                     INSERT OR REPLACE INTO projects_new 
                     SELECT CAST(id AS TEXT), nom_projet, client_company_id, client_nom_cache, 
-                           client_legacy, statut, priorite, tache, date_soumis, date_prevu,
+                           client_legacy, po_client, statut, priorite, tache, date_soumis, date_prevu,
                            bd_ft_estime, prix_estime, description, 
                            COALESCE(created_at, CURRENT_TIMESTAMP),
                            COALESCE(updated_at, CURRENT_TIMESTAMP)
@@ -1970,6 +1980,7 @@ def force_recreate_projects_table_with_text_id(db):
                 client_company_id INTEGER,
                 client_nom_cache TEXT,
                 client_legacy TEXT,
+                po_client TEXT,
                 statut TEXT DEFAULT 'À FAIRE',
                 priorite TEXT DEFAULT 'MOYEN',
                 tache TEXT,
@@ -1994,16 +2005,17 @@ def force_recreate_projects_table_with_text_id(db):
                     
                     db.execute_update("""
                         INSERT INTO projects 
-                        (id, nom_projet, client_company_id, client_nom_cache, client_legacy,
+                        (id, nom_projet, client_company_id, client_nom_cache, client_legacy, po_client,
                          statut, priorite, tache, date_soumis, date_prevu, bd_ft_estime,
                          prix_estime, description, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         project_id,
                         project.get('nom_projet', ''),
                         project.get('client_company_id'),
                         project.get('client_nom_cache', ''),
                         project.get('client_legacy', ''),
+                        project.get('po_client', ''),
                         project.get('statut', 'À FAIRE'),
                         project.get('priorite', 'MOYEN'),
                         project.get('tache', ''),
@@ -3531,6 +3543,7 @@ def render_create_project_form(gestionnaire, crm_manager):
         fc1, fc2 = st.columns(2)
         with fc1:
             nom = st.text_input("Nom *:")
+            po_client = st.text_input("No. PO Client:", placeholder="Ex: PO-12345")
 
             # Récupérer entreprises depuis SQLite
             try:
@@ -3634,6 +3647,7 @@ def render_create_project_form(gestionnaire, crm_manager):
                     'client_company_id': client_company_id,
                     'client_nom_cache': client_nom_cache_val,
                     'client_legacy': client_nom_direct_form if not selected_entreprise_id_form else "",
+                    'po_client': po_client,
                     'statut': statut,
                     'priorite': priorite,
                     'tache': tache,
@@ -3693,6 +3707,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
 
         with fc1:
             nom = st.text_input("Nom *:", value=project_data.get('nom_projet', ''))
+            po_client = st.text_input("No. PO Client:", value=project_data.get('po_client', ''), placeholder="Ex: PO-12345")
 
             # Gestion de la liste des entreprises CRM
             try:
@@ -3814,6 +3829,7 @@ def render_edit_project_form(gestionnaire, crm_manager, project_data):
                     'client_company_id': selected_entreprise_id_form if selected_entreprise_id_form else None,
                     'client_nom_cache': client_nom_cache_val,
                     'client_legacy': client_nom_direct_form if not selected_entreprise_id_form and client_nom_direct_form else "",
+                    'po_client': po_client,
                     'statut': statut,
                     'priorite': priorite,
                     'tache': tache,
@@ -4646,12 +4662,12 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-print("🎯 CHECKPOINT 3/5 - INTÉGRATION MODULE PRODUITS TERMINÉE")
-print("✅ Import du module produits ajouté")
-print("✅ Initialisation du gestionnaire produits intégrée")
-print("✅ Permissions 'products' ajoutées aux rôles appropriés")
-print("✅ Entrée navigation '🔧 Produits' ajoutée au menu ERP")
-print("✅ Routage vers produits_page configuré")
-print("✅ Statistiques produits intégrées dans la sidebar")
-print("✅ Métriques produits ajoutées au dashboard")
-print("✅ Variables de session produits initialisées")
+print("🎯 CHECKPOINT 4/5 - MODIFICATION INTÉGRATION CHAMP 'No. PO Client' TERMINÉE")
+print("✅ Champ 'No. PO Client' ajouté au formulaire de création")
+print("✅ Champ 'No. PO Client' ajouté au formulaire de modification")
+print("✅ Colonne 'po_client' intégrée dans la requête SQL d'ajout de projet")
+print("✅ Champ 'po_client' ajouté aux champs autorisés pour la modification")
+print("✅ Colonne '🧾 No. PO Client' ajoutée à la vue tableau avec configuration appropriée")
+print("✅ Export CSV mis à jour pour inclure le champ 'No. PO Client'")
+print("✅ Fonction de recherche avancée mise à jour pour inclure le No. PO Client")
+print("✅ Programme complet réécrit avec toutes les modifications intégrées")
