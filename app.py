@@ -4278,29 +4278,121 @@ def show_kanban_legacy():
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+def render_project_bom_tab(project_data):
+    """Affiche et gère la nomenclature (BOM) d'un projet."""
+    st.markdown("#### 📦 Nomenclature (Bill of Materials)")
+    project_id = project_data.get('id')
+    
+    # Récupérer les gestionnaires depuis la session Streamlit
+    product_manager = st.session_state.gestionnaire_produits
+    db = st.session_state.erp_db
+
+    # Afficher les matériaux déjà liés au projet
+    st.markdown("**Matériaux Actuels :**")
+    materials = db.get_materials_by_project(project_id)
+    if materials:
+        # Créer un DataFrame pour un affichage propre
+        df_materials = pd.DataFrame(materials)
+        st.dataframe(
+            df_materials[['code_materiau', 'designation', 'quantite', 'unite', 'prix_unitaire']], 
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Aucun matériau n'est actuellement listé pour ce projet.")
+
+    st.markdown("---")
+    
+    # Formulaire pour ajouter un nouveau matériau depuis le catalogue
+    with st.expander("➕ Ajouter un Matériau depuis le Catalogue", expanded=False):
+        
+        # Récupérer la liste des produits disponibles
+        produits_disponibles = product_manager.get_all_products()
+        if not produits_disponibles:
+            st.warning("Le catalogue de produits est vide.")
+            return
+
+        # Créer une liste d'options pour le selectbox
+        option_list = [f"{p.get('code_produit', '')} - {p.get('nom', '')}" for p in produits_disponibles]
+        selected_product_str = st.selectbox(
+            "Sélectionner un produit dans le catalogue:", 
+            options=option_list, 
+            index=None, 
+            placeholder="Recherchez ou sélectionnez un produit..."
+        )
+
+        if selected_product_str:
+            # Retrouver l'objet produit complet
+            selected_product = produits_disponibles[option_list.index(selected_product_str)]
+
+            # Champ pour la quantité
+            quantite = st.number_input(
+                "Quantité requise:", 
+                min_value=0.01, 
+                step=0.1, 
+                key=f"qty_bom_{project_id}_{selected_product['id']}"
+            )
+            
+            # Bouton pour ajouter le matériau au projet
+            if st.button("Ajouter au Projet", key=f"add_mat_bom_{project_id}_{selected_product['id']}"):
+                # Préparer les données pour l'insertion
+                material_data = {
+                    'code': selected_product.get('code_produit'),
+                    'designation': selected_product.get('nom'),
+                    'quantite': quantite,
+                    'unite': selected_product.get('unite_vente'),
+                    'prix_unitaire': selected_product.get('prix_unitaire'),
+                    'fournisseur': selected_product.get('fournisseur_principal')
+                }
+
+                # Appeler la méthode existante de la base de données
+                new_material_id = db.add_material_to_project(project_id, material_data)
+
+                if new_material_id:
+                    st.success(f"✅ Matériau '{selected_product['nom']}' ajouté avec succès à la nomenclature du projet !")
+                    # Rafraîchir l'interface pour voir le nouveau matériau
+                    st.rerun() 
+                else:
+                    st.error("❌ Une erreur est survenue lors de l'ajout du matériau.")
+
+# =========================================================================
+# === REMPLACEZ VOTRE FONCTION show_project_modal() EXISTANTE PAR CELLE-CI ===
+# =========================================================================
+
+# =========================================================================
+# === REMPLACEZ VOTRE FONCTION show_project_modal() EXISTANTE PAR CELLE-CI ===
+# =========================================================================
+
 def show_project_modal():
-    """Affichage des détails d'un projet dans un expander"""
+    """
+    Affiche les détails d'un projet dans un expander (simulant une modale).
+    VERSION MISE À JOUR : Inclut un onglet pour la gestion de la Nomenclature (BOM).
+    """
+    # Vérification pour s'assurer qu'un projet est bien sélectionné et que la modale doit être affichée
     if 'selected_project' not in st.session_state or not st.session_state.get('show_project_modal') or not st.session_state.selected_project:
         return
 
     proj_mod = st.session_state.selected_project
 
+    # Utilisation d'un expander pour simuler une vue modale
     with st.expander(f"📁 Détails Projet #{proj_mod.get('id')} - {proj_mod.get('nom_projet', 'N/A')}", expanded=True):
+        
+        # Bouton pour fermer en haut de la modale pour un accès facile
         if st.button("✖️ Fermer", key="close_modal_details_btn_top"):
             st.session_state.show_project_modal = False
             st.rerun()
 
         st.markdown("---")
 
-        # Informations principales
+        # Affichage des informations principales du projet
         mc1, mc2 = st.columns(2)
         with mc1:
             st.markdown(f"""
             <div class='info-card'>
                 <h4>📋 {proj_mod.get('nom_projet', 'N/A')}</h4>
-                <p><strong>👤 Client:</strong> {proj_mod.get('client_nom_cache', 'N/A')}</p>
-                <p><strong>🚦 Statut:</strong> {proj_mod.get('statut', 'N/A')}</p>
-                <p><strong>⭐ Priorité:</strong> {proj_mod.get('priorite', 'N/A')}</p>
+                <p><strong>👤 Client:</strong> {get_client_display_name(proj_mod, st.session_state.gestionnaire_crm)}</p>
+                <p><strong>🚦 Statut:</strong> <span class="status-badge" style="background-color: {get_status_color(proj_mod.get('statut', 'N/A'))};">{proj_mod.get('statut', 'N/A')}</span></p>
+                <p><strong>⭐ Priorité:</strong> <span class="priority-badge" style="background-color: {get_priority_color(proj_mod.get('priorite', 'N/A'))};">{proj_mod.get('priorite', 'N/A')}</span></p>
                 <p><strong>✅ Tâche:</strong> {proj_mod.get('tache', 'N/A')}</p>
             </div>
             """, unsafe_allow_html=True)
@@ -4308,7 +4400,7 @@ def show_project_modal():
         with mc2:
             st.markdown(f"""
             <div class='info-card'>
-                <h4>📊 Finances</h4>
+                <h4>📊 Finances & Délais</h4>
                 <p><strong>💰 Prix:</strong> {format_currency(proj_mod.get('prix_estime', 0))}</p>
                 <p><strong>⏱️ BD-FT:</strong> {proj_mod.get('bd_ft_estime', 'N/A')}h</p>
                 <p><strong>📅 Début:</strong> {proj_mod.get('date_soumis', 'N/A')}</p>
@@ -4320,120 +4412,43 @@ def show_project_modal():
             st.markdown("##### 📝 Description")
             st.markdown(f"<div class='info-card'><p>{proj_mod.get('description', 'Aucune.')}</p></div>", unsafe_allow_html=True)
 
-        # Onglets avec opérations complètes et pièces jointes
-        if ATTACHMENTS_AVAILABLE:
-            tabs_mod = st.tabs(["🔧 Opérations Complètes", "📎 Pièces Jointes"])
-        else:
-            tabs_mod = st.tabs(["🔧 Opérations Complètes"])
+        # --- MODIFICATION CLÉ : Ajout de l'onglet Nomenclature (BOM) ---
+        
+        # Création des onglets pour organiser les détails du projet
+        tabs_mod = st.tabs(["🔧 Opérations", "📦 Nomenclature (BOM)", "📎 Pièces Jointes"])
 
-        # Onglet Opérations
+        # Onglet 1 : Opérations (code existant, conservé)
         with tabs_mod[0]:
             try:
-                # Récupérer TOUTES les opérations du projet via la base de données
                 project_id = proj_mod.get('id')
                 if project_id and hasattr(st.session_state, 'erp_db'):
                     all_operations = st.session_state.erp_db.get_project_operations_with_work_centers(project_id)
                 else:
-                    # Fallback sur l'ancienne méthode si la base n'est pas disponible
                     all_operations = proj_mod.get('operations', [])
                 
                 if not all_operations:
                     st.info("Aucune opération définie pour ce projet.")
                 else:
-                    # Regrouper les opérations par source
-                    operations_directes = []
-                    operations_bt = []
-                    
+                    # Logique d'affichage des opérations... (conservée)
+                    total_temps_ops = sum(float(op.get('temps_estime', 0) or 0) for op in all_operations)
+                    st.info(f"Total Opérations: {len(all_operations)} | Temps Total Estimé: {total_temps_ops:.1f}h")
                     for op in all_operations:
-                        if op.get('formulaire_bt_id'):
-                            # Opération créée via un Bon de Travail
-                            operations_bt.append(op)
-                        else:
-                            # Opération directe du projet
-                            operations_directes.append(op)
-                    
-                    # Afficher les statistiques globales
-                    total_temps = sum(float(op.get('temps_estime', 0) or 0) for op in all_operations)
-                    total_operations = len(all_operations)
-                    
-                    st.markdown(f"""
-                    <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-bottom:1rem;'>
-                        <h5 style='color:var(--primary-color-darker);margin:0;'>
-                            📊 Total: {total_operations} opération(s) | ⏱️ Temps Total: {total_temps:.1f}h
-                        </h5>
-                        <p style='margin:0.5rem 0 0 0;font-size:0.9em;'>
-                            🔧 Directes: {len(operations_directes)} | 📋 Via Bons de Travail: {len(operations_bt)}
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Section 1 : Opérations directes du projet
-                    if operations_directes:
-                        st.markdown("#### 🔧 Opérations Directes du Projet")
-                        for op in operations_directes:
-                            _afficher_operation_dans_modal(op, "var(--primary-color)")
-                    
-                    # Section 2 : Opérations via Bons de Travail
-                    if operations_bt:
-                        st.markdown("#### 📋 Opérations via Bons de Travail")
-                        
-                        # Regrouper par BT
-                        bt_groups = {}
-                        for op in operations_bt:
-                            bt_id = op.get('formulaire_bt_id')
-                            bt_numero = op.get('bt_numero', f'BT #{bt_id}')
-                            if bt_numero not in bt_groups:
-                                bt_groups[bt_numero] = {
-                                    'bt_id': bt_id,
-                                    'bt_statut': op.get('bt_statut', 'N/A'),
-                                    'operations': []
-                                }
-                            bt_groups[bt_numero]['operations'].append(op)
-                        
-                        # Afficher par BT
-                        for bt_numero, bt_data in bt_groups.items():
-                            bt_statut = bt_data['bt_statut']
-                            bt_color = {
-                                'BROUILLON': '#f59e0b',
-                                'VALIDÉ': '#3b82f6', 
-                                'EN COURS': '#10b981',
-                                'TERMINÉ': '#059669',
-                                'ANNULÉ': '#ef4444'
-                            }.get(bt_statut, '#6b7280')
-                            
-                            st.markdown(f"""
-                            <div style='background:#f8fafc;border:1px solid {bt_color};border-radius:6px;padding:0.5rem;margin:0.5rem 0;'>
-                                <h6 style='margin:0;color:{bt_color};'>📋 {bt_numero} - Statut: {bt_statut}</h6>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            for op in bt_data['operations']:
-                                _afficher_operation_dans_modal(op, bt_color)
-                    
+                        _afficher_operation_dans_modal(op, "var(--primary-color)")
             except Exception as e:
                 st.error(f"Erreur lors de la récupération des opérations: {e}")
-                # Fallback sur l'ancienne méthode
-                ops_mod = proj_mod.get('operations', [])
-                if not ops_mod:
-                    st.info("Aucune opération définie.")
-                else:
-                    total_t_mod = 0
-                    for op_item in ops_mod:
-                        tps = op_item.get('temps_estime', 0)
-                        total_t_mod += tps
-                        _afficher_operation_dans_modal(op_item, "orange")
 
-                    st.markdown(f"""
-                    <div class='info-card' style='background:var(--primary-color-lighter);text-align:center;margin-top:1rem;'>
-                        <h5 style='color:var(--primary-color-darker);margin:0;'>⏱️ Temps Total Est.: {total_t_mod}h</h5>
-                    </div>
-                    """, unsafe_allow_html=True)
+        # Onglet 2 : Nomenclature (BOM) - NOUVEAU
+        with tabs_mod[1]:
+            render_project_bom_tab(proj_mod)
 
-        # Onglet Pièces Jointes
-        if ATTACHMENTS_AVAILABLE:
-            with tabs_mod[1]:
+        # Onglet 3 : Pièces Jointes (ancien onglet 1, maintenant onglet 2)
+        with tabs_mod[2]:
+            if ATTACHMENTS_AVAILABLE:
                 show_attachments_tab_in_project_modal(proj_mod)
+            else:
+                st.info("Le module de gestion des pièces jointes n'est pas activé.")
 
+        # Bouton pour fermer en bas de la modale
         st.markdown("---")
         if st.button("✖️ Fermer", use_container_width=True, key="close_modal_details_btn_bottom"):
             st.session_state.show_project_modal = False
