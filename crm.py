@@ -299,8 +299,9 @@ class GestionnaireCRM:
     
     @property
     def entreprises(self):
-        """Propriété pour maintenir compatibilité avec l'interface existante"""
+        """Propriété pour maintenir compatibilité avec l'interface existante et appeler la fonction optimisée."""
         if self.use_sqlite:
+            # Appelle notre nouvelle fonction optimisée et mise en cache
             return self.get_all_companies()
         else:
             return getattr(self, '_entreprises', [])
@@ -322,6 +323,40 @@ class GestionnaireCRM:
     def interactions(self, value):
         if not self.use_sqlite:
             self._interactions = value
+
+# Dans crm.py, à l'intérieur de la classe GestionnaireCRM
+    @st.cache_data(ttl=300) # Mise en cache pour 5 minutes
+    def get_all_companies(_self):
+        """Récupère toutes les entreprises avec contact principal et projets liés en une seule requête."""
+        if not _self.use_sqlite:
+            return getattr(_self, '_entreprises', [])
+        try:
+            # === REQUÊTE SQL OPTIMISÉE POUR LES ENTREPRISES ===
+            # LEFT JOIN pour le nom du contact principal
+            # Sous-requête avec GROUP_CONCAT pour les projets liés
+            query = """
+                SELECT 
+                    c.*, 
+                    co.prenom || ' ' || co.nom_famille as contact_principal_nom,
+                    (SELECT GROUP_CONCAT(p.nom_projet, '; ') 
+                     FROM projects p 
+                     WHERE p.client_company_id = c.id) as projets_lies
+                FROM companies c
+                LEFT JOIN contacts co ON c.contact_principal_id = co.id
+                ORDER BY c.nom
+            """
+            rows = _self.db.execute_query(query)
+            
+            companies = []
+            for row in rows:
+                company = dict(row)
+                # On conserve le formatage d'adresse
+                company['adresse_complete'] = _self.format_adresse_complete(company)
+                companies.append(company)
+            return companies
+        except Exception as e:
+            st.error(f"Erreur récupération optimisée des entreprises: {e}")
+            return []
 
     # --- Fonctions utilitaires pour adresses ---
     def format_adresse_complete(self, entreprise_data):
@@ -528,31 +563,43 @@ class GestionnaireCRM:
             st.error(f"Erreur récupération entreprise {id_entreprise}: {e}")
             return None
 
-    # --- Méthodes SQLite pour Contacts ---
-    def get_all_contacts(self):
-        """Récupère tous les contacts depuis SQLite"""
-        if not self.use_sqlite:
-            return getattr(self, '_contacts', [])
+    @st.cache_data(ttl=300)
+    def get_all_contacts(_self):
+        """
+        Récupère tous les contacts avec leurs projets liés directement en SQL.
+        VERSION CORRIGÉE pour correspondre au schéma de la base de données.
+        """
+        if not _self.use_sqlite:
+            return getattr(_self, '_contacts', [])
         
         try:
-            rows = self.db.execute_query('''
-                SELECT c.*, co.nom as company_nom
+            # === REQUÊTE SQL DÉFINITIVE ===
+            # La sous-requête ne se base plus que sur client_company_id, qui existe bien.
+            query = '''
+                SELECT 
+                    c.*, 
+                    co.nom as company_nom,
+                    (SELECT GROUP_CONCAT(p.nom_projet, '; ') 
+                     FROM projects p 
+                     WHERE p.client_company_id = c.company_id) as projets_lies
                 FROM contacts c
                 LEFT JOIN companies co ON c.company_id = co.id
                 ORDER BY c.nom_famille, c.prenom
-            ''')
+            '''
+            rows = _self.db.execute_query(query)
             
             contacts = []
             for row in rows:
                 contact = dict(row)
-                # Mapping pour compatibilité interface existante
-                contact['entreprise_id'] = contact['company_id']  # Compatibilité
-                contact['role'] = contact['role_poste']  # Compatibilité
+                # Mapping pour compatibilité
+                contact['entreprise_id'] = contact['company_id']
+                contact['role'] = contact['role_poste']
                 contacts.append(contact)
             
             return contacts
         except Exception as e:
-            st.error(f"Erreur récupération contacts: {e}")
+            st.error(f"Erreur récupération optimisée des contacts: {e}")
+            # En cas d'erreur, affichez-la pour faciliter le débogage.
             return []
     
     def ajouter_contact(self, data_contact):
@@ -1029,7 +1076,10 @@ class GestionnaireCRM:
 
 # --- Fonctions d'affichage Streamlit avec adresses structurées ---
 
+
 def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
+    """Affiche l'onglet des contacts de manière optimisée."""
+    
     st.subheader("👤 Liste des Contacts")
 
     col_create_contact, col_search_contact = st.columns([1, 2])
@@ -1041,6 +1091,7 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
     with col_search_contact:
         search_contact_term = st.text_input("Rechercher un contact...", key="crm_contact_search")
 
+    # La fonction get_all_contacts est maintenant mise en cache et optimisée
     filtered_contacts = crm_manager.contacts
     if search_contact_term:
         term = search_contact_term.lower()
@@ -1049,24 +1100,19 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
             term in c.get('prenom', '').lower() or
             term in c.get('nom_famille', '').lower() or
             term in c.get('email', '').lower() or
-            (crm_manager.get_entreprise_by_id(c.get('entreprise_id') or c.get('company_id')) and 
-             term in crm_manager.get_entreprise_by_id(c.get('entreprise_id') or c.get('company_id')).get('nom','').lower())
+            (c.get('company_nom') and term in c.get('company_nom','').lower())
         ]
 
     if filtered_contacts:
         contacts_data_display = []
+        # La boucle est maintenant très rapide car il n'y a plus de calculs complexes à l'intérieur.
         for contact in filtered_contacts:
-            entreprise_id = contact.get('entreprise_id') or contact.get('company_id')
-            entreprise = crm_manager.get_entreprise_by_id(entreprise_id)
-            nom_entreprise = entreprise['nom'] if entreprise else "N/A"
+            nom_entreprise = contact.get('company_nom', "N/A")
             
-            # Recherche des projets liés - adaptation pour SQLite
-            projets_lies = []
-            if hasattr(projet_manager, 'projets'):
-                projets_lies = [p['nom_projet'] for p in projet_manager.projets 
-                              if p.get('client_contact_id') == contact.get('id') or 
-                              (p.get('client_entreprise_id') == entreprise_id and entreprise_id is not None) or
-                              (p.get('client_company_id') == entreprise_id and entreprise_id is not None)]
+            # === MODIFICATION CLÉ ===
+            # On récupère directement la chaîne de caractères pré-calculée par la requête SQL.
+            # Plus besoin de la boucle "for p in projet_manager.projets" qui était la cause de la lenteur.
+            projets_lies_str = contact.get('projets_lies')
             
             contacts_data_display.append({
                 "ID": contact.get('id'),
@@ -1076,10 +1122,12 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
                 "Téléphone": contact.get('telephone'),
                 "Entreprise": nom_entreprise,
                 "Rôle": contact.get('role') or contact.get('role_poste'),
-                "Projets Liés": ", ".join(projets_lies) if projets_lies else "-"
+                "Projets Liés": projets_lies_str if projets_lies_str else "-" # Utilisation de la nouvelle donnée
             })
+            
         st.dataframe(pd.DataFrame(contacts_data_display), use_container_width=True)
 
+        # La suite de la fonction (actions sur un contact) reste inchangée
         st.markdown("---")
         st.markdown("### 🔧 Actions sur un contact")
         selected_contact_id_action = st.selectbox(
@@ -1105,7 +1153,7 @@ def render_crm_contacts_tab(crm_manager: GestionnaireCRM, projet_manager):
     else:
         st.info("Aucun contact correspondant aux filtres." if search_contact_term else "Aucun contact enregistré.")
 
-    # Gestion des confirmations de suppression
+    # La gestion de la confirmation de suppression reste également inchangée
     if 'crm_confirm_delete_contact_id' in st.session_state and st.session_state.crm_confirm_delete_contact_id:
         contact_to_delete = crm_manager.get_contact_by_id(st.session_state.crm_confirm_delete_contact_id)
         if contact_to_delete:
@@ -1247,6 +1295,8 @@ def render_crm_contact_details(crm_manager: GestionnaireCRM, projet_manager, con
         st.rerun()
 
 def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
+    """Affiche l'onglet des entreprises de manière optimisée."""
+    
     st.subheader("🏢 Liste des Entreprises (SQLite)")
 
     col_create_entreprise, col_search_entreprise = st.columns([1, 2])
@@ -1258,6 +1308,7 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
     with col_search_entreprise:
         search_entreprise_term = st.text_input("Rechercher une entreprise...", key="crm_entreprise_search")
 
+    # crm_manager.entreprises appelle maintenant notre fonction optimisée et mise en cache
     filtered_entreprises = crm_manager.entreprises
     if search_entreprise_term:
         term_e = search_entreprise_term.lower()
@@ -1271,16 +1322,12 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
 
     if filtered_entreprises:
         entreprises_data_display = []
+        # La boucle est maintenant très rapide !
         for entreprise_item in filtered_entreprises:
-            contact_principal = crm_manager.get_contact_by_id(entreprise_item.get('contact_principal_id'))
-            nom_contact_principal = f"{contact_principal.get('prenom','')} {contact_principal.get('nom_famille','')}" if contact_principal else "N/A"
-            
-            # Recherche des projets liés - adaptation pour SQLite
-            projets_lies_entreprise = []
-            if hasattr(projet_manager, 'projets'):
-                projets_lies_entreprise = [p['nom_projet'] for p in projet_manager.projets 
-                                         if p.get('client_entreprise_id') == entreprise_item.get('id') or
-                                         p.get('client_company_id') == entreprise_item.get('id')]
+            # === MODIFICATION CLÉ ===
+            # Plus besoin de chercher le contact et les projets, ils sont déjà là !
+            nom_contact_principal = entreprise_item.get('contact_principal_nom', "N/A")
+            projets_lies_str = entreprise_item.get('projets_lies')
 
             # Formater l'adresse pour l'affichage dans le tableau
             ville_pays = []
@@ -1297,10 +1344,12 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
                 "Ville/Pays": ville_pays_str,
                 "Site Web": entreprise_item.get('site_web'),
                 "Contact Principal": nom_contact_principal,
-                "Projets Liés": ", ".join(projets_lies_entreprise) if projets_lies_entreprise else "-"
+                "Projets Liés": projets_lies_str if projets_lies_str else "-"
             })
+            
         st.dataframe(pd.DataFrame(entreprises_data_display), use_container_width=True)
 
+        # La suite de la fonction (actions sur une entreprise) reste inchangée
         st.markdown("---")
         st.markdown("### 🔧 Actions sur une entreprise")
         selected_entreprise_id_action = st.selectbox(
@@ -1325,7 +1374,7 @@ def render_crm_entreprises_tab(crm_manager: GestionnaireCRM, projet_manager):
     else:
         st.info("Aucune entreprise correspondante." if search_entreprise_term else "Aucune entreprise enregistrée.")
 
-    # Gérer la confirmation de suppression pour entreprise
+    # La gestion de la confirmation de suppression reste également inchangée
     if 'crm_confirm_delete_entreprise_id' in st.session_state and st.session_state.crm_confirm_delete_entreprise_id:
         entreprise_to_delete = crm_manager.get_entreprise_by_id(st.session_state.crm_confirm_delete_entreprise_id)
         if entreprise_to_delete:
