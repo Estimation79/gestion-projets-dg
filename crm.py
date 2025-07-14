@@ -354,14 +354,13 @@ class GestionnaireCRM:
         return '\n'.join(parts) if parts else "N/A"
 
     # --- Méthodes SQLite pour Companies (Entreprises) avec adresses structurées ---
-    @st.cache_data
-    def get_all_companies(_self):
+    def get_all_companies(self):
         """Récupère toutes les entreprises depuis SQLite"""
-        if not _self.use_sqlite:
-            return getattr(_self, '_entreprises', [])
+        if not self.use_sqlite:
+            return getattr(self, '_entreprises', [])
         
         try:
-            rows = _self.db.execute_query('''
+            rows = self.db.execute_query('''
                 SELECT c.*, co.prenom as contact_prenom, co.nom_famille as contact_nom
                 FROM companies c
                 LEFT JOIN contacts co ON c.contact_principal_id = co.id
@@ -374,7 +373,7 @@ class GestionnaireCRM:
                 # Mapping pour compatibilité interface
                 company['id'] = company['id']
                 # Ajouter l'adresse formatée pour l'affichage
-                company['adresse_complete'] = _self.format_adresse_complete(company)
+                company['adresse_complete'] = self.format_adresse_complete(company)
                 companies.append(company)
             
             return companies
@@ -530,14 +529,13 @@ class GestionnaireCRM:
             return None
 
     # --- Méthodes SQLite pour Contacts ---
-    @st.cache_data
-    def get_all_contacts(_self):
+    def get_all_contacts(self):
         """Récupère tous les contacts depuis SQLite"""
-        if not _self.use_sqlite:
-            return getattr(_self, '_contacts', [])
+        if not self.use_sqlite:
+            return getattr(self, '_contacts', [])
         
         try:
-            rows = _self.db.execute_query('''
+            rows = self.db.execute_query('''
                 SELECT c.*, co.nom as company_nom
                 FROM contacts c
                 LEFT JOIN companies co ON c.company_id = co.id
@@ -693,14 +691,13 @@ class GestionnaireCRM:
             return []
 
     # --- Méthodes SQLite pour Interactions ---
-    @st.cache_data
-    def get_all_interactions(_self):
+    def get_all_interactions(self):
         """Récupère toutes les interactions depuis SQLite"""
-        if not _self.use_sqlite:
-            return getattr(_self, '_interactions', [])
+        if not self.use_sqlite:
+            return getattr(self, '_interactions', [])
         
         try:
-            rows = _self.db.execute_query('''
+            rows = self.db.execute_query('''
                 SELECT i.*, 
                        c.prenom || ' ' || c.nom_famille as contact_nom,
                        co.nom as company_nom
