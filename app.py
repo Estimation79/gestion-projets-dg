@@ -2549,6 +2549,23 @@ def show_erp_main():
 
     st.sidebar.markdown("---")
 
+    # ==========================================================
+    # DÉBUT DU BLOC DE CODE AJOUTÉ
+    # ==========================================================
+    st.sidebar.markdown("##### ⚙️ Options")
+    if st.sidebar.button("🔄 Vider le cache et Rafraîchir", 
+                         use_container_width=True,
+                         help="Force le rechargement de toutes les données (clients, produits, etc.) depuis la base de données. Utile si des données ont été modifiées dans un autre onglet."):
+        # Cette commande vide tous les caches de l'application
+        st.cache_data.clear()
+        st.success("✅ Cache vidé ! Les données ont été rafraîchies.")
+        st.rerun() # Force un rechargement complet de la page
+
+    st.sidebar.markdown("---")
+    # ==========================================================
+    # FIN DU BLOC DE CODE AJOUTÉ
+    # ==========================================================
+
     # Affichage du statut de stockage persistant dans la sidebar
     show_storage_status_sidebar()
 
@@ -2844,7 +2861,10 @@ def show_erp_main():
     elif page_to_show_val == "gantt":
         show_gantt()
     elif page_to_show_val == "calendrier":
-        show_calendrier()
+        # Importer et utiliser le nouveau calendrier
+        from calendrier import app as calendrier_app
+        calendrier_app()  # ← NOUVELLE FONCTION
+
     elif page_to_show_val == "kanban":
         # Utilisation du module Kanban unifié
         if KANBAN_AVAILABLE:
