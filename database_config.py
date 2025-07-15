@@ -10,48 +10,44 @@ def get_database_path():
     """
     Retourne le chemin correct de la base de données selon l'environnement
     """
-    # Chemins possibles de la base de données
-    possible_paths = [
-        # Chemin local (dans le même dossier que l'app)
-        "erp_production_dg.db",
-        
-        # Chemin Render (dans /project/data/)
-        "/home/render/project/data/erp_production_dg.db",
-        "../data/erp_production_dg.db",
-        "data/erp_production_dg.db",
-        
-        # Autres chemins possibles
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "erp_production_dg.db"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "erp_production_dg.db"),
-    ]
+    db_filename = "erp_production_dg.db"
     
-    # Vérifier si on est sur Render
+    # Détecter l'environnement et définir les chemins à vérifier
     if os.environ.get('RENDER'):
-        # Sur Render, prioriser le chemin /project/data/
-        render_path = "/home/render/project/data/erp_production_dg.db"
-        if os.path.exists(render_path):
-            print(f"[Database Config] Base de données trouvée sur Render: {render_path}")
-            return render_path
+        # Sur Render, vérifier plusieurs emplacements possibles
+        possible_paths = [
+            os.path.join(os.path.expanduser("~"), "project", "data", db_filename),
+            os.path.join("/opt/render/project/src/data", db_filename),
+            os.path.join("../data", db_filename),
+            os.path.join("data", db_filename),
+            db_filename  # Répertoire courant
+        ]
+        default_dir = os.path.join(os.path.expanduser("~"), "project", "data")
+    else:
+        # En local, chercher dans le répertoire courant
+        possible_paths = [
+            db_filename,
+            os.path.join("data", db_filename)
+        ]
+        default_dir = "."
     
-    # Chercher dans tous les chemins possibles
+    # Chercher le fichier existant
     for path in possible_paths:
-        if os.path.exists(path):
-            abs_path = os.path.abspath(path)
+        abs_path = os.path.abspath(path)
+        if os.path.exists(abs_path):
             print(f"[Database Config] Base de données trouvée: {abs_path}")
             return abs_path
     
-    # Si aucun fichier n'est trouvé, créer dans le bon répertoire
-    if os.environ.get('RENDER'):
-        # Sur Render, créer dans /project/data/
-        data_dir = "/home/render/project/data"
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir, exist_ok=True)
-        default_path = os.path.join(data_dir, "erp_production_dg.db")
-    else:
-        # En local, créer dans le répertoire courant
-        default_path = "erp_production_dg.db"
+    # Si non trouvé, retourner le chemin par défaut
+    if not os.path.exists(default_dir):
+        try:
+            os.makedirs(default_dir, exist_ok=True)
+            print(f"[Database Config] Répertoire créé: {default_dir}")
+        except Exception as e:
+            print(f"[Database Config] Impossible de créer le répertoire: {e}")
     
-    print(f"[Database Config] Base de données non trouvée, utilisation du chemin par défaut: {default_path}")
+    default_path = os.path.join(default_dir, db_filename)
+    print(f"[Database Config] Base de données non trouvée, chemin par défaut: {default_path}")
     return default_path
 
 def get_attachments_path():
@@ -59,11 +55,11 @@ def get_attachments_path():
     Retourne le chemin correct pour les pièces jointes
     """
     if os.environ.get('RENDER'):
-        attachments_dir = "/home/render/project/data/attachments"
+        base_dir = os.path.join(os.path.expanduser("~"), "project", "data")
     else:
-        attachments_dir = "attachments"
+        base_dir = "."
     
-    # Créer le dossier s'il n'existe pas
+    attachments_dir = os.path.join(base_dir, "attachments")
     os.makedirs(attachments_dir, exist_ok=True)
     return attachments_dir
 
@@ -72,11 +68,11 @@ def get_backup_path():
     Retourne le chemin correct pour les sauvegardes
     """
     if os.environ.get('RENDER'):
-        backup_dir = "/home/render/project/data/backups"
+        base_dir = os.path.join(os.path.expanduser("~"), "project", "data")
     else:
-        backup_dir = "backups"
+        base_dir = "."
     
-    # Créer le dossier s'il n'existe pas
+    backup_dir = os.path.join(base_dir, "backups")
     os.makedirs(backup_dir, exist_ok=True)
     return backup_dir
 
@@ -85,8 +81,23 @@ DATABASE_PATH = get_database_path()
 
 # Test au chargement du module
 if __name__ == "__main__":
+    print("=== Configuration Base de Données ===")
     print(f"Environnement: {'Render' if os.environ.get('RENDER') else 'Local'}")
+    print(f"Répertoire de travail: {os.getcwd()}")
     print(f"Chemin base de données: {DATABASE_PATH}")
-    print(f"Fichier existe: {os.path.exists(DATABASE_PATH)}")
+    print(f"Base de données existe: {os.path.exists(DATABASE_PATH)}")
     print(f"Chemin pièces jointes: {get_attachments_path()}")
     print(f"Chemin sauvegardes: {get_backup_path()}")
+    
+    # Test de lecture si le fichier existe
+    if os.path.exists(DATABASE_PATH):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            table_count = cursor.fetchone()[0]
+            conn.close()
+            print(f"Base de données valide avec {table_count} tables")
+        except Exception as e:
+            print(f"Erreur lors de la lecture de la DB: {e}")
