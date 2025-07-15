@@ -25,21 +25,28 @@ class ERPContextProvider:
         
         # Si pas de DB dans session_state, essayer de se connecter directement
         if self.erp_db is None:
+            print("[IA Context] Pas de DB dans session_state, tentative de connexion directe...")
             try:
                 from erp_database import ERPDatabase
                 from database_config import DATABASE_PATH
                 import os
                 
+                print(f"[IA Context] DATABASE_PATH depuis config: {DATABASE_PATH}")
+                print(f"[IA Context] Fichier existe: {os.path.exists(DATABASE_PATH)}")
+                
                 # Utiliser le chemin de la configuration
                 if os.path.exists(DATABASE_PATH):
+                    print("[IA Context] Création de l'instance ERPDatabase...")
                     self.erp_db = ERPDatabase(DATABASE_PATH)
                     # Stocker dans session_state pour les prochaines utilisations
                     st.session_state['erp_db'] = self.erp_db
-                    print(f"[IA Context] Connexion établie avec la DB: {DATABASE_PATH}")
+                    print(f"[IA Context] ✓ Connexion établie avec la DB: {DATABASE_PATH}")
                 else:
-                    print(f"[IA Context] Base de données non trouvée: {DATABASE_PATH}")
+                    print(f"[IA Context] ❌ Base de données non trouvée: {DATABASE_PATH}")
             except Exception as e:
-                print(f"[IA Context] Erreur lors de la connexion directe à la DB: {e}")
+                print(f"[IA Context] ❌ Erreur lors de la connexion directe à la DB: {e}")
+                import traceback
+                print(f"[IA Context] Traceback: {traceback.format_exc()}")
         
         self.permissions = permissions or st.session_state.get('admin_permissions', ["ALL"])
         self.has_all_permissions = "ALL" in self.permissions or len(self.permissions) == 0
