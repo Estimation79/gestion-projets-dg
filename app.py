@@ -17,6 +17,13 @@ import pytz  # NOUVEAU : Pour la gestion du fuseau horaire du Québec
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
 from fournisseurs import show_fournisseurs_page
 
+# Import du module IA
+try:
+    from ia_integration import show_ia_expert_page, check_ia_dependencies
+    IA_MODULE_AVAILABLE = True
+except ImportError:
+    IA_MODULE_AVAILABLE = False
+
 # ========================
 # CONSTANTES GLOBALES
 # ========================
@@ -463,8 +470,8 @@ def get_user_permissions(username):
     permissions = {
         "admin": ["ALL"],
         "dg_admin": ["ALL"],
-        "direction": ["projects", "crm", "products", "employees", "reports", "formulaires", "fournisseurs"],
-        "superviseur": ["projects", "products", "timetracker", "work_centers", "employees", "formulaires"],
+        "direction": ["projects", "crm", "products", "employees", "reports", "formulaires", "fournisseurs", "ia"],
+        "superviseur": ["projects", "products", "timetracker", "work_centers", "employees", "formulaires", "ia"],
         "production": ["timetracker", "work_centers", "formulaires"]
     }
     return permissions.get(username, [])
@@ -2507,6 +2514,10 @@ def show_erp_main():
             available_pages["🔄 Kanban"] = "kanban"
         else:
             available_pages["🔄 Kanban"] = "kanban"
+        
+        # Module IA Expert
+        if IA_MODULE_AVAILABLE and (has_all_permissions or "ia" in permissions):
+            available_pages["🤖 IA Expert"] = "ia_expert"
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
@@ -2874,6 +2885,14 @@ def show_erp_main():
             # Fallback sur la fonction interne si le module n'est pas disponible
             show_kanban_legacy()
             st.warning("⚠️ Module kanban.py non disponible - utilisation de la version interne")
+    
+    elif page_to_show_val == "ia_expert":
+        # Module IA Expert
+        if IA_MODULE_AVAILABLE:
+            show_ia_expert_page()
+        else:
+            st.error("❌ Module IA Expert non disponible")
+            st.info("Vérifiez que le fichier 'ia_integration.py' est présent dans le répertoire ERP")
 
     # Affichage des modales et formulaires
     if st.session_state.get('show_project_modal'):
