@@ -1092,6 +1092,7 @@ def show_projects_table_view(projects, crm_manager):
             '🧾 No. PO Client': p.get('po_client', ''),
             '📝 Nom Projet': p.get('nom_projet', 'N/A')[:35] + ('...' if len(p.get('nom_projet', '')) > 35 else ''),
             '👤 Client': client_display_name[:25] + ('...' if len(client_display_name) > 25 else ''),
+            '✅ Tâche': p.get('tache', 'N/A'),
             '💰 Prix Estimé': format_currency(p.get('prix_estime', 0)),
             '📅 Début': p.get('date_soumis', 'N/A'),
             '🏁 Fin': p.get('date_prevu', 'N/A'),
@@ -1160,7 +1161,7 @@ def show_projects_table_view(projects, crm_manager):
         },
         # NOUVEAU : Définir l'ordre des colonnes pour un affichage logique
         column_order=[
-            "🆔 ID", "🚦 Statut", "⭐ Priorité", "📋 No. Projet", "🧾 No. PO Client", "📝 Nom Projet", "👤 Client",
+            "🆔 ID", "🚦 Statut", "⭐ Priorité", "📋 No. Projet", "🧾 No. PO Client", "📝 Nom Projet", "👤 Client", "✅ Tâche",
             "📦 Produit/Matériau", "🔢 Quantité", "📏 Unité", "#️⃣ Code Article",
             "💰 Prix Estimé", "📅 Début", "🏁 Fin"
         ]

@@ -22,7 +22,79 @@ class TimeTrackerUnified:
     NOUVEAU: Réinitialisation automatique après pointage
     MODIFIÉ: Interface employé directe sans sélecteur de mode
     v2.1: Réinitialisation automatique du sélecteur d'employé après chaque pointage
+    v2.2: Mise à jour automatique de la tâche du projet selon le poste de travail
     """
+    
+    # Mapping entre les noms de postes de travail et les tâches de production
+    POSTE_TO_TACHE_MAPPING = {
+        # Découpe et façonnage
+        "SCIE": "Scie",
+        "SCIE À RUBAN": "Scie",
+        "SCIE CIRCULAIRE": "Scie",
+        "CISAILLE": "Cisaille",
+        "CISAILLE HYDRAULIQUE": "Cisaille",
+        
+        # Poinçonnage et perçage
+        "POINÇON": "Poinçonnage",
+        "POINÇONNEUSE": "Poinçonnage",
+        "PUNCH": "Poinçonnage",
+        "PUNCH PRESS": "Punch Press",
+        "PRESS DRILL": "Press Drill",
+        "PERCEUSE": "Press Drill",
+        
+        # Découpe laser
+        "LASER": "Laser",
+        "DÉCOUPE LASER": "Laser",
+        
+        # Pliage et formage
+        "PLIEUSE": "Pliage",
+        "PRESSE PLIEUSE": "Pliage",
+        "PLIAGE": "Pliage",
+        "CINTREUSE": "Cintrage/Roulage",
+        "ROULEUSE": "Cintrage/Roulage",
+        
+        # Soudure
+        "SOUDURE": "Soudure MIG",
+        "SOUDURE MIG": "Soudure MIG",
+        "SOUDURE TIG": "Soudure MIG",
+        "POSTE SOUDURE": "Soudure MIG",
+        "ROBOT SOUDURE": "Robot Soudage",
+        "ROBOT SOUDAGE": "Robot Soudage",
+        
+        # Usinage
+        "FRAISEUSE": "Fraisage",
+        "FRAISAGE": "Fraisage",
+        "CNC": "Fraisage",
+        "TOUR": "Fraisage",
+        "FILETAGE": "Filetage",
+        "TARAUDAGE": "Filetage",
+        
+        # Finition
+        "ÉBAVURAGE": "Ébavurage",
+        "MEULAGE": "Ébavurage",
+        "POLISSAGE": "Polissage",
+        "POLISSEUSE": "Polissage",
+        
+        # Traitement de surface
+        "PEINTURE": "Peinture",
+        "CABINE PEINTURE": "Peinture",
+        "GALVANISATION": "Galvanisation",
+        "PLACAGE": "Placage/Passivation",
+        "PASSIVATION": "Placage/Passivation",
+        
+        # Autres
+        "ASSEMBLAGE": "Assemblage",
+        "MONTAGE": "Assemblage",
+        "INSPECTION": "Inspection",
+        "CONTRÔLE QUALITÉ": "Inspection",
+        "EMBALLAGE": "Emballage",
+        "EXPÉDITION": "Expédition",
+        "MANUTENTION": "Manutention",
+        "RÉCEPTION": "Réception",
+        "PROGRAMMATION": "Programmation",
+        "BUREAU": "Temps Bureau",
+        "GÉNÉRAL": "Général"
+    }
     
     def __init__(self, db):
         self.db = db
@@ -396,6 +468,31 @@ class TimeTrackerUnified:
                 datetime.now().isoformat(),
                 notes
             ))
+            
+            # NOUVEAU: Mise à jour automatique de la tâche du projet
+            if operation_info.get('work_center_name') and operation_info.get('project_id'):
+                work_center_name = operation_info['work_center_name'].upper()
+                
+                # Chercher la tâche correspondante dans le mapping
+                tache_production = None
+                for poste_key, tache_value in self.POSTE_TO_TACHE_MAPPING.items():
+                    if poste_key in work_center_name or work_center_name in poste_key:
+                        tache_production = tache_value
+                        break
+                
+                # Si on a trouvé une tâche correspondante, mettre à jour le projet
+                if tache_production:
+                    try:
+                        update_query = '''
+                            UPDATE projects 
+                            SET tache = ?, updated_at = CURRENT_TIMESTAMP 
+                            WHERE id = ?
+                        '''
+                        self.db.execute_update(update_query, (tache_production, str(operation_info['project_id'])))
+                        logger.info(f"Tâche du projet {operation_info['project_id']} mise à jour: {tache_production}")
+                    except Exception as e:
+                        logger.error(f"Erreur mise à jour tâche projet: {e}")
+                        # Ne pas bloquer le pointage si la mise à jour échoue
             
             logger.info(f"Punch IN opération créé: entry_id={entry_id}, employee={employee_id}, operation={operation_id} (type: {operation_info.get('source_type', 'UNKNOWN')})")
             return entry_id
