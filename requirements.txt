@@ -74,7 +74,7 @@ Pillow>=9.0.0
 # python-docx>=0.8.11
 # beautifulsoup4>=4.12.0
 # python-dotenv>=1.0.0
-# markdown>=3.4.0
+markdown>=3.4.0
 
 # === COMPATIBILITÉ ===
 # Python 3.8+ recommandé
