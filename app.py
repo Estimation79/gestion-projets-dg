@@ -2874,8 +2874,8 @@ def show_erp_main():
         show_gantt()
     elif page_to_show_val == "calendrier":
         # Importer et utiliser le nouveau calendrier
-        from calendrier import app as calendrier_app
-        calendrier_app()  # ← NOUVELLE FONCTION
+        import calendrier
+        calendrier.app()  # ← NOUVELLE FONCTION
 
     elif page_to_show_val == "kanban":
         # Utilisation du module Kanban unifié
