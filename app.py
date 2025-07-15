@@ -2093,7 +2093,12 @@ def init_erp_system():
     # -----------------------------------------------------
     # 1. GESTIONNAIRE DE STOCKAGE PERSISTANT (PRIORITAIRE)
     # -----------------------------------------------------
-    db_path = "erp_production_dg.db" # Chemin par défaut
+    # Import de la configuration de base de données
+    try:
+        from database_config import DATABASE_PATH
+        db_path = DATABASE_PATH
+    except ImportError:
+        db_path = "erp_production_dg.db"  # Chemin par défaut
     if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
         try:
             st.session_state.storage_manager = init_persistent_storage()

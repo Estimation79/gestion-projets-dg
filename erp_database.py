@@ -7,6 +7,15 @@ import logging
 import shutil
 from pathlib import Path
 
+# Import de la configuration de base de données
+try:
+    from database_config import DATABASE_PATH, get_attachments_path, get_backup_path
+except ImportError:
+    # Si le module n'existe pas, utiliser les valeurs par défaut
+    DATABASE_PATH = "erp_production_dg.db"
+    def get_attachments_path(): return "attachments"
+    def get_backup_path(): return "backups"
+
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
