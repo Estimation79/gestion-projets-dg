@@ -8,6 +8,14 @@ import sys
 import os
 import json
 from datetime import datetime
+
+# Forcer l'initialisation de la base de données
+try:
+    from init_database import init_database_connection
+    init_database_connection()
+except Exception as e:
+    print(f"[IA Integration] Erreur lors de l'init DB: {e}")
+
 from ia_erp_context import ERPContextProvider, create_erp_context_for_ai, enhance_ai_prompt_with_erp
 
 # Ajouter le chemin du module IA au path Python

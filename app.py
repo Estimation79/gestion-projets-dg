@@ -2894,6 +2894,18 @@ def show_erp_main():
     elif page_to_show_val == "ia_expert":
         # Module IA Expert
         if IA_MODULE_AVAILABLE:
+            # S'assurer que la base de données est dans session_state avant d'afficher l'IA
+            if 'erp_db' not in st.session_state and ERP_DATABASE_AVAILABLE:
+                try:
+                    # Forcer l'initialisation si nécessaire
+                    from database_config import DATABASE_PATH
+                    import os
+                    if os.path.exists(DATABASE_PATH):
+                        st.session_state.erp_db = ERPDatabase(DATABASE_PATH)
+                        print(f"[App] Base de données forcée dans session_state pour l'IA: {DATABASE_PATH}")
+                except Exception as e:
+                    print(f"[App] Erreur lors de l'init forcée pour l'IA: {e}")
+            
             show_ia_expert_page()
         else:
             st.error("❌ Module IA Expert non disponible")
