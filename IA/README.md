@@ -5,7 +5,7 @@ colorFrom: green
 colorTo: gray
 sdk: streamlit
 sdk_version: 1.30.0 # Assurez-vous que c'est cohérent avec requirements.txt
-app_file: app.py
+app_file: ia_app.py
 pinned: false
 ---
 
@@ -60,7 +60,7 @@ Interface Web pour le système expert Desmarais & Gagné AI, construite avec Str
 
 5.  **Lancer l'application Streamlit localement:**
     ```bash
-    streamlit run app.py
+    streamlit run ia_app.py
     ```
     L'application devrait s'ouvrir dans votre navigateur web.
 
@@ -95,7 +95,7 @@ Ce dépôt est configuré pour être déployé automatiquement sur Hugging Face 
 
 ## Structure du Projet
 
-*   `app.py`: Interface utilisateur principale avec Streamlit. Gère le flux de l'application, l'état de session et les interactions utilisateur.
+*   `ia_app.py`: Interface utilisateur principale avec Streamlit. Gère le flux de l'application, l'état de session et les interactions utilisateur.
 *   `expert_logic.py`: Contient la logique métier, notamment les classes `ExpertAdvisor` (interaction avec l'API Claude, traitement des fichiers et recherche web) et `ExpertProfileManager` (gestion des profils experts).
 *   `conversation_manager.py`: Gère la persistance des conversations dans une base de données SQLite (`conversations.db`).
 *   `profiles/`: Dossier contenant les fichiers `.txt` définissant les différents profils experts pour Claude.
