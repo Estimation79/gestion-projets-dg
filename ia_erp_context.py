@@ -24,6 +24,9 @@ class ERPContextProvider:
         self.erp_db = erp_db or st.session_state.get('erp_db')
         self.permissions = permissions or st.session_state.get('admin_permissions', [])
         self.has_all_permissions = "ALL" in self.permissions
+        
+        # Mode dégradé si pas de DB
+        self.demo_mode = self.erp_db is None
     
     def get_context_summary(self):
         """

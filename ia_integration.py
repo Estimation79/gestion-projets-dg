@@ -58,7 +58,9 @@ def show_ia_expert_page():
         if 'ia_messages' not in st.session_state:
             st.session_state.ia_messages = []
         
-        if 'ia_expert_advisor' not in st.session_state:
+        # MODIFICATION: Forcer le profil ANALYSTE_ERP uniquement
+        if 'ia_expert_advisor' not in st.session_state or 'ia_selected_profile' not in st.session_state:
+            st.session_state.ia_selected_profile = 'ANALYSTE_ERP'
             # Obtenir la clé API depuis les secrets ou l'environnement
             api_key = None
             
@@ -112,8 +114,8 @@ def show_ia_expert_page():
                 return
         
         # Titre et description
-        st.markdown("# 🤖 Assistant Expert IA")
-        st.markdown("### Consultation avec des experts métier spécialisés")
+        st.markdown("# 📊 Analyste ERP Intelligent")
+        st.markdown("### Analyse de données et optimisation de votre système de production")
         
         # Afficher des exemples de questions si connecté à l'ERP
         if 'erp_db' in st.session_state:
@@ -144,29 +146,22 @@ def show_ia_expert_page():
         
         # Sidebar pour la sélection du profil
         with st.sidebar:
-            st.markdown("### 👤 Sélection de l'Expert")
+            st.markdown("### 📊 Analyste ERP")
             
-            # Obtenir les profils disponibles
+            # MODIFICATION: Utiliser uniquement le profil ANALYSTE_ERP
+            selected_profile_id = 'ANALYSTE_ERP'
             profiles = st.session_state.ia_profile_manager.get_all_profiles()
             profile_names = {pid: profile['name'] for pid, profile in profiles.items()}
             
-            # Sélection du profil
-            selected_profile_id = st.selectbox(
-                "Choisir un expert",
-                options=list(profile_names.keys()),
-                format_func=lambda x: profile_names[x],
-                key="ia_expert_selector"
-            )
-            
-            # Afficher la description du profil sélectionné
-            if selected_profile_id:
+            # Afficher la description du profil ANALYSTE_ERP
+            if selected_profile_id in profiles:
                 profile = profiles.get(selected_profile_id, {})
-                st.markdown("#### 📋 Description")
-                st.info(profile.get('prompt', 'Aucune description disponible')[:200] + "...")
+                st.markdown("#### 📋 Expert en analyse de données")
+                st.info("Analyste ERP spécialisé dans l'optimisation des systèmes de gestion pour l'industrie métallurgique. Expert en analyse de rentabilité, optimisation de production et recommandations basées sur les données réelles de l'ERP.")
                 
-                # Définir le profil actuel dans l'expert advisor
+                # Définir le profil ANALYSTE_ERP dans l'expert advisor
                 if 'ia_expert_advisor' in st.session_state:
-                    st.session_state.ia_expert_advisor.set_current_profile_by_name(profile.get('name', ''))
+                    st.session_state.ia_expert_advisor.set_current_profile_by_name(profile.get('name', 'ANALYSTE_ERP'))
             
             # Bouton pour réinitialiser la conversation
             if st.button("🔄 Nouvelle Conversation", key="ia_new_conversation"):
@@ -196,7 +191,7 @@ def show_ia_expert_page():
                     else:
                         st.markdown(f"""
                         <div class="message assistant-message">
-                            <div class="message-header">🤖 {profile_names.get(selected_profile_id, 'Expert')}</div>
+                            <div class="message-header">📊 Analyste ERP</div>
                             <div class="message-content">{msg['content']}</div>
                         </div>
                         """, unsafe_allow_html=True)
