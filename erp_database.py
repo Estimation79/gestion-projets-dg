@@ -615,7 +615,66 @@ class ERPDatabase:
                 )
             ''')
             
-            # 15. LIGNES DE DÉTAIL DES FORMULAIRES
+            # 15. OPPORTUNITÉS DE VENTE (CRM PIPELINE)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS opportunities (
+                    id INTEGER PRIMARY KEY,
+                    nom TEXT NOT NULL,
+                    company_id INTEGER,
+                    contact_id INTEGER,
+                    montant_estime REAL DEFAULT 0.0,
+                    devise TEXT DEFAULT 'CAD',
+                    statut TEXT DEFAULT 'Prospection' CHECK(statut IN 
+                        ('Prospection', 'Qualification', 'Proposition', 'Négociation', 'Gagné', 'Perdu')),
+                    probabilite INTEGER DEFAULT 50,
+                    date_cloture_prevue DATE,
+                    date_cloture_reelle DATE,
+                    source TEXT,
+                    campagne TEXT,
+                    notes TEXT,
+                    assigned_to INTEGER,
+                    created_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (company_id) REFERENCES companies(id),
+                    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+                    FOREIGN KEY (assigned_to) REFERENCES employees(id),
+                    FOREIGN KEY (created_by) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 16. ACTIVITÉS CRM (TÂCHES ET ÉVÉNEMENTS)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS crm_activities (
+                    id INTEGER PRIMARY KEY,
+                    opportunity_id INTEGER,
+                    contact_id INTEGER,
+                    company_id INTEGER,
+                    type_activite TEXT CHECK(type_activite IN 
+                        ('Email', 'Appel', 'Réunion', 'Tâche', 'Note', 'Visite', 'Présentation', 'Suivi')),
+                    sujet TEXT NOT NULL,
+                    description TEXT,
+                    date_activite DATETIME,
+                    duree_minutes INTEGER,
+                    statut TEXT DEFAULT 'Planifié' CHECK(statut IN 
+                        ('Planifié', 'En cours', 'Terminé', 'Annulé', 'Reporté')),
+                    priorite TEXT DEFAULT 'Normale' CHECK(priorite IN 
+                        ('Basse', 'Normale', 'Haute', 'Critique')),
+                    rappel_minutes INTEGER DEFAULT 15,
+                    lieu TEXT,
+                    assigned_to INTEGER,
+                    created_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (opportunity_id) REFERENCES opportunities(id),
+                    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+                    FOREIGN KEY (company_id) REFERENCES companies(id),
+                    FOREIGN KEY (assigned_to) REFERENCES employees(id),
+                    FOREIGN KEY (created_by) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 17. LIGNES DE DÉTAIL DES FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_lignes (
                     id INTEGER PRIMARY KEY,
@@ -637,7 +696,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 16. HISTORIQUE ET VALIDATIONS DES FORMULAIRES
+            # 18. HISTORIQUE ET VALIDATIONS DES FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_validations (
                     id INTEGER PRIMARY KEY,
@@ -655,7 +714,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 17. PIÈCES JOINTES AUX FORMULAIRES
+            # 19. PIÈCES JOINTES AUX FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_pieces_jointes (
                     id INTEGER PRIMARY KEY,
@@ -672,7 +731,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 18. TEMPLATES DE FORMULAIRES
+            # 20. TEMPLATES DE FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_templates (
                     id INTEGER PRIMARY KEY,
@@ -687,7 +746,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 19. FOURNISSEURS (Extension companies pour meilleure gestion)
+            # 21. FOURNISSEURS (Extension companies pour meilleure gestion)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS fournisseurs (
                     id INTEGER PRIMARY KEY,
@@ -707,7 +766,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 20. APPROVISIONNEMENTS (Suivi des commandes et livraisons)
+            # 22. APPROVISIONNEMENTS (Suivi des commandes et livraisons)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS approvisionnements (
                     id INTEGER PRIMARY KEY,
@@ -732,7 +791,7 @@ class ERPDatabase:
             # TABLES SPÉCIALISÉES BONS DE TRAVAIL - INTÉGRÉES AUTOMATIQUEMENT
             # =========================================================================
             
-            # 21. ASSIGNATIONS BONS DE TRAVAIL
+            # 23. ASSIGNATIONS BONS DE TRAVAIL
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS bt_assignations (
                     id INTEGER PRIMARY KEY,
@@ -747,7 +806,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 22. RÉSERVATIONS POSTES DE TRAVAIL POUR BT
+            # 24. RÉSERVATIONS POSTES DE TRAVAIL POUR BT
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS bt_reservations_postes (
                     id INTEGER PRIMARY KEY,
@@ -764,7 +823,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 23. AVANCEMENT BONS DE TRAVAIL
+            # 25. AVANCEMENT BONS DE TRAVAIL
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS bt_avancement (
                     id INTEGER PRIMARY KEY,
@@ -1315,6 +1374,90 @@ class ERPDatabase:
                 END;
             ''')
             
+            # 26. MOUVEMENTS DE STOCK (Inventaire)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS mouvements_stock (
+                    id INTEGER PRIMARY KEY,
+                    produit_id INTEGER NOT NULL,
+                    type_mouvement TEXT NOT NULL CHECK(type_mouvement IN 
+                        ('ENTREE', 'SORTIE', 'AJUSTEMENT', 'RESERVATION', 'LIBERATION', 'INVENTAIRE')),
+                    quantite REAL NOT NULL,
+                    quantite_avant REAL,
+                    quantite_apres REAL,
+                    reference_document TEXT,
+                    reference_type TEXT CHECK(reference_type IN 
+                        ('BON_RECEPTION', 'BON_LIVRAISON', 'BON_TRAVAIL', 'AJUSTEMENT', 'INVENTAIRE', 'AUTRE')),
+                    motif TEXT,
+                    employee_id INTEGER,
+                    cout_unitaire REAL,
+                    cout_total REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (produit_id) REFERENCES produits(id),
+                    FOREIGN KEY (employee_id) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 27. INVENTAIRES PHYSIQUES
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS inventaires_physiques (
+                    id INTEGER PRIMARY KEY,
+                    code_inventaire TEXT UNIQUE NOT NULL,
+                    date_inventaire DATE NOT NULL,
+                    statut TEXT DEFAULT 'EN_COURS' CHECK(statut IN 
+                        ('EN_COURS', 'COMPLETE', 'VALIDE', 'ANNULE')),
+                    type_inventaire TEXT DEFAULT 'COMPLET' CHECK(type_inventaire IN 
+                        ('COMPLET', 'PARTIEL', 'CYCLIQUE', 'ALEATOIRE')),
+                    created_by INTEGER,
+                    validated_by INTEGER,
+                    validated_at TIMESTAMP,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (created_by) REFERENCES employees(id),
+                    FOREIGN KEY (validated_by) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 28. LIGNES D'INVENTAIRE
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS inventaire_lignes (
+                    id INTEGER PRIMARY KEY,
+                    inventaire_id INTEGER NOT NULL,
+                    produit_id INTEGER NOT NULL,
+                    quantite_theorique REAL NOT NULL,
+                    quantite_physique REAL,
+                    ecart REAL,
+                    ecart_valeur REAL,
+                    statut_ligne TEXT DEFAULT 'A_COMPTER' CHECK(statut_ligne IN 
+                        ('A_COMPTER', 'COMPTE', 'VALIDE', 'ECART_JUSTIFIE')),
+                    justification TEXT,
+                    compte_par INTEGER,
+                    compte_at TIMESTAMP,
+                    FOREIGN KEY (inventaire_id) REFERENCES inventaires_physiques(id),
+                    FOREIGN KEY (produit_id) REFERENCES produits(id),
+                    FOREIGN KEY (compte_par) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 29. RESERVATIONS DE STOCK
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS reservations_stock (
+                    id INTEGER PRIMARY KEY,
+                    produit_id INTEGER NOT NULL,
+                    quantite_reservee REAL NOT NULL,
+                    reference_document TEXT NOT NULL,
+                    reference_type TEXT CHECK(reference_type IN 
+                        ('BON_TRAVAIL', 'DEVIS', 'COMMANDE_CLIENT', 'PROJET', 'AUTRE')),
+                    date_reservation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    date_expiration TIMESTAMP,
+                    statut TEXT DEFAULT 'ACTIVE' CHECK(statut IN 
+                        ('ACTIVE', 'LIBEREE', 'EXPIREE', 'ANNULEE')),
+                    created_by INTEGER,
+                    notes TEXT,
+                    FOREIGN KEY (produit_id) REFERENCES produits(id),
+                    FOREIGN KEY (created_by) REFERENCES employees(id)
+                )
+            ''')
+            
             conn.commit()
             
             # =========================================================================
@@ -1345,6 +1488,10 @@ class ERPDatabase:
             if 'date_fin_reel' not in existing_columns:
                 cursor.execute("ALTER TABLE projects ADD COLUMN date_fin_reel DATE")
                 logger.info("✅ Colonne date_fin_reel ajoutée automatiquement")
+            
+            if 'po_client' not in existing_columns:
+                cursor.execute("ALTER TABLE projects ADD COLUMN po_client TEXT")
+                logger.info("✅ Colonne po_client ajoutée automatiquement")
             
             # ÉTAPE 2 : Vérifier et ajouter la colonne formulaire_bt_id dans time_entries
             cursor.execute("PRAGMA table_info(time_entries)")
@@ -2954,15 +3101,17 @@ class ERPDatabase:
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
     
-    def execute_query(self, query: str, params: tuple = None) -> List[sqlite3.Row]:
-        """Exécute une requête SELECT et retourne les résultats"""
+    def execute_query(self, query: str, params: tuple = None) -> List[Dict[str, Any]]:
+        """Exécute une requête SELECT et retourne les résultats sous forme de dictionnaires"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             if params:
                 cursor.execute(query, params)
             else:
                 cursor.execute(query)
-            return cursor.fetchall()
+            # Convertir les sqlite3.Row en dictionnaires pour compatibilité avec .get()
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
     
     def execute_update(self, query: str, params: tuple = None) -> int:
         """Exécute une requête INSERT/UPDATE/DELETE et retourne le nombre de lignes affectées"""
@@ -4052,6 +4201,557 @@ class ERPDatabase:
             logger.error(f"Erreur mise à jour approvisionnement: {e}")
             return False
     
+    # =========================================================================
+    # MÉTHODES CRM PIPELINE
+    # =========================================================================
+    
+    def create_opportunity(self, data: Dict) -> int:
+        """Crée une nouvelle opportunité de vente"""
+        try:
+            query = '''
+                INSERT INTO opportunities
+                (nom, company_id, contact_id, montant_estime, devise, statut,
+                 probabilite, date_cloture_prevue, source, campagne, notes,
+                 assigned_to, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            opp_id = self.execute_insert(query, (
+                data.get('nom'),
+                data.get('company_id'),
+                data.get('contact_id'),
+                data.get('montant_estime', 0.0),
+                data.get('devise', 'CAD'),
+                data.get('statut', 'Prospection'),
+                data.get('probabilite', 50),
+                data.get('date_cloture_prevue'),
+                data.get('source'),
+                data.get('campagne'),
+                data.get('notes'),
+                data.get('assigned_to'),
+                data.get('created_by')
+            ))
+            
+            return opp_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création opportunité: {e}")
+            return None
+    
+    def update_opportunity(self, opp_id: int, data: Dict) -> bool:
+        """Met à jour une opportunité existante"""
+        try:
+            fields = []
+            values = []
+            
+            for field in ['nom', 'company_id', 'contact_id', 'montant_estime', 
+                         'statut', 'probabilite', 'date_cloture_prevue', 'notes']:
+                if field in data:
+                    fields.append(f"{field} = ?")
+                    values.append(data[field])
+            
+            if not fields:
+                return True
+                
+            values.append(opp_id)
+            query = f"UPDATE opportunities SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            
+            affected = self.execute_update(query, values)
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour opportunité: {e}")
+            return False
+    
+    def get_opportunities(self, filters: Dict = None) -> List[Dict]:
+        """Récupère les opportunités avec filtres optionnels"""
+        try:
+            query = '''
+                SELECT o.*, c.nom as company_name, 
+                       ct.prenom || ' ' || ct.nom_famille as contact_name,
+                       e.prenom || ' ' || e.nom as assigned_to_name
+                FROM opportunities o
+                LEFT JOIN companies c ON o.company_id = c.id
+                LEFT JOIN contacts ct ON o.contact_id = ct.id
+                LEFT JOIN employees e ON o.assigned_to = e.id
+                WHERE 1=1
+            '''
+            params = []
+            
+            if filters:
+                if filters.get('statut'):
+                    query += " AND o.statut = ?"
+                    params.append(filters['statut'])
+                if filters.get('assigned_to'):
+                    query += " AND o.assigned_to = ?"
+                    params.append(filters['assigned_to'])
+                if filters.get('company_id'):
+                    query += " AND o.company_id = ?"
+                    params.append(filters['company_id'])
+            
+            query += " ORDER BY o.created_at DESC"
+            
+            return self.execute_query(query, params)
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération opportunités: {e}")
+            return []
+    
+    def create_crm_activity(self, data: Dict) -> int:
+        """Crée une nouvelle activité CRM"""
+        try:
+            query = '''
+                INSERT INTO crm_activities
+                (opportunity_id, contact_id, company_id, type_activite, sujet,
+                 description, date_activite, duree_minutes, statut, priorite,
+                 rappel_minutes, lieu, assigned_to, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            activity_id = self.execute_insert(query, (
+                data.get('opportunity_id'),
+                data.get('contact_id'),
+                data.get('company_id'),
+                data.get('type_activite'),
+                data.get('sujet'),
+                data.get('description'),
+                data.get('date_activite'),
+                data.get('duree_minutes'),
+                data.get('statut', 'Planifié'),
+                data.get('priorite', 'Normale'),
+                data.get('rappel_minutes', 15),
+                data.get('lieu'),
+                data.get('assigned_to'),
+                data.get('created_by')
+            ))
+            
+            return activity_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création activité CRM: {e}")
+            return None
+    
+    def get_crm_activities(self, filters: Dict = None) -> List[Dict]:
+        """Récupère les activités CRM avec filtres optionnels"""
+        try:
+            query = '''
+                SELECT a.*, o.nom as opportunity_name,
+                       c.nom as company_name,
+                       ct.prenom || ' ' || ct.nom_famille as contact_name,
+                       e.prenom || ' ' || e.nom as assigned_to_name
+                FROM crm_activities a
+                LEFT JOIN opportunities o ON a.opportunity_id = o.id
+                LEFT JOIN companies c ON a.company_id = c.id
+                LEFT JOIN contacts ct ON a.contact_id = ct.id
+                LEFT JOIN employees e ON a.assigned_to = e.id
+                WHERE 1=1
+            '''
+            params = []
+            
+            if filters:
+                if filters.get('date_debut') and filters.get('date_fin'):
+                    query += " AND DATE(a.date_activite) BETWEEN ? AND ?"
+                    params.extend([filters['date_debut'], filters['date_fin']])
+                if filters.get('statut'):
+                    query += " AND a.statut = ?"
+                    params.append(filters['statut'])
+                if filters.get('assigned_to'):
+                    query += " AND a.assigned_to = ?"
+                    params.append(filters['assigned_to'])
+            
+            query += " ORDER BY a.date_activite ASC"
+            
+            return self.execute_query(query, params)
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération activités CRM: {e}")
+            return []
+    
+    def get_opportunity_pipeline_stats(self) -> Dict:
+        """Récupère les statistiques du pipeline de vente"""
+        try:
+            stats = {}
+            
+            # Nombre d'opportunités par statut
+            query = '''
+                SELECT statut, COUNT(*) as count, SUM(montant_estime) as total
+                FROM opportunities
+                GROUP BY statut
+            '''
+            results = self.execute_query(query)
+            stats['par_statut'] = {r['statut']: {'count': r['count'], 'total': r['total'] or 0} for r in results}
+            
+            # Valeur totale du pipeline
+            query = '''
+                SELECT SUM(montant_estime) as total_pipeline,
+                       SUM(CASE WHEN statut IN ('Gagné') THEN montant_estime ELSE 0 END) as total_gagne,
+                       SUM(CASE WHEN statut NOT IN ('Gagné', 'Perdu') 
+                           THEN montant_estime * probabilite / 100.0 ELSE 0 END) as total_pondere
+                FROM opportunities
+            '''
+            result = self.execute_query(query)[0]
+            stats['valeurs'] = {
+                'pipeline': result['total_pipeline'] or 0,
+                'gagne': result['total_gagne'] or 0,
+                'pondere': result['total_pondere'] or 0
+            }
+            
+            # Taux de conversion
+            query = '''
+                SELECT COUNT(CASE WHEN statut = 'Gagné' THEN 1 END) * 100.0 / 
+                       NULLIF(COUNT(*), 0) as taux_conversion
+                FROM opportunities
+                WHERE statut IN ('Gagné', 'Perdu')
+            '''
+            result = self.execute_query(query)[0]
+            stats['taux_conversion'] = result['taux_conversion'] or 0
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur calcul stats pipeline: {e}")
+            return {}
+
+    # =========================================================================
+    # MÉTHODES INVENTAIRE ET MOUVEMENTS DE STOCK
+    # =========================================================================
+    
+    def enregistrer_mouvement_stock(self, data: Dict) -> int:
+        """Enregistre un mouvement de stock avec mise à jour automatique du stock produit"""
+        try:
+            # Récupérer le stock actuel
+            produit = self.execute_query("SELECT stock_disponible FROM produits WHERE id = ?", (data['produit_id'],))
+            if not produit:
+                logger.error(f"Produit {data['produit_id']} non trouvé")
+                return None
+            
+            stock_avant = produit[0]['stock_disponible']
+            
+            # Calculer le nouveau stock selon le type de mouvement
+            if data['type_mouvement'] in ['ENTREE', 'LIBERATION']:
+                stock_apres = stock_avant + data['quantite']
+            elif data['type_mouvement'] in ['SORTIE', 'RESERVATION']:
+                stock_apres = stock_avant - data['quantite']
+            elif data['type_mouvement'] == 'AJUSTEMENT':
+                stock_apres = data['quantite']  # Pour ajustement, la quantité est la nouvelle valeur
+                data['quantite'] = stock_apres - stock_avant  # Calculer la différence
+            else:  # INVENTAIRE
+                stock_apres = data['quantite']
+                data['quantite'] = stock_apres - stock_avant
+            
+            # Enregistrer le mouvement
+            query = '''
+                INSERT INTO mouvements_stock
+                (produit_id, type_mouvement, quantite, quantite_avant, quantite_apres,
+                 reference_document, reference_type, motif, employee_id, cout_unitaire, cout_total)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            mouvement_id = self.execute_insert(query, (
+                data['produit_id'],
+                data['type_mouvement'],
+                data['quantite'],
+                stock_avant,
+                stock_apres,
+                data.get('reference_document'),
+                data.get('reference_type'),
+                data.get('motif'),
+                data.get('employee_id'),
+                data.get('cout_unitaire'),
+                data.get('cout_total')
+            ))
+            
+            # Mettre à jour le stock du produit
+            self.execute_update(
+                "UPDATE produits SET stock_disponible = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (stock_apres, data['produit_id'])
+            )
+            
+            return mouvement_id
+            
+        except Exception as e:
+            logger.error(f"Erreur enregistrement mouvement stock: {e}")
+            return None
+    
+    def get_mouvements_stock(self, produit_id: int = None, limit: int = 100) -> List[Dict]:
+        """Récupère l'historique des mouvements de stock"""
+        try:
+            if produit_id:
+                query = '''
+                    SELECT m.*, p.code_produit, p.nom as produit_nom, 
+                           e.prenom || ' ' || e.nom as employee_name
+                    FROM mouvements_stock m
+                    LEFT JOIN produits p ON m.produit_id = p.id
+                    LEFT JOIN employees e ON m.employee_id = e.id
+                    WHERE m.produit_id = ?
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                '''
+                return self.execute_query(query, (produit_id, limit))
+            else:
+                query = '''
+                    SELECT m.*, p.code_produit, p.nom as produit_nom,
+                           e.prenom || ' ' || e.nom as employee_name
+                    FROM mouvements_stock m
+                    LEFT JOIN produits p ON m.produit_id = p.id
+                    LEFT JOIN employees e ON m.employee_id = e.id
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                '''
+                return self.execute_query(query, (limit,))
+                
+        except Exception as e:
+            logger.error(f"Erreur récupération mouvements: {e}")
+            return []
+    
+    def creer_inventaire_physique(self, data: Dict) -> int:
+        """Crée un nouvel inventaire physique"""
+        try:
+            # Générer un code unique
+            code = f"INV-{datetime.now().strftime('%Y%m%d')}-{datetime.now().strftime('%H%M%S')}"
+            
+            query = '''
+                INSERT INTO inventaires_physiques
+                (code_inventaire, date_inventaire, type_inventaire, created_by, notes)
+                VALUES (?, ?, ?, ?, ?)
+            '''
+            
+            inventaire_id = self.execute_insert(query, (
+                code,
+                data.get('date_inventaire', datetime.now().date()),
+                data.get('type_inventaire', 'COMPLET'),
+                data.get('created_by'),
+                data.get('notes')
+            ))
+            
+            # Si inventaire complet, créer les lignes pour tous les produits actifs
+            if data.get('type_inventaire', 'COMPLET') == 'COMPLET':
+                produits = self.execute_query("SELECT id, stock_disponible FROM produits WHERE actif = 1")
+                for produit in produits:
+                    self.execute_insert('''
+                        INSERT INTO inventaire_lignes
+                        (inventaire_id, produit_id, quantite_theorique)
+                        VALUES (?, ?, ?)
+                    ''', (inventaire_id, produit['id'], produit['stock_disponible']))
+            
+            return inventaire_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création inventaire: {e}")
+            return None
+    
+    def saisir_comptage_inventaire(self, ligne_id: int, quantite_physique: float, employee_id: int) -> bool:
+        """Saisit le comptage physique d'une ligne d'inventaire"""
+        try:
+            # Récupérer les infos de la ligne
+            ligne = self.execute_query('''
+                SELECT il.*, p.prix_unitaire
+                FROM inventaire_lignes il
+                JOIN produits p ON il.produit_id = p.id
+                WHERE il.id = ?
+            ''', (ligne_id,))[0]
+            
+            ecart = quantite_physique - ligne['quantite_theorique']
+            ecart_valeur = ecart * ligne['prix_unitaire']
+            
+            # Mettre à jour la ligne
+            self.execute_update('''
+                UPDATE inventaire_lignes
+                SET quantite_physique = ?, ecart = ?, ecart_valeur = ?,
+                    statut_ligne = 'COMPTE', compte_par = ?, compte_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (quantite_physique, ecart, ecart_valeur, employee_id, ligne_id))
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur saisie comptage: {e}")
+            return False
+    
+    def valider_inventaire(self, inventaire_id: int, validated_by: int) -> bool:
+        """Valide un inventaire et applique les ajustements de stock"""
+        try:
+            # Vérifier que toutes les lignes sont comptées
+            non_comptees = self.execute_query('''
+                SELECT COUNT(*) as count
+                FROM inventaire_lignes
+                WHERE inventaire_id = ? AND statut_ligne = 'A_COMPTER'
+            ''', (inventaire_id,))[0]['count']
+            
+            if non_comptees > 0:
+                logger.error(f"Inventaire {inventaire_id} a {non_comptees} lignes non comptées")
+                return False
+            
+            # Récupérer toutes les lignes avec écart
+            lignes_ecart = self.execute_query('''
+                SELECT il.*, p.nom as produit_nom
+                FROM inventaire_lignes il
+                JOIN produits p ON il.produit_id = p.id
+                WHERE il.inventaire_id = ? AND il.ecart != 0
+            ''', (inventaire_id,))
+            
+            # Appliquer les ajustements pour chaque écart
+            for ligne in lignes_ecart:
+                self.enregistrer_mouvement_stock({
+                    'produit_id': ligne['produit_id'],
+                    'type_mouvement': 'INVENTAIRE',
+                    'quantite': ligne['quantite_physique'],
+                    'reference_document': f"INV-{inventaire_id}",
+                    'reference_type': 'INVENTAIRE',
+                    'motif': f"Ajustement inventaire - Écart: {ligne['ecart']}",
+                    'employee_id': validated_by
+                })
+                
+                # Marquer la ligne comme validée
+                self.execute_update(
+                    "UPDATE inventaire_lignes SET statut_ligne = 'VALIDE' WHERE id = ?",
+                    (ligne['id'],)
+                )
+            
+            # Valider l'inventaire
+            self.execute_update('''
+                UPDATE inventaires_physiques
+                SET statut = 'VALIDE', validated_by = ?, validated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (validated_by, inventaire_id))
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur validation inventaire: {e}")
+            return False
+    
+    def reserver_stock(self, data: Dict) -> int:
+        """Crée une réservation de stock"""
+        try:
+            # Vérifier la disponibilité
+            produit = self.execute_query(
+                "SELECT stock_disponible FROM produits WHERE id = ?",
+                (data['produit_id'],)
+            )[0]
+            
+            if produit['stock_disponible'] < data['quantite_reservee']:
+                logger.error(f"Stock insuffisant pour réservation: {produit['stock_disponible']} < {data['quantite_reservee']}")
+                return None
+            
+            # Créer la réservation
+            query = '''
+                INSERT INTO reservations_stock
+                (produit_id, quantite_reservee, reference_document, reference_type,
+                 date_expiration, created_by, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            reservation_id = self.execute_insert(query, (
+                data['produit_id'],
+                data['quantite_reservee'],
+                data['reference_document'],
+                data['reference_type'],
+                data.get('date_expiration'),
+                data.get('created_by'),
+                data.get('notes')
+            ))
+            
+            # Enregistrer le mouvement de réservation
+            self.enregistrer_mouvement_stock({
+                'produit_id': data['produit_id'],
+                'type_mouvement': 'RESERVATION',
+                'quantite': data['quantite_reservee'],
+                'reference_document': data['reference_document'],
+                'reference_type': data['reference_type'],
+                'motif': f"Réservation stock - {data.get('notes', '')}",
+                'employee_id': data.get('created_by')
+            })
+            
+            return reservation_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création réservation: {e}")
+            return None
+    
+    def liberer_reservation(self, reservation_id: int, employee_id: int = None) -> bool:
+        """Libère une réservation de stock"""
+        try:
+            # Récupérer la réservation
+            reservation = self.execute_query(
+                "SELECT * FROM reservations_stock WHERE id = ? AND statut = 'ACTIVE'",
+                (reservation_id,)
+            )
+            
+            if not reservation:
+                logger.error(f"Réservation {reservation_id} non trouvée ou inactive")
+                return False
+            
+            reservation = reservation[0]
+            
+            # Libérer la réservation
+            self.execute_update(
+                "UPDATE reservations_stock SET statut = 'LIBEREE' WHERE id = ?",
+                (reservation_id,)
+            )
+            
+            # Enregistrer le mouvement de libération
+            self.enregistrer_mouvement_stock({
+                'produit_id': reservation['produit_id'],
+                'type_mouvement': 'LIBERATION',
+                'quantite': reservation['quantite_reservee'],
+                'reference_document': reservation['reference_document'],
+                'reference_type': reservation['reference_type'],
+                'motif': f"Libération réservation #{reservation_id}",
+                'employee_id': employee_id
+            })
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur libération réservation: {e}")
+            return False
+    
+    def get_stock_analysis(self) -> Dict:
+        """Analyse complète de l'état des stocks"""
+        try:
+            analysis = {}
+            
+            # Valeur totale du stock
+            value_result = self.execute_query('''
+                SELECT SUM(stock_disponible * prix_unitaire) as valeur_totale
+                FROM produits WHERE actif = 1
+            ''')
+            analysis['valeur_totale_stock'] = value_result[0]['valeur_totale'] or 0
+            
+            # Produits en rupture
+            rupture = self.execute_query('''
+                SELECT COUNT(*) as count FROM produits 
+                WHERE actif = 1 AND stock_disponible <= 0
+            ''')
+            analysis['produits_rupture'] = rupture[0]['count']
+            
+            # Produits sous le minimum
+            sous_min = self.execute_query('''
+                SELECT COUNT(*) as count FROM produits 
+                WHERE actif = 1 AND stock_disponible > 0 AND stock_disponible <= stock_minimum
+            ''')
+            analysis['produits_sous_minimum'] = sous_min[0]['count']
+            
+            # Top 10 mouvements récents
+            analysis['mouvements_recents'] = self.get_mouvements_stock(limit=10)
+            
+            # Réservations actives
+            reservations = self.execute_query('''
+                SELECT COUNT(*) as count, SUM(quantite_reservee) as total_reserve
+                FROM reservations_stock WHERE statut = 'ACTIVE'
+            ''')
+            analysis['reservations_actives'] = {
+                'count': reservations[0]['count'],
+                'quantite_totale': reservations[0]['total_reserve'] or 0
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Erreur analyse stock: {e}")
+            return {}
+
     # =========================================================================
     # MÉTHODES D'ANALYSE ET REPORTING
     # =========================================================================

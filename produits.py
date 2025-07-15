@@ -59,8 +59,15 @@ class GestionnaireProduits:
                     prix_unitaire REAL NOT NULL DEFAULT 0.0,
                     stock_disponible REAL DEFAULT 0.0,
                     stock_minimum REAL DEFAULT 0.0,
+                    stock_reserve REAL DEFAULT 0.0,
+                    stock_en_commande REAL DEFAULT 0.0,
+                    point_commande REAL DEFAULT 0.0,
+                    lot_commande REAL DEFAULT 0.0,
+                    delai_approvisionnement INTEGER DEFAULT 0,
                     fournisseur_principal TEXT,
                     notes_techniques TEXT,
+                    emplacement_stock TEXT,
+                    date_dernier_inventaire DATE,
                     actif BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -72,6 +79,9 @@ class GestionnaireProduits:
                 # Ajouter des données de démonstration
                 self._create_demo_products()
             else:
+                # Vérifier et ajouter les colonnes manquantes si nécessaire
+                self._check_and_add_inventory_columns()
+                
                 # Vérifier si des produits existent, sinon ajouter démo
                 count_result = self.db.execute_query("SELECT COUNT(*) as count FROM produits")
                 if count_result[0]['count'] == 0:
@@ -79,6 +89,33 @@ class GestionnaireProduits:
                     
         except Exception as e:
             st.error(f"Erreur lors de l'initialisation de la table produits: {e}")
+    
+    def _check_and_add_inventory_columns(self):
+        """Vérifie et ajoute les colonnes d'inventaire si elles n'existent pas"""
+        try:
+            # Vérifier les colonnes existantes
+            columns_info = self.db.execute_query("PRAGMA table_info(produits)")
+            existing_columns = [col['name'] for col in columns_info]
+            
+            # Colonnes d'inventaire à ajouter
+            inventory_columns = {
+                'stock_reserve': 'REAL DEFAULT 0.0',
+                'stock_en_commande': 'REAL DEFAULT 0.0',
+                'point_commande': 'REAL DEFAULT 0.0',
+                'lot_commande': 'REAL DEFAULT 0.0',
+                'delai_approvisionnement': 'INTEGER DEFAULT 0',
+                'emplacement_stock': 'TEXT',
+                'date_dernier_inventaire': 'DATE'
+            }
+            
+            # Ajouter les colonnes manquantes
+            for column_name, column_type in inventory_columns.items():
+                if column_name not in existing_columns:
+                    self.db.execute_update(f"ALTER TABLE produits ADD COLUMN {column_name} {column_type}")
+                    
+        except Exception as e:
+            # Ne pas bloquer si certaines colonnes existent déjà
+            pass
 
     def _create_demo_products(self):
         """Crée des produits de démonstration pour la métallurgie"""
@@ -417,8 +454,8 @@ class GestionnaireProduits:
             st.error(f"Erreur récupération stock bas: {e}")
             return []
 
-    def ajuster_stock_produit(self, id_produit, nouvelle_quantite, motif="Ajustement manuel"):
-        """Ajuste le stock d'un produit"""
+    def ajuster_stock_produit(self, id_produit, nouvelle_quantite, motif="Ajustement manuel", employee_id=None):
+        """Ajuste le stock d'un produit avec traçabilité"""
         if not self.use_sqlite:
             # En mode JSON, mise à jour directe
             for p in getattr(self, '_produits', []):
@@ -429,20 +466,175 @@ class GestionnaireProduits:
             return False
         
         try:
-            rows_affected = self.db.execute_update(
-                "UPDATE produits SET stock_disponible = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (nouvelle_quantite, id_produit)
-            )
+            # Utiliser la méthode de traçabilité de la base de données
+            mouvement_id = self.db.enregistrer_mouvement_stock({
+                'produit_id': id_produit,
+                'type_mouvement': 'AJUSTEMENT',
+                'quantite': nouvelle_quantite,
+                'motif': motif,
+                'employee_id': employee_id,
+                'reference_type': 'AJUSTEMENT'
+            })
             
-            if rows_affected > 0:
-                st.success(f"✅ Stock ajusté: {nouvelle_quantite}")
-                # Ici on pourrait enregistrer un historique des mouvements de stock
-            
-            return rows_affected > 0
+            return mouvement_id is not None
             
         except Exception as e:
             st.error(f"Erreur ajustement stock: {e}")
             return False
+    
+    def get_stock_complet(self, produit_id):
+        """Récupère toutes les informations de stock d'un produit"""
+        if not self.use_sqlite:
+            return None
+        
+        try:
+            query = '''
+                SELECT p.*,
+                       (p.stock_disponible - COALESCE(
+                           (SELECT SUM(quantite_reservee) 
+                            FROM reservations_stock 
+                            WHERE produit_id = p.id AND statut = 'ACTIVE'), 0)
+                       ) as stock_libre,
+                       COALESCE(
+                           (SELECT SUM(quantite_reservee) 
+                            FROM reservations_stock 
+                            WHERE produit_id = p.id AND statut = 'ACTIVE'), 0
+                       ) as total_reserve
+                FROM produits p
+                WHERE p.id = ?
+            '''
+            result = self.db.execute_query(query, (produit_id,))
+            return result[0] if result else None
+            
+        except Exception as e:
+            st.error(f"Erreur récupération stock complet: {e}")
+            return None
+    
+    def entree_stock(self, produit_id, quantite, reference_document=None, cout_unitaire=None, employee_id=None):
+        """Enregistre une entrée de stock (réception)"""
+        if not self.use_sqlite:
+            return False
+        
+        try:
+            cout_total = (cout_unitaire * quantite) if cout_unitaire else None
+            
+            mouvement_id = self.db.enregistrer_mouvement_stock({
+                'produit_id': produit_id,
+                'type_mouvement': 'ENTREE',
+                'quantite': quantite,
+                'reference_document': reference_document,
+                'reference_type': 'BON_RECEPTION',
+                'cout_unitaire': cout_unitaire,
+                'cout_total': cout_total,
+                'employee_id': employee_id,
+                'motif': 'Réception marchandise'
+            })
+            
+            return mouvement_id is not None
+            
+        except Exception as e:
+            st.error(f"Erreur entrée stock: {e}")
+            return False
+    
+    def sortie_stock(self, produit_id, quantite, reference_document=None, motif=None, employee_id=None):
+        """Enregistre une sortie de stock"""
+        if not self.use_sqlite:
+            return False
+        
+        try:
+            # Vérifier la disponibilité
+            stock = self.get_stock_complet(produit_id)
+            if not stock or stock['stock_libre'] < quantite:
+                st.error("Stock insuffisant pour cette sortie")
+                return False
+            
+            mouvement_id = self.db.enregistrer_mouvement_stock({
+                'produit_id': produit_id,
+                'type_mouvement': 'SORTIE',
+                'quantite': quantite,
+                'reference_document': reference_document,
+                'reference_type': 'BON_LIVRAISON',
+                'employee_id': employee_id,
+                'motif': motif or 'Sortie stock'
+            })
+            
+            return mouvement_id is not None
+            
+        except Exception as e:
+            st.error(f"Erreur sortie stock: {e}")
+            return False
+    
+    def reserver_stock(self, produit_id, quantite, reference_document, reference_type='AUTRE', notes=None, employee_id=None):
+        """Réserve du stock pour un document"""
+        if not self.use_sqlite:
+            return None
+        
+        try:
+            reservation_id = self.db.reserver_stock({
+                'produit_id': produit_id,
+                'quantite_reservee': quantite,
+                'reference_document': reference_document,
+                'reference_type': reference_type,
+                'notes': notes,
+                'created_by': employee_id
+            })
+            
+            return reservation_id
+            
+        except Exception as e:
+            st.error(f"Erreur réservation stock: {e}")
+            return None
+    
+    def get_historique_mouvements(self, produit_id):
+        """Récupère l'historique des mouvements d'un produit"""
+        if not self.use_sqlite:
+            return []
+        
+        try:
+            return self.db.get_mouvements_stock(produit_id=produit_id, limit=50)
+        except Exception as e:
+            st.error(f"Erreur récupération historique: {e}")
+            return []
+    
+    def get_reservations_actives(self, produit_id=None):
+        """Récupère les réservations actives"""
+        if not self.use_sqlite:
+            return []
+        
+        try:
+            if produit_id:
+                query = '''
+                    SELECT r.*, p.code_produit, p.nom as produit_nom
+                    FROM reservations_stock r
+                    JOIN produits p ON r.produit_id = p.id
+                    WHERE r.statut = 'ACTIVE' AND r.produit_id = ?
+                    ORDER BY r.date_reservation DESC
+                '''
+                return self.db.execute_query(query, (produit_id,))
+            else:
+                query = '''
+                    SELECT r.*, p.code_produit, p.nom as produit_nom
+                    FROM reservations_stock r
+                    JOIN produits p ON r.produit_id = p.id
+                    WHERE r.statut = 'ACTIVE'
+                    ORDER BY r.date_reservation DESC
+                '''
+                return self.db.execute_query(query)
+                
+        except Exception as e:
+            st.error(f"Erreur récupération réservations: {e}")
+            return []
+    
+    def get_analyse_inventaire(self):
+        """Récupère l'analyse complète de l'inventaire"""
+        if not self.use_sqlite:
+            return {}
+        
+        try:
+            return self.db.get_stock_analysis()
+        except Exception as e:
+            st.error(f"Erreur analyse inventaire: {e}")
+            return {}
 
     def get_statistics_produits(self):
         """Statistiques des produits"""
@@ -1007,17 +1199,745 @@ def handle_produits_actions(gestionnaire_produits: GestionnaireProduits):
 
 def show_produits_page():
     """Point d'entrée principal pour l'interface de gestion des produits."""
-    st.title("🔧 Gestion des Produits")
+    st.title("🔧 Gestion des Produits et Inventaire")
     
     if 'gestionnaire_produits' not in st.session_state:
         st.error("Le gestionnaire de produits n'est pas initialisé.")
         return
 
     gestionnaire_produits = st.session_state.gestionnaire_produits
+    
+    # Créer les onglets pour Produits et Inventaire
+    tab1, tab2, tab3, tab4 = st.tabs(["📦 Catalogue Produits", "📊 Inventaire", "📈 Mouvements Stock", "🔄 Inventaire Physique"])
+    
+    with tab1:
+        # Onglet principal des produits
+        render_produits_tab(gestionnaire_produits)
+        handle_produits_actions(gestionnaire_produits)
+    
+    with tab2:
+        # Onglet inventaire
+        render_inventaire_tab(gestionnaire_produits)
+    
+    with tab3:
+        # Onglet mouvements de stock
+        render_mouvements_tab(gestionnaire_produits)
+    
+    with tab4:
+        # Onglet inventaire physique
+        render_inventaire_physique_tab(gestionnaire_produits)
 
-    # Logique pour afficher l'onglet principal des produits et gérer les actions.
-    render_produits_tab(gestionnaire_produits)
-    handle_produits_actions(gestionnaire_produits)
+# =========================================================================
+# FONCTIONS D'INVENTAIRE
+# =========================================================================
+
+def render_inventaire_tab(gestionnaire_produits: GestionnaireProduits):
+    """Affiche l'onglet de vue d'ensemble de l'inventaire"""
+    
+    # Analyse globale
+    analyse = gestionnaire_produits.get_analyse_inventaire()
+    
+    # Métriques en haut
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Valeur Totale Stock", f"${analyse.get('valeur_totale_stock', 0):,.2f}")
+    
+    with col2:
+        ruptures = analyse.get('produits_rupture', 0)
+        st.metric("Ruptures de Stock", ruptures, 
+                 delta=f"-{ruptures}" if ruptures > 0 else None,
+                 delta_color="inverse")
+    
+    with col3:
+        sous_min = analyse.get('produits_sous_minimum', 0)
+        st.metric("Stock Bas", sous_min,
+                 delta=f"-{sous_min}" if sous_min > 0 else None,
+                 delta_color="inverse")
+    
+    with col4:
+        reservations = analyse.get('reservations_actives', {})
+        st.metric("Réservations Actives", reservations.get('count', 0))
+    
+    st.markdown("---")
+    
+    # Vue détaillée de l'inventaire
+    st.subheader("📊 État des Stocks")
+    
+    # Filtres
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        filtre_statut = st.selectbox(
+            "Filtrer par statut",
+            ["Tous", "Stock OK", "Stock Bas", "Rupture", "Avec Réservations"]
+        )
+    
+    with col2:
+        filtre_categorie = st.selectbox(
+            "Catégorie",
+            ["Toutes"] + CATEGORIES_PRODUITS
+        )
+    
+    with col3:
+        recherche = st.text_input("Rechercher...", placeholder="Code ou nom produit")
+    
+    # Récupérer et filtrer les produits
+    produits = gestionnaire_produits.produits
+    
+    # Appliquer les filtres
+    produits_filtres = []
+    for p in produits:
+        # Filtre recherche
+        if recherche and recherche.lower() not in p.get('code_produit', '').lower() and recherche.lower() not in p.get('nom', '').lower():
+            continue
+        
+        # Filtre catégorie
+        if filtre_categorie != "Toutes" and p.get('categorie') != filtre_categorie:
+            continue
+        
+        # Calculer le statut
+        stock_dispo = p.get('stock_disponible', 0)
+        stock_min = p.get('stock_minimum', 0)
+        
+        if filtre_statut == "Stock OK" and (stock_dispo <= stock_min or stock_dispo <= 0):
+            continue
+        elif filtre_statut == "Stock Bas" and not (0 < stock_dispo <= stock_min):
+            continue
+        elif filtre_statut == "Rupture" and stock_dispo > 0:
+            continue
+        
+        # Ajouter les infos de stock complet
+        if gestionnaire_produits.use_sqlite:
+            stock_info = gestionnaire_produits.get_stock_complet(p['id'])
+            if stock_info:
+                p['stock_libre'] = stock_info.get('stock_libre', stock_dispo)
+                p['stock_reserve'] = stock_info.get('total_reserve', 0)
+            else:
+                p['stock_libre'] = stock_dispo
+                p['stock_reserve'] = 0
+        else:
+            p['stock_libre'] = stock_dispo
+            p['stock_reserve'] = 0
+        
+        produits_filtres.append(p)
+    
+    # Afficher les produits
+    if produits_filtres:
+        df_data = []
+        for p in produits_filtres:
+            stock_dispo = p.get('stock_disponible', 0)
+            stock_min = p.get('stock_minimum', 0)
+            stock_libre = p.get('stock_libre', stock_dispo)
+            stock_reserve = p.get('stock_reserve', 0)
+            
+            # Statut avec emoji
+            if stock_dispo <= 0:
+                statut = "🔴 Rupture"
+            elif stock_dispo <= stock_min:
+                statut = "🟡 Stock Bas"
+            else:
+                statut = "🟢 OK"
+            
+            # Taux de stock
+            taux = (stock_dispo / stock_min * 100) if stock_min > 0 else 100
+            
+            df_data.append({
+                "Code": p.get('code_produit'),
+                "Produit": p.get('nom'),
+                "Catégorie": p.get('categorie'),
+                "Stock Total": f"{stock_dispo:.2f} {p.get('unite_vente')}",
+                "Stock Libre": f"{stock_libre:.2f} {p.get('unite_vente')}",
+                "Réservé": f"{stock_reserve:.2f}" if stock_reserve > 0 else "-",
+                "Stock Min": f"{stock_min:.2f}",
+                "Taux": f"{taux:.0f}%",
+                "Statut": statut,
+                "Valeur": f"${stock_dispo * p.get('prix_unitaire', 0):,.2f}",
+                "Emplacement": p.get('emplacement_stock', 'N/A')
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Actions rapides
+        st.markdown("### 🔧 Actions Rapides")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            selected_product = st.selectbox(
+                "Sélectionner un produit",
+                options=[p['id'] for p in produits_filtres],
+                format_func=lambda x: next((f"{p['code_produit']} - {p['nom']}" for p in produits_filtres if p['id'] == x), "")
+            )
+        
+        with col2:
+            if st.button("📥 Entrée Stock", use_container_width=True):
+                st.session_state.inventory_action = "entree_stock"
+                st.session_state.inventory_product_id = selected_product
+        
+        with col3:
+            if st.button("📤 Sortie Stock", use_container_width=True):
+                st.session_state.inventory_action = "sortie_stock"
+                st.session_state.inventory_product_id = selected_product
+    
+    else:
+        st.info("Aucun produit ne correspond aux critères")
+    
+    # Gérer les actions d'inventaire
+    handle_inventory_actions(gestionnaire_produits)
+
+
+def render_mouvements_tab(gestionnaire_produits: GestionnaireProduits):
+    """Affiche l'historique des mouvements de stock"""
+    
+    st.subheader("📈 Historique des Mouvements de Stock")
+    
+    # Filtres
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Sélection du produit (optionnel)
+        produits = gestionnaire_produits.produits
+        produit_id = st.selectbox(
+            "Filtrer par produit",
+            options=[None] + [p['id'] for p in produits],
+            format_func=lambda x: "Tous les produits" if x is None else next((f"{p['code_produit']} - {p['nom']}" for p in produits if p['id'] == x), "")
+        )
+    
+    with col2:
+        type_mouvement = st.selectbox(
+            "Type de mouvement",
+            ["Tous", "ENTREE", "SORTIE", "AJUSTEMENT", "RESERVATION", "LIBERATION", "INVENTAIRE"]
+        )
+    
+    with col3:
+        limite = st.number_input("Nombre de lignes", min_value=10, max_value=500, value=100)
+    
+    # Récupérer les mouvements
+    if gestionnaire_produits.use_sqlite:
+        mouvements = gestionnaire_produits.db.get_mouvements_stock(produit_id=produit_id, limit=limite)
+        
+        # Filtrer par type si nécessaire
+        if type_mouvement != "Tous":
+            mouvements = [m for m in mouvements if m['type_mouvement'] == type_mouvement]
+        
+        if mouvements:
+            # Préparer les données pour l'affichage
+            df_data = []
+            for m in mouvements:
+                # Couleur selon le type
+                if m['type_mouvement'] in ['ENTREE', 'LIBERATION']:
+                    type_icon = "➕"
+                    quantite_str = f"+{m['quantite']}"
+                elif m['type_mouvement'] in ['SORTIE', 'RESERVATION']:
+                    type_icon = "➖"
+                    quantite_str = f"-{m['quantite']}"
+                else:
+                    type_icon = "🔄"
+                    quantite_str = f"{m['quantite']}"
+                
+                df_data.append({
+                    "Date": datetime.fromisoformat(m['created_at']).strftime("%d/%m/%Y %H:%M"),
+                    "Code Produit": m.get('code_produit', ''),
+                    "Produit": m.get('produit_nom', ''),
+                    "Type": f"{type_icon} {m['type_mouvement']}",
+                    "Quantité": quantite_str,
+                    "Stock Avant": f"{m.get('quantite_avant', 0):.2f}",
+                    "Stock Après": f"{m.get('quantite_apres', 0):.2f}",
+                    "Référence": m.get('reference_document', ''),
+                    "Motif": m.get('motif', ''),
+                    "Employé": m.get('employee_name', 'N/A')
+                })
+            
+            df = pd.DataFrame(df_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            # Export
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="📥 Télécharger CSV",
+                data=csv,
+                file_name=f"mouvements_stock_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("Aucun mouvement de stock trouvé")
+    else:
+        st.warning("L'historique des mouvements n'est disponible qu'en mode SQLite")
+
+
+def render_inventaire_physique_tab(gestionnaire_produits: GestionnaireProduits):
+    """Gère les inventaires physiques"""
+    
+    st.subheader("🔄 Inventaire Physique")
+    
+    if not gestionnaire_produits.use_sqlite:
+        st.warning("Les inventaires physiques ne sont disponibles qu'en mode SQLite")
+        return
+    
+    # Actions principales
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("➕ Nouvel Inventaire", use_container_width=True):
+            st.session_state.inventory_action = "new_inventaire"
+    
+    with col2:
+        # Récupérer les inventaires en cours
+        inventaires_en_cours = gestionnaire_produits.db.execute_query(
+            "SELECT * FROM inventaires_physiques WHERE statut = 'EN_COURS' ORDER BY created_at DESC"
+        )
+        
+        if inventaires_en_cours:
+            inventaire_id = st.selectbox(
+                "Inventaire en cours",
+                options=[inv['id'] for inv in inventaires_en_cours],
+                format_func=lambda x: next((f"{inv['code_inventaire']} - {inv['date_inventaire']}" for inv in inventaires_en_cours if inv['id'] == x), "")
+            )
+            
+            if st.button("📝 Saisir Comptage", use_container_width=True):
+                st.session_state.inventory_action = "saisie_comptage"
+                st.session_state.inventory_id = inventaire_id
+    
+    with col3:
+        if inventaires_en_cours and st.button("✅ Valider Inventaire", use_container_width=True):
+            st.session_state.inventory_action = "valider_inventaire"
+            st.session_state.inventory_id = inventaire_id
+    
+    st.markdown("---")
+    
+    # Historique des inventaires
+    st.markdown("### 📋 Historique des Inventaires")
+    
+    historique = gestionnaire_produits.db.execute_query('''
+        SELECT ip.*, e.prenom || ' ' || e.nom as created_by_name,
+               ev.prenom || ' ' || ev.nom as validated_by_name
+        FROM inventaires_physiques ip
+        LEFT JOIN employees e ON ip.created_by = e.id
+        LEFT JOIN employees ev ON ip.validated_by = ev.id
+        ORDER BY ip.created_at DESC
+        LIMIT 20
+    ''')
+    
+    if historique:
+        df_data = []
+        for inv in historique:
+            # Calculer les écarts si validé
+            if inv['statut'] == 'VALIDE':
+                ecarts = gestionnaire_produits.db.execute_query('''
+                    SELECT COUNT(*) as nb_ecarts, SUM(ABS(ecart_valeur)) as valeur_ecarts
+                    FROM inventaire_lignes
+                    WHERE inventaire_id = ? AND ecart != 0
+                ''', (inv['id'],))[0]
+                ecarts_str = f"{ecarts['nb_ecarts']} écarts (${ecarts.get('valeur_ecarts', 0):,.2f})"
+            else:
+                ecarts_str = "-"
+            
+            df_data.append({
+                "Code": inv['code_inventaire'],
+                "Date": inv['date_inventaire'],
+                "Type": inv['type_inventaire'],
+                "Statut": inv['statut'],
+                "Créé par": inv.get('created_by_name', 'N/A'),
+                "Validé par": inv.get('validated_by_name', '-'),
+                "Écarts": ecarts_str,
+                "Notes": inv.get('notes', '')
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Aucun inventaire physique réalisé")
+    
+    # Gérer les actions d'inventaire physique
+    handle_inventory_physical_actions(gestionnaire_produits)
+
+
+def handle_inventory_actions(gestionnaire_produits: GestionnaireProduits):
+    """Gère les actions d'inventaire"""
+    
+    action = st.session_state.get('inventory_action')
+    product_id = st.session_state.get('inventory_product_id')
+    
+    if action == "entree_stock" and product_id:
+        render_entree_stock_form(gestionnaire_produits, product_id)
+    elif action == "sortie_stock" and product_id:
+        render_sortie_stock_form(gestionnaire_produits, product_id)
+
+
+def render_entree_stock_form(gestionnaire_produits: GestionnaireProduits, product_id):
+    """Formulaire d'entrée de stock"""
+    
+    product = gestionnaire_produits.get_produit_by_id(product_id)
+    if not product:
+        st.error("Produit non trouvé")
+        return
+    
+    st.subheader(f"📥 Entrée de Stock - {product['code_produit']} - {product['nom']}")
+    
+    with st.form("entree_stock_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            quantite = st.number_input(
+                f"Quantité à entrer ({product['unite_vente']})",
+                min_value=0.0,
+                step=1.0
+            )
+            
+            reference = st.text_input("Référence document", placeholder="N° bon de réception, facture...")
+        
+        with col2:
+            cout_unitaire = st.number_input(
+                "Coût unitaire ($)",
+                min_value=0.0,
+                value=float(product.get('prix_unitaire', 0)),
+                step=0.01
+            )
+            
+            cout_total = quantite * cout_unitaire
+            st.metric("Coût total", f"${cout_total:,.2f}")
+        
+        notes = st.text_area("Notes", placeholder="Fournisseur, conditions...")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.form_submit_button("✅ Confirmer l'entrée", type="primary", use_container_width=True):
+                if quantite > 0:
+                    # Récupérer l'employé actuel (simplification)
+                    employee_id = 1  # À remplacer par l'employé connecté
+                    
+                    if gestionnaire_produits.entree_stock(
+                        product_id, 
+                        quantite, 
+                        reference, 
+                        cout_unitaire,
+                        employee_id
+                    ):
+                        st.success(f"✅ Entrée de {quantite} {product['unite_vente']} enregistrée")
+                        st.session_state.inventory_action = None
+                        st.rerun()
+                else:
+                    st.error("La quantité doit être supérieure à 0")
+        
+        with col2:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                st.session_state.inventory_action = None
+                st.rerun()
+
+
+def render_sortie_stock_form(gestionnaire_produits: GestionnaireProduits, product_id):
+    """Formulaire de sortie de stock"""
+    
+    product = gestionnaire_produits.get_produit_by_id(product_id)
+    stock_info = gestionnaire_produits.get_stock_complet(product_id)
+    
+    if not product or not stock_info:
+        st.error("Produit non trouvé")
+        return
+    
+    st.subheader(f"📤 Sortie de Stock - {product['code_produit']} - {product['nom']}")
+    
+    # Afficher le stock disponible
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Stock Total", f"{stock_info['stock_disponible']:.2f} {product['unite_vente']}")
+    with col2:
+        st.metric("Stock Libre", f"{stock_info['stock_libre']:.2f} {product['unite_vente']}")
+    with col3:
+        st.metric("Réservé", f"{stock_info['total_reserve']:.2f} {product['unite_vente']}")
+    
+    with st.form("sortie_stock_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            quantite = st.number_input(
+                f"Quantité à sortir ({product['unite_vente']})",
+                min_value=0.0,
+                max_value=float(stock_info['stock_libre']),
+                step=1.0
+            )
+            
+            reference = st.text_input("Référence document", placeholder="N° bon de livraison, BT...")
+        
+        with col2:
+            motif = st.selectbox(
+                "Motif de sortie",
+                ["Consommation production", "Livraison client", "Échantillon", "Perte/Déchet", "Autre"]
+            )
+            
+            if motif == "Autre":
+                motif_autre = st.text_input("Préciser le motif")
+                motif = motif_autre if motif_autre else motif
+        
+        notes = st.text_area("Notes", placeholder="Détails supplémentaires...")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.form_submit_button("✅ Confirmer la sortie", type="primary", use_container_width=True):
+                if quantite > 0:
+                    # Récupérer l'employé actuel (simplification)
+                    employee_id = 1  # À remplacer par l'employé connecté
+                    
+                    if gestionnaire_produits.sortie_stock(
+                        product_id, 
+                        quantite, 
+                        reference, 
+                        motif,
+                        employee_id
+                    ):
+                        st.success(f"✅ Sortie de {quantite} {product['unite_vente']} enregistrée")
+                        st.session_state.inventory_action = None
+                        st.rerun()
+                else:
+                    st.error("La quantité doit être supérieure à 0")
+        
+        with col2:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                st.session_state.inventory_action = None
+                st.rerun()
+
+
+def handle_inventory_physical_actions(gestionnaire_produits: GestionnaireProduits):
+    """Gère les actions d'inventaire physique"""
+    
+    action = st.session_state.get('inventory_action')
+    
+    if action == "new_inventaire":
+        render_new_inventaire_form(gestionnaire_produits)
+    elif action == "saisie_comptage":
+        render_saisie_comptage_form(gestionnaire_produits)
+    elif action == "valider_inventaire":
+        render_validation_inventaire(gestionnaire_produits)
+
+
+def render_new_inventaire_form(gestionnaire_produits: GestionnaireProduits):
+    """Formulaire de création d'inventaire physique"""
+    
+    with st.expander("➕ Créer un nouvel inventaire", expanded=True):
+        with st.form("new_inventaire_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                type_inventaire = st.selectbox(
+                    "Type d'inventaire",
+                    ["COMPLET", "PARTIEL", "CYCLIQUE", "ALEATOIRE"]
+                )
+                
+                date_inventaire = st.date_input("Date de l'inventaire", value=datetime.now().date())
+            
+            with col2:
+                if type_inventaire == "PARTIEL":
+                    categories = st.multiselect(
+                        "Catégories à inventorier",
+                        CATEGORIES_PRODUITS
+                    )
+                
+                notes = st.text_area("Notes", placeholder="Objectif, périmètre...")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.form_submit_button("✅ Créer l'inventaire", type="primary", use_container_width=True):
+                    employee_id = 1  # À remplacer par l'employé connecté
+                    
+                    inventaire_id = gestionnaire_produits.db.creer_inventaire_physique({
+                        'type_inventaire': type_inventaire,
+                        'date_inventaire': date_inventaire,
+                        'created_by': employee_id,
+                        'notes': notes
+                    })
+                    
+                    if inventaire_id:
+                        st.success("✅ Inventaire créé avec succès")
+                        st.session_state.inventory_action = None
+                        st.rerun()
+            
+            with col2:
+                if st.form_submit_button("❌ Annuler", use_container_width=True):
+                    st.session_state.inventory_action = None
+                    st.rerun()
+
+
+def render_saisie_comptage_form(gestionnaire_produits: GestionnaireProduits):
+    """Formulaire de saisie de comptage pour inventaire physique"""
+    
+    inventaire_id = st.session_state.get('inventory_id')
+    if not inventaire_id:
+        st.error("Aucun inventaire sélectionné")
+        return
+    
+    st.subheader("📝 Saisie de Comptage Physique")
+    
+    # Récupérer les lignes à compter
+    lignes = gestionnaire_produits.db.execute_query('''
+        SELECT il.*, p.code_produit, p.nom as produit_nom, p.unite_vente, p.emplacement_stock
+        FROM inventaire_lignes il
+        JOIN produits p ON il.produit_id = p.id
+        WHERE il.inventaire_id = ? AND il.statut_ligne = 'A_COMPTER'
+        ORDER BY p.code_produit
+        LIMIT 20
+    ''', (inventaire_id,))
+    
+    if lignes:
+        st.info(f"📋 {len(lignes)} produits à compter (max 20 affichés)")
+        
+        # Formulaire de comptage par lot
+        with st.form("comptage_form"):
+            comptages = {}
+            
+            for ligne in lignes:
+                st.markdown(f"### {ligne['code_produit']} - {ligne['produit_nom']}")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**Emplacement:** {ligne.get('emplacement_stock', 'N/A')}")
+                    st.write(f"**Stock théorique:** {ligne['quantite_theorique']} {ligne['unite_vente']}")
+                
+                with col2:
+                    quantite_physique = st.number_input(
+                        f"Quantité comptée ({ligne['unite_vente']})",
+                        min_value=0.0,
+                        value=float(ligne['quantite_theorique']),
+                        step=0.1,
+                        key=f"comptage_{ligne['id']}"
+                    )
+                    comptages[ligne['id']] = quantite_physique
+                
+                with col3:
+                    ecart = quantite_physique - ligne['quantite_theorique']
+                    if ecart != 0:
+                        st.metric("Écart", f"{ecart:+.2f}", delta_color="inverse" if ecart < 0 else "normal")
+                    else:
+                        st.metric("Écart", "0")
+                
+                st.markdown("---")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.form_submit_button("✅ Valider les comptages", type="primary", use_container_width=True):
+                    employee_id = 1  # À remplacer par l'employé connecté
+                    
+                    # Enregistrer tous les comptages
+                    success_count = 0
+                    for ligne_id, quantite in comptages.items():
+                        if gestionnaire_produits.db.saisir_comptage_inventaire(ligne_id, quantite, employee_id):
+                            success_count += 1
+                    
+                    st.success(f"✅ {success_count} comptages enregistrés")
+                    st.session_state.inventory_action = None
+                    st.rerun()
+            
+            with col2:
+                if st.form_submit_button("❌ Annuler", use_container_width=True):
+                    st.session_state.inventory_action = None
+                    st.rerun()
+    else:
+        st.success("✅ Tous les produits ont été comptés pour cet inventaire")
+        if st.button("Retour"):
+            st.session_state.inventory_action = None
+            st.rerun()
+
+
+def render_validation_inventaire(gestionnaire_produits: GestionnaireProduits):
+    """Interface de validation d'inventaire"""
+    
+    inventaire_id = st.session_state.get('inventory_id')
+    if not inventaire_id:
+        st.error("Aucun inventaire sélectionné")
+        return
+    
+    st.subheader("✅ Validation d'Inventaire")
+    
+    # Récupérer les informations de l'inventaire
+    inventaire = gestionnaire_produits.db.execute_query(
+        "SELECT * FROM inventaires_physiques WHERE id = ?",
+        (inventaire_id,)
+    )[0]
+    
+    # Statistiques de l'inventaire
+    stats = gestionnaire_produits.db.execute_query('''
+        SELECT 
+            COUNT(*) as total_lignes,
+            COUNT(CASE WHEN statut_ligne = 'COMPTE' THEN 1 END) as lignes_comptees,
+            COUNT(CASE WHEN ecart != 0 THEN 1 END) as lignes_avec_ecart,
+            SUM(ABS(ecart_valeur)) as valeur_ecarts_total
+        FROM inventaire_lignes
+        WHERE inventaire_id = ?
+    ''', (inventaire_id,))[0]
+    
+    # Afficher les statistiques
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Produits", stats['total_lignes'])
+    
+    with col2:
+        st.metric("Produits Comptés", stats['lignes_comptees'])
+    
+    with col3:
+        st.metric("Produits avec Écart", stats['lignes_avec_ecart'])
+    
+    with col4:
+        st.metric("Valeur Totale Écarts", f"${stats['valeur_ecarts_total'] or 0:,.2f}")
+    
+    # Vérifier si tout est compté
+    if stats['lignes_comptees'] < stats['total_lignes']:
+        st.error(f"⚠️ {stats['total_lignes'] - stats['lignes_comptees']} produits n'ont pas été comptés")
+        return
+    
+    # Afficher les écarts significatifs
+    if stats['lignes_avec_ecart'] > 0:
+        st.markdown("### 📊 Écarts Détectés")
+        
+        ecarts = gestionnaire_produits.db.execute_query('''
+            SELECT il.*, p.code_produit, p.nom as produit_nom, p.unite_vente
+            FROM inventaire_lignes il
+            JOIN produits p ON il.produit_id = p.id
+            WHERE il.inventaire_id = ? AND il.ecart != 0
+            ORDER BY ABS(il.ecart_valeur) DESC
+            LIMIT 20
+        ''', (inventaire_id,))
+        
+        df_data = []
+        for ecart in ecarts:
+            df_data.append({
+                "Code": ecart['code_produit'],
+                "Produit": ecart['produit_nom'],
+                "Stock Théorique": f"{ecart['quantite_theorique']} {ecart['unite_vente']}",
+                "Stock Physique": f"{ecart['quantite_physique']} {ecart['unite_vente']}",
+                "Écart": f"{ecart['ecart']:+.2f} {ecart['unite_vente']}",
+                "Valeur Écart": f"${ecart['ecart_valeur']:+,.2f}"
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # Boutons d'action
+    st.markdown("---")
+    st.warning("⚠️ La validation appliquera automatiquement tous les ajustements de stock")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("✅ Valider et Appliquer les Ajustements", type="primary", use_container_width=True):
+            employee_id = 1  # À remplacer par l'employé connecté
+            
+            if gestionnaire_produits.db.valider_inventaire(inventaire_id, employee_id):
+                st.success("✅ Inventaire validé et ajustements appliqués")
+                st.session_state.inventory_action = None
+                st.rerun()
+            else:
+                st.error("Erreur lors de la validation")
+    
+    with col2:
+        if st.button("❌ Annuler", use_container_width=True):
+            st.session_state.inventory_action = None
+            st.rerun()
 
 # =========================================================================
 # FONCTIONS UTILITAIRES
