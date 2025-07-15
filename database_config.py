@@ -16,13 +16,14 @@ def get_database_path():
     if os.environ.get('RENDER'):
         # Sur Render, vérifier plusieurs emplacements possibles
         possible_paths = [
+            os.path.join("/opt/render/project/data", db_filename),  # Chemin principal Render
+            os.path.join("../data", db_filename),  # Chemin relatif qui fonctionne
             os.path.join(os.path.expanduser("~"), "project", "data", db_filename),
             os.path.join("/opt/render/project/src/data", db_filename),
-            os.path.join("../data", db_filename),
             os.path.join("data", db_filename),
             db_filename  # Répertoire courant
         ]
-        default_dir = os.path.join(os.path.expanduser("~"), "project", "data")
+        default_dir = "/opt/render/project/data"
     else:
         # En local, chercher dans le répertoire courant
         possible_paths = [
@@ -55,7 +56,7 @@ def get_attachments_path():
     Retourne le chemin correct pour les pièces jointes
     """
     if os.environ.get('RENDER'):
-        base_dir = os.path.join(os.path.expanduser("~"), "project", "data")
+        base_dir = "/opt/render/project/data"
     else:
         base_dir = "."
     
@@ -68,7 +69,7 @@ def get_backup_path():
     Retourne le chemin correct pour les sauvegardes
     """
     if os.environ.get('RENDER'):
-        base_dir = os.path.join(os.path.expanduser("~"), "project", "data")
+        base_dir = "/opt/render/project/data"
     else:
         base_dir = "."
     
