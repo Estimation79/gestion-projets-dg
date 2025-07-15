@@ -615,7 +615,66 @@ class ERPDatabase:
                 )
             ''')
             
-            # 15. LIGNES DE DÉTAIL DES FORMULAIRES
+            # 15. OPPORTUNITÉS DE VENTE (CRM PIPELINE)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS opportunities (
+                    id INTEGER PRIMARY KEY,
+                    nom TEXT NOT NULL,
+                    company_id INTEGER,
+                    contact_id INTEGER,
+                    montant_estime REAL DEFAULT 0.0,
+                    devise TEXT DEFAULT 'CAD',
+                    statut TEXT DEFAULT 'Prospection' CHECK(statut IN 
+                        ('Prospection', 'Qualification', 'Proposition', 'Négociation', 'Gagné', 'Perdu')),
+                    probabilite INTEGER DEFAULT 50,
+                    date_cloture_prevue DATE,
+                    date_cloture_reelle DATE,
+                    source TEXT,
+                    campagne TEXT,
+                    notes TEXT,
+                    assigned_to INTEGER,
+                    created_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (company_id) REFERENCES companies(id),
+                    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+                    FOREIGN KEY (assigned_to) REFERENCES employees(id),
+                    FOREIGN KEY (created_by) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 16. ACTIVITÉS CRM (TÂCHES ET ÉVÉNEMENTS)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS crm_activities (
+                    id INTEGER PRIMARY KEY,
+                    opportunity_id INTEGER,
+                    contact_id INTEGER,
+                    company_id INTEGER,
+                    type_activite TEXT CHECK(type_activite IN 
+                        ('Email', 'Appel', 'Réunion', 'Tâche', 'Note', 'Visite', 'Présentation', 'Suivi')),
+                    sujet TEXT NOT NULL,
+                    description TEXT,
+                    date_activite DATETIME,
+                    duree_minutes INTEGER,
+                    statut TEXT DEFAULT 'Planifié' CHECK(statut IN 
+                        ('Planifié', 'En cours', 'Terminé', 'Annulé', 'Reporté')),
+                    priorite TEXT DEFAULT 'Normale' CHECK(priorite IN 
+                        ('Basse', 'Normale', 'Haute', 'Critique')),
+                    rappel_minutes INTEGER DEFAULT 15,
+                    lieu TEXT,
+                    assigned_to INTEGER,
+                    created_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (opportunity_id) REFERENCES opportunities(id),
+                    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+                    FOREIGN KEY (company_id) REFERENCES companies(id),
+                    FOREIGN KEY (assigned_to) REFERENCES employees(id),
+                    FOREIGN KEY (created_by) REFERENCES employees(id)
+                )
+            ''')
+            
+            # 17. LIGNES DE DÉTAIL DES FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_lignes (
                     id INTEGER PRIMARY KEY,
@@ -637,7 +696,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 16. HISTORIQUE ET VALIDATIONS DES FORMULAIRES
+            # 18. HISTORIQUE ET VALIDATIONS DES FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_validations (
                     id INTEGER PRIMARY KEY,
@@ -655,7 +714,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 17. PIÈCES JOINTES AUX FORMULAIRES
+            # 19. PIÈCES JOINTES AUX FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_pieces_jointes (
                     id INTEGER PRIMARY KEY,
@@ -672,7 +731,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 18. TEMPLATES DE FORMULAIRES
+            # 20. TEMPLATES DE FORMULAIRES
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS formulaire_templates (
                     id INTEGER PRIMARY KEY,
@@ -687,7 +746,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 19. FOURNISSEURS (Extension companies pour meilleure gestion)
+            # 21. FOURNISSEURS (Extension companies pour meilleure gestion)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS fournisseurs (
                     id INTEGER PRIMARY KEY,
@@ -707,7 +766,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 20. APPROVISIONNEMENTS (Suivi des commandes et livraisons)
+            # 22. APPROVISIONNEMENTS (Suivi des commandes et livraisons)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS approvisionnements (
                     id INTEGER PRIMARY KEY,
@@ -732,7 +791,7 @@ class ERPDatabase:
             # TABLES SPÉCIALISÉES BONS DE TRAVAIL - INTÉGRÉES AUTOMATIQUEMENT
             # =========================================================================
             
-            # 21. ASSIGNATIONS BONS DE TRAVAIL
+            # 23. ASSIGNATIONS BONS DE TRAVAIL
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS bt_assignations (
                     id INTEGER PRIMARY KEY,
@@ -747,7 +806,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 22. RÉSERVATIONS POSTES DE TRAVAIL POUR BT
+            # 24. RÉSERVATIONS POSTES DE TRAVAIL POUR BT
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS bt_reservations_postes (
                     id INTEGER PRIMARY KEY,
@@ -764,7 +823,7 @@ class ERPDatabase:
                 )
             ''')
             
-            # 23. AVANCEMENT BONS DE TRAVAIL
+            # 25. AVANCEMENT BONS DE TRAVAIL
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS bt_avancement (
                     id INTEGER PRIMARY KEY,
@@ -4052,6 +4111,217 @@ class ERPDatabase:
             logger.error(f"Erreur mise à jour approvisionnement: {e}")
             return False
     
+    # =========================================================================
+    # MÉTHODES CRM PIPELINE
+    # =========================================================================
+    
+    def create_opportunity(self, data: Dict) -> int:
+        """Crée une nouvelle opportunité de vente"""
+        try:
+            query = '''
+                INSERT INTO opportunities
+                (nom, company_id, contact_id, montant_estime, devise, statut,
+                 probabilite, date_cloture_prevue, source, campagne, notes,
+                 assigned_to, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            opp_id = self.execute_insert(query, (
+                data.get('nom'),
+                data.get('company_id'),
+                data.get('contact_id'),
+                data.get('montant_estime', 0.0),
+                data.get('devise', 'CAD'),
+                data.get('statut', 'Prospection'),
+                data.get('probabilite', 50),
+                data.get('date_cloture_prevue'),
+                data.get('source'),
+                data.get('campagne'),
+                data.get('notes'),
+                data.get('assigned_to'),
+                data.get('created_by')
+            ))
+            
+            return opp_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création opportunité: {e}")
+            return None
+    
+    def update_opportunity(self, opp_id: int, data: Dict) -> bool:
+        """Met à jour une opportunité existante"""
+        try:
+            fields = []
+            values = []
+            
+            for field in ['nom', 'company_id', 'contact_id', 'montant_estime', 
+                         'statut', 'probabilite', 'date_cloture_prevue', 'notes']:
+                if field in data:
+                    fields.append(f"{field} = ?")
+                    values.append(data[field])
+            
+            if not fields:
+                return True
+                
+            values.append(opp_id)
+            query = f"UPDATE opportunities SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            
+            affected = self.execute_update(query, values)
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur mise à jour opportunité: {e}")
+            return False
+    
+    def get_opportunities(self, filters: Dict = None) -> List[Dict]:
+        """Récupère les opportunités avec filtres optionnels"""
+        try:
+            query = '''
+                SELECT o.*, c.nom as company_name, 
+                       ct.prenom || ' ' || ct.nom_famille as contact_name,
+                       e.prenom || ' ' || e.nom as assigned_to_name
+                FROM opportunities o
+                LEFT JOIN companies c ON o.company_id = c.id
+                LEFT JOIN contacts ct ON o.contact_id = ct.id
+                LEFT JOIN employees e ON o.assigned_to = e.id
+                WHERE 1=1
+            '''
+            params = []
+            
+            if filters:
+                if filters.get('statut'):
+                    query += " AND o.statut = ?"
+                    params.append(filters['statut'])
+                if filters.get('assigned_to'):
+                    query += " AND o.assigned_to = ?"
+                    params.append(filters['assigned_to'])
+                if filters.get('company_id'):
+                    query += " AND o.company_id = ?"
+                    params.append(filters['company_id'])
+            
+            query += " ORDER BY o.created_at DESC"
+            
+            return self.execute_query(query, params)
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération opportunités: {e}")
+            return []
+    
+    def create_crm_activity(self, data: Dict) -> int:
+        """Crée une nouvelle activité CRM"""
+        try:
+            query = '''
+                INSERT INTO crm_activities
+                (opportunity_id, contact_id, company_id, type_activite, sujet,
+                 description, date_activite, duree_minutes, statut, priorite,
+                 rappel_minutes, lieu, assigned_to, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            activity_id = self.execute_insert(query, (
+                data.get('opportunity_id'),
+                data.get('contact_id'),
+                data.get('company_id'),
+                data.get('type_activite'),
+                data.get('sujet'),
+                data.get('description'),
+                data.get('date_activite'),
+                data.get('duree_minutes'),
+                data.get('statut', 'Planifié'),
+                data.get('priorite', 'Normale'),
+                data.get('rappel_minutes', 15),
+                data.get('lieu'),
+                data.get('assigned_to'),
+                data.get('created_by')
+            ))
+            
+            return activity_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création activité CRM: {e}")
+            return None
+    
+    def get_crm_activities(self, filters: Dict = None) -> List[Dict]:
+        """Récupère les activités CRM avec filtres optionnels"""
+        try:
+            query = '''
+                SELECT a.*, o.nom as opportunity_name,
+                       c.nom as company_name,
+                       ct.prenom || ' ' || ct.nom_famille as contact_name,
+                       e.prenom || ' ' || e.nom as assigned_to_name
+                FROM crm_activities a
+                LEFT JOIN opportunities o ON a.opportunity_id = o.id
+                LEFT JOIN companies c ON a.company_id = c.id
+                LEFT JOIN contacts ct ON a.contact_id = ct.id
+                LEFT JOIN employees e ON a.assigned_to = e.id
+                WHERE 1=1
+            '''
+            params = []
+            
+            if filters:
+                if filters.get('date_debut') and filters.get('date_fin'):
+                    query += " AND DATE(a.date_activite) BETWEEN ? AND ?"
+                    params.extend([filters['date_debut'], filters['date_fin']])
+                if filters.get('statut'):
+                    query += " AND a.statut = ?"
+                    params.append(filters['statut'])
+                if filters.get('assigned_to'):
+                    query += " AND a.assigned_to = ?"
+                    params.append(filters['assigned_to'])
+            
+            query += " ORDER BY a.date_activite ASC"
+            
+            return self.execute_query(query, params)
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération activités CRM: {e}")
+            return []
+    
+    def get_opportunity_pipeline_stats(self) -> Dict:
+        """Récupère les statistiques du pipeline de vente"""
+        try:
+            stats = {}
+            
+            # Nombre d'opportunités par statut
+            query = '''
+                SELECT statut, COUNT(*) as count, SUM(montant_estime) as total
+                FROM opportunities
+                GROUP BY statut
+            '''
+            results = self.execute_query(query)
+            stats['par_statut'] = {r['statut']: {'count': r['count'], 'total': r['total'] or 0} for r in results}
+            
+            # Valeur totale du pipeline
+            query = '''
+                SELECT SUM(montant_estime) as total_pipeline,
+                       SUM(CASE WHEN statut IN ('Gagné') THEN montant_estime ELSE 0 END) as total_gagne,
+                       SUM(CASE WHEN statut NOT IN ('Gagné', 'Perdu') 
+                           THEN montant_estime * probabilite / 100.0 ELSE 0 END) as total_pondere
+                FROM opportunities
+            '''
+            result = self.execute_query(query)[0]
+            stats['valeurs'] = {
+                'pipeline': result['total_pipeline'] or 0,
+                'gagne': result['total_gagne'] or 0,
+                'pondere': result['total_pondere'] or 0
+            }
+            
+            # Taux de conversion
+            query = '''
+                SELECT COUNT(CASE WHEN statut = 'Gagné' THEN 1 END) * 100.0 / 
+                       NULLIF(COUNT(*), 0) as taux_conversion
+                FROM opportunities
+                WHERE statut IN ('Gagné', 'Perdu')
+            '''
+            result = self.execute_query(query)[0]
+            stats['taux_conversion'] = result['taux_conversion'] or 0
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur calcul stats pipeline: {e}")
+            return {}
+
     # =========================================================================
     # MÉTHODES D'ANALYSE ET REPORTING
     # =========================================================================

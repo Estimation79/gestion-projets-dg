@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pandas as pd
 import streamlit as st
 from typing import Dict, List, Optional, Any
@@ -8,6 +8,19 @@ from typing import Dict, List, Optional, Any
 # --- Constantes ---
 TYPES_INTERACTION = ["Email", "Appel", "Réunion", "Note", "Autre"]
 STATUTS_OPPORTUNITE = ["Prospection", "Qualification", "Proposition", "Négociation", "Gagné", "Perdu"]
+TYPES_ACTIVITE = ["Email", "Appel", "Réunion", "Tâche", "Note", "Visite", "Présentation", "Suivi"]
+PRIORITES_ACTIVITE = ["Basse", "Normale", "Haute", "Critique"]
+STATUTS_ACTIVITE = ["Planifié", "En cours", "Terminé", "Annulé", "Reporté"]
+
+# Couleurs pour le Kanban
+COULEURS_STATUTS = {
+    "Prospection": "#9CA3AF",
+    "Qualification": "#3B82F6", 
+    "Proposition": "#F59E0B",
+    "Négociation": "#8B5CF6",
+    "Gagné": "#10B981",
+    "Perdu": "#EF4444"
+}
 
 class GestionnaireCRM:
     """
@@ -1073,6 +1086,128 @@ class GestionnaireCRM:
         self._interactions = [i for i in self._interactions if i.get('id') != id_interaction]
         self.sauvegarder_donnees_crm()
         return True
+    
+    # --- Méthodes pour le Pipeline de Vente ---
+    
+    def get_opportunities(self, filters=None):
+        """Récupère toutes les opportunités avec filtres optionnels"""
+        if not self.use_sqlite:
+            return []
+        
+        try:
+            return self.db.get_opportunities(filters)
+        except Exception as e:
+            st.error(f"Erreur récupération opportunités: {e}")
+            return []
+    
+    def create_opportunity(self, data):
+        """Crée une nouvelle opportunité"""
+        if not self.use_sqlite:
+            return None
+        
+        try:
+            return self.db.create_opportunity(data)
+        except Exception as e:
+            st.error(f"Erreur création opportunité: {e}")
+            return None
+    
+    def update_opportunity(self, opp_id, data):
+        """Met à jour une opportunité"""
+        if not self.use_sqlite:
+            return False
+        
+        try:
+            return self.db.update_opportunity(opp_id, data)
+        except Exception as e:
+            st.error(f"Erreur mise à jour opportunité: {e}")
+            return False
+    
+    def get_opportunity_by_id(self, opp_id):
+        """Récupère une opportunité par son ID"""
+        if not self.use_sqlite:
+            return None
+        
+        try:
+            opportunities = self.db.get_opportunities({'id': opp_id})
+            return opportunities[0] if opportunities else None
+        except Exception as e:
+            st.error(f"Erreur récupération opportunité: {e}")
+            return None
+    
+    def get_pipeline_stats(self):
+        """Récupère les statistiques du pipeline"""
+        if not self.use_sqlite:
+            return {}
+        
+        try:
+            return self.db.get_opportunity_pipeline_stats()
+        except Exception as e:
+            st.error(f"Erreur récupération stats pipeline: {e}")
+            return {}
+    
+    # --- Méthodes pour les Activités CRM ---
+    
+    def get_crm_activities(self, filters=None):
+        """Récupère toutes les activités CRM avec filtres optionnels"""
+        if not self.use_sqlite:
+            return []
+        
+        try:
+            return self.db.get_crm_activities(filters)
+        except Exception as e:
+            st.error(f"Erreur récupération activités: {e}")
+            return []
+    
+    def create_crm_activity(self, data):
+        """Crée une nouvelle activité CRM"""
+        if not self.use_sqlite:
+            return None
+        
+        try:
+            return self.db.create_crm_activity(data)
+        except Exception as e:
+            st.error(f"Erreur création activité: {e}")
+            return None
+    
+    def update_crm_activity(self, activity_id, data):
+        """Met à jour une activité CRM"""
+        if not self.use_sqlite:
+            return False
+        
+        try:
+            # Construire la requête de mise à jour
+            fields = []
+            values = []
+            
+            for field in ['statut', 'description', 'date_activite', 'duree_minutes']:
+                if field in data:
+                    fields.append(f"{field} = ?")
+                    values.append(data[field])
+            
+            if not fields:
+                return True
+            
+            values.append(activity_id)
+            query = f"UPDATE crm_activities SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            
+            affected = self.db.execute_update(query, values)
+            return affected > 0
+            
+        except Exception as e:
+            st.error(f"Erreur mise à jour activité: {e}")
+            return False
+    
+    def get_activity_by_id(self, activity_id):
+        """Récupère une activité par son ID"""
+        if not self.use_sqlite:
+            return None
+        
+        try:
+            activities = self.db.get_crm_activities({'id': activity_id})
+            return activities[0] if activities else None
+        except Exception as e:
+            st.error(f"Erreur récupération activité: {e}")
+            return None
 
 # --- Fonctions d'affichage Streamlit avec adresses structurées ---
 
@@ -1795,6 +1930,325 @@ def render_crm_interaction_details(crm_manager: GestionnaireCRM, projet_manager,
 # FONCTIONS DE GESTION DES ACTIONS CRM
 # =========================================================================
 
+def render_crm_opportunity_form(crm_manager: GestionnaireCRM, opportunity=None):
+    """Formulaire pour créer ou modifier une opportunité"""
+    
+    st.subheader("💼 " + ("Modifier l'Opportunité" if opportunity else "Nouvelle Opportunité"))
+    
+    with st.form("opportunity_form"):
+        # Nom de l'opportunité
+        nom = st.text_input("Nom de l'opportunité *", 
+                           value=opportunity.get('nom', '') if opportunity else '')
+        
+        # Sélection de l'entreprise et du contact
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            companies = crm_manager.entreprises
+            company_options = {c['id']: c['nom'] for c in companies}
+            company_id = st.selectbox(
+                "Entreprise",
+                options=[None] + list(company_options.keys()),
+                format_func=lambda x: "Sélectionner..." if x is None else company_options[x],
+                index=0 if not opportunity else (
+                    list(company_options.keys()).index(opportunity['company_id']) + 1 
+                    if opportunity.get('company_id') in company_options else 0
+                )
+            )
+        
+        with col2:
+            contacts = crm_manager.contacts
+            contact_options = {c['id']: f"{c['prenom']} {c['nom_famille']}" for c in contacts}
+            contact_id = st.selectbox(
+                "Contact",
+                options=[None] + list(contact_options.keys()),
+                format_func=lambda x: "Sélectionner..." if x is None else contact_options[x],
+                index=0 if not opportunity else (
+                    list(contact_options.keys()).index(opportunity['contact_id']) + 1 
+                    if opportunity.get('contact_id') in contact_options else 0
+                )
+            )
+        
+        # Montant et probabilité
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            montant = st.number_input("Montant estimé ($)", 
+                                     min_value=0.0,
+                                     value=float(opportunity.get('montant_estime', 0)) if opportunity else 0.0,
+                                     step=100.0)
+        
+        with col2:
+            probabilite = st.slider("Probabilité (%)", 
+                                   min_value=0, 
+                                   max_value=100,
+                                   value=opportunity.get('probabilite', 50) if opportunity else 50,
+                                   step=10)
+        
+        with col3:
+            statut = st.selectbox("Statut",
+                                 options=STATUTS_OPPORTUNITE,
+                                 index=STATUTS_OPPORTUNITE.index(opportunity['statut']) if opportunity else 0)
+        
+        # Dates et source
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            date_cloture = st.date_input("Date de clôture prévue",
+                                        value=datetime.fromisoformat(opportunity['date_cloture_prevue']).date() 
+                                        if opportunity and opportunity.get('date_cloture_prevue') else None)
+        
+        with col2:
+            source = st.text_input("Source",
+                                  value=opportunity.get('source', '') if opportunity else '')
+        
+        # Notes
+        notes = st.text_area("Notes",
+                            value=opportunity.get('notes', '') if opportunity else '')
+        
+        # Assignation
+        if crm_manager.use_sqlite and crm_manager.db:
+            employees = crm_manager.db.execute_query("SELECT id, prenom, nom FROM employees WHERE statut = 'ACTIF'")
+            employee_options = {e['id']: f"{e['prenom']} {e['nom']}" for e in employees}
+            assigned_to = st.selectbox(
+                "Assigné à",
+                options=[None] + list(employee_options.keys()),
+                format_func=lambda x: "Non assigné" if x is None else employee_options[x],
+                index=0 if not opportunity else (
+                    list(employee_options.keys()).index(opportunity['assigned_to']) + 1 
+                    if opportunity and opportunity.get('assigned_to') in employee_options else 0
+                )
+            )
+        else:
+            assigned_to = None
+        
+        # Boutons d'action
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            submitted = st.form_submit_button(
+                "💾 Enregistrer", 
+                type="primary",
+                use_container_width=True
+            )
+        
+        with col2:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                st.session_state.crm_action = None
+                st.session_state.crm_selected_id = None
+                st.rerun()
+        
+        if submitted:
+            if not nom:
+                st.error("Le nom de l'opportunité est obligatoire")
+            else:
+                data = {
+                    'nom': nom,
+                    'company_id': company_id,
+                    'contact_id': contact_id,
+                    'montant_estime': montant,
+                    'probabilite': probabilite,
+                    'statut': statut,
+                    'date_cloture_prevue': date_cloture.isoformat() if date_cloture else None,
+                    'source': source,
+                    'notes': notes,
+                    'assigned_to': assigned_to
+                }
+                
+                if opportunity:
+                    # Mise à jour
+                    if crm_manager.update_opportunity(opportunity['id'], data):
+                        st.success("✅ Opportunité mise à jour avec succès")
+                        st.session_state.crm_action = None
+                        st.session_state.crm_selected_id = None
+                        st.rerun()
+                else:
+                    # Création
+                    data['created_by'] = assigned_to  # Pour simplifier, créateur = assigné
+                    opp_id = crm_manager.create_opportunity(data)
+                    if opp_id:
+                        st.success("✅ Opportunité créée avec succès")
+                        st.session_state.crm_action = None
+                        st.rerun()
+
+
+def render_crm_activity_form(crm_manager: GestionnaireCRM, activity=None):
+    """Formulaire pour créer ou modifier une activité CRM"""
+    
+    st.subheader("📅 " + ("Modifier l'Activité" if activity else "Nouvelle Activité"))
+    
+    with st.form("activity_form"):
+        # Type d'activité et sujet
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            type_activite = st.selectbox("Type d'activité *",
+                                        options=TYPES_ACTIVITE,
+                                        index=TYPES_ACTIVITE.index(activity['type_activite']) 
+                                        if activity else 0)
+        
+        with col2:
+            sujet = st.text_input("Sujet *",
+                                 value=activity.get('sujet', '') if activity else '')
+        
+        # Date et heure
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            date_activite = st.date_input("Date",
+                                         value=datetime.fromisoformat(activity['date_activite']).date() 
+                                         if activity and activity.get('date_activite') else date.today())
+        
+        with col2:
+            heure_activite = st.time_input("Heure",
+                                          value=datetime.fromisoformat(activity['date_activite']).time() 
+                                          if activity and activity.get('date_activite') else datetime.now().time())
+        
+        with col3:
+            duree = st.number_input("Durée (minutes)",
+                                   min_value=15,
+                                   value=activity.get('duree_minutes', 30) if activity else 30,
+                                   step=15)
+        
+        # Statut et priorité
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            statut = st.selectbox("Statut",
+                                 options=STATUTS_ACTIVITE,
+                                 index=STATUTS_ACTIVITE.index(activity['statut']) 
+                                 if activity else 0)
+        
+        with col2:
+            priorite = st.selectbox("Priorité",
+                                   options=PRIORITES_ACTIVITE,
+                                   index=PRIORITES_ACTIVITE.index(activity['priorite']) 
+                                   if activity else 1)
+        
+        # Liens avec opportunité, contact et entreprise
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            opportunities = crm_manager.get_opportunities({'statut': ['Prospection', 'Qualification', 'Proposition', 'Négociation']})
+            opp_options = {o['id']: o['nom'] for o in opportunities}
+            opportunity_id = st.selectbox(
+                "Opportunité",
+                options=[None] + list(opp_options.keys()),
+                format_func=lambda x: "Aucune" if x is None else opp_options[x],
+                index=0 if not activity else (
+                    list(opp_options.keys()).index(activity['opportunity_id']) + 1 
+                    if activity and activity.get('opportunity_id') in opp_options else 0
+                )
+            )
+        
+        with col2:
+            contacts = crm_manager.contacts
+            contact_options = {c['id']: f"{c['prenom']} {c['nom_famille']}" for c in contacts}
+            contact_id = st.selectbox(
+                "Contact",
+                options=[None] + list(contact_options.keys()),
+                format_func=lambda x: "Aucun" if x is None else contact_options[x],
+                index=0 if not activity else (
+                    list(contact_options.keys()).index(activity['contact_id']) + 1 
+                    if activity and activity.get('contact_id') in contact_options else 0
+                )
+            )
+        
+        with col3:
+            companies = crm_manager.entreprises
+            company_options = {c['id']: c['nom'] for c in companies}
+            company_id = st.selectbox(
+                "Entreprise",
+                options=[None] + list(company_options.keys()),
+                format_func=lambda x: "Aucune" if x is None else company_options[x],
+                index=0 if not activity else (
+                    list(company_options.keys()).index(activity['company_id']) + 1 
+                    if activity and activity.get('company_id') in company_options else 0
+                )
+            )
+        
+        # Lieu (pour réunions/visites)
+        if type_activite in ['Réunion', 'Visite', 'Présentation']:
+            lieu = st.text_input("Lieu",
+                                value=activity.get('lieu', '') if activity else '')
+        else:
+            lieu = None
+        
+        # Description
+        description = st.text_area("Description",
+                                  value=activity.get('description', '') if activity else '')
+        
+        # Assignation
+        if crm_manager.use_sqlite and crm_manager.db:
+            employees = crm_manager.db.execute_query("SELECT id, prenom, nom FROM employees WHERE statut = 'ACTIF'")
+            employee_options = {e['id']: f"{e['prenom']} {e['nom']}" for e in employees}
+            assigned_to = st.selectbox(
+                "Assigné à",
+                options=[None] + list(employee_options.keys()),
+                format_func=lambda x: "Non assigné" if x is None else employee_options[x],
+                index=0 if not activity else (
+                    list(employee_options.keys()).index(activity['assigned_to']) + 1 
+                    if activity and activity.get('assigned_to') in employee_options else 0
+                )
+            )
+        else:
+            assigned_to = None
+        
+        # Boutons d'action
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            submitted = st.form_submit_button(
+                "💾 Enregistrer", 
+                type="primary",
+                use_container_width=True
+            )
+        
+        with col2:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                st.session_state.crm_action = None
+                st.session_state.crm_selected_id = None
+                st.rerun()
+        
+        if submitted:
+            if not sujet:
+                st.error("Le sujet est obligatoire")
+            else:
+                # Combiner date et heure
+                datetime_activite = datetime.combine(date_activite, heure_activite)
+                
+                data = {
+                    'type_activite': type_activite,
+                    'sujet': sujet,
+                    'date_activite': datetime_activite.isoformat(),
+                    'duree_minutes': duree,
+                    'statut': statut,
+                    'priorite': priorite,
+                    'opportunity_id': opportunity_id,
+                    'contact_id': contact_id,
+                    'company_id': company_id,
+                    'lieu': lieu,
+                    'description': description,
+                    'assigned_to': assigned_to
+                }
+                
+                if activity:
+                    # Mise à jour
+                    if crm_manager.update_crm_activity(activity['id'], data):
+                        st.success("✅ Activité mise à jour avec succès")
+                        st.session_state.crm_action = None
+                        st.session_state.crm_selected_id = None
+                        st.rerun()
+                else:
+                    # Création
+                    data['created_by'] = assigned_to  # Pour simplifier
+                    activity_id = crm_manager.create_crm_activity(data)
+                    if activity_id:
+                        st.success("✅ Activité créée avec succès")
+                        st.session_state.crm_action = None
+                        st.rerun()
+
+
 def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
     """Gestionnaire centralisé des actions CRM."""
     action = st.session_state.get('crm_action')
@@ -1821,6 +2275,293 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
         render_crm_interaction_form(crm_manager, crm_manager.get_interaction_by_id(selected_id))
     elif action == "view_interaction_details" and selected_id: 
         render_crm_interaction_details(crm_manager, projet_manager, crm_manager.get_interaction_by_id(selected_id))
+    
+    # Actions pour les opportunités
+    elif action == "create_opportunity":
+        render_crm_opportunity_form(crm_manager)
+    elif action == "edit_opportunity" and selected_id:
+        render_crm_opportunity_form(crm_manager, crm_manager.get_opportunity_by_id(selected_id))
+    
+    # Actions pour les activités
+    elif action == "create_activity":
+        render_crm_activity_form(crm_manager)
+    elif action == "edit_activity" and selected_id:
+        render_crm_activity_form(crm_manager, crm_manager.get_activity_by_id(selected_id))
+
+def render_crm_pipeline_tab(crm_manager: GestionnaireCRM):
+    """Affiche l'onglet Pipeline avec vue Kanban des opportunités"""
+    
+    # Statistiques du pipeline
+    col1, col2, col3, col4 = st.columns(4)
+    stats = crm_manager.get_pipeline_stats()
+    
+    with col1:
+        st.metric("Pipeline Total", f"${stats.get('valeurs', {}).get('pipeline', 0):,.0f}")
+    with col2:
+        st.metric("Valeur Pondérée", f"${stats.get('valeurs', {}).get('pondere', 0):,.0f}")
+    with col3:
+        st.metric("Affaires Gagnées", f"${stats.get('valeurs', {}).get('gagne', 0):,.0f}")
+    with col4:
+        st.metric("Taux de Conversion", f"{stats.get('taux_conversion', 0):.1f}%")
+    
+    st.markdown("---")
+    
+    # Bouton pour créer une nouvelle opportunité
+    if st.button("➕ Nouvelle Opportunité", key="create_opportunity"):
+        st.session_state.crm_action = "create_opportunity"
+    
+    # Vue Kanban
+    st.subheader("Pipeline de Vente")
+    
+    # Récupérer toutes les opportunités
+    opportunities = crm_manager.get_opportunities()
+    
+    # Créer les colonnes pour le Kanban
+    cols = st.columns(len(STATUTS_OPPORTUNITE))
+    
+    for idx, statut in enumerate(STATUTS_OPPORTUNITE):
+        with cols[idx]:
+            # En-tête de colonne avec couleur
+            color = COULEURS_STATUTS.get(statut, "#9CA3AF")
+            st.markdown(f"""
+                <div style='background-color: {color}; color: white; padding: 10px; 
+                           border-radius: 5px; text-align: center; margin-bottom: 10px;'>
+                    <b>{statut}</b>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Filtrer les opportunités pour ce statut
+            statut_opps = [opp for opp in opportunities if opp.get('statut') == statut]
+            
+            # Afficher les cartes d'opportunités
+            for opp in statut_opps:
+                with st.container():
+                    st.markdown(f"""
+                        <div style='border: 1px solid #E5E7EB; border-radius: 8px; 
+                                   padding: 12px; margin-bottom: 8px; background-color: white;
+                                   box-shadow: 0 1px 3px rgba(0,0,0,0.1);'>
+                            <div style='font-weight: bold; margin-bottom: 4px;'>{opp.get('nom')}</div>
+                            <div style='color: #6B7280; font-size: 14px;'>{opp.get('company_name', 'N/A')}</div>
+                            <div style='margin-top: 8px; display: flex; justify-content: space-between;'>
+                                <span style='font-weight: bold; color: #10B981;'>
+                                    ${opp.get('montant_estime', 0):,.0f}
+                                </span>
+                                <span style='color: #9CA3AF; font-size: 12px;'>
+                                    {opp.get('probabilite', 0)}%
+                                </span>
+                            </div>
+                            <div style='margin-top: 4px; color: #9CA3AF; font-size: 12px;'>
+                                {opp.get('assigned_to_name', 'Non assigné')}
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Boutons d'action
+                    col_edit, col_next = st.columns(2)
+                    with col_edit:
+                        if st.button("✏️", key=f"edit_opp_{opp['id']}", help="Modifier"):
+                            st.session_state.crm_action = "edit_opportunity"
+                            st.session_state.crm_selected_id = opp['id']
+                    
+                    with col_next:
+                        # Bouton pour passer au statut suivant
+                        if idx < len(STATUTS_OPPORTUNITE) - 1 and statut not in ['Gagné', 'Perdu']:
+                            if st.button("→", key=f"next_opp_{opp['id']}", help="Statut suivant"):
+                                next_statut = STATUTS_OPPORTUNITE[idx + 1]
+                                crm_manager.update_opportunity(opp['id'], {'statut': next_statut})
+                                st.rerun()
+            
+            # Message si aucune opportunité
+            if not statut_opps:
+                st.caption("Aucune opportunité")
+
+
+def render_crm_calendar_tab(crm_manager: GestionnaireCRM):
+    """Affiche l'onglet Calendrier avec les activités CRM"""
+    import calendar
+    from datetime import datetime, date, timedelta
+    
+    st.subheader("📅 Calendrier des Activités")
+    
+    # Sélection du mois
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    today = date.today()
+    with col1:
+        selected_month = st.selectbox(
+            "Mois",
+            range(1, 13),
+            index=today.month - 1,
+            format_func=lambda x: calendar.month_name[x]
+        )
+    
+    with col2:
+        selected_year = st.number_input(
+            "Année",
+            min_value=2020,
+            max_value=2030,
+            value=today.year
+        )
+    
+    with col3:
+        if st.button("➕ Nouvelle Activité"):
+            st.session_state.crm_action = "create_activity"
+    
+    # Récupérer les activités du mois
+    first_day = date(selected_year, selected_month, 1)
+    if selected_month == 12:
+        last_day = date(selected_year + 1, 1, 1) - timedelta(days=1)
+    else:
+        last_day = date(selected_year, selected_month + 1, 1) - timedelta(days=1)
+    
+    activities = crm_manager.get_crm_activities({
+        'date_debut': first_day.isoformat(),
+        'date_fin': last_day.isoformat()
+    })
+    
+    # Créer un dictionnaire des activités par jour
+    activities_by_day = {}
+    for activity in activities:
+        activity_date = datetime.fromisoformat(activity['date_activite']).date()
+        day = activity_date.day
+        if day not in activities_by_day:
+            activities_by_day[day] = []
+        activities_by_day[day].append(activity)
+    
+    # Afficher le calendrier
+    cal = calendar.monthcalendar(selected_year, selected_month)
+    days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+    
+    # En-tête des jours
+    cols = st.columns(7)
+    for idx, day_name in enumerate(days):
+        with cols[idx]:
+            st.markdown(f"<div style='text-align: center; font-weight: bold;'>{day_name}</div>", 
+                       unsafe_allow_html=True)
+    
+    # Afficher les semaines
+    for week in cal:
+        cols = st.columns(7)
+        for idx, day in enumerate(week):
+            with cols[idx]:
+                if day == 0:
+                    st.write("")
+                else:
+                    # Conteneur pour le jour
+                    day_date = date(selected_year, selected_month, day)
+                    is_today = day_date == today
+                    
+                    # Style du jour
+                    day_style = "background-color: #E5F2FF;" if is_today else "background-color: #F9FAFB;"
+                    
+                    st.markdown(f"""
+                        <div style='border: 1px solid #E5E7EB; border-radius: 8px; 
+                                   padding: 8px; min-height: 100px; {day_style}'>
+                            <div style='font-weight: bold; margin-bottom: 4px;'>{day}</div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Afficher les activités du jour
+                    if day in activities_by_day:
+                        for activity in activities_by_day[day][:3]:  # Limiter à 3 activités visibles
+                            # Couleur selon le type d'activité
+                            type_colors = {
+                                'Email': '#6B7280',
+                                'Appel': '#3B82F6',
+                                'Réunion': '#8B5CF6',
+                                'Tâche': '#F59E0B',
+                                'Note': '#10B981',
+                                'Visite': '#EF4444',
+                                'Présentation': '#EC4899',
+                                'Suivi': '#14B8A6'
+                            }
+                            color = type_colors.get(activity['type_activite'], '#6B7280')
+                            
+                            st.markdown(f"""
+                                <div style='background-color: {color}; color: white; 
+                                           padding: 2px 6px; border-radius: 4px; 
+                                           margin-bottom: 2px; font-size: 12px;
+                                           white-space: nowrap; overflow: hidden;
+                                           text-overflow: ellipsis;'>
+                                    {datetime.fromisoformat(activity['date_activite']).strftime('%H:%M')} - 
+                                    {activity['sujet']}
+                                </div>
+                            """, unsafe_allow_html=True)
+                        
+                        # Indiquer s'il y a plus d'activités
+                        if len(activities_by_day[day]) > 3:
+                            st.markdown(f"""
+                                <div style='font-size: 11px; color: #9CA3AF; text-align: center;'>
+                                    +{len(activities_by_day[day]) - 3} autres
+                                </div>
+                            """, unsafe_allow_html=True)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Liste des activités du jour sélectionné
+    st.markdown("---")
+    st.subheader("Activités du Jour")
+    
+    # Sélection du jour
+    selected_day = st.date_input(
+        "Sélectionner une date",
+        value=today,
+        min_value=date(2020, 1, 1),
+        max_value=date(2030, 12, 31)
+    )
+    
+    # Filtrer les activités pour le jour sélectionné
+    day_activities = crm_manager.get_crm_activities({
+        'date_debut': selected_day.isoformat(),
+        'date_fin': selected_day.isoformat()
+    })
+    
+    if day_activities:
+        for activity in day_activities:
+            with st.expander(f"{activity['type_activite']} - {activity['sujet']}"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**Heure:** {datetime.fromisoformat(activity['date_activite']).strftime('%H:%M')}")
+                    st.write(f"**Durée:** {activity.get('duree_minutes', 30)} minutes")
+                    st.write(f"**Statut:** {activity['statut']}")
+                    st.write(f"**Priorité:** {activity['priorite']}")
+                
+                with col2:
+                    if activity.get('opportunity_name'):
+                        st.write(f"**Opportunité:** {activity['opportunity_name']}")
+                    if activity.get('contact_name'):
+                        st.write(f"**Contact:** {activity['contact_name']}")
+                    if activity.get('company_name'):
+                        st.write(f"**Entreprise:** {activity['company_name']}")
+                    st.write(f"**Assigné à:** {activity.get('assigned_to_name', 'Non assigné')}")
+                
+                if activity.get('description'):
+                    st.write("**Description:**")
+                    st.write(activity['description'])
+                
+                # Boutons d'action
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("✏️ Modifier", key=f"edit_activity_{activity['id']}"):
+                        st.session_state.crm_action = "edit_activity"
+                        st.session_state.crm_selected_id = activity['id']
+                
+                with col2:
+                    if activity['statut'] != 'Terminé':
+                        if st.button("✅ Terminer", key=f"complete_activity_{activity['id']}"):
+                            crm_manager.update_crm_activity(activity['id'], {'statut': 'Terminé'})
+                            st.rerun()
+                
+                with col3:
+                    if st.button("🗑️ Supprimer", key=f"delete_activity_{activity['id']}"):
+                        crm_manager.db.execute_update(
+                            "DELETE FROM crm_activities WHERE id = ?", 
+                            (activity['id'],)
+                        )
+                        st.rerun()
+    else:
+        st.info("Aucune activité prévue pour ce jour")
+
 
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
     """Interface principale CRM."""
@@ -1831,8 +2572,8 @@ def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None)
     else:
         st.warning("⚠️ Mode JSON (rétrocompatibilité).")
     
-    # Interface principale avec 3 onglets
-    tab1, tab2, tab3 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions"])
+    # Interface principale avec 5 onglets
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions", "📊 Pipeline", "📅 Calendrier"])
     
     with tab1:
         render_crm_contacts_tab(crm_manager, projet_manager)
@@ -1840,6 +2581,10 @@ def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None)
         render_crm_entreprises_tab(crm_manager, projet_manager)
     with tab3:
         render_crm_interactions_tab(crm_manager)
+    with tab4:
+        render_crm_pipeline_tab(crm_manager)
+    with tab5:
+        render_crm_calendar_tab(crm_manager)
     
     # Gestionnaire d'actions
     handle_crm_actions(crm_manager, projet_manager)
