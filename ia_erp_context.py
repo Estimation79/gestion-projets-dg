@@ -22,8 +22,23 @@ class ERPContextProvider:
             permissions: Liste des permissions de l'utilisateur
         """
         self.erp_db = erp_db or st.session_state.get('erp_db')
-        self.permissions = permissions or st.session_state.get('admin_permissions', [])
-        self.has_all_permissions = "ALL" in self.permissions
+        
+        # Si pas de DB dans session_state, essayer de se connecter directement
+        if self.erp_db is None:
+            try:
+                from erp_database import ERPDatabase
+                import os
+                # Chercher la base de données dans le répertoire courant
+                db_path = "erp_production_dg.db"
+                if os.path.exists(db_path):
+                    self.erp_db = ERPDatabase(db_path)
+                    # Stocker dans session_state pour les prochaines utilisations
+                    st.session_state['erp_db'] = self.erp_db
+            except Exception as e:
+                print(f"Erreur lors de la connexion directe à la DB: {e}")
+        
+        self.permissions = permissions or st.session_state.get('admin_permissions', ["ALL"])
+        self.has_all_permissions = "ALL" in self.permissions or len(self.permissions) == 0
         
         # Mode dégradé si pas de DB
         self.demo_mode = self.erp_db is None
@@ -36,17 +51,24 @@ class ERPContextProvider:
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M"),
             'company': 'DG Inc.',
             'industry': 'Fabrication métallurgique',
-            'modules_available': self._get_available_modules()
+            'modules_available': self._get_available_modules(),
+            'database_connected': not self.demo_mode
         }
         
         # Ajouter des statistiques générales
-        if self.erp_db:
-            summary['statistics'] = {
-                'total_projects': self._safe_query("SELECT COUNT(*) as count FROM projects", {'count': 0})['count'],
-                'total_clients': self._safe_query("SELECT COUNT(*) as count FROM companies", {'count': 0})['count'],
-                'total_employees': self._safe_query("SELECT COUNT(*) as count FROM employees", {'count': 0})['count'],
-                'total_devis': self._safe_query("SELECT COUNT(*) as count FROM devis", {'count': 0})['count']
-            }
+        if self.erp_db and not self.demo_mode:
+            try:
+                summary['statistics'] = {
+                    'total_projects': self._safe_query("SELECT COUNT(*) as count FROM projects", {'count': 0})['count'],
+                    'total_clients': self._safe_query("SELECT COUNT(*) as count FROM companies", {'count': 0})['count'],
+                    'total_employees': self._safe_query("SELECT COUNT(*) as count FROM employees", {'count': 0})['count'],
+                    'total_formulaires': self._safe_query("SELECT COUNT(*) as count FROM formulaires WHERE type_formulaire = 'DEVIS'", {'count': 0})['count']
+                }
+                summary['database_status'] = 'Connecté avec succès'
+            except Exception as e:
+                summary['database_status'] = f'Erreur de connexion: {str(e)}'
+        else:
+            summary['database_status'] = 'Non connecté'
         
         return summary
     
@@ -73,7 +95,7 @@ class ERPContextProvider:
                 sql += " AND (client_company_id = ? OR client_legacy LIKE ?)"
                 params.extend([client, f"%{client}%"])
             
-            sql += " ORDER BY date_creation DESC LIMIT ?"
+            sql += " ORDER BY date_soumis DESC LIMIT ?"
             params.append(limit)
             
             with self.erp_db.get_connection() as conn:
@@ -109,27 +131,26 @@ class ERPContextProvider:
         
         try:
             sql = """
-                SELECT d.*, c.nom as client_nom, co.nom as contact_nom
-                FROM devis d
-                LEFT JOIN companies c ON d.client_id = c.id
-                LEFT JOIN contacts co ON d.contact_id = co.id
-                WHERE 1=1
+                SELECT f.*, c.nom as client_nom
+                FROM formulaires f
+                LEFT JOIN companies c ON f.company_id = c.id
+                WHERE f.type_formulaire = 'DEVIS'
             """
             params = []
             
             if query:
-                sql += " AND (d.numero_devis LIKE ? OR d.titre LIKE ? OR d.description LIKE ?)"
-                params.extend([f"%{query}%"] * 3)
+                sql += " AND (f.numero_document LIKE ? OR f.notes LIKE ?)"
+                params.extend([f"%{query}%"] * 2)
             
             if status:
-                sql += " AND d.statut = ?"
+                sql += " AND f.statut = ?"
                 params.append(status)
             
             if client:
-                sql += " AND (c.nom LIKE ? OR d.client_id = ?)"
+                sql += " AND (c.nom LIKE ? OR f.company_id = ?)"
                 params.extend([f"%{client}%", client])
             
-            sql += " ORDER BY d.date_creation DESC LIMIT ?"
+            sql += " ORDER BY f.date_creation DESC LIMIT ?"
             params.append(limit)
             
             with self.erp_db.get_connection() as conn:
@@ -395,6 +416,9 @@ class ERPContextProvider:
     
     def _safe_query(self, sql, default=None):
         """Exécute une requête de manière sécurisée"""
+        if self.demo_mode or not self.erp_db:
+            return default or {}
+            
         try:
             with self.erp_db.get_connection() as conn:
                 cursor = conn.cursor()
@@ -403,8 +427,9 @@ class ERPContextProvider:
                 if row:
                     columns = [col[0] for col in cursor.description]
                     return dict(zip(columns, row))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Erreur requête SQL dans _safe_query: {e}")
+            print(f"SQL: {sql}")
         return default or {}
     
     def _get_company_name(self, company_id):
@@ -467,10 +492,13 @@ def create_erp_context_for_ai():
     """
     Crée un contexte ERP enrichi pour l'IA
     """
-    if 'erp_db' not in st.session_state:
-        return "Contexte ERP non disponible"
-    
+    # Créer le provider qui tentera de se connecter à la DB
     provider = ERPContextProvider()
+    
+    # Vérifier si la connexion a réussi
+    if provider.demo_mode:
+        return "Contexte ERP non disponible - Base de données non trouvée"
+    
     context_summary = provider.get_context_summary()
     
     context_text = f"""

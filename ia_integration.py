@@ -249,29 +249,56 @@ def show_ia_expert_page():
                             # Enrichir le contexte avec les données ERP si disponible
                             enriched_messages = st.session_state.ia_messages[:-1].copy()
                             
-                            # Ajouter le contexte ERP au début de la conversation
-                            if 'erp_db' in st.session_state and len(enriched_messages) == 0:
-                                erp_context = create_erp_context_for_ai()
+                            # TOUJOURS créer le provider et le contexte ERP
+                            provider = ERPContextProvider()
+                            
+                            # TOUJOURS ajouter le contexte ERP en début
+                            erp_context = create_erp_context_for_ai()
+                            
+                            # Vérifier si le contexte n'est pas déjà présent
+                            has_erp_context = any(
+                                msg.get('role') == 'system' and 'Contexte ERP' in msg.get('content', '')
+                                for msg in enriched_messages[:3]  # Vérifier les 3 premiers messages
+                            )
+                            
+                            if not has_erp_context:
                                 enriched_messages.insert(0, {
                                     'role': 'system',
                                     'content': erp_context
                                 })
                             
                             # Analyser la requête pour enrichir avec des données spécifiques
-                            if 'erp_db' in st.session_state:
-                                provider = ERPContextProvider()
+                            if not provider.demo_mode:
                                 
                                 # Détection automatique des besoins de données
                                 query_lower = user_input.lower()
                                 additional_context = []
                                 
                                 # Recherche automatique selon le contexte
-                                if 'projet' in query_lower or 'project' in query_lower:
-                                    projects = provider.search_projects(limit=3)
-                                    if projects.get('success'):
+                                if 'projet' in query_lower or 'project' in query_lower or 'combien' in query_lower:
+                                    # Récupérer TOUS les projets pour les questions de comptage
+                                    all_projects = provider.search_projects(limit=100)
+                                    if all_projects.get('success'):
+                                        # Compter par statut
+                                        projects_by_status = {}
+                                        for p in all_projects.get('projects', []):
+                                            status = p.get('statut', 'INCONNU')
+                                            projects_by_status[status] = projects_by_status.get(status, 0) + 1
+                                        
+                                        content = f"Données projets ERP:\n"
+                                        content += f"Total projets: {all_projects.get('count', 0)}\n"
+                                        content += f"Par statut:\n"
+                                        for status, count in projects_by_status.items():
+                                            content += f"  - {status}: {count} projet(s)\n"
+                                        
+                                        # Ajouter quelques projets récents
+                                        content += "\nProjets récents:\n"
+                                        for p in all_projects.get('projects', [])[:3]:
+                                            content += f"  - {p.get('nom_projet', 'N/A')} ({p.get('statut', 'N/A')}) - Client: {p.get('client_name', 'N/A')}\n"
+                                        
                                         additional_context.append({
                                             'role': 'system',
-                                            'content': f"Données projets ERP:\n{provider.format_for_ai(projects)}"
+                                            'content': content
                                         })
                                 
                                 if 'devis' in query_lower or 'estimation' in query_lower:
@@ -339,12 +366,15 @@ def show_ia_expert_page():
             st.metric("Messages", total_messages)
             
             # Indicateur d'intégration ERP
-            if 'erp_db' in st.session_state:
-                st.markdown("### 🔗 Intégration ERP")
+            st.markdown("### 🔗 Intégration ERP")
+            
+            # TOUJOURS créer le provider pour vérifier la connexion
+            provider = ERPContextProvider()
+            
+            if not provider.demo_mode:
                 st.success("✅ Connecté à l'ERP")
                 
                 # Afficher les modules accessibles
-                provider = ERPContextProvider()
                 modules = provider._get_available_modules()
                 if modules:
                     st.info(f"Modules accessibles: {', '.join(modules)}")
@@ -391,8 +421,7 @@ def show_ia_expert_page():
                                 
                                 st.rerun()
             else:
-                st.markdown("### 🔗 Intégration ERP")
-                st.info("❌ Non connecté à l'ERP")
+                st.warning("⚠️ Mode démo - Base de données non trouvée")
             
             # Historique des conversations
             st.markdown("### 📚 Historique")
