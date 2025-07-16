@@ -1,0 +1,33 @@
+{
+  "cache_strategies": {
+    "system_prompts": {
+      "ttl": "1h",
+      "threshold_tokens": 500
+    },
+    "document_content": {
+      "ttl": "5m",
+      "threshold_tokens": 1024
+    },
+    "conversation_history": {
+      "ttl": "5m",
+      "threshold_tokens": 2048,
+      "max_turns": 20
+    },
+    "technical_instructions": {
+      "ttl": "1h",
+      "threshold_tokens": 800
+    }
+  },
+  "optimization_rules": {
+    "min_cache_size": 1024,
+    "max_context_length": 100000,
+    "cache_efficiency_threshold": 0.3,
+    "auto_adjust_ttl": true
+  },
+  "monitoring": {
+    "log_cache_performance": true,
+    "detailed_stats": true,
+    "alert_on_low_efficiency": true,
+    "efficiency_threshold": 0.2
+  }
+}

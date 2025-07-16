@@ -16,13 +16,7 @@ import csv
 import pytz  # NOUVEAU : Pour la gestion du fuseau horaire du Québec
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
 from fournisseurs import show_fournisseurs_page
-
-# Import du module IA
-try:
-    from ia_integration import show_ia_expert_page, check_ia_dependencies
-    IA_MODULE_AVAILABLE = True
-except ImportError:
-    IA_MODULE_AVAILABLE = False
+from assistant_ia_expert import show_assistant_ia_page
 
 # ========================
 # CONSTANTES GLOBALES
@@ -470,8 +464,8 @@ def get_user_permissions(username):
     permissions = {
         "admin": ["ALL"],
         "dg_admin": ["ALL"],
-        "direction": ["projects", "crm", "products", "employees", "reports", "formulaires", "fournisseurs", "ia"],
-        "superviseur": ["projects", "products", "timetracker", "work_centers", "employees", "formulaires", "ia"],
+        "direction": ["projects", "crm", "products", "employees", "reports", "formulaires", "fournisseurs"],
+        "superviseur": ["projects", "products", "timetracker", "work_centers", "employees", "formulaires"],
         "production": ["timetracker", "work_centers", "formulaires"]
     }
     return permissions.get(username, [])
@@ -2093,12 +2087,7 @@ def init_erp_system():
     # -----------------------------------------------------
     # 1. GESTIONNAIRE DE STOCKAGE PERSISTANT (PRIORITAIRE)
     # -----------------------------------------------------
-    # Import de la configuration de base de données
-    try:
-        from database_config import DATABASE_PATH
-        db_path = DATABASE_PATH
-    except ImportError:
-        db_path = "erp_production_dg.db"  # Chemin par défaut
+    db_path = "erp_production_dg.db" # Chemin par défaut
     if PERSISTENT_STORAGE_AVAILABLE and 'storage_manager' not in st.session_state:
         try:
             st.session_state.storage_manager = init_persistent_storage()
@@ -2519,10 +2508,10 @@ def show_erp_main():
             available_pages["🔄 Kanban"] = "kanban"
         else:
             available_pages["🔄 Kanban"] = "kanban"
-        
-        # Module IA Expert
-        if IA_MODULE_AVAILABLE and (has_all_permissions or "ia" in permissions):
-            available_pages["🤖 IA Expert"] = "ia_expert"
+    
+    # 9. Assistant IA
+    if has_all_permissions or "use_assistant_ia" in permissions:
+        available_pages["🤖 Assistant IA"] = "ai_assistant"
 
     # Navigation dans la sidebar
     st.sidebar.markdown("### 🧭 Navigation ERP")
@@ -2553,11 +2542,12 @@ def show_erp_main():
         "formulaires_page": "📑 Création devis",
         "liste": "📋 Gestion projet",
         "production_management": "🏭 Fabrication",
-        "timetracker_admin_complete": "⏱️🔧 TimeTracker Pro",
+        "timetracker_admin_complete": "⏱️ TimeTracker Pro",
         "employees_page": "👥 Équipes",
         "gantt": "📈 Planning",
         "calendrier": "📅 Calendrier",
-        "kanban": "🔄 Kanban"
+        "kanban": "🔄 Kanban",
+        "ai_assistant": "🤖 Assistant IA"
     }
     
     etape_actuelle = etapes_workflow.get(page_to_show_val, "")
@@ -2879,8 +2869,8 @@ def show_erp_main():
         show_gantt()
     elif page_to_show_val == "calendrier":
         # Importer et utiliser le nouveau calendrier
-        import calendrier
-        calendrier.app()  # ← NOUVELLE FONCTION
+        from calendrier import app as calendrier_app
+        calendrier_app()  # ← NOUVELLE FONCTION
 
     elif page_to_show_val == "kanban":
         # Utilisation du module Kanban unifié
@@ -2890,26 +2880,12 @@ def show_erp_main():
             # Fallback sur la fonction interne si le module n'est pas disponible
             show_kanban_legacy()
             st.warning("⚠️ Module kanban.py non disponible - utilisation de la version interne")
-    
-    elif page_to_show_val == "ia_expert":
-        # Module IA Expert
-        if IA_MODULE_AVAILABLE:
-            # S'assurer que la base de données est dans session_state avant d'afficher l'IA
-            if 'erp_db' not in st.session_state and ERP_DATABASE_AVAILABLE:
-                try:
-                    # Forcer l'initialisation si nécessaire
-                    from database_config import DATABASE_PATH
-                    import os
-                    if os.path.exists(DATABASE_PATH):
-                        st.session_state.erp_db = ERPDatabase(DATABASE_PATH)
-                        print(f"[App] Base de données forcée dans session_state pour l'IA: {DATABASE_PATH}")
-                except Exception as e:
-                    print(f"[App] Erreur lors de l'init forcée pour l'IA: {e}")
-            
-            show_ia_expert_page()
+    elif page_to_show_val == "ai_assistant":
+        # Passer la base de données depuis session_state
+        if 'erp_db' in st.session_state:
+            show_assistant_ia_page(st.session_state.erp_db)
         else:
-            st.error("❌ Module IA Expert non disponible")
-            st.info("Vérifiez que le fichier 'ia_integration.py' est présent dans le répertoire ERP")
+            st.error("❌ Base de données non initialisée. Veuillez rafraîchir la page.")
 
     # Affichage des modales et formulaires
     if st.session_state.get('show_project_modal'):
@@ -4411,14 +4387,6 @@ def render_project_bom_tab(project_data):
                     st.rerun() 
                 else:
                     st.error("❌ Une erreur est survenue lors de l'ajout du matériau.")
-
-# =========================================================================
-# === REMPLACEZ VOTRE FONCTION show_project_modal() EXISTANTE PAR CELLE-CI ===
-# =========================================================================
-
-# =========================================================================
-# === REMPLACEZ VOTRE FONCTION show_project_modal() EXISTANTE PAR CELLE-CI ===
-# =========================================================================
 
 def show_project_modal():
     """

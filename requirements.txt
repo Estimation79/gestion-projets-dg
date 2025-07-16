@@ -41,6 +41,10 @@ Pillow>=9.0.0
 # Pour la manipulation de dates avancée (si utilisé)
 # python-dateutil>=2.8.0
 
+# === ASSISTANT IA CLAUDE ===
+# NOUVEAU : Intelligence Artificielle intégrée
+anthropic>=0.3.0
+
 # === DÉVELOPPEMENT (optionnel) ===
 # pytest>=7.0.0
 # black>=22.0.0
@@ -67,15 +71,13 @@ Pillow>=9.0.0
 # - Pillow : Support d'images dans les PDFs (recommandé)
 # - Fonctionnalité disponible dans le module de gestion des Bons de Travail
 #
-# === MODULE IA EXPERT (optionnel) ===
-# Module IA activé avec toutes les dépendances
-anthropic>=0.18.0
-PyPDF2>=3.0.0
-python-docx>=0.8.11
-beautifulsoup4>=4.12.0
-python-dotenv>=1.0.0
-markdown>=3.4.0
-
+# 🤖 ASSISTANT IA CLAUDE :
+# - Intelligence artificielle intégrée pour analyse des données
+# - Recommandations automatiques et insights
+# - Chat conversationnel avec vos données ERP
+# - Analyses prévisionnelles et optimisations
+# - Nécessite une clé API Claude (CLAUDE_API_KEY)
+#
 # === COMPATIBILITÉ ===
 # Python 3.8+ recommandé
 # Testé avec Python 3.9, 3.10, 3.11

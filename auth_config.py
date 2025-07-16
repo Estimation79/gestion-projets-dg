@@ -217,6 +217,38 @@ LOCKOUT_DURATION = 300  # 5 minutes
 SESSION_TIMEOUT = 3600  # 1 heure
 
 # ===============================================
+# CONFIGURATION API CLAUDE IA
+# ===============================================
+
+# Clé API Claude pour l'assistant IA
+CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
+
+# Modèle Claude à utiliser
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-3-opus-20240229")
+
+# Paramètres de l'assistant IA
+IA_CONFIG = {
+    "model": CLAUDE_MODEL,
+    "max_tokens": 1500,
+    "temperature": 0.7,
+    "enabled": bool(CLAUDE_API_KEY),
+    "max_history": 50,  # Nombre max de messages dans l'historique
+    "timeout": 30,      # Timeout en secondes
+}
+
+def get_claude_api_key() -> str:
+    """Récupère la clé API Claude"""
+    return CLAUDE_API_KEY
+
+def is_ia_enabled() -> bool:
+    """Vérifie si l'assistant IA est activé"""
+    return IA_CONFIG["enabled"]
+
+def get_ia_config() -> Dict[str, Any]:
+    """Retourne la configuration de l'assistant IA"""
+    return IA_CONFIG.copy()
+
+# ===============================================
 # FONCTIONS D'AUDIT ET LOGGING
 # ===============================================
 
