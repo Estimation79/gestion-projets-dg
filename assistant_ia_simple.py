@@ -443,6 +443,10 @@ Réponds de manière professionnelle et concise. Utilise les données ERP quand 
         if input_lower == '/help':
             return self._get_help_text()
         
+        # Commande debug (pour vérifier la connexion DB)
+        elif input_lower == '/debug':
+            return self._get_debug_info()
+        
         # Commande stats
         elif input_lower == '/stats':
             stats = self._get_erp_statistics()
@@ -489,6 +493,79 @@ Réponds de manière professionnelle et concise. Utilise les données ERP quand 
             
             return self._get_claude_response(user_input, context)
     
+    def _get_debug_info(self) -> str:
+        """Retourne des informations de debug sur la connexion DB"""
+        lines = ["**🔧 Debug - Informations de connexion**\n"]
+        
+        # Info environnement
+        lines.append(f"**Environnement:**")
+        lines.append(f"- OS: {os.name}")
+        lines.append(f"- Répertoire actuel: {os.getcwd()}")
+        lines.append(f"- Sur Render: {'OUI' if os.path.exists('/opt/render/project') else 'NON'}")
+        lines.append("")
+        
+        # Vérifier la DB
+        if self.db:
+            lines.append("**Base de données:**")
+            lines.append(f"- Instance DB: ✅ Disponible")
+            
+            # Afficher le chemin de la DB si disponible
+            if hasattr(self.db, 'db_path'):
+                lines.append(f"- Chemin DB: {self.db.db_path}")
+                # Vérifier si le fichier existe
+                if os.path.exists(self.db.db_path):
+                    lines.append(f"- Fichier DB existe: ✅")
+                    lines.append(f"- Taille: {os.path.getsize(self.db.db_path) / 1024 / 1024:.2f} MB")
+                else:
+                    lines.append(f"- Fichier DB existe: ❌")
+            
+            # Tester la connexion
+            try:
+                # Test simple
+                result = self.db.execute_query("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'")
+                if result:
+                    lines.append(f"- Tables dans la DB: {result[0]['count']}")
+                
+                # Compter les projets
+                projects_count = self.db.execute_query("SELECT COUNT(*) as count FROM projects")
+                if projects_count:
+                    lines.append(f"- Nombre total de projets: {projects_count[0]['count']}")
+                
+                # Projets en cours
+                en_cours = self.db.execute_query("SELECT COUNT(*) as count FROM projects WHERE statut = 'EN COURS'")
+                if en_cours:
+                    lines.append(f"- Projets en cours: {en_cours[0]['count']}")
+                
+                # Afficher quelques projets
+                sample_projects = self.db.execute_query("""
+                    SELECT nom_projet, statut 
+                    FROM projects 
+                    WHERE statut = 'EN COURS' 
+                    LIMIT 3
+                """)
+                
+                if sample_projects:
+                    lines.append("\n**Exemples de projets en cours:**")
+                    for p in sample_projects:
+                        lines.append(f"- {p['nom_projet']} ({p['statut']})")
+                else:
+                    lines.append("- ⚠️ Aucun projet en cours trouvé")
+                    
+            except Exception as e:
+                lines.append(f"- ❌ Erreur lors du test: {str(e)}")
+        else:
+            lines.append("**Base de données:** ❌ Non disponible")
+        
+        # Vérifier la clé API
+        lines.append("\n**API Claude:**")
+        if self.api_key:
+            lines.append(f"- Clé configurée: ✅ (commence par {self.api_key[:10]}...)")
+            lines.append(f"- Client initialisé: {'✅' if self.client else '❌'}")
+        else:
+            lines.append("- Clé configurée: ❌")
+        
+        return "\n".join(lines)
+    
     def _get_help_text(self) -> str:
         """Retourne le texte d'aide"""
         return """
@@ -498,6 +575,7 @@ Réponds de manière professionnelle et concise. Utilise les données ERP quand 
 - `/erp [recherche]` - Rechercher dans vos données ERP
 - `/stats` - Afficher les statistiques globales
 - `/help` - Afficher cette aide
+- `/debug` - Afficher les informations de debug
 
 **Exemples de recherches ERP:**
 - `/erp projet automobile` - Recherche de projets
