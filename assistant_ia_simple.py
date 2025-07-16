@@ -347,6 +347,74 @@ class AssistantIASimple:
             logger.error(f"Erreur récupération détails devis: {e}")
             return {"error": str(e)}
     
+    def _get_projet_details(self, numero_projet: str) -> Dict[str, Any]:
+        """Récupère les détails complets d'un projet"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Récupérer les infos principales du projet
+            projet_info = self.db.execute_query("""
+                SELECT p.*, c.nom as client_nom, cc.nom as contact_nom, 
+                       cc.prenom as contact_prenom, cc.email as contact_email
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                LEFT JOIN company_contacts cc ON p.contact_principal_id = cc.id
+                WHERE p.numero_projet = ?
+            """, (numero_projet,))
+            
+            if not projet_info:
+                return {"error": f"Projet {numero_projet} non trouvé"}
+            
+            projet = dict(projet_info[0])
+            
+            # Récupérer les étapes du projet
+            etapes = self.db.execute_query("""
+                SELECT * FROM project_etapes
+                WHERE project_id = ?
+                ORDER BY ordre, id
+            """, (projet['id'],))
+            
+            projet['etapes'] = [dict(e) for e in etapes] if etapes else []
+            
+            # Récupérer les employés assignés
+            assignations = self.db.execute_query("""
+                SELECT e.nom, e.prenom, e.poste, pa.role_projet, pa.date_assignation
+                FROM project_assignations pa
+                JOIN employees e ON pa.employee_id = e.id
+                WHERE pa.project_id = ?
+                ORDER BY pa.date_assignation
+            """, (projet['id'],))
+            
+            projet['assignations'] = [dict(a) for a in assignations] if assignations else []
+            
+            # Récupérer les ressources du projet
+            ressources = self.db.execute_query("""
+                SELECT pr.*, p.nom as produit_nom, p.code_produit
+                FROM project_ressources pr
+                LEFT JOIN produits p ON pr.produit_id = p.id
+                WHERE pr.project_id = ?
+                ORDER BY pr.id
+            """, (projet['id'],))
+            
+            projet['ressources'] = [dict(r) for r in ressources] if ressources else []
+            
+            # Récupérer les documents associés (BT, Devis, etc.)
+            documents = self.db.execute_query("""
+                SELECT numero_document, type_formulaire, statut, created_at
+                FROM formulaires
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+            """, (projet['id'],))
+            
+            projet['documents'] = [dict(d) for d in documents] if documents else []
+            
+            return {"projet_details": projet}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération détails projet: {e}")
+            return {"error": str(e)}
+    
     def _get_erp_statistics(self) -> Dict[str, Any]:
         """Récupère les statistiques de l'ERP"""
         if not self.db:
@@ -847,6 +915,29 @@ Réponds de manière professionnelle et structurée."""
                     )
                 else:
                     return self._format_devis_details(devis_details)
+            
+            # Pattern pour PROJET (format PRJ-XX-XXX)
+            projet_pattern = re.match(r'(prj[- ]?\d{2}[- ]?\d{3})', query.lower())
+            if projet_pattern:
+                # Normaliser le numéro de projet
+                projet_numero = projet_pattern.group(1).upper().replace(' ', '-')
+                if not projet_numero.startswith('PRJ-'):
+                    projet_numero = 'PRJ-' + projet_numero[3:]
+                
+                # Récupérer les détails du projet
+                projet_details = self._get_projet_details(projet_numero)
+                
+                if self.client and 'projet_details' in projet_details:
+                    context = {
+                        'projet_details': projet_details['projet_details'],
+                        'instruction_stricte': "IMPORTANT: Présente UNIQUEMENT les informations fournies dans projet_details. N'invente AUCUNE donnée."
+                    }
+                    return self._get_claude_response(
+                        f"Présente de manière détaillée ce projet avec toutes ses informations, étapes et ressources associées",
+                        context
+                    )
+                else:
+                    return self._format_projet_details(projet_details)
             
             # Gérer les commandes spécifiques sans terme de recherche
             elif query.lower() in ['produit', 'produits', 'article', 'articles']:
@@ -1511,6 +1602,105 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
         # Pied de page
         lines.append("---")
         lines.append("*Ce devis est valable selon les conditions mentionnées ci-dessus.*")
+        
+        return "\n".join(lines)
+    
+    def _format_projet_details(self, details: Dict) -> str:
+        """Formate les détails complets d'un projet"""
+        if 'error' in details:
+            return f"❌ **Erreur:** {details['error']}"
+        
+        if 'projet_details' not in details:
+            return "❌ Aucun détail disponible pour ce projet."
+        
+        projet = details['projet_details']
+        lines = []
+        
+        # En-tête du projet
+        lines.append(f"## 📁 **{projet.get('numero_projet', 'N/A')} - {projet.get('nom_projet', 'Sans nom')}**\n")
+        
+        # Informations générales
+        lines.append("### 📋 **Informations générales**")
+        lines.append(f"- **Client**: {projet.get('client_nom', 'N/A')}")
+        if projet.get('contact_nom'):
+            lines.append(f"- **Contact**: {projet.get('contact_prenom', '')} {projet.get('contact_nom', '')}")
+            if projet.get('contact_email'):
+                lines.append(f"- **Email**: {projet.get('contact_email')}")
+        lines.append(f"- **Statut**: `{projet.get('statut', 'N/A')}`")
+        lines.append(f"- **Type**: {projet.get('type_projet', 'N/A')}")
+        lines.append(f"- **Date création**: {projet.get('date_creation', 'N/A')}")
+        if projet.get('date_debut'):
+            lines.append(f"- **Date début prévue**: {projet['date_debut']}")
+        if projet.get('date_fin_prevue'):
+            lines.append(f"- **Date fin prévue**: {projet['date_fin_prevue']}")
+        if projet.get('prix_estime'):
+            lines.append(f"- **Budget estimé**: {projet['prix_estime']:,.2f} $")
+        if projet.get('description'):
+            lines.append(f"\n**Description**: {projet['description']}")
+        lines.append("")
+        
+        # Étapes du projet
+        if projet.get('etapes'):
+            lines.append("### 📊 **Étapes du projet**")
+            lines.append("| **#** | **Nom** | **Statut** | **Date début** | **Date fin** | **% Complété** |")
+            lines.append("|-------|---------|------------|----------------|--------------|----------------|")
+            
+            for etape in projet['etapes']:
+                ordre = etape.get('ordre', '')
+                nom = etape.get('nom_etape', '')
+                statut = etape.get('statut', 'À FAIRE')
+                debut = etape.get('date_debut', 'N/A')
+                fin = etape.get('date_fin', 'N/A')
+                pct = etape.get('pourcentage_complete', 0)
+                lines.append(f"| {ordre} | {nom} | {statut} | {debut} | {fin} | {pct}% |")
+            lines.append("")
+        
+        # Employés assignés
+        if projet.get('assignations'):
+            lines.append("### 👥 **Équipe du projet**")
+            lines.append("| **Nom** | **Poste** | **Rôle dans le projet** | **Date assignation** |")
+            lines.append("|---------|-----------|-------------------------|---------------------|")
+            
+            for ass in projet['assignations']:
+                nom = f"{ass.get('prenom', '')} {ass.get('nom', '')}"
+                poste = ass.get('poste', 'N/A')
+                role = ass.get('role_projet', 'N/A')
+                date = ass.get('date_assignation', 'N/A')
+                lines.append(f"| {nom} | {poste} | {role} | {date} |")
+            lines.append("")
+        
+        # Ressources du projet
+        if projet.get('ressources'):
+            lines.append("### 🔧 **Ressources planifiées**")
+            lines.append("| **Produit** | **Code** | **Quantité** | **Unité** | **Statut** |")
+            lines.append("|-------------|----------|--------------|-----------|------------|")
+            
+            for res in projet['ressources']:
+                nom = res.get('produit_nom', res.get('description', 'N/A'))
+                code = res.get('code_produit', 'N/A')
+                qte = res.get('quantite_prevue', 0)
+                unite = res.get('unite', 'N/A')
+                statut = res.get('statut', 'PLANIFIÉ')
+                lines.append(f"| {nom} | {code} | {qte} | {unite} | {statut} |")
+            lines.append("")
+        
+        # Documents associés
+        if projet.get('documents'):
+            lines.append("### 📄 **Documents associés**")
+            lines.append("| **Numéro** | **Type** | **Statut** | **Date création** |")
+            lines.append("|------------|----------|------------|-------------------|")
+            
+            for doc in projet['documents']:
+                numero = doc.get('numero_document', '')
+                type_doc = doc.get('type_formulaire', '')
+                statut = doc.get('statut', '')
+                date = doc.get('created_at', 'N/A')
+                lines.append(f"| {numero} | {type_doc} | {statut} | {date} |")
+            lines.append("")
+        
+        # Avancement global
+        if projet.get('pourcentage_complete') is not None:
+            lines.append(f"### 📈 **Avancement global**: {projet['pourcentage_complete']}%")
         
         return "\n".join(lines)
 
