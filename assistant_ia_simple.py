@@ -80,6 +80,23 @@ class AssistantIASimple:
                     if validated_projects:
                         results['projets'] = validated_projects
             
+            # Recherche produits
+            if any(word in query_lower for word in ['produit', 'product', 'article', 'référence']):
+                produits = self.db.execute_query("""
+                    SELECT code_produit, nom, categorie, materiau, nuance, 
+                           dimensions, unite_vente, prix_unitaire, 
+                           stock_disponible, stock_minimum, fournisseur_principal
+                    FROM produits 
+                    WHERE actif = 1 AND (
+                        nom LIKE ? OR code_produit LIKE ? OR 
+                        description LIKE ? OR materiau LIKE ?
+                    )
+                    LIMIT 5
+                """, (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%'))
+                
+                if produits:
+                    results['produits'] = [dict(prod) for prod in produits]
+            
             # Recherche inventaire
             if any(word in query_lower for word in ['stock', 'inventaire', 'matériel']):
                 items = self.db.execute_query("""
@@ -573,7 +590,51 @@ Réponds de manière professionnelle et structurée."""
         # Commande recherche ERP
         elif input_lower.startswith('/erp '):
             query = user_input[5:].strip()
-            results = self._search_erp_data(query)
+            
+            # Gérer les commandes spécifiques sans terme de recherche
+            if query.lower() in ['produit', 'produits', 'article', 'articles']:
+                # Récupérer directement tous les produits actifs
+                try:
+                    produits = self.db.execute_query("""
+                        SELECT code_produit, nom, categorie, materiau, nuance, 
+                               dimensions, unite_vente, prix_unitaire, 
+                               stock_disponible, stock_minimum, fournisseur_principal
+                        FROM produits 
+                        WHERE actif = 1
+                        ORDER BY categorie, nom
+                        LIMIT 20
+                    """)
+                    if produits:
+                        results = {'produits': [dict(p) for p in produits]}
+                    else:
+                        results = {}
+                except Exception as e:
+                    results = {'error': str(e)}
+            elif query.lower() in ['projet', 'projets']:
+                # Récupérer tous les projets actifs
+                projets_actifs = self._get_current_projects()
+                if projets_actifs:
+                    results = {'projets': projets_actifs}
+                else:
+                    results = {}
+            elif query.lower() in ['stock', 'inventaire']:
+                # Récupérer tout l'inventaire
+                try:
+                    items = self.db.execute_query("""
+                        SELECT nom, quantite_metric, statut, description
+                        FROM inventory_items 
+                        ORDER BY nom
+                        LIMIT 20
+                    """)
+                    if items:
+                        results = {'inventaire': [dict(item) for item in items]}
+                    else:
+                        results = {}
+                except Exception as e:
+                    results = {'error': str(e)}
+            else:
+                # Recherche normale avec le terme fourni
+                results = self._search_erp_data(query)
             
             # Enrichir avec Claude si disponible
             if self.client and results:
@@ -591,7 +652,7 @@ Réponds de manière professionnelle et structurée."""
         # Question normale - utiliser Claude avec contexte ERP
         else:
             # Vérifier si la question concerne l'ERP
-            erp_keywords = ['projet', 'stock', 'inventaire', 'employé', 'client', 'production', 'bon de travail']
+            erp_keywords = ['projet', 'stock', 'inventaire', 'employé', 'client', 'production', 'bon de travail', 'produit', 'article', 'référence']
             
             context = {}
             
@@ -611,6 +672,23 @@ Réponds de manière professionnelle et structurée."""
                         context['projets_actifs'] = projets_actifs
                         context['format_projets'] = "tableau"
                         context['instruction_stricte'] = "IMPORTANT: Présente UNIQUEMENT les projets fournis dans projets_actifs. N'invente AUCUN autre projet."
+                
+                # Pour les questions sur les produits
+                elif 'produit' in input_lower or any(word in input_lower for word in ['produits', 'article', 'articles', 'référence']):
+                    # Récupérer les produits
+                    produits = self.db.execute_query("""
+                        SELECT code_produit, nom, description, categorie, materiau, nuance, 
+                               dimensions, unite_vente, prix_unitaire, 
+                               stock_disponible, stock_minimum, fournisseur_principal
+                        FROM produits 
+                        WHERE actif = 1
+                        ORDER BY categorie, nom
+                        LIMIT 20
+                    """)
+                    if produits:
+                        context['produits_disponibles'] = [dict(p) for p in produits]
+                        context['format_produits'] = "tableau"
+                        context['instruction_stricte'] = "IMPORTANT: Présente UNIQUEMENT les produits fournis dans produits_disponibles. N'invente AUCUN produit."
                 
                 # Recherche automatique générale
                 search_results = self._search_erp_data(user_input)
@@ -802,6 +880,21 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
                 client = p.get('client_nom', 'N/A')
                 budget = f"{p['prix_estime']:,.0f} $" if p.get('prix_estime') else "N/A"
                 lines.append(f"| {nom} | {statut} | {client} | {budget} |")
+            lines.append("")
+        
+        # Produits avec tableau
+        if 'produits' in results and results['produits']:
+            lines.append("### 🔧 **Produits trouvés**\n")
+            lines.append("| **Code** | **Nom** | **Catégorie** | **Stock** | **Prix** |")
+            lines.append("|----------|---------|---------------|-----------|----------|")
+            
+            for prod in results['produits']:
+                code = prod.get('code_produit', '')
+                nom = prod.get('nom', '')
+                categorie = prod.get('categorie', '')
+                stock = f"{prod.get('stock_disponible', 0)} {prod.get('unite_vente', '')}"
+                prix = f"{prod.get('prix_unitaire', 0):.2f} $"
+                lines.append(f"| {code} | {nom} | {categorie} | {stock} | {prix} |")
             lines.append("")
         
         # Inventaire avec style carte
