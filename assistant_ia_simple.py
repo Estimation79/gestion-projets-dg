@@ -176,7 +176,7 @@ class AssistantIASimple:
                             WHERE fl.formulaire_id = f.id 
                             ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
                     FROM formulaires f 
-                    WHERE f.type_formulaire = 'DEVIS' 
+                    WHERE f.type_formulaire = 'ESTIMATION' 
                     AND (f.numero_document LIKE ? OR f.notes LIKE ?)
                     ORDER BY f.created_at DESC
                     LIMIT 5
@@ -295,7 +295,7 @@ class AssistantIASimple:
                 SELECT f.*, c.nom as client_nom
                 FROM formulaires f
                 LEFT JOIN companies c ON f.company_id = c.id
-                WHERE f.numero_document = ? AND f.type_formulaire = 'DEVIS'
+                WHERE f.numero_document = ? AND f.type_formulaire = 'ESTIMATION'
             """, (numero_devis,))
             
             if not devis_info:
@@ -936,7 +936,7 @@ Réponds de manière professionnelle et structurée."""
                                 WHERE fl.formulaire_id = f.id 
                                 ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
                         FROM formulaires f 
-                        WHERE f.type_formulaire = 'DEVIS'
+                        WHERE f.type_formulaire = 'ESTIMATION'
                         ORDER BY f.created_at DESC
                         LIMIT 20
                     """)
