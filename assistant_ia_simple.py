@@ -72,7 +72,13 @@ class AssistantIASimple:
                 """, (f'%{query}%', f'%{query}%'))
                 
                 if projects:
-                    results['projets'] = [dict(p) for p in projects]
+                    # Valider les données avant de les ajouter
+                    validated_projects = []
+                    for p in projects:
+                        if p.get('nom_projet'):  # S'assurer que le projet a un nom
+                            validated_projects.append(dict(p))
+                    if validated_projects:
+                        results['projets'] = validated_projects
             
             # Recherche inventaire
             if any(word in query_lower for word in ['stock', 'inventaire', 'matériel']):
@@ -167,40 +173,60 @@ class AssistantIASimple:
             return {}
     
     def _get_current_projects(self) -> List[Dict]:
-        """Récupère spécifiquement les projets en cours"""
+        """Récupère spécifiquement les projets en cours ou actifs"""
         if not self.db:
             return []
         
         try:
-            # Requête simple pour les projets en cours
+            # Requête pour les projets actifs (tous sauf TERMINÉ et ANNULÉ)
+            # Note: On récupère tous les projets car il y a des problèmes d'encodage avec les statuts
             projects = self.db.execute_query("""
                 SELECT 
+                    p.id,
                     p.nom_projet,
                     p.statut,
                     p.priorite,
                     p.prix_estime,
                     p.description,
                     p.date_prevu,
+                    p.client_nom_cache,
                     c.nom as client_nom
                 FROM projects p
                 LEFT JOIN companies c ON p.client_company_id = c.id
-                WHERE p.statut = 'EN COURS'
                 ORDER BY p.priorite DESC, p.updated_at DESC
             """)
             
-            return [dict(p) for p in projects] if projects else []
+            # Filtrer manuellement pour contourner les problèmes d'encodage
+            if projects:
+                active_projects = []
+                for p in projects:
+                    # Accepter tous les projets sauf ceux marqués comme terminés
+                    statut = p.get('statut', '')
+                    if statut and 'TERMIN' not in statut.upper() and 'ANNUL' not in statut.upper():
+                        # Valider que le projet a bien un nom (éviter les données corrompues)
+                        if p.get('nom_projet'):
+                            active_projects.append(dict(p))
+                return active_projects
+            return []
             
         except Exception as e:
-            logger.error(f"Erreur récupération projets en cours: {e}")
+            logger.error(f"Erreur récupération projets actifs: {e}")
             # Essai sans jointure si erreur
             try:
                 projects = self.db.execute_query("""
-                    SELECT nom_projet, statut, priorite, prix_estime, description, date_prevu
+                    SELECT id, nom_projet, statut, priorite, prix_estime, description, date_prevu, client_nom_cache
                     FROM projects
-                    WHERE statut = 'EN COURS'
                     ORDER BY priorite DESC
                 """)
-                return [dict(p) for p in projects] if projects else []
+                if projects:
+                    # Filtrer manuellement
+                    active_projects = []
+                    for p in projects:
+                        statut = p.get('statut', '')
+                        if statut and 'TERMIN' not in statut.upper() and 'ANNUL' not in statut.upper():
+                            active_projects.append(dict(p))
+                    return active_projects
+                return []
             except Exception as e2:
                 logger.error(f"Erreur requête simple: {e2}")
                 return []
@@ -218,6 +244,13 @@ class AssistantIASimple:
             # Construire le message système avec contexte ERP
             system_message = """Tu es un assistant expert en gestion ERP pour l'industrie métallurgique.
 Tu as accès aux données du système ERP incluant projets, inventaire, employés, clients et production.
+
+RÈGLE ABSOLUE - SOURCE UNIQUE DE VÉRITÉ:
+- Tu DOIS te baser EXCLUSIVEMENT sur les données fournies dans le contexte ERP
+- Tu ne dois JAMAIS inventer, supposer ou inférer des informations au-delà des données explicites
+- Chaque information que tu fournis doit être DIRECTEMENT et EXPLICITEMENT traçable aux données SQLite
+- Si une information n'est pas dans les données fournies, réponds: "Cette information n'est pas disponible dans la base de données"
+- Ne JAMAIS créer de projets, produits, employés ou autres entités qui n'existent pas dans les données
 
 IMPORTANT - Format de réponse:
 - Utilise des tableaux markdown pour présenter des listes de données (projets, inventaire, etc.)
@@ -544,7 +577,10 @@ Réponds de manière professionnelle et structurée."""
             
             # Enrichir avec Claude si disponible
             if self.client and results:
-                context = {'recherche_erp': results}
+                context = {
+                    'recherche_erp': results,
+                    'instruction_stricte': "IMPORTANT: Présente UNIQUEMENT les résultats fournis dans recherche_erp. N'ajoute AUCUNE donnée inventée."
+                }
                 return self._get_claude_response(
                     f"Présente ces résultats de recherche ERP de manière claire: {json.dumps(results, ensure_ascii=False)}",
                     context
@@ -561,21 +597,33 @@ Réponds de manière professionnelle et structurée."""
             
             # Si mots-clés ERP détectés, chercher des données pertinentes
             if any(keyword in input_lower for keyword in erp_keywords):
-                # Pour les questions sur les projets en cours spécifiquement
-                if 'en cours' in input_lower and 'projet' in input_lower:
-                    projets_en_cours = self._get_current_projects()
-                    if projets_en_cours:
-                        context['projets_en_cours'] = projets_en_cours
+                # Pour les questions sur les projets (en cours, actifs, ou tous)
+                if 'projet' in input_lower and any(word in input_lower for word in ['en cours', 'actif', 'liste', 'montre', 'affiche', 'tous']):
+                    projets_actifs = self._get_current_projects()
+                    if projets_actifs:
+                        context['projets_actifs'] = projets_actifs
                         context['format_projets'] = "tableau"  # Indication pour formater en tableau
+                        context['instruction_stricte'] = "IMPORTANT: Présente UNIQUEMENT les projets fournis dans projets_actifs. N'invente AUCUN autre projet."
+                # Aussi pour la commande directe "projets"
+                elif input_lower.strip() == 'projets' or input_lower.strip() == 'projet':
+                    projets_actifs = self._get_current_projects()
+                    if projets_actifs:
+                        context['projets_actifs'] = projets_actifs
+                        context['format_projets'] = "tableau"
+                        context['instruction_stricte'] = "IMPORTANT: Présente UNIQUEMENT les projets fournis dans projets_actifs. N'invente AUCUN autre projet."
                 
                 # Recherche automatique générale
                 search_results = self._search_erp_data(user_input)
                 if search_results:
                     context['donnees_erp'] = search_results
+                    context['instruction_stricte'] = "IMPORTANT: Base-toi UNIQUEMENT sur les données fournies dans donnees_erp. N'invente AUCUNE information supplémentaire."
                 
                 # Ajouter les stats si demandé
                 if any(word in input_lower for word in ['statistique', 'stats', 'nombre', 'combien']):
-                    context['statistiques'] = self._get_erp_statistics()
+                    stats = self._get_erp_statistics()
+                    if stats:
+                        context['statistiques'] = stats
+                        context['instruction_stricte'] = "IMPORTANT: Utilise UNIQUEMENT les statistiques fournies. N'invente AUCUN chiffre ou donnée."
             
             return self._get_claude_response(user_input, context)
     

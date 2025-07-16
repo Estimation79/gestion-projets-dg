@@ -665,7 +665,10 @@ Comment puis-je vous aider aujourd'hui?"""
             
             try:
                 response = st.session_state.expert_advisor.obtenir_reponse(
-                    f"Voici les résultats de recherche dans l'ERP. Présente-les de manière claire et propose des actions si pertinent:\n{context}",
+                    f"""Voici les résultats de recherche dans l'ERP. Présente-les de manière claire et propose des actions si pertinent:
+{context}
+
+RÈGLE ABSOLUE: Base-toi UNIQUEMENT sur les résultats fournis ci-dessus. N'invente AUCUNE donnée supplémentaire.""",
                     []
                 )
                 
@@ -703,7 +706,17 @@ Comment puis-je vous aider aujourd'hui?"""
                 erp_context = self._get_erp_context()
                 
                 if erp_context:
-                    system_context = f"Contexte ERP actuel:\n{erp_context}\n\nUtilise ces informations si pertinent pour ta réponse."
+                    system_context = f"""Contexte ERP actuel:
+{erp_context}
+
+RÈGLE ABSOLUE - SOURCE UNIQUE DE VÉRITÉ:
+- Tu DOIS te baser EXCLUSIVEMENT sur les données fournies dans le contexte ERP
+- Tu ne dois JAMAIS inventer, supposer ou inférer des informations au-delà des données explicites
+- Chaque information que tu fournis doit être DIRECTEMENT et EXPLICITEMENT traçable aux données SQLite
+- Si une information n'est pas dans les données fournies, réponds: "Cette information n'est pas disponible dans la base de données"
+- Ne JAMAIS créer de projets, produits, employés ou autres entités qui n'existent pas dans les données
+
+Utilise ces informations si pertinent pour ta réponse."""
                     history = [{"role": "system", "content": system_context}] + st.session_state.messages[:-1]
                 else:
                     history = st.session_state.messages[:-1]
