@@ -133,11 +133,122 @@ class AssistantIASimple:
                 if companies:
                     results['entreprises'] = [dict(comp) for comp in companies]
             
+            # Recherche bons de travail
+            if any(word in query_lower for word in ['bon', 'bt', 'travail']):
+                bts = self.db.execute_query("""
+                    SELECT f.numero_document, f.statut, f.priorite, f.created_at, 
+                           f.metadonnees_json, f.notes,
+                           (SELECT fl.description FROM formulaire_lignes fl 
+                            WHERE fl.formulaire_id = f.id 
+                            ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
+                    FROM formulaires f 
+                    WHERE f.type_formulaire = 'BON_TRAVAIL' 
+                    AND (f.numero_document LIKE ? OR f.notes LIKE ?)
+                    ORDER BY f.created_at DESC
+                    LIMIT 5
+                """, (f'%{query}%', f'%{query}%'))
+                
+                if bts:
+                    # Traiter les métadonnées JSON pour extraire le titre
+                    bons_travail = []
+                    for bt in bts:
+                        bt_dict = dict(bt)
+                        if bt_dict.get('metadonnees_json'):
+                            try:
+                                meta = json.loads(bt_dict['metadonnees_json'])
+                                bt_dict['titre'] = meta.get('project_name', 'Sans titre')
+                                bt_dict['client'] = meta.get('client_name', 'N/A')
+                            except:
+                                bt_dict['titre'] = bt_dict.get('premiere_ligne', 'Sans titre')
+                                bt_dict['client'] = 'N/A'
+                        else:
+                            bt_dict['titre'] = bt_dict.get('premiere_ligne', 'Sans titre')
+                            bt_dict['client'] = 'N/A'
+                        bons_travail.append(bt_dict)
+                    results['bons_travail'] = bons_travail
+            
         except Exception as e:
             logger.error(f"Erreur recherche ERP: {e}")
             results['error'] = str(e)
         
         return results
+    
+    def _get_bt_details(self, numero_bt: str) -> Dict[str, Any]:
+        """Récupère les détails complets d'un bon de travail"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Récupérer les infos principales du BT
+            bt_info = self.db.execute_query("""
+                SELECT f.*, p.nom_projet
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                WHERE f.numero_document = ? AND f.type_formulaire = 'BON_TRAVAIL'
+            """, (numero_bt,))
+            
+            if not bt_info:
+                return {"error": f"Bon de travail {numero_bt} non trouvé"}
+            
+            bt = dict(bt_info[0])
+            
+            # Parser les métadonnées JSON
+            if bt.get('metadonnees_json'):
+                try:
+                    meta = json.loads(bt['metadonnees_json'])
+                    bt['titre'] = meta.get('project_name', bt.get('nom_projet', 'Sans titre'))
+                    bt['client'] = meta.get('client_name', 'N/A')
+                except:
+                    bt['titre'] = bt.get('nom_projet', 'Sans titre')
+                    bt['client'] = 'N/A'
+            
+            # Récupérer les lignes/opérations du BT
+            lignes = self.db.execute_query("""
+                SELECT fl.*, p.nom as nom_produit
+                FROM formulaire_lignes fl
+                LEFT JOIN produits p ON fl.code_article = p.code_produit
+                WHERE fl.formulaire_id = ?
+                ORDER BY fl.sequence_ligne
+            """, (bt['id'],))
+            
+            bt['operations'] = [dict(ligne) for ligne in lignes] if lignes else []
+            
+            # Récupérer les assignations d'employés
+            assignations = self.db.execute_query("""
+                SELECT ba.*, e.nom, e.prenom, e.poste
+                FROM bt_assignations ba
+                JOIN employees e ON ba.employee_id = e.id
+                WHERE ba.formulaire_id = ?
+            """, (bt['id'],))
+            
+            bt['assignations'] = [dict(a) for a in assignations] if assignations else []
+            
+            # Récupérer les réservations de postes
+            reservations = self.db.execute_query("""
+                SELECT br.*, wc.nom as nom_poste
+                FROM bt_reservations_postes br
+                JOIN work_centers wc ON br.work_center_id = wc.id
+                WHERE br.formulaire_id = ?
+            """, (bt['id'],))
+            
+            bt['reservations_postes'] = [dict(r) for r in reservations] if reservations else []
+            
+            # Récupérer l'avancement
+            avancement = self.db.execute_query("""
+                SELECT ba.*, e.nom, e.prenom
+                FROM bt_avancement ba
+                LEFT JOIN employees e ON ba.employee_id = e.id
+                WHERE ba.formulaire_id = ?
+                ORDER BY ba.date_avancement DESC
+            """, (bt['id'],))
+            
+            bt['avancement'] = [dict(a) for a in avancement] if avancement else []
+            
+            return {"bt_details": bt}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération détails BT: {e}")
+            return {"error": str(e)}
     
     def _get_erp_statistics(self) -> Dict[str, Any]:
         """Récupère les statistiques de l'ERP"""
@@ -591,8 +702,32 @@ Réponds de manière professionnelle et structurée."""
         elif input_lower.startswith('/erp '):
             query = user_input[5:].strip()
             
+            # Vérifier si c'est une demande de BT spécifique (format BT-XXXX-XXX)
+            import re
+            bt_pattern = re.match(r'(bt[- ]?\d{4}[- ]?\d{3})', query.lower())
+            if bt_pattern:
+                # Normaliser le numéro de BT
+                bt_numero = bt_pattern.group(1).upper().replace(' ', '-')
+                if not bt_numero.startswith('BT-'):
+                    bt_numero = 'BT-' + bt_numero[2:]
+                
+                # Récupérer les détails du BT
+                bt_details = self._get_bt_details(bt_numero)
+                
+                if self.client and 'bt_details' in bt_details:
+                    context = {
+                        'bt_details': bt_details['bt_details'],
+                        'instruction_stricte': "IMPORTANT: Présente UNIQUEMENT les informations fournies dans bt_details. N'invente AUCUNE donnée."
+                    }
+                    return self._get_claude_response(
+                        f"Présente de manière détaillée ce bon de travail avec toutes ses opérations, assignations et avancements",
+                        context
+                    )
+                else:
+                    return self._format_bt_details(bt_details)
+            
             # Gérer les commandes spécifiques sans terme de recherche
-            if query.lower() in ['produit', 'produits', 'article', 'articles']:
+            elif query.lower() in ['produit', 'produits', 'article', 'articles']:
                 # Récupérer directement tous les produits actifs
                 try:
                     produits = self.db.execute_query("""
@@ -632,6 +767,43 @@ Réponds de manière professionnelle et structurée."""
                         results = {}
                 except Exception as e:
                     results = {'error': str(e)}
+            elif query.lower() in ['bt', 'bon', 'bons', 'bon de travail', 'bons de travail']:
+                # Récupérer tous les bons de travail
+                try:
+                    bts = self.db.execute_query("""
+                        SELECT f.numero_document, f.statut, f.priorite, f.created_at, 
+                               f.metadonnees_json, f.notes,
+                               (SELECT fl.description FROM formulaire_lignes fl 
+                                WHERE fl.formulaire_id = f.id 
+                                ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
+                        FROM formulaires f 
+                        WHERE f.type_formulaire = 'BON_TRAVAIL'
+                        ORDER BY f.created_at DESC
+                        LIMIT 20
+                    """)
+                    
+                    if bts:
+                        # Traiter les métadonnées JSON pour extraire le titre
+                        bons_travail = []
+                        for bt in bts:
+                            bt_dict = dict(bt)
+                            if bt_dict.get('metadonnees_json'):
+                                try:
+                                    meta = json.loads(bt_dict['metadonnees_json'])
+                                    bt_dict['titre'] = meta.get('project_name', 'Sans titre')
+                                    bt_dict['client'] = meta.get('client_name', 'N/A')
+                                except:
+                                    bt_dict['titre'] = bt_dict.get('premiere_ligne', 'Sans titre')
+                                    bt_dict['client'] = 'N/A'
+                            else:
+                                bt_dict['titre'] = bt_dict.get('premiere_ligne', 'Sans titre')
+                                bt_dict['client'] = 'N/A'
+                            bons_travail.append(bt_dict)
+                        results = {'bons_travail': bons_travail}
+                    else:
+                        results = {}
+                except Exception as e:
+                    results = {'error': str(e)}
             else:
                 # Recherche normale avec le terme fourni
                 results = self._search_erp_data(query)
@@ -652,7 +824,7 @@ Réponds de manière professionnelle et structurée."""
         # Question normale - utiliser Claude avec contexte ERP
         else:
             # Vérifier si la question concerne l'ERP
-            erp_keywords = ['projet', 'stock', 'inventaire', 'employé', 'client', 'production', 'bon de travail', 'produit', 'article', 'référence']
+            erp_keywords = ['projet', 'stock', 'inventaire', 'employé', 'client', 'production', 'bon de travail', 'produit', 'article', 'référence', 'bt', 'bon', 'bons']
             
             context = {}
             
@@ -689,6 +861,60 @@ Réponds de manière professionnelle et structurée."""
                         context['produits_disponibles'] = [dict(p) for p in produits]
                         context['format_produits'] = "tableau"
                         context['instruction_stricte'] = "IMPORTANT: Présente UNIQUEMENT les produits fournis dans produits_disponibles. N'invente AUCUN produit."
+                
+                # Pour les questions sur les bons de travail
+                elif any(word in input_lower for word in ['bon de travail', 'bons de travail', 'bt']) or (
+                    'bon' in input_lower and 'travail' in input_lower):
+                    # Vérifier si c'est une demande de BT spécifique
+                    import re
+                    bt_pattern = re.search(r'(bt[- ]?\d{4}[- ]?\d{3})', input_lower)
+                    if bt_pattern:
+                        # Normaliser le numéro de BT
+                        bt_numero = bt_pattern.group(1).upper().replace(' ', '-')
+                        if not bt_numero.startswith('BT-'):
+                            bt_numero = 'BT-' + bt_numero[2:]
+                        
+                        # Récupérer les détails du BT
+                        bt_details = self._get_bt_details(bt_numero)
+                        if 'bt_details' in bt_details:
+                            context['bt_details'] = bt_details['bt_details']
+                            context['format_bt_details'] = "détaillé"
+                            context['instruction_stricte'] = "IMPORTANT: Présente UNIQUEMENT les informations fournies dans bt_details. N'invente AUCUNE donnée."
+                    else:
+                        # Récupérer la liste des bons de travail
+                        bts = self.db.execute_query("""
+                            SELECT f.numero_document, f.statut, f.priorite, f.created_at, 
+                                   f.metadonnees_json, f.notes,
+                                   (SELECT fl.description FROM formulaire_lignes fl 
+                                    WHERE fl.formulaire_id = f.id 
+                                    ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
+                            FROM formulaires f 
+                            WHERE f.type_formulaire = 'BON_TRAVAIL'
+                            ORDER BY f.created_at DESC
+                            LIMIT 20
+                        """)
+                        
+                        if bts:
+                            # Traiter les métadonnées JSON pour extraire le titre
+                            bons_travail = []
+                            for bt in bts:
+                                bt_dict = dict(bt)
+                                if bt_dict.get('metadonnees_json'):
+                                    try:
+                                        meta = json.loads(bt_dict['metadonnees_json'])
+                                        bt_dict['titre'] = meta.get('project_name', 'Sans titre')
+                                        bt_dict['client'] = meta.get('client_name', 'N/A')
+                                    except:
+                                        bt_dict['titre'] = bt_dict.get('premiere_ligne', 'Sans titre')
+                                        bt_dict['client'] = 'N/A'
+                                else:
+                                    bt_dict['titre'] = bt_dict.get('premiere_ligne', 'Sans titre')
+                                    bt_dict['client'] = 'N/A'
+                                bons_travail.append(bt_dict)
+                            
+                            context['bons_travail'] = bons_travail
+                            context['format_bons_travail'] = "tableau"
+                            context['instruction_stricte'] = "IMPORTANT: Présente UNIQUEMENT les bons de travail fournis. N'invente AUCUN bon de travail."
                 
                 # Recherche automatique générale
                 search_results = self._search_erp_data(user_input)
@@ -927,6 +1153,110 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
                 lines.append(f"- 🏭 Secteur: `{comp['secteur']}`")
                 lines.append(f"- 📍 Ville: `{comp['ville']}`")
                 lines.append("")
+        
+        # Bons de travail avec tableau
+        if 'bons_travail' in results and results['bons_travail']:
+            lines.append("### 🔧 **Bons de travail trouvés**\n")
+            lines.append("| **Numéro** | **Titre** | **Client** | **Statut** | **Priorité** |")
+            lines.append("|------------|-----------|------------|------------|--------------|")
+            
+            for bt in results['bons_travail']:
+                numero = bt.get('numero_document', '')
+                titre = bt.get('titre', 'Sans titre')
+                client = bt.get('client', 'N/A')
+                statut = bt.get('statut', 'N/A')
+                priorite = bt.get('priorite', 'NORMALE')
+                lines.append(f"| {numero} | {titre} | {client} | {statut} | {priorite} |")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _format_bt_details(self, details: Dict) -> str:
+        """Formate les détails complets d'un bon de travail"""
+        if 'error' in details:
+            return f"❌ **Erreur:** {details['error']}"
+        
+        if 'bt_details' not in details:
+            return "❌ Aucun détail disponible pour ce bon de travail."
+        
+        bt = details['bt_details']
+        lines = []
+        
+        # En-tête du BT
+        lines.append(f"## 🔧 **{bt.get('numero_document', 'N/A')} - {bt.get('titre', 'Sans titre')}**\n")
+        
+        # Informations générales
+        lines.append("### 📋 **Informations générales**")
+        lines.append(f"- **Client**: {bt.get('client', 'N/A')}")
+        lines.append(f"- **Statut**: `{bt.get('statut', 'N/A')}`")
+        lines.append(f"- **Priorité**: `{bt.get('priorite', 'NORMALE')}`")
+        lines.append(f"- **Date création**: {bt.get('created_at', 'N/A')}")
+        if bt.get('date_echeance'):
+            lines.append(f"- **Date échéance**: {bt['date_echeance']}")
+        if bt.get('notes'):
+            lines.append(f"- **Notes**: {bt['notes']}")
+        lines.append("")
+        
+        # Opérations/Lignes
+        if bt.get('operations'):
+            lines.append("### 📐 **Opérations du bon de travail**")
+            lines.append("| **#** | **Description** | **Quantité** | **Unité** | **Prix unit.** | **Total** |")
+            lines.append("|-------|-----------------|--------------|-----------|----------------|-----------|")
+            
+            for op in bt['operations']:
+                seq = op.get('sequence_ligne', '')
+                desc = op.get('description', '')
+                qte = op.get('quantite', 0)
+                unite = op.get('unite', '')
+                prix = op.get('prix_unitaire', 0)
+                total = op.get('montant_ligne', qte * prix)
+                lines.append(f"| {seq} | {desc} | {qte} | {unite} | {prix:.2f} $ | {total:.2f} $ |")
+            lines.append("")
+        
+        # Assignations d'employés
+        if bt.get('assignations'):
+            lines.append("### 👥 **Employés assignés**")
+            lines.append("| **Nom** | **Poste** | **Date assignation** |")
+            lines.append("|---------|-----------|---------------------|")
+            
+            for ass in bt['assignations']:
+                nom = f"{ass.get('prenom', '')} {ass.get('nom', '')}"
+                poste = ass.get('poste', 'N/A')
+                date = ass.get('date_assignation', 'N/A')
+                lines.append(f"| {nom} | {poste} | {date} |")
+            lines.append("")
+        
+        # Réservations de postes
+        if bt.get('reservations_postes'):
+            lines.append("### 🏭 **Postes de travail réservés**")
+            lines.append("| **Poste** | **Date début** | **Date fin** | **Durée (h)** |")
+            lines.append("|-----------|----------------|--------------|---------------|")
+            
+            for res in bt['reservations_postes']:
+                poste = res.get('nom_poste', 'N/A')
+                debut = res.get('date_debut', 'N/A')
+                fin = res.get('date_fin', 'N/A')
+                duree = res.get('duree_heures', 0)
+                lines.append(f"| {poste} | {debut} | {fin} | {duree} |")
+            lines.append("")
+        
+        # Avancement
+        if bt.get('avancement'):
+            lines.append("### 📊 **Historique d'avancement**")
+            lines.append("| **Date** | **Employé** | **% Complété** | **Commentaire** |")
+            lines.append("|----------|-------------|----------------|-----------------|")
+            
+            for av in bt['avancement']:
+                date = av.get('date_avancement', 'N/A')
+                emp = f"{av.get('prenom', '')} {av.get('nom', '')}" if av.get('nom') else 'N/A'
+                pct = av.get('pourcentage_complete', 0)
+                comm = av.get('commentaire', '')
+                lines.append(f"| {date} | {emp} | {pct}% | {comm} |")
+            lines.append("")
+        
+        # Total
+        if bt.get('montant_total'):
+            lines.append(f"### 💰 **Montant total**: {bt['montant_total']:.2f} $")
         
         return "\n".join(lines)
 
