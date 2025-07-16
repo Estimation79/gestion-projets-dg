@@ -217,8 +217,8 @@ class AssistantIASimple:
             assignations = self.db.execute_query("""
                 SELECT ba.*, e.nom, e.prenom, e.poste
                 FROM bt_assignations ba
-                JOIN employees e ON ba.employee_id = e.id
-                WHERE ba.formulaire_id = ?
+                JOIN employees e ON ba.employe_id = e.id
+                WHERE ba.bt_id = ?
             """, (bt['id'],))
             
             bt['assignations'] = [dict(a) for a in assignations] if assignations else []
@@ -228,7 +228,7 @@ class AssistantIASimple:
                 SELECT br.*, wc.nom as nom_poste
                 FROM bt_reservations_postes br
                 JOIN work_centers wc ON br.work_center_id = wc.id
-                WHERE br.formulaire_id = ?
+                WHERE br.bt_id = ?
             """, (bt['id'],))
             
             bt['reservations_postes'] = [dict(r) for r in reservations] if reservations else []
@@ -237,9 +237,9 @@ class AssistantIASimple:
             avancement = self.db.execute_query("""
                 SELECT ba.*, e.nom, e.prenom
                 FROM bt_avancement ba
-                LEFT JOIN employees e ON ba.employee_id = e.id
-                WHERE ba.formulaire_id = ?
-                ORDER BY ba.date_avancement DESC
+                LEFT JOIN employees e ON ba.updated_by = e.id
+                WHERE ba.bt_id = ?
+                ORDER BY ba.updated_at DESC
             """, (bt['id'],))
             
             bt['avancement'] = [dict(a) for a in avancement] if avancement else []
@@ -1229,29 +1229,30 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
         # Réservations de postes
         if bt.get('reservations_postes'):
             lines.append("### 🏭 **Postes de travail réservés**")
-            lines.append("| **Poste** | **Date début** | **Date fin** | **Durée (h)** |")
-            lines.append("|-----------|----------------|--------------|---------------|")
+            lines.append("| **Poste** | **Date réservation** | **Date prévue** | **Statut** |")
+            lines.append("|-----------|---------------------|-----------------|------------|")
             
             for res in bt['reservations_postes']:
                 poste = res.get('nom_poste', 'N/A')
-                debut = res.get('date_debut', 'N/A')
-                fin = res.get('date_fin', 'N/A')
-                duree = res.get('duree_heures', 0)
-                lines.append(f"| {poste} | {debut} | {fin} | {duree} |")
+                date_res = res.get('date_reservation', 'N/A')
+                date_prev = res.get('date_prevue', 'N/A')
+                statut = res.get('statut', 'N/A')
+                lines.append(f"| {poste} | {date_res} | {date_prev} | {statut} |")
             lines.append("")
         
         # Avancement
         if bt.get('avancement'):
             lines.append("### 📊 **Historique d'avancement**")
-            lines.append("| **Date** | **Employé** | **% Complété** | **Commentaire** |")
-            lines.append("|----------|-------------|----------------|-----------------|")
+            lines.append("| **Date** | **Modifié par** | **% Réalisé** | **Temps réel** | **Notes** |")
+            lines.append("|----------|-----------------|---------------|----------------|-----------|")
             
             for av in bt['avancement']:
-                date = av.get('date_avancement', 'N/A')
+                date = av.get('updated_at', 'N/A')
                 emp = f"{av.get('prenom', '')} {av.get('nom', '')}" if av.get('nom') else 'N/A'
-                pct = av.get('pourcentage_complete', 0)
-                comm = av.get('commentaire', '')
-                lines.append(f"| {date} | {emp} | {pct}% | {comm} |")
+                pct = av.get('pourcentage_realise', 0)
+                temps = av.get('temps_reel', 0)
+                notes = av.get('notes_avancement', '')
+                lines.append(f"| {date} | {emp} | {pct}% | {temps}h | {notes} |")
             lines.append("")
         
         # Total
