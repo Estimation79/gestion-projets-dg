@@ -224,7 +224,7 @@ SESSION_TIMEOUT = 3600  # 1 heure
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 # Modèle Claude à utiliser
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-3-opus-20240229")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
 # Paramètres de l'assistant IA
 IA_CONFIG = {

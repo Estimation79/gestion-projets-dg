@@ -37,7 +37,7 @@ class AssistantIAClaude:
         if self.api_key:
             try:
                 self.client = Anthropic(api_key=self.api_key)
-                self.model = "claude-3-opus-20240229"  # ou claude-3-sonnet pour économiser
+                self.model = "claude-sonnet-4-20250514"
                 logger.info("✅ Assistant IA Claude initialisé avec succès")
             except Exception as e:
                 logger.error(f"❌ Erreur initialisation Claude: {e}")
