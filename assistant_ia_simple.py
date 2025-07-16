@@ -825,15 +825,13 @@ Réponds de manière professionnelle et structurée."""
                 else:
                     return self._format_bt_details(bt_details)
             
-            # Pattern pour DEVIS (format DV-XXXX-XXX ou DEVIS-XXXX-XXX)
-            devis_pattern = re.match(r'((?:dv|devis)[- ]?\d{4}[- ]?\d{3})', query.lower())
+            # Pattern pour DEVIS (format EST-XXXX-XXX)
+            devis_pattern = re.match(r'(est[- ]?\d{4}[- ]?\d{3})', query.lower())
             if devis_pattern:
                 # Normaliser le numéro de devis
                 devis_numero = devis_pattern.group(1).upper().replace(' ', '-')
-                if devis_numero.startswith('DV'):
-                    devis_numero = devis_numero.replace('DV', 'DEVIS')
-                if not devis_numero.startswith('DEVIS-'):
-                    devis_numero = 'DEVIS-' + devis_numero[5:]
+                if not devis_numero.startswith('EST-'):
+                    devis_numero = 'EST-' + devis_numero[3:]
                 
                 # Récupérer les détails du devis
                 devis_details = self._get_devis_details(devis_numero)
