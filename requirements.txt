@@ -45,6 +45,14 @@ Pillow>=9.0.0
 # NOUVEAU : Intelligence Artificielle intégrée
 anthropic>=0.3.0
 
+# === ASSISTANT IA EXPERT - MODULES ADDITIONNELS ===
+# Pour le nouveau module assistant_ia_expert.py
+markdown>=3.4.0
+beautifulsoup4>=4.12.0
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+openpyxl>=3.0.0
+
 # === DÉVELOPPEMENT (optionnel) ===
 # pytest>=7.0.0
 # black>=22.0.0

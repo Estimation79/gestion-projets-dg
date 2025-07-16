@@ -16,7 +16,7 @@ import csv
 import pytz  # NOUVEAU : Pour la gestion du fuseau horaire du Québec
 import backup_scheduler  # Ceci démarre automatiquement le scheduler
 from fournisseurs import show_fournisseurs_page
-from assistant_ia_expert import show_assistant_ia_page
+from assistant_ia_simple import show_assistant_ia_page
 
 # ========================
 # CONSTANTES GLOBALES
