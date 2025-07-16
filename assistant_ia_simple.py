@@ -167,6 +167,40 @@ class AssistantIASimple:
                         bons_travail.append(bt_dict)
                     results['bons_travail'] = bons_travail
             
+            # Recherche devis
+            if any(word in query_lower for word in ['devis', 'quote', 'estimation']):
+                devis = self.db.execute_query("""
+                    SELECT f.numero_document, f.statut, f.priorite, f.created_at, 
+                           f.metadonnees_json, f.notes, f.montant_total,
+                           (SELECT fl.description FROM formulaire_lignes fl 
+                            WHERE fl.formulaire_id = f.id 
+                            ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
+                    FROM formulaires f 
+                    WHERE f.type_formulaire = 'DEVIS' 
+                    AND (f.numero_document LIKE ? OR f.notes LIKE ?)
+                    ORDER BY f.created_at DESC
+                    LIMIT 5
+                """, (f'%{query}%', f'%{query}%'))
+                
+                if devis:
+                    # Traiter les métadonnées JSON pour extraire le titre
+                    devis_list = []
+                    for d in devis:
+                        d_dict = dict(d)
+                        if d_dict.get('metadonnees_json'):
+                            try:
+                                meta = json.loads(d_dict['metadonnees_json'])
+                                d_dict['titre'] = meta.get('project_name', meta.get('objet', 'Sans titre'))
+                                d_dict['client'] = meta.get('client_name', 'N/A')
+                            except:
+                                d_dict['titre'] = d_dict.get('premiere_ligne', 'Sans titre')
+                                d_dict['client'] = 'N/A'
+                        else:
+                            d_dict['titre'] = d_dict.get('premiere_ligne', 'Sans titre')
+                            d_dict['client'] = 'N/A'
+                        devis_list.append(d_dict)
+                    results['devis'] = devis_list
+            
         except Exception as e:
             logger.error(f"Erreur recherche ERP: {e}")
             results['error'] = str(e)
@@ -248,6 +282,69 @@ class AssistantIASimple:
             
         except Exception as e:
             logger.error(f"Erreur récupération détails BT: {e}")
+            return {"error": str(e)}
+    
+    def _get_devis_details(self, numero_devis: str) -> Dict[str, Any]:
+        """Récupère les détails complets d'un devis"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Récupérer les infos principales du devis
+            devis_info = self.db.execute_query("""
+                SELECT f.*, c.nom as client_nom
+                FROM formulaires f
+                LEFT JOIN companies c ON f.company_id = c.id
+                WHERE f.numero_document = ? AND f.type_formulaire = 'DEVIS'
+            """, (numero_devis,))
+            
+            if not devis_info:
+                return {"error": f"Devis {numero_devis} non trouvé"}
+            
+            devis = dict(devis_info[0])
+            
+            # Parser les métadonnées JSON
+            if devis.get('metadonnees_json'):
+                try:
+                    meta = json.loads(devis['metadonnees_json'])
+                    devis['titre'] = meta.get('objet', meta.get('project_name', 'Sans titre'))
+                    devis['client'] = meta.get('client_name', devis.get('client_nom', 'N/A'))
+                    devis['validite'] = meta.get('validite_jours', 30)
+                    devis['conditions'] = meta.get('conditions_paiement', 'Net 30 jours')
+                except:
+                    devis['titre'] = 'Sans titre'
+                    devis['client'] = devis.get('client_nom', 'N/A')
+            
+            # Récupérer les lignes/articles du devis
+            lignes = self.db.execute_query("""
+                SELECT fl.*, p.nom as nom_produit, p.categorie
+                FROM formulaire_lignes fl
+                LEFT JOIN produits p ON fl.code_article = p.code_produit
+                WHERE fl.formulaire_id = ?
+                ORDER BY fl.sequence_ligne
+            """, (devis['id'],))
+            
+            devis['lignes'] = [dict(ligne) for ligne in lignes] if lignes else []
+            
+            # Calculer les totaux
+            sous_total = sum(ligne.get('montant_ligne', 0) for ligne in devis['lignes'])
+            devis['sous_total'] = sous_total
+            
+            # Récupérer les validations si existantes
+            validations = self.db.execute_query("""
+                SELECT v.*, e.nom, e.prenom
+                FROM formulaire_validations v
+                LEFT JOIN employees e ON v.validated_by = e.id
+                WHERE v.formulaire_id = ?
+                ORDER BY v.validated_at DESC
+            """, (devis['id'],))
+            
+            devis['validations'] = [dict(v) for v in validations] if validations else []
+            
+            return {"devis_details": devis}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération détails devis: {e}")
             return {"error": str(e)}
     
     def _get_erp_statistics(self) -> Dict[str, Any]:
@@ -702,8 +799,10 @@ Réponds de manière professionnelle et structurée."""
         elif input_lower.startswith('/erp '):
             query = user_input[5:].strip()
             
-            # Vérifier si c'est une demande de BT spécifique (format BT-XXXX-XXX)
+            # Vérifier si c'est une demande de formulaire spécifique (BT ou DEVIS)
             import re
+            
+            # Pattern pour BT (format BT-XXXX-XXX)
             bt_pattern = re.match(r'(bt[- ]?\d{4}[- ]?\d{3})', query.lower())
             if bt_pattern:
                 # Normaliser le numéro de BT
@@ -725,6 +824,31 @@ Réponds de manière professionnelle et structurée."""
                     )
                 else:
                     return self._format_bt_details(bt_details)
+            
+            # Pattern pour DEVIS (format DV-XXXX-XXX ou DEVIS-XXXX-XXX)
+            devis_pattern = re.match(r'((?:dv|devis)[- ]?\d{4}[- ]?\d{3})', query.lower())
+            if devis_pattern:
+                # Normaliser le numéro de devis
+                devis_numero = devis_pattern.group(1).upper().replace(' ', '-')
+                if devis_numero.startswith('DV'):
+                    devis_numero = devis_numero.replace('DV', 'DEVIS')
+                if not devis_numero.startswith('DEVIS-'):
+                    devis_numero = 'DEVIS-' + devis_numero[5:]
+                
+                # Récupérer les détails du devis
+                devis_details = self._get_devis_details(devis_numero)
+                
+                if self.client and 'devis_details' in devis_details:
+                    context = {
+                        'devis_details': devis_details['devis_details'],
+                        'instruction_stricte': "IMPORTANT: Présente UNIQUEMENT les informations fournies dans devis_details. N'invente AUCUNE donnée."
+                    }
+                    return self._get_claude_response(
+                        f"Présente de manière détaillée ce devis avec toutes ses lignes et informations commerciales",
+                        context
+                    )
+                else:
+                    return self._format_devis_details(devis_details)
             
             # Gérer les commandes spécifiques sans terme de recherche
             elif query.lower() in ['produit', 'produits', 'article', 'articles']:
@@ -804,6 +928,43 @@ Réponds de manière professionnelle et structurée."""
                         results = {}
                 except Exception as e:
                     results = {'error': str(e)}
+            elif query.lower() in ['devis', 'quote', 'estimation', 'devis']:
+                # Récupérer tous les devis
+                try:
+                    devis = self.db.execute_query("""
+                        SELECT f.numero_document, f.statut, f.priorite, f.created_at, 
+                               f.metadonnees_json, f.notes, f.montant_total,
+                               (SELECT fl.description FROM formulaire_lignes fl 
+                                WHERE fl.formulaire_id = f.id 
+                                ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
+                        FROM formulaires f 
+                        WHERE f.type_formulaire = 'DEVIS'
+                        ORDER BY f.created_at DESC
+                        LIMIT 20
+                    """)
+                    
+                    if devis:
+                        # Traiter les métadonnées JSON pour extraire le titre
+                        devis_list = []
+                        for d in devis:
+                            d_dict = dict(d)
+                            if d_dict.get('metadonnees_json'):
+                                try:
+                                    meta = json.loads(d_dict['metadonnees_json'])
+                                    d_dict['titre'] = meta.get('project_name', meta.get('objet', 'Sans titre'))
+                                    d_dict['client'] = meta.get('client_name', 'N/A')
+                                except:
+                                    d_dict['titre'] = d_dict.get('premiere_ligne', 'Sans titre')
+                                    d_dict['client'] = 'N/A'
+                            else:
+                                d_dict['titre'] = d_dict.get('premiere_ligne', 'Sans titre')
+                                d_dict['client'] = 'N/A'
+                            devis_list.append(d_dict)
+                        results = {'devis': devis_list}
+                    else:
+                        results = {'info': 'Aucun devis trouvé dans la base de données.'}
+                except Exception as e:
+                    results = {'error': str(e)}
             else:
                 # Recherche normale avec le terme fourni
                 results = self._search_erp_data(query)
@@ -824,7 +985,7 @@ Réponds de manière professionnelle et structurée."""
         # Question normale - utiliser Claude avec contexte ERP
         else:
             # Vérifier si la question concerne l'ERP
-            erp_keywords = ['projet', 'stock', 'inventaire', 'employé', 'client', 'production', 'bon de travail', 'produit', 'article', 'référence', 'bt', 'bon', 'bons']
+            erp_keywords = ['projet', 'stock', 'inventaire', 'employé', 'client', 'production', 'bon de travail', 'produit', 'article', 'référence', 'bt', 'bon', 'bons', 'devis', 'quote', 'estimation']
             
             context = {}
             
@@ -1169,6 +1330,25 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
                 lines.append(f"| {numero} | {titre} | {client} | {statut} | {priorite} |")
             lines.append("")
         
+        # Devis avec tableau
+        if 'devis' in results and results['devis']:
+            lines.append("### 💰 **Devis trouvés**\n")
+            lines.append("| **Numéro** | **Titre/Objet** | **Client** | **Montant** | **Statut** |")
+            lines.append("|------------|-----------------|------------|-------------|------------|")
+            
+            for devis in results['devis']:
+                numero = devis.get('numero_document', '')
+                titre = devis.get('titre', 'Sans titre')
+                client = devis.get('client', 'N/A')
+                montant = f"{devis.get('montant_total', 0):,.2f} $" if devis.get('montant_total') else 'N/A'
+                statut = devis.get('statut', 'N/A')
+                lines.append(f"| {numero} | {titre} | {client} | {montant} | {statut} |")
+            lines.append("")
+        
+        # Message informatif
+        if 'info' in results:
+            lines.append(f"ℹ️ **Information**: {results['info']}")
+        
         return "\n".join(lines)
     
     def _format_bt_details(self, details: Dict) -> str:
@@ -1258,6 +1438,81 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
         # Total
         if bt.get('montant_total'):
             lines.append(f"### 💰 **Montant total**: {bt['montant_total']:.2f} $")
+        
+        return "\n".join(lines)
+    
+    def _format_devis_details(self, details: Dict) -> str:
+        """Formate les détails complets d'un devis"""
+        if 'error' in details:
+            return f"❌ **Erreur:** {details['error']}"
+        
+        if 'devis_details' not in details:
+            return "❌ Aucun détail disponible pour ce devis."
+        
+        devis = details['devis_details']
+        lines = []
+        
+        # En-tête du devis
+        lines.append(f"## 💰 **{devis.get('numero_document', 'N/A')} - {devis.get('titre', 'Sans titre')}**\n")
+        
+        # Informations générales
+        lines.append("### 📋 **Informations générales**")
+        lines.append(f"- **Client**: {devis.get('client', 'N/A')}")
+        lines.append(f"- **Statut**: `{devis.get('statut', 'N/A')}`")
+        lines.append(f"- **Date création**: {devis.get('created_at', 'N/A')}")
+        lines.append(f"- **Validité**: {devis.get('validite', 30)} jours")
+        lines.append(f"- **Conditions**: {devis.get('conditions', 'Net 30 jours')}")
+        if devis.get('notes'):
+            lines.append(f"- **Notes**: {devis['notes']}")
+        lines.append("")
+        
+        # Lignes du devis
+        if devis.get('lignes'):
+            lines.append("### 📦 **Articles du devis**")
+            lines.append("| **#** | **Description** | **Catégorie** | **Quantité** | **Unité** | **Prix unit.** | **Total** |")
+            lines.append("|-------|-----------------|---------------|--------------|-----------|----------------|-----------|")
+            
+            for ligne in devis['lignes']:
+                seq = ligne.get('sequence_ligne', '')
+                desc = ligne.get('description', '')
+                cat = ligne.get('categorie', '')
+                qte = ligne.get('quantite', 0)
+                unite = ligne.get('unite', '')
+                prix = ligne.get('prix_unitaire', 0)
+                total = ligne.get('montant_ligne', qte * prix)
+                lines.append(f"| {seq} | {desc} | {cat} | {qte} | {unite} | {prix:.2f} $ | {total:.2f} $ |")
+            lines.append("")
+        
+        # Totaux
+        lines.append("### 💵 **Récapitulatif financier**")
+        sous_total = devis.get('sous_total', 0)
+        lines.append(f"- **Sous-total**: {sous_total:,.2f} $")
+        
+        # Supposons 15% de taxes (à ajuster selon vos besoins)
+        taxes = sous_total * 0.15
+        lines.append(f"- **Taxes (15%)**: {taxes:,.2f} $")
+        
+        total = devis.get('montant_total', sous_total + taxes)
+        lines.append(f"- **TOTAL**: **{total:,.2f} $**")
+        lines.append("")
+        
+        # Validations
+        if devis.get('validations'):
+            lines.append("### ✅ **Historique des validations**")
+            lines.append("| **Date** | **Validé par** | **Action** | **Commentaire** |")
+            lines.append("|----------|----------------|------------|-----------------|")
+            
+            for val in devis['validations']:
+                date = val.get('validated_at', 'N/A')
+                nom = f"{val.get('prenom', '')} {val.get('nom', '')}" if val.get('nom') else 'N/A'
+                action = val.get('action', 'Validé')
+                comment = val.get('comments', '')
+                lines.append(f"| {date} | {nom} | {action} | {comment} |")
+            lines.append("")
+        
+        # Pied de page
+        lines.append("---")
+        lines.append("*Ce devis est valable selon les conditions mentionnées ci-dessus.*")
         
         return "\n".join(lines)
 
