@@ -66,7 +66,7 @@ class AssistantIASimple:
                 projects = self.db.execute_query("""
                     SELECT p.*, c.nom as client_nom 
                     FROM projects p 
-                    LEFT JOIN companies c ON p.client_id = c.id 
+                    LEFT JOIN companies c ON p.client_company_id = c.id 
                     WHERE p.nom_projet LIKE ? OR p.description LIKE ?
                     LIMIT 5
                 """, (f'%{query}%', f'%{query}%'))
@@ -165,6 +165,45 @@ class AssistantIASimple:
         except Exception as e:
             logger.error(f"Erreur statistiques: {e}")
             return {}
+    
+    def _get_current_projects(self) -> List[Dict]:
+        """Récupère spécifiquement les projets en cours"""
+        if not self.db:
+            return []
+        
+        try:
+            # Requête simple pour les projets en cours
+            projects = self.db.execute_query("""
+                SELECT 
+                    p.nom_projet,
+                    p.statut,
+                    p.priorite,
+                    p.prix_estime,
+                    p.description,
+                    p.date_prevu,
+                    c.nom as client_nom
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.statut = 'EN COURS'
+                ORDER BY p.priorite DESC, p.updated_at DESC
+            """)
+            
+            return [dict(p) for p in projects] if projects else []
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération projets en cours: {e}")
+            # Essai sans jointure si erreur
+            try:
+                projects = self.db.execute_query("""
+                    SELECT nom_projet, statut, priorite, prix_estime, description, date_prevu
+                    FROM projects
+                    WHERE statut = 'EN COURS'
+                    ORDER BY priorite DESC
+                """)
+                return [dict(p) for p in projects] if projects else []
+            except Exception as e2:
+                logger.error(f"Erreur requête simple: {e2}")
+                return []
     
     # =========================================================================
     # MÉTHODES CLAUDE
@@ -433,7 +472,13 @@ Réponds de manière professionnelle et concise. Utilise les données ERP quand 
             
             # Si mots-clés ERP détectés, chercher des données pertinentes
             if any(keyword in input_lower for keyword in erp_keywords):
-                # Recherche automatique
+                # Pour les questions sur les projets en cours spécifiquement
+                if 'en cours' in input_lower and 'projet' in input_lower:
+                    projets_en_cours = self._get_current_projects()
+                    if projets_en_cours:
+                        context['projets_en_cours'] = projets_en_cours
+                
+                # Recherche automatique générale
                 search_results = self._search_erp_data(user_input)
                 if search_results:
                     context['donnees_erp'] = search_results
