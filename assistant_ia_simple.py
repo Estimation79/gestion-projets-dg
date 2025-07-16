@@ -358,7 +358,7 @@ class AssistantIASimple:
                 SELECT p.*, c.nom as client_nom
                 FROM projects p
                 LEFT JOIN companies c ON p.client_company_id = c.id
-                WHERE p.numero_projet = ?
+                WHERE p.id = ?
             """, (numero_projet,))
             
             if not projet_info:
@@ -366,36 +366,11 @@ class AssistantIASimple:
             
             projet = dict(projet_info[0])
             
-            # Récupérer les étapes du projet
-            etapes = self.db.execute_query("""
-                SELECT * FROM project_etapes
-                WHERE project_id = ?
-                ORDER BY ordre, id
-            """, (projet['id'],))
-            
-            projet['etapes'] = [dict(e) for e in etapes] if etapes else []
-            
-            # Récupérer les employés assignés
-            assignations = self.db.execute_query("""
-                SELECT e.nom, e.prenom, e.poste, pa.role_projet, pa.date_assignation
-                FROM project_assignations pa
-                JOIN employees e ON pa.employee_id = e.id
-                WHERE pa.project_id = ?
-                ORDER BY pa.date_assignation
-            """, (projet['id'],))
-            
-            projet['assignations'] = [dict(a) for a in assignations] if assignations else []
-            
-            # Récupérer les ressources du projet
-            ressources = self.db.execute_query("""
-                SELECT pr.*, p.nom as produit_nom, p.code_produit
-                FROM project_ressources pr
-                LEFT JOIN produits p ON pr.produit_id = p.id
-                WHERE pr.project_id = ?
-                ORDER BY pr.id
-            """, (projet['id'],))
-            
-            projet['ressources'] = [dict(r) for r in ressources] if ressources else []
+            # Les tables project_etapes, project_assignations et project_ressources n'existent pas
+            # On initialise avec des listes vides
+            projet['etapes'] = []
+            projet['assignations'] = []
+            projet['ressources'] = []
             
             # Récupérer les documents associés (BT, Devis, etc.)
             documents = self.db.execute_query("""
@@ -914,13 +889,14 @@ Réponds de manière professionnelle et structurée."""
                 else:
                     return self._format_devis_details(devis_details)
             
-            # Pattern pour PROJET (format PRJ-XX-XXX)
-            projet_pattern = re.match(r'(prj[- ]?\d{2}[- ]?\d{3})', query.lower())
+            # Pattern pour PROJET (format PRJ-XX-XXX ou XX-XXX)
+            projet_pattern = re.match(r'(?:prj[- ]?)?(\d{2}[- ]?\d{3})', query.lower())
             if projet_pattern:
                 # Normaliser le numéro de projet
-                projet_numero = projet_pattern.group(1).upper().replace(' ', '-')
-                if not projet_numero.startswith('PRJ-'):
-                    projet_numero = 'PRJ-' + projet_numero[3:]
+                projet_numero = projet_pattern.group(0).upper().replace(' ', '-')
+                # Enlever le préfixe PRJ- s'il existe
+                if projet_numero.startswith('PRJ-'):
+                    projet_numero = projet_numero[4:]
                 
                 # Récupérer les détails du projet
                 projet_details = self._get_projet_details(projet_numero)
@@ -1615,18 +1591,23 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
         lines = []
         
         # En-tête du projet
-        lines.append(f"## 📁 **{projet.get('numero_projet', 'N/A')} - {projet.get('nom_projet', 'Sans nom')}**\n")
+        lines.append(f"## 📁 **{projet.get('id', 'N/A')} - {projet.get('nom_projet', 'Sans nom')}**\n")
         
         # Informations générales
         lines.append("### 📋 **Informations générales**")
         lines.append(f"- **Client**: {projet.get('client_nom', 'N/A')}")
+        if projet.get('po_client'):
+            lines.append(f"- **PO Client**: {projet['po_client']}")
         lines.append(f"- **Statut**: `{projet.get('statut', 'N/A')}`")
-        lines.append(f"- **Type**: {projet.get('type_projet', 'N/A')}")
-        lines.append(f"- **Date création**: {projet.get('date_creation', 'N/A')}")
-        if projet.get('date_debut'):
-            lines.append(f"- **Date début prévue**: {projet['date_debut']}")
-        if projet.get('date_fin_prevue'):
-            lines.append(f"- **Date fin prévue**: {projet['date_fin_prevue']}")
+        lines.append(f"- **Priorité**: `{projet.get('priorite', 'N/A')}`")
+        lines.append(f"- **Tâche**: {projet.get('tache', 'N/A')}")
+        lines.append(f"- **Date création**: {projet.get('created_at', 'N/A')}")
+        if projet.get('date_soumis'):
+            lines.append(f"- **Date soumise**: {projet['date_soumis']}")
+        if projet.get('date_prevu'):
+            lines.append(f"- **Date prévue**: {projet['date_prevu']}")
+        if projet.get('bd_ft_estime'):
+            lines.append(f"- **BD-FT estimé**: {projet['bd_ft_estime']} heures")
         if projet.get('prix_estime'):
             lines.append(f"- **Budget estimé**: {projet['prix_estime']:,.2f} $")
         if projet.get('description'):
