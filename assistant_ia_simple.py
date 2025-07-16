@@ -355,11 +355,9 @@ class AssistantIASimple:
         try:
             # Récupérer les infos principales du projet
             projet_info = self.db.execute_query("""
-                SELECT p.*, c.nom as client_nom, cc.nom as contact_nom, 
-                       cc.prenom as contact_prenom, cc.email as contact_email
+                SELECT p.*, c.nom as client_nom
                 FROM projects p
                 LEFT JOIN companies c ON p.client_company_id = c.id
-                LEFT JOIN company_contacts cc ON p.contact_principal_id = cc.id
                 WHERE p.numero_projet = ?
             """, (numero_projet,))
             
@@ -1622,10 +1620,6 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
         # Informations générales
         lines.append("### 📋 **Informations générales**")
         lines.append(f"- **Client**: {projet.get('client_nom', 'N/A')}")
-        if projet.get('contact_nom'):
-            lines.append(f"- **Contact**: {projet.get('contact_prenom', '')} {projet.get('contact_nom', '')}")
-            if projet.get('contact_email'):
-                lines.append(f"- **Email**: {projet.get('contact_email')}")
         lines.append(f"- **Statut**: `{projet.get('statut', 'N/A')}`")
         lines.append(f"- **Type**: {projet.get('type_projet', 'N/A')}")
         lines.append(f"- **Date création**: {projet.get('date_creation', 'N/A')}")
