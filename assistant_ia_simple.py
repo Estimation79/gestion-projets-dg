@@ -334,9 +334,9 @@ class AssistantIASimple:
             validations = self.db.execute_query("""
                 SELECT v.*, e.nom, e.prenom
                 FROM formulaire_validations v
-                LEFT JOIN employees e ON v.validated_by = e.id
+                LEFT JOIN employees e ON v.employee_id = e.id
                 WHERE v.formulaire_id = ?
-                ORDER BY v.validated_at DESC
+                ORDER BY v.date_validation DESC
             """, (devis['id'],))
             
             devis['validations'] = [dict(v) for v in validations] if validations else []
@@ -1501,10 +1501,10 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
             lines.append("|----------|----------------|------------|-----------------|")
             
             for val in devis['validations']:
-                date = val.get('validated_at', 'N/A')
+                date = val.get('date_validation', 'N/A')
                 nom = f"{val.get('prenom', '')} {val.get('nom', '')}" if val.get('nom') else 'N/A'
-                action = val.get('action', 'Validé')
-                comment = val.get('comments', '')
+                action = val.get('type_validation', 'Validé')
+                comment = val.get('commentaires', '')
                 lines.append(f"| {date} | {nom} | {action} | {comment} |")
             lines.append("")
         
