@@ -218,7 +218,21 @@ class AssistantIASimple:
             # Construire le message système avec contexte ERP
             system_message = """Tu es un assistant expert en gestion ERP pour l'industrie métallurgique.
 Tu as accès aux données du système ERP incluant projets, inventaire, employés, clients et production.
-Réponds de manière professionnelle et concise. Utilise les données ERP quand c'est pertinent."""
+
+IMPORTANT - Format de réponse:
+- Utilise des tableaux markdown pour présenter des listes de données (projets, inventaire, etc.)
+- Utilise des titres avec ## et ### pour structurer les réponses
+- Utilise des **gras** pour les éléments importants
+- Utilise des emojis pertinents (📁 projets, 📦 inventaire, 👥 employés, etc.)
+- Pour les montants, formate avec des espaces: 1 500 $ au lieu de 1500$
+- Présente les dates en format lisible: 8 septembre 2025
+
+Exemple de tableau pour projets:
+| **Nom du projet** | **Statut** | **Priorité** | **Prix estimé** | **Date prévue** |
+|-------------------|------------|--------------|-----------------|-----------------|
+| Projet ABC | EN COURS | HAUTE | 25 000 $ | 15 mars 2025 |
+
+Réponds de manière professionnelle et structurée."""
             
             if context:
                 system_message += f"\n\nContexte ERP actuel:\n{json.dumps(context, ensure_ascii=False, indent=2)}"
@@ -317,6 +331,72 @@ Réponds de manière professionnelle et concise. Utilise les données ERP quand 
             padding: 1rem;
             margin: 1rem 0;
         }
+        
+        /* Styles pour les tableaux markdown */
+        .message-assistant table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .message-assistant table th {
+            background: linear-gradient(135deg, #00A971 0%, #00673D 100%);
+            color: white;
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        .message-assistant table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        
+        .message-assistant table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .message-assistant table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Styles pour les titres */
+        .message-assistant h2 {
+            color: #00673D;
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+        }
+        
+        .message-assistant h3 {
+            color: #00A971;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-size: 1.2rem;
+        }
+        
+        /* Styles pour le code inline */
+        .message-assistant code {
+            background: #e6f7f1;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: #00673D;
+            font-size: 0.9em;
+        }
+        
+        /* Amélioration des listes */
+        .message-assistant ul, .message-assistant ol {
+            margin: 0.5rem 0;
+            padding-left: 2rem;
+        }
+        
+        .message-assistant li {
+            margin: 0.25rem 0;
+        }
         </style>
         """, unsafe_allow_html=True)
         
@@ -407,12 +487,17 @@ Réponds de manière professionnelle et concise. Utilise les données ERP quand 
                     </div>
                     """, unsafe_allow_html=True)
                 elif msg['role'] == 'assistant':
-                    st.markdown(f"""
-                    <div class="message-assistant">
-                        <strong>🤖 Assistant:</strong><br>
-                        {msg['content']}
-                    </div>
-                    """, unsafe_allow_html=True)
+                    # Convertir le markdown en HTML pour un meilleur rendu
+                    content = msg['content']
+                    # Le markdown de Streamlit gère déjà bien les tableaux et le formatage
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="message-assistant">
+                            <strong>🤖 Assistant:</strong>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        # Utiliser le markdown natif de Streamlit pour le contenu
+                        st.markdown(content)
         
         # Input
         user_input = st.chat_input("Posez votre question ou tapez /help...")
@@ -481,6 +566,7 @@ Réponds de manière professionnelle et concise. Utilise les données ERP quand 
                     projets_en_cours = self._get_current_projects()
                     if projets_en_cours:
                         context['projets_en_cours'] = projets_en_cours
+                        context['format_projets'] = "tableau"  # Indication pour formater en tableau
                 
                 # Recherche automatique générale
                 search_results = self._search_erp_data(user_input)
@@ -599,79 +685,107 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
 """
     
     def _format_statistics(self, stats: Dict) -> str:
-        """Formate les statistiques pour l'affichage"""
+        """Formate les statistiques pour l'affichage avec style amélioré"""
         if not stats:
-            return "Aucune statistique disponible."
+            return "📊 Aucune statistique disponible."
         
-        lines = ["**📊 Statistiques ERP**\n"]
+        lines = []
+        lines.append("## 📊 **Statistiques ERP**\n")
         
-        # Projets
-        if 'projets' in stats:
-            lines.append("**Projets:**")
-            total = 0
+        # Projets avec tableau
+        if 'projets' in stats and stats['projets']:
+            lines.append("### 📁 **Répartition des projets**\n")
+            lines.append("| **Statut** | **Nombre** | **Valeur totale** |")
+            lines.append("|------------|------------|-------------------|")
+            
+            total_nombre = 0
+            total_valeur = 0
+            
             for statut, data in stats['projets'].items():
-                lines.append(f"- {statut}: {data['nombre']} projets ({data['valeur']:,.0f}$)")
-                total += data['nombre']
-            lines.append(f"- **Total**: {total} projets\n")
+                nombre = data['nombre']
+                valeur = data['valeur']
+                total_nombre += nombre
+                total_valeur += valeur
+                lines.append(f"| {statut} | {nombre} | {valeur:,.0f} $ |")
+            
+            lines.append(f"| **TOTAL** | **{total_nombre}** | **{total_valeur:,.0f} $** |")
+            lines.append("")
         
-        # Autres stats
+        # Autres stats en cartes
+        lines.append("### 📈 **Indicateurs clés**\n")
+        
         if 'stock_faible' in stats:
-            lines.append(f"**⚠️ Articles en stock faible:** {stats['stock_faible']}")
+            lines.append(f"**⚠️ Stock faible**")
+            lines.append(f"- Articles concernés: `{stats['stock_faible']}`")
+            lines.append("")
         
         if 'employes_disponibles' in stats:
-            lines.append(f"**👥 Employés disponibles:** {stats['employes_disponibles']}")
+            lines.append(f"**👥 Ressources humaines**")
+            lines.append(f"- Employés disponibles: `{stats['employes_disponibles']}`")
+            lines.append("")
         
         if 'bons_travail_actifs' in stats:
-            lines.append(f"**📋 Bons de travail actifs:** {stats['bons_travail_actifs']}")
+            lines.append(f"**📋 Production**")
+            lines.append(f"- Bons de travail actifs: `{stats['bons_travail_actifs']}`")
+            lines.append("")
         
         return "\n".join(lines)
     
     def _format_search_results(self, results: Dict) -> str:
-        """Formate les résultats de recherche"""
+        """Formate les résultats de recherche avec un style amélioré"""
         if 'error' in results:
-            return f"❌ Erreur: {results['error']}"
+            return f"❌ **Erreur:** {results['error']}"
         
         if not results:
-            return "Aucun résultat trouvé."
+            return "🔍 Aucun résultat trouvé."
         
-        lines = ["**🔍 Résultats de recherche ERP**\n"]
+        lines = []
+        lines.append("## 🔍 Résultats de recherche ERP\n")
         
-        # Projets
-        if 'projets' in results:
-            lines.append("**Projets trouvés:**")
+        # Projets avec tableau
+        if 'projets' in results and results['projets']:
+            lines.append("### 📁 **Projets trouvés**\n")
+            lines.append("| **Nom du projet** | **Statut** | **Client** | **Budget** |")
+            lines.append("|-------------------|------------|------------|------------|")
+            
             for p in results['projets']:
-                lines.append(f"- **{p['nom_projet']}** ({p['statut']})")
-                lines.append(f"  Client: {p.get('client_nom', 'N/A')}")
-                if p.get('prix_estime'):
-                    lines.append(f"  Budget: {p['prix_estime']:,.0f}$")
+                nom = p['nom_projet']
+                statut = p['statut']
+                client = p.get('client_nom', 'N/A')
+                budget = f"{p['prix_estime']:,.0f} $" if p.get('prix_estime') else "N/A"
+                lines.append(f"| {nom} | {statut} | {client} | {budget} |")
             lines.append("")
         
-        # Inventaire
-        if 'inventaire' in results:
-            lines.append("**Articles d'inventaire:**")
+        # Inventaire avec style carte
+        if 'inventaire' in results and results['inventaire']:
+            lines.append("### 📦 **Articles d'inventaire**\n")
             for item in results['inventaire']:
-                lines.append(f"- **{item['nom']}**")
-                lines.append(f"  Quantité: {item['quantite_metric']}")
-                lines.append(f"  Statut: {item['statut']}")
-            lines.append("")
+                lines.append(f"**➤ {item['nom']}**")
+                lines.append(f"- 📊 Quantité: `{item['quantite_metric']}`")
+                lines.append(f"- 📈 Statut: `{item['statut']}`")
+                lines.append("")
         
-        # Employés
-        if 'employes' in results:
-            lines.append("**Employés:**")
+        # Employés avec tableau
+        if 'employes' in results and results['employes']:
+            lines.append("### 👥 **Employés**\n")
+            lines.append("| **Nom** | **Poste** | **Compétences** |")
+            lines.append("|---------|-----------|-----------------|")
+            
             for emp in results['employes']:
-                lines.append(f"- **{emp['prenom']} {emp['nom']}**")
-                lines.append(f"  Poste: {emp['poste']}")
-                if emp.get('competences'):
-                    lines.append(f"  Compétences: {emp['competences']}")
+                nom_complet = f"{emp['prenom']} {emp['nom']}"
+                poste = emp['poste']
+                competences = emp.get('competences', 'N/A')
+                lines.append(f"| {nom_complet} | {poste} | {competences} |")
             lines.append("")
         
-        # Entreprises
-        if 'entreprises' in results:
-            lines.append("**Entreprises:**")
+        # Entreprises avec style carte
+        if 'entreprises' in results and results['entreprises']:
+            lines.append("### 🏢 **Entreprises**\n")
             for comp in results['entreprises']:
-                lines.append(f"- **{comp['nom']}**")
-                lines.append(f"  Secteur: {comp['secteur']}")
-                lines.append(f"  Ville: {comp['ville']}")
+                lines.append(f"**➤ {comp['nom']}**")
+                lines.append(f"- 🏭 Secteur: `{comp['secteur']}`")
+                lines.append(f"- 📍 Ville: `{comp['ville']}`")
+                lines.append("")
         
         return "\n".join(lines)
 
