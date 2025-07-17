@@ -112,9 +112,12 @@ class AssistantIASimple:
             # Recherche employés
             if any(word in query_lower for word in ['employé', 'personnel', 'équipe']):
                 employees = self.db.execute_query("""
-                    SELECT nom, prenom, poste, competences 
-                    FROM employees 
-                    WHERE nom LIKE ? OR prenom LIKE ? OR competences LIKE ?
+                    SELECT e.nom, e.prenom, e.poste, e.departement, e.statut,
+                           GROUP_CONCAT(ec.nom_competence || ' (' || ec.niveau || ')', ', ') as competences
+                    FROM employees e
+                    LEFT JOIN employee_competences ec ON e.id = ec.employee_id
+                    WHERE e.nom LIKE ? OR e.prenom LIKE ? OR e.poste LIKE ?
+                    GROUP BY e.id, e.nom, e.prenom, e.poste, e.departement, e.statut
                     LIMIT 5
                 """, (f'%{query}%', f'%{query}%', f'%{query}%'))
                 
@@ -200,6 +203,21 @@ class AssistantIASimple:
                             d_dict['client'] = 'N/A'
                         devis_list.append(d_dict)
                     results['devis'] = devis_list
+            
+            # Recherche contacts
+            if any(word in query_lower for word in ['contact', 'personne', 'responsable']):
+                contacts = self.db.execute_query("""
+                    SELECT c.*, comp.nom as entreprise_nom
+                    FROM contacts c
+                    LEFT JOIN companies comp ON c.company_id = comp.id
+                    WHERE c.nom_famille LIKE ? OR c.prenom LIKE ? 
+                    OR c.email LIKE ? OR comp.nom LIKE ?
+                    ORDER BY c.nom_famille, c.prenom
+                    LIMIT 10
+                """, (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%'))
+                
+                if contacts:
+                    results['contacts'] = [dict(c) for c in contacts]
             
         except Exception as e:
             logger.error(f"Erreur recherche ERP: {e}")
@@ -386,6 +404,648 @@ class AssistantIASimple:
             
         except Exception as e:
             logger.error(f"Erreur récupération détails projet: {e}")
+            return {"error": str(e)}
+    
+    def _get_dp_details(self, numero_dp: str) -> Dict[str, Any]:
+        """Récupère les détails complets d'une demande de prix"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Récupérer les infos principales de la demande de prix
+            dp_info = self.db.execute_query("""
+                SELECT f.*, c.nom as fournisseur_nom
+                FROM formulaires f
+                LEFT JOIN companies c ON f.company_id = c.id
+                WHERE f.numero_document = ? AND f.type_formulaire = 'DEMANDE_PRIX'
+            """, (numero_dp,))
+            
+            if not dp_info:
+                return {"error": f"Demande de prix {numero_dp} non trouvée"}
+            
+            dp = dict(dp_info[0])
+            
+            # Parser les métadonnées JSON
+            if dp.get('metadonnees_json'):
+                try:
+                    meta = json.loads(dp['metadonnees_json'])
+                    dp['objet'] = meta.get('objet', 'Sans objet')
+                    dp['fournisseur'] = meta.get('fournisseur_name', dp.get('fournisseur_nom', 'N/A'))
+                    dp['delai_reponse'] = meta.get('delai_reponse', '15 jours')
+                    dp['conditions_livraison'] = meta.get('conditions_livraison', 'À définir')
+                except:
+                    dp['objet'] = 'Sans objet'
+                    dp['fournisseur'] = dp.get('fournisseur_nom', 'N/A')
+            
+            # Récupérer les lignes de la demande de prix
+            lignes = self.db.execute_query("""
+                SELECT fl.*, p.nom as nom_produit, p.categorie
+                FROM formulaire_lignes fl
+                LEFT JOIN produits p ON fl.code_article = p.code_produit
+                WHERE fl.formulaire_id = ?
+                ORDER BY fl.sequence_ligne
+            """, (dp['id'],))
+            
+            dp['lignes'] = [dict(ligne) for ligne in lignes] if lignes else []
+            
+            # Les réponses fournisseur ne sont pas stockées dans une table séparée
+            # On initialise avec une liste vide
+            dp['reponses'] = []
+            
+            return {"dp_details": dp}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération détails demande de prix: {e}")
+            return {"error": str(e)}
+    
+    def _get_ba_details(self, numero_ba: str) -> Dict[str, Any]:
+        """Récupère les détails complets d'un bon d'achat"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Récupérer les infos principales du bon d'achat
+            ba_info = self.db.execute_query("""
+                SELECT f.*, c.nom as fournisseur_nom, p.nom_projet
+                FROM formulaires f
+                LEFT JOIN companies c ON f.company_id = c.id
+                LEFT JOIN projects p ON f.project_id = p.id
+                WHERE f.numero_document = ? AND f.type_formulaire = 'BON_ACHAT'
+            """, (numero_ba,))
+            
+            if not ba_info:
+                return {"error": f"Bon d'achat {numero_ba} non trouvé"}
+            
+            ba = dict(ba_info[0])
+            
+            # Parser les métadonnées JSON
+            if ba.get('metadonnees_json'):
+                try:
+                    meta = json.loads(ba['metadonnees_json'])
+                    ba['objet'] = meta.get('objet', 'Sans objet')
+                    ba['fournisseur'] = meta.get('fournisseur_name', ba.get('fournisseur_nom', 'N/A'))
+                    ba['conditions_paiement'] = meta.get('conditions_paiement', '30 jours net')
+                    ba['mode_livraison'] = meta.get('mode_livraison', 'À définir')
+                except:
+                    ba['objet'] = 'Sans objet'
+                    ba['fournisseur'] = ba.get('fournisseur_nom', 'N/A')
+            
+            # Récupérer les lignes du bon d'achat
+            lignes = self.db.execute_query("""
+                SELECT fl.*, p.nom as nom_produit, p.categorie
+                FROM formulaire_lignes fl
+                LEFT JOIN produits p ON fl.code_article = p.code_produit
+                WHERE fl.formulaire_id = ?
+                ORDER BY fl.sequence_ligne
+            """, (ba['id'],))
+            
+            ba['lignes'] = [dict(ligne) for ligne in lignes] if lignes else []
+            
+            # Calculer les totaux
+            sous_total = sum(ligne.get('montant_ligne', 0) for ligne in ba['lignes'])
+            ba['sous_total'] = sous_total
+            
+            # Récupérer les informations de livraison si existantes
+            livraisons = self.db.execute_query("""
+                SELECT * FROM approvisionnements
+                WHERE formulaire_id = ?
+                ORDER BY date_commande DESC
+            """, (ba['id'],))
+            
+            ba['livraisons'] = [dict(l) for l in livraisons] if livraisons else []
+            
+            return {"ba_details": ba}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération détails bon d'achat: {e}")
+            return {"error": str(e)}
+    
+    def _get_employee_hours(self, employee_name: str, week_date: str = None) -> Dict[str, Any]:
+        """Récupère les heures travaillées d'un employé pour une semaine donnée avec détails complets"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # D'abord trouver l'employé
+            employee = self.db.execute_query("""
+                SELECT id, nom, prenom, poste, departement
+                FROM employees
+                WHERE LOWER(nom || ' ' || prenom) LIKE LOWER(?)
+                   OR LOWER(prenom || ' ' || nom) LIKE LOWER(?)
+                   OR LOWER(nom) LIKE LOWER(?)
+                   OR LOWER(prenom) LIKE LOWER(?)
+                LIMIT 1
+            """, (f'%{employee_name}%', f'%{employee_name}%', f'%{employee_name}%', f'%{employee_name}%'))
+            
+            if not employee:
+                return {"error": f"Employé '{employee_name}' non trouvé"}
+            
+            emp = dict(employee[0])
+            
+            # Déterminer la période (semaine actuelle par défaut)
+            if week_date:
+                # Parser la date fournie
+                from datetime import datetime, timedelta
+                try:
+                    if week_date.lower() == 'semaine dernière':
+                        ref_date = datetime.now() - timedelta(days=7)
+                    else:
+                        ref_date = datetime.strptime(week_date, '%Y-%m-%d')
+                except:
+                    ref_date = datetime.now()
+            else:
+                from datetime import datetime
+                ref_date = datetime.now()
+            
+            # Calculer le début et la fin de la semaine
+            from datetime import timedelta
+            weekday = ref_date.weekday()
+            start_week = ref_date - timedelta(days=weekday)
+            end_week = start_week + timedelta(days=6)
+            
+            # Format pour SQL
+            start_str = start_week.strftime('%Y-%m-%d 00:00:00')
+            end_str = end_week.strftime('%Y-%m-%d 23:59:59')
+            
+            # Récupérer les entrées de temps avec tous les détails
+            time_entries = self.db.execute_query("""
+                SELECT te.*, 
+                       p.nom_projet, p.statut as projet_statut, p.client_company_id,
+                       comp.nom as client_nom,
+                       f.numero_document as bt_numero, f.statut as bt_statut, f.priorite as bt_priorite,
+                       te.total_hours,
+                       STRFTIME('%H:%M', te.punch_in) as punch_in_time,
+                       STRFTIME('%H:%M', te.punch_out) as punch_out_time,
+                       DATE(te.punch_in) as work_date
+                FROM time_entries te
+                LEFT JOIN projects p ON te.project_id = p.id
+                LEFT JOIN companies comp ON p.client_company_id = comp.id
+                LEFT JOIN formulaires f ON te.formulaire_bt_id = f.id
+                WHERE te.employee_id = ?
+                  AND te.punch_in >= ?
+                  AND te.punch_in <= ?
+                ORDER BY te.punch_in
+            """, (emp['id'], start_str, end_str))
+            
+            entries = [dict(e) for e in time_entries] if time_entries else []
+            
+            # Calculer le total des heures
+            total_hours = sum(e.get('total_hours', 0) for e in entries)
+            
+            # Grouper par jour avec détails
+            daily_hours = {}
+            project_hours = {}
+            bt_hours = {}
+            client_hours = {}
+            
+            for entry in entries:
+                if entry.get('punch_in'):
+                    # Par jour
+                    day = entry['punch_in'][:10]  # YYYY-MM-DD
+                    if day not in daily_hours:
+                        daily_hours[day] = {
+                            'hours': 0, 
+                            'projects': set(),
+                            'bons_travail': set(),
+                            'entries': []
+                        }
+                    daily_hours[day]['hours'] += entry.get('total_hours', 0)
+                    daily_hours[day]['entries'].append(entry)
+                    
+                    # Par projet
+                    if entry.get('nom_projet'):
+                        project_name = entry['nom_projet']
+                        daily_hours[day]['projects'].add(project_name)
+                        
+                        if project_name not in project_hours:
+                            project_hours[project_name] = {
+                                'hours': 0,
+                                'statut': entry.get('projet_statut'),
+                                'client': entry.get('client_nom'),
+                                'bons_travail': set(),
+                                'days_worked': set()
+                            }
+                        project_hours[project_name]['hours'] += entry.get('total_hours', 0)
+                        project_hours[project_name]['days_worked'].add(day)
+                        
+                    # Par bon de travail
+                    if entry.get('bt_numero'):
+                        bt_numero = entry['bt_numero']
+                        daily_hours[day]['bons_travail'].add(bt_numero)
+                        
+                        if bt_numero not in bt_hours:
+                            bt_hours[bt_numero] = {
+                                'hours': 0,
+                                'statut': entry.get('bt_statut'),
+                                'priorite': entry.get('bt_priorite'),
+                                'project': entry.get('nom_projet')
+                            }
+                        bt_hours[bt_numero]['hours'] += entry.get('total_hours', 0)
+                        
+                        if project_name:
+                            project_hours[project_name]['bons_travail'].add(bt_numero)
+                    
+                    # Par client
+                    if entry.get('client_nom'):
+                        client = entry['client_nom']
+                        if client not in client_hours:
+                            client_hours[client] = {'hours': 0, 'projects': set()}
+                        client_hours[client]['hours'] += entry.get('total_hours', 0)
+                        if project_name:
+                            client_hours[client]['projects'].add(project_name)
+            
+            # Convertir les sets en listes pour JSON
+            for day_data in daily_hours.values():
+                day_data['projects'] = list(day_data['projects'])
+                day_data['bons_travail'] = list(day_data['bons_travail'])
+            
+            for project_data in project_hours.values():
+                project_data['bons_travail'] = list(project_data['bons_travail'])
+                project_data['days_worked'] = list(project_data['days_worked'])
+            
+            for client_data in client_hours.values():
+                client_data['projects'] = list(client_data['projects'])
+            
+            # Calculer des statistiques
+            days_worked = len(daily_hours)
+            avg_hours_per_day = total_hours / days_worked if days_worked > 0 else 0
+            
+            # Identifier le jour le plus productif
+            most_productive_day = None
+            max_hours = 0
+            for day, data in daily_hours.items():
+                if data['hours'] > max_hours:
+                    max_hours = data['hours']
+                    most_productive_day = day
+            
+            return {
+                "employee_name": f"{emp['prenom']} {emp['nom']}",
+                "employee_id": emp['id'],
+                "poste": emp.get('poste', 'N/A'),
+                "departement": emp.get('departement', 'N/A'),
+                "week_start": start_week.strftime('%Y-%m-%d'),
+                "week_end": end_week.strftime('%Y-%m-%d'),
+                "total_hours": total_hours,
+                "total_days": days_worked,
+                "average_hours": avg_hours_per_day,
+                "most_productive_day": most_productive_day,
+                "max_daily_hours": max_hours,
+                "time_entries": entries,
+                "hours_by_day": [
+                    {
+                        'date': day,
+                        'day_name': datetime.strptime(day, '%Y-%m-%d').strftime('%A'),
+                        'hours': data['hours'],
+                        'projects': data['projects'],
+                        'bons_travail': data['bons_travail'],
+                        'entries_count': len(data['entries'])
+                    }
+                    for day, data in sorted(daily_hours.items())
+                ],
+                "hours_by_project": [
+                    {
+                        'project_name': project,
+                        'hours': data['hours'],
+                        'percentage': (data['hours'] / total_hours * 100) if total_hours > 0 else 0,
+                        'statut': data['statut'],
+                        'client': data['client'],
+                        'bons_travail': data['bons_travail'],
+                        'days_worked': len(data['days_worked'])
+                    }
+                    for project, data in sorted(project_hours.items(), key=lambda x: x[1]['hours'], reverse=True)
+                ],
+                "hours_by_bt": [
+                    {
+                        'bt_numero': bt,
+                        'hours': data['hours'],
+                        'percentage': (data['hours'] / total_hours * 100) if total_hours > 0 else 0,
+                        'statut': data['statut'],
+                        'priorite': data['priorite'],
+                        'project': data['project']
+                    }
+                    for bt, data in sorted(bt_hours.items(), key=lambda x: x[1]['hours'], reverse=True)
+                ],
+                "hours_by_client": [
+                    {
+                        'client': client,
+                        'hours': data['hours'],
+                        'percentage': (data['hours'] / total_hours * 100) if total_hours > 0 else 0,
+                        'projects': data['projects']
+                    }
+                    for client, data in sorted(client_hours.items(), key=lambda x: x[1]['hours'], reverse=True)
+                ]
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération heures employé: {e}")
+            return {"error": str(e)}
+    
+    def _get_project_report(self, project_id: str) -> Dict[str, Any]:
+        """Génère un rapport complet pour un projet avec analyse financière et RH"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Récupérer les infos du projet
+            project = self.db.execute_query("""
+                SELECT p.*, c.nom as client_nom, c.secteur as client_secteur
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.id = ?
+                LIMIT 1
+            """, (project_id,))
+            
+            if not project:
+                return {"error": f"Projet '{project_id}' non trouvé"}
+            
+            proj = dict(project[0])
+            
+            # Récupérer tous les bons de travail du projet
+            bons_travail = self.db.execute_query("""
+                SELECT f.*, 
+                       SUM(fl.montant_ligne) as cout_total,
+                       COUNT(DISTINCT fl.id) as nb_lignes
+                FROM formulaires f
+                LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
+                WHERE f.project_id = ? AND f.type_formulaire = 'BON_TRAVAIL'
+                GROUP BY f.id
+                ORDER BY f.created_at
+            """, (proj['id'],))
+            
+            # Récupérer les heures travaillées sur le projet
+            heures_travail = self.db.execute_query("""
+                SELECT 
+                    e.nom, e.prenom, e.poste, e.salaire,
+                    SUM(te.total_hours) as heures_totales,
+                    COUNT(DISTINCT DATE(te.punch_in)) as jours_travailles,
+                    MIN(DATE(te.punch_in)) as premiere_intervention,
+                    MAX(DATE(te.punch_in)) as derniere_intervention
+                FROM time_entries te
+                JOIN employees e ON te.employee_id = e.id
+                WHERE te.project_id = ?
+                GROUP BY e.id
+                ORDER BY heures_totales DESC
+            """, (proj['id'],))
+            
+            # Calculer les coûts de main d'œuvre
+            cout_main_oeuvre = 0
+            heures_totales_projet = 0
+            employes_details = []
+            
+            for emp in heures_travail if heures_travail else []:
+                emp_dict = dict(emp)
+                # Calculer le taux horaire à partir du salaire annuel
+                # Basé sur 40h/semaine * 52 semaines = 2080 heures/an
+                salaire_annuel = emp_dict.get('salaire', 0) or 50000  # Salaire par défaut si non défini
+                taux_horaire = salaire_annuel / 2080  # Taux horaire calculé
+                emp_dict['taux_horaire'] = taux_horaire
+                
+                heures = emp_dict.get('heures_totales', 0)
+                cout_emp = taux_horaire * heures
+                cout_main_oeuvre += cout_emp
+                heures_totales_projet += heures
+                
+                emp_dict['cout_total'] = cout_emp
+                employes_details.append(emp_dict)
+            
+            # Récupérer les matériaux utilisés
+            materiaux = self.db.execute_query("""
+                SELECT m.code_materiau as code_article, m.designation as nom_produit,
+                       m.quantite as quantite_totale,
+                       m.unite, m.prix_unitaire as cout_unitaire,
+                       (m.quantite * m.prix_unitaire) as cout_total,
+                       m.fournisseur
+                FROM materials m
+                WHERE m.project_id = ?
+                ORDER BY cout_total DESC
+            """, (proj['id'],))
+            
+            cout_materiaux = sum(mat.get('cout_total', 0) for mat in (materiaux if materiaux else []))
+            
+            # Récupérer les opérations du projet (en lieu d'étapes)
+            operations = self.db.execute_query("""
+                SELECT o.*, wc.nom as poste_travail
+                FROM operations o
+                LEFT JOIN work_centers wc ON o.work_center_id = wc.id
+                WHERE o.project_id = ?
+                ORDER BY o.id
+            """, (proj['id'],))
+            
+            # Calculer l'avancement global basé sur le statut
+            if proj.get('statut') == 'TERMINÉ':
+                avancement_total = 100
+            elif proj.get('statut') == 'EN COURS':
+                avancement_total = 50
+            elif proj.get('statut') == 'VALIDÉ':
+                avancement_total = 25
+            else:
+                avancement_total = 0
+            
+            # Récupérer tous les documents associés avec détails
+            documents = self.db.execute_query("""
+                SELECT f.numero_document, f.type_formulaire, f.statut, 
+                       f.montant_total, f.created_at, f.notes,
+                       c.nom as fournisseur_nom, c.id as fournisseur_id,
+                       f.metadonnees_json
+                FROM formulaires f
+                LEFT JOIN companies c ON f.company_id = c.id
+                WHERE f.project_id = ?
+                ORDER BY f.type_formulaire, f.created_at DESC
+            """, (proj['id'],))
+            
+            # Organiser les documents par type
+            devis = []
+            demandes_prix = []
+            bons_achat = []
+            fournisseurs_uniques = {}
+            
+            for doc in documents if documents else []:
+                doc_dict = dict(doc)
+                type_form = doc_dict.get('type_formulaire')
+                
+                if type_form == 'ESTIMATION':
+                    devis.append(doc_dict)
+                elif type_form == 'DEMANDE_PRIX':
+                    demandes_prix.append(doc_dict)
+                    # Collecter les fournisseurs
+                    if doc_dict.get('fournisseur_id') and doc_dict.get('fournisseur_nom'):
+                        fournisseurs_uniques[doc_dict['fournisseur_id']] = doc_dict['fournisseur_nom']
+                elif type_form == 'BON_ACHAT':
+                    bons_achat.append(doc_dict)
+                    # Collecter les fournisseurs
+                    if doc_dict.get('fournisseur_id') and doc_dict.get('fournisseur_nom'):
+                        fournisseurs_uniques[doc_dict['fournisseur_id']] = doc_dict['fournisseur_nom']
+            
+            # Calculs financiers
+            cout_total = cout_main_oeuvre + cout_materiaux
+            prix_vente = proj.get('prix_estime', 0) or 0
+            profit_brut = prix_vente - cout_total
+            marge_profit = (profit_brut / prix_vente * 100) if prix_vente > 0 else 0
+            
+            # Efficacité (heures réelles vs estimées)
+            heures_estimees = proj.get('bd_ft_estime', 0) or 0
+            efficacite = (heures_estimees / heures_totales_projet * 100) if heures_totales_projet > 0 else 0
+            
+            return {
+                "project_info": proj,
+                "financial_summary": {
+                    "prix_vente": prix_vente,
+                    "cout_main_oeuvre": cout_main_oeuvre,
+                    "cout_materiaux": cout_materiaux,
+                    "cout_total": cout_total,
+                    "profit_brut": profit_brut,
+                    "marge_profit": marge_profit
+                },
+                "time_summary": {
+                    "heures_estimees": heures_estimees,
+                    "heures_reelles": heures_totales_projet,
+                    "efficacite": efficacite,
+                    "nb_employes": len(employes_details),
+                    "nb_jours_travailles": max(e.get('jours_travailles', 0) for e in employes_details) if employes_details else 0
+                },
+                "employees": employes_details,
+                "materials": [dict(m) for m in materiaux] if materiaux else [],
+                "work_orders": [dict(bt) for bt in bons_travail] if bons_travail else [],
+                "operations": [dict(o) for o in operations] if operations else [],
+                "documents": [dict(d) for d in documents] if documents else [],
+                "devis": devis,
+                "demandes_prix": demandes_prix,
+                "bons_achat": bons_achat,
+                "fournisseurs": list(fournisseurs_uniques.values()),
+                "progress": avancement_total
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur génération rapport projet: {e}")
+            return {"error": str(e)}
+    
+    def _get_bt_report(self, bt_numero: str) -> Dict[str, Any]:
+        """Génère un rapport complet pour un bon de travail"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Récupérer les infos du bon de travail
+            bt = self.db.execute_query("""
+                SELECT f.*, p.nom_projet, p.prix_estime as projet_budget,
+                       c.nom as client_nom
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE f.numero_document = ? AND f.type_formulaire = 'BON_TRAVAIL'
+                LIMIT 1
+            """, (bt_numero,))
+            
+            if not bt:
+                return {"error": f"Bon de travail '{bt_numero}' non trouvé"}
+            
+            bt_info = dict(bt[0])
+            
+            # Récupérer les lignes du bon de travail
+            lignes = self.db.execute_query("""
+                SELECT * FROM formulaire_lignes
+                WHERE formulaire_id = ?
+                ORDER BY sequence_ligne
+            """, (bt_info['id'],))
+            
+            # Récupérer les heures travaillées sur ce BT
+            heures_bt = self.db.execute_query("""
+                SELECT 
+                    e.nom, e.prenom, e.poste, e.salaire,
+                    te.punch_in, te.punch_out, te.total_hours,
+                    DATE(te.punch_in) as date_travail,
+                    te.description
+                FROM time_entries te
+                JOIN employees e ON te.employee_id = e.id
+                WHERE te.formulaire_bt_id = ?
+                ORDER BY te.punch_in
+            """, (bt_info['id'],))
+            
+            # Analyser les heures par employé
+            heures_par_employe = {}
+            heures_totales = 0
+            cout_main_oeuvre_total = 0
+            
+            for h in heures_bt if heures_bt else []:
+                h_dict = dict(h)
+                emp_key = f"{h_dict['prenom']} {h_dict['nom']}"
+                
+                if emp_key not in heures_par_employe:
+                    # Calculer le taux horaire à partir du salaire annuel
+                    salaire_annuel = h_dict.get('salaire', 0) or 50000
+                    taux_horaire = salaire_annuel / 2080
+                    
+                    heures_par_employe[emp_key] = {
+                        'poste': h_dict['poste'],
+                        'taux_horaire': taux_horaire,
+                        'heures_totales': 0,
+                        'cout_total': 0,
+                        'jours': set(),
+                        'entries': []
+                    }
+                
+                heures = h_dict.get('total_hours', 0)
+                taux = heures_par_employe[emp_key]['taux_horaire']
+                cout = heures * taux
+                
+                heures_par_employe[emp_key]['heures_totales'] += heures
+                heures_par_employe[emp_key]['cout_total'] += cout
+                heures_par_employe[emp_key]['jours'].add(h_dict['date_travail'])
+                heures_par_employe[emp_key]['entries'].append(h_dict)
+                
+                heures_totales += heures
+                cout_main_oeuvre_total += cout
+            
+            # Convertir sets en listes
+            for emp_data in heures_par_employe.values():
+                emp_data['nb_jours'] = len(emp_data['jours'])
+                del emp_data['jours']
+            
+            # Récupérer l'avancement
+            avancement = self.db.execute_query("""
+                SELECT fa.*, e.nom, e.prenom
+                FROM formulaire_avancement fa
+                LEFT JOIN employees e ON fa.employee_id = e.id
+                WHERE fa.formulaire_id = ?
+                ORDER BY fa.updated_at DESC
+            """, (bt_info['id'],))
+            
+            # Calculer le coût total du BT
+            cout_lignes = sum(l.get('montant_ligne', 0) for l in (lignes if lignes else []))
+            cout_total_bt = cout_lignes + cout_main_oeuvre_total
+            
+            # Récupérer les assignations
+            assignations = self.db.execute_query("""
+                SELECT e.nom, e.prenom, e.poste, ea.date_assignation, ea.role_assignation
+                FROM employee_assignations ea
+                JOIN employees e ON ea.employee_id = e.id
+                WHERE ea.formulaire_id = ?
+                ORDER BY ea.date_assignation
+            """, (bt_info['id'],))
+            
+            return {
+                "bt_info": bt_info,
+                "lignes": [dict(l) for l in lignes] if lignes else [],
+                "financial_summary": {
+                    "cout_lignes": cout_lignes,
+                    "cout_main_oeuvre": cout_main_oeuvre_total,
+                    "cout_total": cout_total_bt,
+                    "budget_alloue": bt_info.get('montant_total', 0)
+                },
+                "time_summary": {
+                    "heures_totales": heures_totales,
+                    "nb_employes": len(heures_par_employe),
+                    "premiere_intervention": min(h['punch_in'] for h in heures_bt) if heures_bt else None,
+                    "derniere_intervention": max(h['punch_out'] for h in heures_bt) if heures_bt else None
+                },
+                "employees_detail": heures_par_employe,
+                "time_entries": [dict(h) for h in heures_bt] if heures_bt else [],
+                "progress_history": [dict(a) for a in avancement] if avancement else [],
+                "assignations": [dict(a) for a in assignations] if assignations else []
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur génération rapport BT: {e}")
             return {"error": str(e)}
     
     def _get_erp_statistics(self) -> Dict[str, Any]:
@@ -913,6 +1573,52 @@ Réponds de manière professionnelle et structurée."""
                 else:
                     return self._format_projet_details(projet_details)
             
+            # Pattern pour DEMANDE DE PRIX (format DP-XXXX-XXX)
+            dp_pattern = re.match(r'(dp[- ]?\d{4}[- ]?\d{3})', query.lower())
+            if dp_pattern:
+                # Normaliser le numéro de demande de prix
+                dp_numero = dp_pattern.group(1).upper().replace(' ', '-')
+                if not dp_numero.startswith('DP-'):
+                    dp_numero = 'DP-' + dp_numero[2:]
+                
+                # Récupérer les détails de la demande de prix
+                dp_details = self._get_dp_details(dp_numero)
+                
+                if self.client and 'dp_details' in dp_details:
+                    context = {
+                        'dp_details': dp_details['dp_details'],
+                        'instruction_stricte': "IMPORTANT: Présente UNIQUEMENT les informations fournies dans dp_details. N'invente AUCUNE donnée."
+                    }
+                    return self._get_claude_response(
+                        f"Présente de manière détaillée cette demande de prix avec toutes ses lignes et informations",
+                        context
+                    )
+                else:
+                    return self._format_dp_details(dp_details)
+            
+            # Pattern pour BON D'ACHAT (format BA-XXXX-XXX)
+            ba_pattern = re.match(r'(ba[- ]?\d{4}[- ]?\d{3})', query.lower())
+            if ba_pattern:
+                # Normaliser le numéro de bon d'achat
+                ba_numero = ba_pattern.group(1).upper().replace(' ', '-')
+                if not ba_numero.startswith('BA-'):
+                    ba_numero = 'BA-' + ba_numero[2:]
+                
+                # Récupérer les détails du bon d'achat
+                ba_details = self._get_ba_details(ba_numero)
+                
+                if self.client and 'ba_details' in ba_details:
+                    context = {
+                        'ba_details': ba_details['ba_details'],
+                        'instruction_stricte': "IMPORTANT: Présente UNIQUEMENT les informations fournies dans ba_details. N'invente AUCUNE donnée."
+                    }
+                    return self._get_claude_response(
+                        f"Présente de manière détaillée ce bon d'achat avec toutes ses lignes et informations",
+                        context
+                    )
+                else:
+                    return self._format_ba_details(ba_details)
+            
             # Gérer les commandes spécifiques sans terme de recherche
             elif query.lower() in ['produit', 'produits', 'article', 'articles']:
                 # Récupérer directement tous les produits actifs
@@ -1028,6 +1734,339 @@ Réponds de manière professionnelle et structurée."""
                         results = {'info': 'Aucun devis trouvé dans la base de données.'}
                 except Exception as e:
                     results = {'error': str(e)}
+            elif query.lower() in ['contact', 'contacts']:
+                # Récupérer tous les contacts
+                try:
+                    contacts = self.db.execute_query("""
+                        SELECT c.*, comp.nom as entreprise_nom
+                        FROM contacts c
+                        LEFT JOIN companies comp ON c.company_id = comp.id
+                        ORDER BY c.nom_famille, c.prenom
+                        LIMIT 50
+                    """)
+                    
+                    if contacts:
+                        results = {'contacts': [dict(c) for c in contacts]}
+                    else:
+                        results = {'info': 'Aucun contact trouvé dans la base de données.'}
+                except Exception as e:
+                    results = {'error': str(e)}
+            elif query.lower() in ['demande de prix', 'demandes de prix', 'dp']:
+                # Récupérer toutes les demandes de prix
+                try:
+                    dps = self.db.execute_query("""
+                        SELECT f.numero_document, f.statut, f.created_at, 
+                               f.metadonnees_json, f.notes, c.nom as fournisseur_nom,
+                               (SELECT fl.description FROM formulaire_lignes fl 
+                                WHERE fl.formulaire_id = f.id 
+                                ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
+                        FROM formulaires f 
+                        LEFT JOIN companies c ON f.company_id = c.id
+                        WHERE f.type_formulaire = 'DEMANDE_PRIX'
+                        ORDER BY f.created_at DESC
+                        LIMIT 20
+                    """)
+                    
+                    if dps:
+                        # Traiter les métadonnées JSON pour extraire l'objet
+                        dp_list = []
+                        for dp in dps:
+                            dp_dict = dict(dp)
+                            if dp_dict.get('metadonnees_json'):
+                                try:
+                                    meta = json.loads(dp_dict['metadonnees_json'])
+                                    dp_dict['objet'] = meta.get('objet', dp_dict.get('premiere_ligne', 'Sans objet'))
+                                    dp_dict['fournisseur'] = meta.get('fournisseur_name', dp_dict.get('fournisseur_nom', 'N/A'))
+                                except:
+                                    dp_dict['objet'] = dp_dict.get('premiere_ligne', 'Sans objet')
+                                    dp_dict['fournisseur'] = dp_dict.get('fournisseur_nom', 'N/A')
+                            else:
+                                dp_dict['objet'] = dp_dict.get('premiere_ligne', 'Sans objet')
+                                dp_dict['fournisseur'] = dp_dict.get('fournisseur_nom', 'N/A')
+                            dp_list.append(dp_dict)
+                        results = {'demandes_prix': dp_list}
+                    else:
+                        results = {'info': 'Aucune demande de prix trouvée dans la base de données.'}
+                except Exception as e:
+                    results = {'error': str(e)}
+            elif query.lower() in ['bon d\'achat', 'bons d\'achat', 'bon d\'achats', 'bons d\'achats', 'ba']:
+                # Récupérer tous les bons d'achat
+                try:
+                    bas = self.db.execute_query("""
+                        SELECT f.numero_document, f.statut, f.created_at, f.montant_total,
+                               f.metadonnees_json, f.notes, c.nom as fournisseur_nom,
+                               (SELECT fl.description FROM formulaire_lignes fl 
+                                WHERE fl.formulaire_id = f.id 
+                                ORDER BY fl.sequence_ligne LIMIT 1) as premiere_ligne
+                        FROM formulaires f 
+                        LEFT JOIN companies c ON f.company_id = c.id
+                        WHERE f.type_formulaire = 'BON_ACHAT'
+                        ORDER BY f.created_at DESC
+                        LIMIT 20
+                    """)
+                    
+                    if bas:
+                        # Traiter les métadonnées JSON pour extraire les infos
+                        ba_list = []
+                        for ba in bas:
+                            ba_dict = dict(ba)
+                            if ba_dict.get('metadonnees_json'):
+                                try:
+                                    meta = json.loads(ba_dict['metadonnees_json'])
+                                    ba_dict['objet'] = meta.get('objet', ba_dict.get('premiere_ligne', 'Sans objet'))
+                                    ba_dict['fournisseur'] = meta.get('fournisseur_name', ba_dict.get('fournisseur_nom', 'N/A'))
+                                except:
+                                    ba_dict['objet'] = ba_dict.get('premiere_ligne', 'Sans objet')
+                                    ba_dict['fournisseur'] = ba_dict.get('fournisseur_nom', 'N/A')
+                            else:
+                                ba_dict['objet'] = ba_dict.get('premiere_ligne', 'Sans objet')
+                                ba_dict['fournisseur'] = ba_dict.get('fournisseur_nom', 'N/A')
+                            ba_list.append(ba_dict)
+                        results = {'bons_achat': ba_list}
+                    else:
+                        results = {'info': 'Aucun bon d\'achat trouvé dans la base de données.'}
+                except Exception as e:
+                    results = {'error': str(e)}
+            elif query.lower() in ['employé', 'employés', 'employe', 'employes', 'personnel']:
+                # Récupérer tous les employés
+                try:
+                    employes = self.db.execute_query("""
+                        SELECT e.*, 
+                               GROUP_CONCAT(ec.nom_competence || ' (' || ec.niveau || ')', ', ') as competences
+                        FROM employees e
+                        LEFT JOIN employee_competences ec ON e.id = ec.employee_id
+                        WHERE e.statut = 'ACTIF'
+                        GROUP BY e.id
+                        ORDER BY e.nom, e.prenom
+                        LIMIT 50
+                    """)
+                    
+                    if employes:
+                        results = {'employes': [dict(e) for e in employes]}
+                    else:
+                        results = {'info': 'Aucun employé trouvé dans la base de données.'}
+                except Exception as e:
+                    results = {'error': str(e)}
+            elif query.lower().startswith('employé') or query.lower().startswith('employe'):
+                # Recherche d'employé spécifique
+                if query.lower().startswith('employés'):
+                    search_term = query[8:].strip() if len(query) > 8 else ''
+                elif query.lower().startswith('employé'):
+                    search_term = query[7:].strip() if len(query) > 7 else ''
+                elif query.lower().startswith('employes'):
+                    search_term = query[8:].strip() if len(query) > 8 else ''
+                else:
+                    search_term = query[7:].strip() if len(query) > 7 else ''
+                
+                if search_term:
+                    try:
+                        employes = self.db.execute_query("""
+                            SELECT e.*, 
+                                   GROUP_CONCAT(ec.nom_competence || ' (' || ec.niveau || ')', ', ') as competences
+                            FROM employees e
+                            LEFT JOIN employee_competences ec ON e.id = ec.employee_id
+                            WHERE LOWER(e.nom) LIKE LOWER(?)
+                               OR LOWER(e.prenom) LIKE LOWER(?)
+                               OR LOWER(e.nom || ' ' || e.prenom) LIKE LOWER(?)
+                               OR LOWER(e.prenom || ' ' || e.nom) LIKE LOWER(?)
+                               OR LOWER(e.poste) LIKE LOWER(?)
+                               OR LOWER(e.departement) LIKE LOWER(?)
+                            GROUP BY e.id
+                            ORDER BY e.nom, e.prenom
+                            LIMIT 20
+                        """, (f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', 
+                              f'%{search_term}%', f'%{search_term}%', f'%{search_term}%'))
+                        
+                        if employes:
+                            results = {'employes': [dict(e) for e in employes]}
+                        else:
+                            results = {'info': f'Aucun employé trouvé pour "{search_term}".'}
+                    except Exception as e:
+                        results = {'error': str(e)}
+                else:
+                    results = self._search_erp_data(query)
+            elif query.lower().startswith('contact'):
+                # Recherche de contact spécifique
+                if query.lower().startswith('contacts'):
+                    search_term = query[8:].strip() if len(query) > 8 else ''
+                else:
+                    search_term = query[7:].strip() if len(query) > 7 else ''
+                if search_term:
+                    try:
+                        contacts = self.db.execute_query("""
+                            SELECT c.*, comp.nom as entreprise_nom
+                            FROM contacts c
+                            LEFT JOIN companies comp ON c.company_id = comp.id
+                            WHERE LOWER(c.nom_famille) LIKE LOWER(?) 
+                               OR LOWER(c.prenom) LIKE LOWER(?)
+                               OR LOWER(c.nom_famille || ' ' || c.prenom) LIKE LOWER(?)
+                               OR LOWER(c.prenom || ' ' || c.nom_famille) LIKE LOWER(?)
+                               OR LOWER(c.email) LIKE LOWER(?)
+                               OR LOWER(comp.nom) LIKE LOWER(?)
+                            ORDER BY c.nom_famille, c.prenom
+                            LIMIT 20
+                        """, (f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', 
+                              f'%{search_term}%', f'%{search_term}%', f'%{search_term}%'))
+                        
+                        if contacts:
+                            results = {'contacts': [dict(c) for c in contacts]}
+                        else:
+                            results = {'info': f'Aucun contact trouvé pour "{search_term}".'}
+                    except Exception as e:
+                        results = {'error': str(e)}
+                else:
+                    results = self._search_erp_data(query)
+            elif query.lower() in ['entreprise', 'entreprises', 'company', 'companies', 'societe', 'societes']:
+                # Récupérer toutes les entreprises
+                try:
+                    entreprises = self.db.execute_query("""
+                        SELECT c.*, 
+                               (SELECT COUNT(*) FROM contacts ct WHERE ct.company_id = c.id) as nb_contacts,
+                               (SELECT COUNT(*) FROM projects p WHERE p.client_company_id = c.id) as nb_projets
+                        FROM companies c
+                        ORDER BY c.nom
+                        LIMIT 50
+                    """)
+                    
+                    if entreprises:
+                        results = {'entreprises': [dict(e) for e in entreprises]}
+                    else:
+                        results = {'info': 'Aucune entreprise trouvée dans la base de données.'}
+                except Exception as e:
+                    results = {'error': str(e)}
+            elif query.lower().startswith('entreprise'):
+                # Recherche d'entreprise spécifique
+                search_term = query[10:].strip() if len(query) > 10 else ''
+                if query.lower().startswith('entreprises'):
+                    search_term = query[11:].strip() if len(query) > 11 else ''
+                
+                if search_term:
+                    try:
+                        entreprises = self.db.execute_query("""
+                            SELECT c.*, 
+                                   (SELECT COUNT(*) FROM contacts ct WHERE ct.company_id = c.id) as nb_contacts,
+                                   (SELECT COUNT(*) FROM projects p WHERE p.client_company_id = c.id) as nb_projets
+                            FROM companies c
+                            WHERE LOWER(c.nom) LIKE LOWER(?)
+                               OR LOWER(c.secteur) LIKE LOWER(?)
+                               OR LOWER(c.ville) LIKE LOWER(?)
+                            ORDER BY c.nom
+                            LIMIT 20
+                        """, (f'%{search_term}%', f'%{search_term}%', f'%{search_term}%'))
+                        
+                        if entreprises:
+                            results = {'entreprises': [dict(e) for e in entreprises]}
+                        else:
+                            results = {'info': f'Aucune entreprise trouvée pour "{search_term}".'}
+                    except Exception as e:
+                        results = {'error': str(e)}
+                else:
+                    results = self._search_erp_data(query)
+            elif query.lower() in ['fournisseur', 'fournisseurs', 'supplier', 'suppliers']:
+                # Récupérer tous les fournisseurs
+                try:
+                    fournisseurs = self.db.execute_query("""
+                        SELECT f.*, c.nom, c.adresse, c.secteur,
+                               (SELECT COUNT(*) FROM approvisionnements a WHERE a.fournisseur_id = f.id) as nb_commandes
+                        FROM fournisseurs f
+                        JOIN companies c ON f.company_id = c.id
+                        WHERE f.est_actif = 1
+                        ORDER BY c.nom
+                        LIMIT 50
+                    """)
+                    
+                    if fournisseurs:
+                        results = {'fournisseurs': [dict(f) for f in fournisseurs]}
+                    else:
+                        results = {'info': 'Aucun fournisseur trouvé dans la base de données.'}
+                except Exception as e:
+                    results = {'error': str(e)}
+            elif query.lower().startswith('fournisseur'):
+                # Recherche de fournisseur spécifique
+                search_term = query[11:].strip() if len(query) > 11 else ''
+                if query.lower().startswith('fournisseurs'):
+                    search_term = query[12:].strip() if len(query) > 12 else ''
+                
+                if search_term:
+                    try:
+                        fournisseurs = self.db.execute_query("""
+                            SELECT f.*, c.nom, c.adresse, c.secteur,
+                                   (SELECT COUNT(*) FROM approvisionnements a WHERE a.fournisseur_id = f.id) as nb_commandes
+                            FROM fournisseurs f
+                            JOIN companies c ON f.company_id = c.id
+                            WHERE f.est_actif = 1
+                              AND (LOWER(c.nom) LIKE LOWER(?)
+                                   OR LOWER(f.code_fournisseur) LIKE LOWER(?)
+                                   OR LOWER(f.categorie_produits) LIKE LOWER(?)
+                                   OR LOWER(c.secteur) LIKE LOWER(?))
+                            ORDER BY c.nom
+                            LIMIT 20
+                        """, (f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', f'%{search_term}%'))
+                        
+                        if fournisseurs:
+                            results = {'fournisseurs': [dict(f) for f in fournisseurs]}
+                        else:
+                            results = {'info': f'Aucun fournisseur trouvé pour "{search_term}".'}
+                    except Exception as e:
+                        results = {'error': str(e)}
+                else:
+                    results = self._search_erp_data(query)
+            elif query.lower().startswith('heures'):
+                # Extraction du nom d'employé et de la période
+                parts = query[6:].strip()  # Enlever "heures"
+                week_date = None
+                employee_name = parts
+                
+                # Vérifier si une période est spécifiée
+                if 'semaine dernière' in parts.lower():
+                    employee_name = parts.lower().replace('semaine dernière', '').strip()
+                    week_date = 'semaine dernière'
+                elif re.search(r'\d{4}-\d{2}-\d{2}', parts):
+                    # Extraire la date
+                    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', parts)
+                    if date_match:
+                        week_date = date_match.group(1)
+                        employee_name = parts.replace(week_date, '').strip()
+                
+                if employee_name:
+                    hours_data = self._get_employee_hours(employee_name, week_date)
+                    
+                    # Utiliser le formatage dédié pour les heures
+                    return self._format_employee_hours(hours_data)
+                else:
+                    return "❌ Veuillez spécifier le nom de l'employé (ex: `/erp heures Denis Jetté`)"
+            elif query.lower().startswith('rapport projet'):
+                # Extraction de l'identifiant du projet
+                project_id = query[14:].strip()  # Enlever "rapport projet"
+                
+                if project_id:
+                    # Accepter différents formats de projet
+                    project_id = project_id.upper().replace('PRJ-', '').replace('PRJ', '')
+                    report_data = self._get_project_report(project_id)
+                    
+                    # Utiliser le formatage dédié pour le rapport projet
+                    return self._format_project_report(report_data)
+                else:
+                    return "❌ Veuillez spécifier l'identifiant du projet (ex: `/erp rapport projet 25-251`)"
+            elif query.lower().startswith('rapport bt') or query.lower().startswith('rapport bon'):
+                # Extraction du numéro de bon de travail
+                if query.lower().startswith('rapport bt'):
+                    bt_numero = query[10:].strip()  # Enlever "rapport bt"
+                else:
+                    bt_numero = query[11:].strip()  # Enlever "rapport bon"
+                
+                if bt_numero:
+                    # Normaliser le numéro
+                    bt_numero = bt_numero.upper()
+                    if not bt_numero.startswith('BT-'):
+                        bt_numero = 'BT-' + bt_numero.replace('BT', '')
+                    
+                    report_data = self._get_bt_report(bt_numero)
+                    
+                    # Utiliser le formatage dédié pour le rapport BT
+                    return self._format_bt_report(report_data)
+                else:
+                    return "❌ Veuillez spécifier le numéro du bon de travail (ex: `/erp rapport bt BT-2025-001`)"
             else:
                 # Recherche normale avec le terme fourni
                 results = self._search_erp_data(query)
@@ -1244,6 +2283,13 @@ Réponds de manière professionnelle et structurée."""
 - `/erp stock acier inoxydable` - État des stocks
 - `/erp employé soudeur` - Recherche d'employés
 - `/erp client quebec` - Recherche de clients
+- `/erp heures Denis Jetté` - Heures travaillées cette semaine
+- `/erp heures Denis Jetté semaine dernière` - Heures de la semaine dernière
+- `/erp heures Denis Jetté 2025-01-13` - Heures d'une semaine spécifique
+
+**Rapports détaillés:**
+- `/erp rapport projet 25-251` - Rapport complet d'un projet avec analyse financière
+- `/erp rapport bt BT-2025-001` - Rapport détaillé d'un bon de travail
 
 **Questions directes (sans commande):**
 - "Quel est l'état du projet AutoTech?"
@@ -1369,14 +2415,22 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
                 lines.append(f"| {nom_complet} | {poste} | {competences} |")
             lines.append("")
         
-        # Entreprises avec style carte
+        # Entreprises avec tableau
         if 'entreprises' in results and results['entreprises']:
-            lines.append("### 🏢 **Entreprises**\n")
+            lines.append("### 🏢 **Entreprises trouvées**\n")
+            lines.append("| **Nom** | **Secteur** | **Ville** | **Email** | **Téléphone** | **Contacts** | **Projets** |")
+            lines.append("|----------|-------------|-----------|-----------|---------------|--------------|-------------|")
+            
             for comp in results['entreprises']:
-                lines.append(f"**➤ {comp['nom']}**")
-                lines.append(f"- 🏭 Secteur: `{comp['secteur']}`")
-                lines.append(f"- 📍 Ville: `{comp['ville']}`")
-                lines.append("")
+                nom = comp.get('nom', '')
+                secteur = comp.get('secteur', 'N/A')
+                ville = comp.get('ville', 'N/A')
+                email = comp.get('email', 'N/A')
+                telephone = comp.get('telephone', 'N/A')
+                nb_contacts = comp.get('nb_contacts', 0)
+                nb_projets = comp.get('nb_projets', 0)
+                lines.append(f"| {nom} | {secteur} | {ville} | {email} | {telephone} | {nb_contacts} | {nb_projets} |")
+            lines.append("")
         
         # Bons de travail avec tableau
         if 'bons_travail' in results and results['bons_travail']:
@@ -1406,6 +2460,69 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
                 montant = f"{devis.get('montant_total', 0):,.2f} $" if devis.get('montant_total') else 'N/A'
                 statut = devis.get('statut', 'N/A')
                 lines.append(f"| {numero} | {titre} | {client} | {montant} | {statut} |")
+            lines.append("")
+        
+        # Contacts avec tableau
+        if 'contacts' in results and results['contacts']:
+            lines.append("### 👥 **Contacts trouvés**\n")
+            lines.append("| **Nom complet** | **Entreprise** | **Email** | **Téléphone** | **Rôle/Poste** |")
+            lines.append("|-----------------|----------------|-----------|---------------|----------------|")
+            
+            for contact in results['contacts']:
+                nom_complet = f"{contact.get('prenom', '')} {contact.get('nom_famille', '')}"
+                entreprise = contact.get('entreprise_nom', 'N/A')
+                email = contact.get('email', 'N/A')
+                telephone = contact.get('telephone', 'N/A')
+                role = contact.get('role_poste', 'N/A')
+                lines.append(f"| {nom_complet} | {entreprise} | {email} | {telephone} | {role} |")
+            lines.append("")
+        
+        # Demandes de prix avec tableau
+        if 'demandes_prix' in results and results['demandes_prix']:
+            lines.append("### 💰 **Demandes de prix trouvées**\n")
+            lines.append("| **Numéro** | **Objet** | **Fournisseur** | **Date création** | **Statut** |")
+            lines.append("|------------|-----------|-----------------|-------------------|------------|")
+            
+            for dp in results['demandes_prix']:
+                numero = dp.get('numero_document', '')
+                objet = dp.get('objet', 'Sans objet')
+                fournisseur = dp.get('fournisseur', 'N/A')
+                date = dp.get('created_at', 'N/A')
+                statut = dp.get('statut', 'N/A')
+                lines.append(f"| {numero} | {objet} | {fournisseur} | {date} | {statut} |")
+            lines.append("")
+        
+        # Fournisseurs avec tableau
+        if 'fournisseurs' in results and results['fournisseurs']:
+            lines.append("### 🚚 **Fournisseurs trouvés**\n")
+            lines.append("| **Nom** | **Code** | **Catégorie** | **Secteur** | **Délai livraison** | **Évaluation** | **Commandes** |")
+            lines.append("|---------|----------|---------------|-------------|---------------------|----------------|---------------|")
+            
+            for fourn in results['fournisseurs']:
+                nom = fourn.get('nom', '')
+                code = fourn.get('code_fournisseur', 'N/A')
+                categorie = fourn.get('categorie_produits', 'N/A')
+                secteur = fourn.get('secteur', 'N/A')
+                delai = f"{fourn.get('delai_livraison_moyen', 'N/A')} jours" if fourn.get('delai_livraison_moyen') else 'N/A'
+                evaluation = f"{fourn.get('evaluation_qualite', 5)}/5" if fourn.get('evaluation_qualite') else '5/5'
+                nb_commandes = fourn.get('nb_commandes', 0)
+                lines.append(f"| {nom} | {code} | {categorie} | {secteur} | {delai} | {evaluation} | {nb_commandes} |")
+            lines.append("")
+        
+        # Bons d'achat avec tableau
+        if 'bons_achat' in results and results['bons_achat']:
+            lines.append("### 🛒 **Bons d'achat trouvés**\n")
+            lines.append("| **Numéro** | **Objet** | **Fournisseur** | **Montant** | **Date création** | **Statut** |")
+            lines.append("|------------|-----------|-----------------|-------------|-------------------|------------|")
+            
+            for ba in results['bons_achat']:
+                numero = ba.get('numero_document', '')
+                objet = ba.get('objet', 'Sans objet')
+                fournisseur = ba.get('fournisseur', 'N/A')
+                montant = f"{ba.get('montant_total', 0):,.2f} $" if ba.get('montant_total') else 'N/A'
+                date = ba.get('created_at', 'N/A')
+                statut = ba.get('statut', 'N/A')
+                lines.append(f"| {numero} | {objet} | {fournisseur} | {montant} | {date} | {statut} |")
             lines.append("")
         
         # Message informatif
@@ -1676,6 +2793,636 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
         # Avancement global
         if projet.get('pourcentage_complete') is not None:
             lines.append(f"### 📈 **Avancement global**: {projet['pourcentage_complete']}%")
+        
+        return "\n".join(lines)
+    
+    def _format_dp_details(self, details: Dict) -> str:
+        """Formate les détails complets d'une demande de prix"""
+        if 'error' in details:
+            return f"❌ **Erreur:** {details['error']}"
+        
+        if 'dp_details' not in details:
+            return "❌ Aucun détail disponible pour cette demande de prix."
+        
+        dp = details['dp_details']
+        lines = []
+        
+        # En-tête de la demande de prix
+        lines.append(f"## 💰 **{dp.get('numero_document', 'N/A')} - Demande de prix**\n")
+        
+        # Informations générales
+        lines.append("### 📋 **Informations générales**")
+        lines.append(f"- **Fournisseur**: {dp.get('fournisseur', 'N/A')}")
+        lines.append(f"- **Objet**: {dp.get('objet', 'Sans objet')}")
+        lines.append(f"- **Statut**: `{dp.get('statut', 'N/A')}`")
+        lines.append(f"- **Date création**: {dp.get('created_at', 'N/A')}")
+        lines.append(f"- **Délai de réponse**: {dp.get('delai_reponse', '15 jours')}")
+        lines.append(f"- **Conditions livraison**: {dp.get('conditions_livraison', 'À définir')}")
+        if dp.get('notes'):
+            lines.append(f"- **Notes**: {dp['notes']}")
+        lines.append("")
+        
+        # Lignes de la demande
+        if dp.get('lignes'):
+            lines.append("### 📦 **Articles demandés**")
+            lines.append("| **#** | **Description** | **Catégorie** | **Quantité** | **Unité** | **Spécifications** |")
+            lines.append("|-------|-----------------|---------------|--------------|-----------|-------------------|")
+            
+            for ligne in dp['lignes']:
+                seq = ligne.get('sequence_ligne', '')
+                desc = ligne.get('description', '')
+                cat = ligne.get('categorie', 'N/A')
+                qte = ligne.get('quantite', 0)
+                unite = ligne.get('unite', '')
+                specs = ligne.get('specifications', 'Standard')
+                lines.append(f"| {seq} | {desc} | {cat} | {qte} | {unite} | {specs} |")
+            lines.append("")
+        
+        # Réponses fournisseur
+        if dp.get('reponses'):
+            lines.append("### 📝 **Réponses du fournisseur**")
+            for reponse in dp['reponses']:
+                lines.append(f"\n**Réponse du {reponse.get('date_reponse', 'N/A')}**")
+                lines.append(f"- **Prix proposé**: {reponse.get('prix_propose', 0):,.2f} $")
+                lines.append(f"- **Délai livraison**: {reponse.get('delai_livraison', 'N/A')}")
+                lines.append(f"- **Validité**: {reponse.get('validite_offre', '30 jours')}")
+                if reponse.get('conditions'):
+                    lines.append(f"- **Conditions**: {reponse['conditions']}")
+                if reponse.get('commentaires'):
+                    lines.append(f"- **Commentaires**: {reponse['commentaires']}")
+            lines.append("")
+        else:
+            lines.append("### ⏳ **En attente de réponse du fournisseur**")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _format_ba_details(self, details: Dict) -> str:
+        """Formate les détails complets d'un bon d'achat"""
+        if 'error' in details:
+            return f"❌ **Erreur:** {details['error']}"
+        
+        if 'ba_details' not in details:
+            return "❌ Aucun détail disponible pour ce bon d'achat."
+        
+        ba = details['ba_details']
+        lines = []
+        
+        # En-tête du bon d'achat
+        lines.append(f"## 🛒 **{ba.get('numero_document', 'N/A')} - Bon d'achat**\n")
+        
+        # Informations générales
+        lines.append("### 📋 **Informations générales**")
+        lines.append(f"- **Fournisseur**: {ba.get('fournisseur', 'N/A')}")
+        lines.append(f"- **Objet**: {ba.get('objet', 'Sans objet')}")
+        if ba.get('nom_projet'):
+            lines.append(f"- **Projet associé**: {ba.get('nom_projet')}")
+        lines.append(f"- **Statut**: `{ba.get('statut', 'N/A')}`")
+        lines.append(f"- **Date création**: {ba.get('created_at', 'N/A')}")
+        lines.append(f"- **Conditions paiement**: {ba.get('conditions_paiement', '30 jours net')}")
+        lines.append(f"- **Mode livraison**: {ba.get('mode_livraison', 'À définir')}")
+        if ba.get('notes'):
+            lines.append(f"- **Notes**: {ba['notes']}")
+        lines.append("")
+        
+        # Lignes du bon d'achat
+        if ba.get('lignes'):
+            lines.append("### 📦 **Articles commandés**")
+            lines.append("| **#** | **Code** | **Description** | **Catégorie** | **Quantité** | **Unité** | **Prix unit.** | **Total** |")
+            lines.append("|-------|----------|-----------------|---------------|--------------|-----------|----------------|-----------|")
+            
+            for ligne in ba['lignes']:
+                seq = ligne.get('sequence_ligne', '')
+                code = ligne.get('code_article', 'N/A')
+                desc = ligne.get('description', '')
+                cat = ligne.get('categorie', 'N/A')
+                qte = ligne.get('quantite', 0)
+                unite = ligne.get('unite', '')
+                prix = ligne.get('prix_unitaire', 0)
+                total = ligne.get('montant_ligne', qte * prix)
+                lines.append(f"| {seq} | {code} | {desc} | {cat} | {qte} | {unite} | {prix:.2f} $ | {total:.2f} $ |")
+            lines.append("")
+        
+        # Totaux
+        lines.append("### 💵 **Récapitulatif financier**")
+        sous_total = ba.get('sous_total', 0)
+        lines.append(f"- **Sous-total**: {sous_total:,.2f} $")
+        
+        # Supposons 15% de taxes
+        taxes = sous_total * 0.15
+        lines.append(f"- **Taxes (15%)**: {taxes:,.2f} $")
+        
+        total = ba.get('montant_total', sous_total + taxes)
+        lines.append(f"- **TOTAL**: **{total:,.2f} $**")
+        lines.append("")
+        
+        # Informations de livraison
+        if ba.get('livraisons'):
+            lines.append("### 🚚 **Suivi des livraisons**")
+            lines.append("| **Date commande** | **Date prévue** | **Date réelle** | **Statut** | **Qté commandée** | **Qté reçue** |")
+            lines.append("|-------------------|-----------------|-----------------|------------|-------------------|---------------|")
+            
+            for liv in ba['livraisons']:
+                date_cmd = liv.get('date_commande', 'N/A')
+                date_prev = liv.get('date_livraison_prevue', 'N/A')
+                date_reel = liv.get('date_livraison_reelle', 'N/A')
+                statut = liv.get('statut_livraison', 'EN_ATTENTE')
+                qte_cmd = liv.get('quantite_commandee', 0)
+                qte_rec = liv.get('quantite_recue', 0)
+                lines.append(f"| {date_cmd} | {date_prev} | {date_reel} | {statut} | {qte_cmd} | {qte_rec} |")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _format_employee_hours(self, details: Dict) -> str:
+        """Formate les heures travaillées d'un employé avec rapport complet"""
+        if 'error' in details:
+            return f"❌ **Erreur:** {details['error']}"
+        
+        if not details:
+            return "❌ Aucune heure travaillée trouvée pour cette période."
+        
+        lines = []
+        employee_name = details.get('employee_name', 'Employé')
+        poste = details.get('poste', 'N/A')
+        departement = details.get('departement', 'N/A')
+        week_start = details.get('week_start', '')
+        week_end = details.get('week_end', '')
+        
+        # En-tête
+        lines.append(f"## ⏰ **Rapport d'heures - {employee_name}**")
+        lines.append(f"**Poste**: {poste} | **Département**: {departement}\n")
+        lines.append(f"### 📅 **Période: {week_start} au {week_end}**\n")
+        
+        # Résumé avec statistiques
+        total_hours = details.get('total_hours', 0)
+        total_days = details.get('total_days', 0)
+        average_hours = details.get('average_hours', 0)
+        most_productive_day = details.get('most_productive_day', 'N/A')
+        max_daily_hours = details.get('max_daily_hours', 0)
+        
+        lines.append("### 📊 **Résumé de la semaine**")
+        lines.append(f"- **Total heures travaillées**: `{total_hours:.2f}` heures")
+        lines.append(f"- **Jours travaillés**: `{total_days}` jours")
+        lines.append(f"- **Moyenne par jour**: `{average_hours:.2f}` heures")
+        lines.append(f"- **Jour le plus productif**: {most_productive_day} ({max_daily_hours:.2f}h)")
+        lines.append("")
+        
+        # Répartition par client
+        if details.get('hours_by_client'):
+            lines.append("### 🏢 **Répartition par client**")
+            lines.append("| **Client** | **Heures** | **%** | **Projets** |")
+            lines.append("|------------|------------|-------|-------------|")
+            
+            for client_data in details.get('hours_by_client', []):
+                client = client_data.get('client', 'N/A')
+                hours = client_data.get('hours', 0)
+                percentage = client_data.get('percentage', 0)
+                projects = ', '.join(client_data.get('projects', []))
+                lines.append(f"| {client} | {hours:.2f}h | {percentage:.1f}% | {projects} |")
+            lines.append("")
+        
+        # Détail par projet avec statut
+        if details.get('hours_by_project'):
+            lines.append("### 📁 **Heures par projet**")
+            lines.append("| **Projet** | **Client** | **Heures** | **%** | **Statut** | **Jours** | **Bons de travail** |")
+            lines.append("|------------|------------|------------|-------|------------|-----------|---------------------|")
+            
+            for project_data in details.get('hours_by_project', []):
+                project = project_data.get('project_name', 'Sans projet')
+                client = project_data.get('client', 'N/A')
+                hours = project_data.get('hours', 0)
+                percentage = project_data.get('percentage', 0)
+                statut = project_data.get('statut', 'N/A')
+                days_worked = project_data.get('days_worked', 0)
+                bts = ', '.join(project_data.get('bons_travail', [])) if project_data.get('bons_travail') else 'N/A'
+                lines.append(f"| {project} | {client} | {hours:.2f}h | {percentage:.1f}% | {statut} | {days_worked} | {bts} |")
+            lines.append("")
+        
+        # Détail par bon de travail
+        if details.get('hours_by_bt'):
+            lines.append("### 🔧 **Heures par bon de travail**")
+            lines.append("| **Bon de travail** | **Projet** | **Heures** | **%** | **Statut** | **Priorité** |")
+            lines.append("|--------------------|------------|------------|-------|------------|--------------|")
+            
+            for bt_data in details.get('hours_by_bt', []):
+                bt = bt_data.get('bt_numero', 'N/A')
+                project = bt_data.get('project', 'N/A')
+                hours = bt_data.get('hours', 0)
+                percentage = bt_data.get('percentage', 0)
+                statut = bt_data.get('statut', 'N/A')
+                priorite = bt_data.get('priorite', 'N/A')
+                lines.append(f"| {bt} | {project} | {hours:.2f}h | {percentage:.1f}% | {statut} | {priorite} |")
+            lines.append("")
+        
+        # Détail par jour
+        if details.get('hours_by_day'):
+            lines.append("### 📆 **Détail quotidien**")
+            lines.append("| **Date** | **Jour** | **Heures** | **Entrées** | **Projets** | **Bons de travail** |")
+            lines.append("|----------|----------|------------|-------------|-------------|---------------------|")
+            
+            days_fr = {
+                'Monday': 'Lundi',
+                'Tuesday': 'Mardi',
+                'Wednesday': 'Mercredi',
+                'Thursday': 'Jeudi',
+                'Friday': 'Vendredi',
+                'Saturday': 'Samedi',
+                'Sunday': 'Dimanche'
+            }
+            
+            for day_data in details.get('hours_by_day', []):
+                date = day_data.get('date', '')
+                day_name = days_fr.get(day_data.get('day_name', ''), day_data.get('day_name', ''))
+                hours = day_data.get('hours', 0)
+                entries_count = day_data.get('entries_count', 0)
+                projects = ', '.join(day_data.get('projects', [])) if day_data.get('projects') else 'N/A'
+                bts = ', '.join(day_data.get('bons_travail', [])) if day_data.get('bons_travail') else 'N/A'
+                lines.append(f"| {date} | {day_name} | {hours:.2f}h | {entries_count} | {projects} | {bts} |")
+            lines.append("")
+        
+        # Graphique de productivité (représentation textuelle)
+        if details.get('hours_by_day'):
+            lines.append("### 📈 **Graphique de productivité**")
+            lines.append("```")
+            max_graph_width = 40
+            for day_data in details.get('hours_by_day', []):
+                date = day_data.get('date', '')[-5:]  # MM-DD
+                hours = day_data.get('hours', 0)
+                bar_width = int((hours / max_daily_hours) * max_graph_width) if max_daily_hours > 0 else 0
+                bar = '█' * bar_width
+                lines.append(f"{date} |{bar} {hours:.1f}h")
+            lines.append("```")
+            lines.append("")
+        
+        # Statistiques de performance
+        lines.append("### 🎯 **Indicateurs de performance**")
+        
+        # Productivité (basé sur 8h/jour standard)
+        expected_hours = total_days * 8
+        productivity = (total_hours / expected_hours * 100) if expected_hours > 0 else 0
+        lines.append(f"- **Taux de productivité**: {productivity:.1f}% (base: 8h/jour)")
+        
+        # Répartition projets vs autres
+        project_hours_total = sum(p.get('hours', 0) for p in details.get('hours_by_project', []))
+        project_percentage = (project_hours_total / total_hours * 100) if total_hours > 0 else 0
+        lines.append(f"- **Temps sur projets**: {project_percentage:.1f}%")
+        
+        # Nombre de projets différents
+        num_projects = len(details.get('hours_by_project', []))
+        lines.append(f"- **Projets travaillés**: {num_projects}")
+        
+        # Nombre de bons de travail
+        num_bts = len(details.get('hours_by_bt', []))
+        lines.append(f"- **Bons de travail traités**: {num_bts}")
+        lines.append("")
+        
+        # Entrées détaillées (optionnel, si peu nombreuses)
+        if details.get('time_entries') and len(details.get('time_entries', [])) <= 20:
+            lines.append("### 📝 **Pointages détaillés**")
+            lines.append("| **Date** | **Entrée** | **Sortie** | **Durée** | **Projet** | **BT** |")
+            lines.append("|----------|------------|------------|-----------|------------|--------|")
+            
+            for entry in details.get('time_entries', []):
+                date = entry.get('work_date', '')
+                punch_in = entry.get('punch_in_time', '')
+                punch_out = entry.get('punch_out_time', '')
+                duration = entry.get('total_hours', 0)
+                project = entry.get('nom_projet', 'N/A')
+                bt = entry.get('bt_numero', 'N/A')
+                lines.append(f"| {date} | {punch_in} | {punch_out} | {duration:.2f}h | {project} | {bt} |")
+            lines.append("")
+        
+        # Note de fin
+        lines.append("---")
+        lines.append(f"*Rapport généré pour la période du {week_start} au {week_end}*")
+        
+        return "\n".join(lines)
+    
+    def _format_project_report(self, report: Dict) -> str:
+        """Formate le rapport complet d'un projet avec analyse financière"""
+        if 'error' in report:
+            return f"❌ **Erreur:** {report['error']}"
+        
+        if not report or 'project_info' not in report:
+            return "❌ Aucune donnée disponible pour ce projet."
+        
+        lines = []
+        proj = report['project_info']
+        fin = report['financial_summary']
+        time = report['time_summary']
+        
+        # En-tête
+        lines.append(f"## 📁 **Rapport de projet - {proj.get('id', 'N/A')} - {proj.get('nom_projet', 'Sans nom')}**")
+        lines.append(f"**Client**: {proj.get('client_nom', 'N/A')} | **Secteur**: {proj.get('client_secteur', 'N/A')}")
+        lines.append(f"**Statut**: `{proj.get('statut', 'N/A')}` | **Priorité**: `{proj.get('priorite', 'N/A')}`")
+        lines.append(f"**Avancement global**: {report.get('progress', 0):.1f}%\n")
+        
+        # Analyse financière
+        lines.append("✨ 💰 **Analyse financière**")
+        lines.append(f"- **Prix de vente**: {fin['prix_vente']:,.2f} $")
+        lines.append(f"- **Coût main d'œuvre**: {fin['cout_main_oeuvre']:,.2f} $")
+        lines.append(f"- **Coût matériaux**: {fin['cout_materiaux']:,.2f} $")
+        lines.append(f"- **Coût total**: {fin['cout_total']:,.2f} $")
+        lines.append(f"- **Profit brut**: {fin['profit_brut']:,.2f} $")
+        
+        # Indicateur visuel de rentabilité
+        if fin['marge_profit'] >= 30:
+            emoji = "🟢"  # Vert
+            status = "Excellente"
+        elif fin['marge_profit'] >= 15:
+            emoji = "🟡"  # Jaune
+            status = "Correcte"
+        else:
+            emoji = "🔴"  # Rouge
+            status = "Faible"
+        
+        lines.append(f"- **Marge de profit**: {emoji} {fin['marge_profit']:.1f}% ({status})")
+        lines.append("")
+        
+        # Analyse du temps
+        lines.append("✨ ⏰ **Analyse du temps**")
+        lines.append(f"- **Heures estimées**: {time['heures_estimees']:.1f} h")
+        lines.append(f"- **Heures réelles**: {time['heures_reelles']:.1f} h")
+        
+        # Indicateur d'efficacité
+        if time['efficacite'] >= 90:
+            eff_emoji = "🎯"  # Excellent
+            eff_status = "Excellente efficacité"
+        elif time['efficacite'] >= 70:
+            eff_emoji = "✅"  # Bon
+            eff_status = "Bonne efficacité"
+        else:
+            eff_emoji = "⚠️"  # Attention
+            eff_status = "Efficacité à améliorer"
+        
+        lines.append(f"- **Efficacité**: {eff_emoji} {time['efficacite']:.1f}% ({eff_status})")
+        lines.append(f"- **Nombre d'employés**: {time['nb_employes']}")
+        lines.append(f"- **Jours travaillés**: {time['nb_jours_travailles']}")
+        lines.append("")
+        
+        # Détail des employés
+        if report.get('employees'):
+            lines.append("✨ 👥 **Répartition du travail par employé**")
+            lines.append("| **Employé** | **Poste** | **Heures** | **Coût** | **Jours** | **Période** |")
+            lines.append("|-------------|-----------|------------|-----------|-----------|-------------|")
+            
+            for emp in report['employees']:
+                nom = f"{emp['prenom']} {emp['nom']}"
+                poste = emp.get('poste', 'N/A')
+                heures = emp.get('heures_totales', 0)
+                cout = emp.get('cout_total', 0)
+                jours = emp.get('jours_travailles', 0)
+                periode = f"{emp.get('premiere_intervention', 'N/A')} au {emp.get('derniere_intervention', 'N/A')}"
+                lines.append(f"| {nom} | {poste} | {heures:.1f}h | {cout:,.2f}$ | {jours} | {periode} |")
+            lines.append("")
+        
+        # Matériaux utilisés
+        if report.get('materials'):
+            lines.append("✨ 🔧 **Matériaux utilisés**")
+            lines.append("| **Code** | **Produit** | **Fournisseur** | **Quantité** | **Coût unit.** | **Coût total** |")
+            lines.append("|----------|-------------|-----------------|--------------|-----------------|-----------------|")
+            
+            for mat in report['materials']:
+                code = mat.get('code_article', 'N/A')
+                nom = mat.get('nom_produit', 'N/A')
+                fourn = mat.get('fournisseur', 'N/A')
+                qte = f"{mat.get('quantite_totale', 0)} {mat.get('unite', '')}"
+                cout_unit = mat.get('cout_unitaire', 0)
+                cout_total = mat.get('cout_total', 0)
+                lines.append(f"| {code} | {nom} | {fourn} | {qte} | {cout_unit:.2f}$ | {cout_total:,.2f}$ |")
+            lines.append("")
+        
+        # Bons de travail
+        if report.get('work_orders'):
+            lines.append("✨ 🔧 **Bons de travail associés**")
+            lines.append("| **Numéro** | **Statut** | **Coût** | **Lignes** | **Date création** |")
+            lines.append("|------------|----------|----------|-----------|-------------------|")
+            
+            for bt in report['work_orders']:
+                numero = bt.get('numero_document', 'N/A')
+                statut = bt.get('statut', 'N/A')
+                cout = bt.get('cout_total', 0)
+                nb_lignes = bt.get('nb_lignes', 0)
+                date = bt.get('created_at', 'N/A')
+                lines.append(f"| {numero} | {statut} | {cout:,.2f}$ | {nb_lignes} | {date} |")
+            lines.append("")
+        
+        # Opérations du projet
+        if report.get('operations'):
+            lines.append("✨ 📊 **Opérations du projet**")
+            lines.append("| **ID** | **Description** | **Poste de travail** | **Statut** | **Date création** |")
+            lines.append("|--------|-----------------|---------------------|------------|-------------------|")
+            
+            for op in report['operations']:
+                id_op = op.get('id', '')
+                desc = op.get('description', 'N/A')
+                poste = op.get('poste_travail', 'N/A')
+                statut = op.get('statut', 'N/A')
+                date = op.get('created_at', 'N/A')
+                lines.append(f"| {id_op} | {desc} | {poste} | {statut} | {date} |")
+            lines.append("")
+        
+        # Résumé des indicateurs clés
+        lines.append("✨ 🎯 **Indicateurs clés de performance (KPI)**")
+        
+        # ROI (Retour sur investissement)
+        roi = (fin['profit_brut'] / fin['cout_total'] * 100) if fin['cout_total'] > 0 else 0
+        lines.append(f"- **ROI**: {roi:.1f}%")
+        
+        # Coût par heure
+        cout_par_heure = fin['cout_total'] / time['heures_reelles'] if time['heures_reelles'] > 0 else 0
+        lines.append(f"- **Coût moyen par heure**: {cout_par_heure:.2f} $/h")
+        
+        # Productivité ($/h facturé)
+        productivite = fin['prix_vente'] / time['heures_reelles'] if time['heures_reelles'] > 0 else 0
+        lines.append(f"- **Productivité**: {productivite:.2f} $/h facturé")
+        lines.append("")
+        
+        # Devis/Estimations
+        if report.get('devis'):
+            lines.append("✨ 💰 **Devis/Estimations**")
+            lines.append("| **Numéro** | **Statut** | **Montant** | **Date** | **Notes** |")
+            lines.append("|------------|----------|-------------|----------|-----------|")
+            
+            for devis in report['devis']:
+                numero = devis.get('numero_document', '')
+                statut = devis.get('statut', '')
+                montant = f"{devis.get('montant_total', 0):,.2f} $" if devis.get('montant_total') else 'N/A'
+                date = devis.get('created_at', 'N/A')[:10] if devis.get('created_at') else 'N/A'
+                notes = (devis.get('notes', '')[:30] + '...') if devis.get('notes') and len(devis.get('notes', '')) > 30 else devis.get('notes', 'N/A')
+                lines.append(f"| {numero} | {statut} | {montant} | {date} | {notes} |")
+            lines.append("")
+        
+        # Demandes de prix
+        if report.get('demandes_prix'):
+            lines.append("✨ 📋 **Demandes de prix**")
+            lines.append("| **Numéro** | **Fournisseur** | **Statut** | **Date** | **Notes** |")
+            lines.append("|------------|-----------------|----------|----------|-----------|")
+            
+            for dp in report['demandes_prix']:
+                numero = dp.get('numero_document', '')
+                fournisseur = dp.get('fournisseur_nom', 'N/A')
+                statut = dp.get('statut', '')
+                date = dp.get('created_at', 'N/A')[:10] if dp.get('created_at') else 'N/A'
+                notes = (dp.get('notes', '')[:30] + '...') if dp.get('notes') and len(dp.get('notes', '')) > 30 else dp.get('notes', 'N/A')
+                lines.append(f"| {numero} | {fournisseur} | {statut} | {date} | {notes} |")
+            lines.append("")
+        
+        # Bons d'achat
+        if report.get('bons_achat'):
+            lines.append("✨ 🛒 **Bons d'achat**")
+            lines.append("| **Numéro** | **Fournisseur** | **Montant** | **Statut** | **Date** |")
+            lines.append("|------------|-----------------|-------------|----------|----------|")
+            
+            for ba in report['bons_achat']:
+                numero = ba.get('numero_document', '')
+                fournisseur = ba.get('fournisseur_nom', 'N/A')
+                montant = f"{ba.get('montant_total', 0):,.2f} $" if ba.get('montant_total') else 'N/A'
+                statut = ba.get('statut', '')
+                date = ba.get('created_at', 'N/A')[:10] if ba.get('created_at') else 'N/A'
+                lines.append(f"| {numero} | {fournisseur} | {montant} | {statut} | {date} |")
+            lines.append("")
+        
+        # Fournisseurs impliqués
+        if report.get('fournisseurs'):
+            lines.append("✨ 🏢 **Fournisseurs impliqués dans le projet**")
+            lines.append("- " + "\n- ".join(report['fournisseurs']))
+            lines.append("")
+        
+        # Note de fin
+        lines.append("---")
+        lines.append(f"*Rapport généré pour le projet {proj.get('id')} - {proj.get('nom_projet')}*")
+        
+        return "\n".join(lines)
+    
+    def _format_bt_report(self, report: Dict) -> str:
+        """Formate le rapport complet d'un bon de travail"""
+        if 'error' in report:
+            return f"❌ **Erreur:** {report['error']}"
+        
+        if not report or 'bt_info' not in report:
+            return "❌ Aucune donnée disponible pour ce bon de travail."
+        
+        lines = []
+        bt = report['bt_info']
+        fin = report['financial_summary']
+        time = report['time_summary']
+        
+        # En-tête
+        lines.append(f"## 🔧 **Rapport Bon de Travail - {bt.get('numero_document', 'N/A')}**")
+        lines.append(f"**Projet**: {bt.get('nom_projet', 'N/A')} | **Client**: {bt.get('client_nom', 'N/A')}")
+        lines.append(f"**Statut**: `{bt.get('statut', 'N/A')}` | **Priorité**: `{bt.get('priorite', 'N/A')}`")
+        lines.append(f"**Date création**: {bt.get('created_at', 'N/A')}\n")
+        
+        # Analyse financière
+        lines.append("✨ 💰 **Analyse financière**")
+        lines.append(f"- **Budget alloué**: {fin['budget_alloue']:,.2f} $")
+        lines.append(f"- **Coût des lignes**: {fin['cout_lignes']:,.2f} $")
+        lines.append(f"- **Coût main d'œuvre**: {fin['cout_main_oeuvre']:,.2f} $")
+        lines.append(f"- **Coût total réel**: {fin['cout_total']:,.2f} $")
+        
+        # Indicateur de dépassement budgétaire
+        depassement = fin['cout_total'] - fin['budget_alloue']
+        if depassement <= 0:
+            budget_emoji = "✅"  # Dans le budget
+            budget_status = f"Dans le budget ({abs(depassement):,.2f}$ de marge)"
+        else:
+            budget_emoji = "🔴"  # Dépassement
+            budget_status = f"Dépassement de {depassement:,.2f}$ ({(depassement/fin['budget_alloue']*100):.1f}%)"
+        
+        lines.append(f"- **Statut budgétaire**: {budget_emoji} {budget_status}")
+        lines.append("")
+        
+        # Analyse du temps
+        lines.append("✨ ⏰ **Analyse du temps**")
+        lines.append(f"- **Heures totales**: {time['heures_totales']:.1f} h")
+        lines.append(f"- **Nombre d'employés**: {time['nb_employes']}")
+        if time['premiere_intervention']:
+            lines.append(f"- **Période d'exécution**: {time['premiere_intervention']} au {time['derniere_intervention']}")
+        lines.append("")
+        
+        # Détail par employé
+        if report.get('employees_detail'):
+            lines.append("✨ 👥 **Heures par employé**")
+            lines.append("| **Employé** | **Poste** | **Heures** | **Taux** | **Coût** | **Jours** |")
+            lines.append("|-------------|-----------|------------|----------|-----------|-----------|")
+            
+            for emp_name, emp_data in report['employees_detail'].items():
+                poste = emp_data.get('poste', 'N/A')
+                heures = emp_data.get('heures_totales', 0)
+                taux = emp_data.get('taux_horaire', 0)
+                cout = emp_data.get('cout_total', 0)
+                jours = emp_data.get('nb_jours', 0)
+                lines.append(f"| {emp_name} | {poste} | {heures:.1f}h | {taux:.2f}$/h | {cout:,.2f}$ | {jours} |")
+            lines.append("")
+        
+        # Lignes du bon de travail
+        if report.get('lignes'):
+            lines.append("✨ 📝 **Détail des lignes**")
+            lines.append("| **#** | **Description** | **Quantité** | **Unité** | **Prix unit.** | **Total** |")
+            lines.append("|-------|-----------------|--------------|-----------|----------------|-----------|")
+            
+            for ligne in report['lignes']:
+                seq = ligne.get('sequence_ligne', '')
+                desc = ligne.get('description', '')
+                qte = ligne.get('quantite', 0)
+                unite = ligne.get('unite', '')
+                prix = ligne.get('prix_unitaire', 0)
+                total = ligne.get('montant_ligne', 0)
+                lines.append(f"| {seq} | {desc} | {qte} | {unite} | {prix:.2f}$ | {total:.2f}$ |")
+            lines.append("")
+        
+        # Historique d'avancement
+        if report.get('progress_history'):
+            lines.append("✨ 📊 **Historique d'avancement**")
+            lines.append("| **Date** | **Employé** | **% Réalisé** | **Temps réel** | **Notes** |")
+            lines.append("|----------|-------------|---------------|----------------|-----------|")
+            
+            for av in report['progress_history']:
+                date = av.get('updated_at', 'N/A')
+                emp = f"{av.get('prenom', '')} {av.get('nom', '')}" if av.get('nom') else 'N/A'
+                pct = av.get('pourcentage_realise', 0)
+                temps = av.get('temps_reel', 0)
+                notes = av.get('notes_avancement', '')
+                lines.append(f"| {date} | {emp} | {pct}% | {temps}h | {notes} |")
+            lines.append("")
+        
+        # Pointages détaillés (si peu nombreux)
+        if report.get('time_entries') and len(report['time_entries']) <= 15:
+            lines.append("✨ 🕑 **Pointages détaillés**")
+            lines.append("| **Date** | **Employé** | **Entrée** | **Sortie** | **Durée** | **Description** |")
+            lines.append("|----------|-------------|------------|------------|-----------|-----------------|")
+            
+            for entry in report['time_entries']:
+                date = entry.get('date_travail', '')
+                emp = f"{entry.get('prenom', '')} {entry.get('nom', '')}"
+                punch_in = entry.get('punch_in', '')[-8:-3]  # HH:MM
+                punch_out = entry.get('punch_out', '')[-8:-3] if entry.get('punch_out') else 'N/A'
+                duree = entry.get('total_hours', 0)
+                desc = entry.get('description', 'N/A')
+                lines.append(f"| {date} | {emp} | {punch_in} | {punch_out} | {duree:.1f}h | {desc} |")
+            lines.append("")
+        
+        # KPIs
+        lines.append("✨ 🎯 **Indicateurs clés**")
+        
+        # Coût par heure
+        cout_par_heure = fin['cout_total'] / time['heures_totales'] if time['heures_totales'] > 0 else 0
+        lines.append(f"- **Coût moyen par heure**: {cout_par_heure:.2f} $/h")
+        
+        # Efficacité budgétaire
+        efficacite_budget = (fin['budget_alloue'] / fin['cout_total'] * 100) if fin['cout_total'] > 0 else 100
+        lines.append(f"- **Efficacité budgétaire**: {efficacite_budget:.1f}%")
+        
+        # Moyenne d'heures par employé
+        moy_heures_emp = time['heures_totales'] / time['nb_employes'] if time['nb_employes'] > 0 else 0
+        lines.append(f"- **Moyenne heures/employé**: {moy_heures_emp:.1f}h")
+        lines.append("")
+        
+        # Note de fin
+        lines.append("---")
+        lines.append(f"*Rapport généré pour le bon de travail {bt.get('numero_document')}*")
         
         return "\n".join(lines)
 
