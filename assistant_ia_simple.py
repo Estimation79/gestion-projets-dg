@@ -4,7 +4,7 @@
 import streamlit as st
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import logging
 from anthropic import Anthropic
@@ -1048,6 +1048,541 @@ class AssistantIASimple:
             logger.error(f"Erreur génération rapport BT: {e}")
             return {"error": str(e)}
     
+    def _get_alertes(self) -> Dict[str, Any]:
+        """Récupère toutes les alertes importantes du système"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            alertes = {
+                "stocks_faibles": [],
+                "projets_echeance": [],
+                "bt_urgents": [],
+                "devis_a_relancer": []
+            }
+            
+            # Stocks faibles ou en rupture
+            stocks_faibles = self.db.execute_query("""
+                SELECT p.code_produit, p.nom, p.stock_disponible, p.stock_minimum,
+                       p.fournisseur_principal, p.delai_approvisionnement
+                FROM produits p
+                WHERE p.actif = 1 AND p.stock_disponible <= p.stock_minimum
+                ORDER BY (p.stock_disponible - p.stock_minimum) ASC
+                LIMIT 20
+            """)
+            alertes['stocks_faibles'] = [dict(s) for s in stocks_faibles] if stocks_faibles else []
+            
+            # Projets avec échéance proche (dans les 7 jours)
+            projets_echeance = self.db.execute_query("""
+                SELECT p.id, p.nom_projet, p.date_prevu, p.statut, c.nom as client_nom
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.statut IN ('EN COURS', 'VALIDÉ') 
+                  AND p.date_prevu IS NOT NULL
+                  AND julianday(p.date_prevu) - julianday('now') BETWEEN 0 AND 7
+                ORDER BY p.date_prevu
+            """)
+            alertes['projets_echeance'] = [dict(p) for p in projets_echeance] if projets_echeance else []
+            
+            # Bons de travail urgents non terminés
+            bt_urgents = self.db.execute_query("""
+                SELECT f.numero_document, f.priorite, f.statut, f.created_at,
+                       p.nom_projet, f.notes
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                  AND f.priorite = 'URGENT'
+                  AND f.statut NOT IN ('TERMINÉ', 'ANNULÉ')
+                ORDER BY f.created_at DESC
+            """)
+            alertes['bt_urgents'] = [dict(bt) for bt in bt_urgents] if bt_urgents else []
+            
+            # Devis en attente depuis plus de 15 jours
+            devis_anciens = self.db.execute_query("""
+                SELECT f.numero_document, f.montant_total, f.created_at, f.statut,
+                       c.nom as client_nom
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE f.type_formulaire = 'ESTIMATION'
+                  AND f.statut = 'BROUILLON'
+                  AND julianday('now') - julianday(f.created_at) > 15
+                ORDER BY f.created_at
+            """)
+            alertes['devis_a_relancer'] = [dict(d) for d in devis_anciens] if devis_anciens else []
+            
+            return alertes
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération alertes: {e}")
+            return {"error": str(e)}
+    
+    def _get_employes_disponibles(self) -> Dict[str, Any]:
+        """Récupère les employés disponibles"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Employés disponibles (pas d'entrée de temps aujourd'hui ou sortie enregistrée)
+            employes = self.db.execute_query("""
+                SELECT DISTINCT e.id, e.nom, e.prenom, e.poste, e.departement,
+                       e.charge_travail,
+                       CASE 
+                           WHEN te.punch_out IS NOT NULL OR te.id IS NULL THEN 'Disponible'
+                           WHEN te.punch_out IS NULL THEN 'En travail'
+                           ELSE 'Disponible'
+                       END as statut_actuel,
+                       te.punch_in as derniere_entree
+                FROM employees e
+                LEFT JOIN (
+                    SELECT employee_id, punch_in, punch_out, id
+                    FROM time_entries
+                    WHERE DATE(punch_in) = DATE('now')
+                    ORDER BY punch_in DESC
+                ) te ON e.id = te.employee_id
+                WHERE e.statut = 'ACTIF'
+                GROUP BY e.id
+                HAVING statut_actuel = 'Disponible'
+                ORDER BY e.nom, e.prenom
+            """)
+            
+            return {"employes": [dict(e) for e in employes] if employes else []}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération employés disponibles: {e}")
+            return {"error": str(e)}
+    
+    def _get_bt_en_cours(self) -> Dict[str, Any]:
+        """Récupère tous les bons de travail en cours"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            bt_en_cours = self.db.execute_query("""
+                SELECT f.numero_document, f.statut, f.priorite, f.created_at,
+                       f.montant_total, p.nom_projet, c.nom as client_nom,
+                       f.notes,
+                       (SELECT COUNT(*) FROM employee_assignations ea WHERE ea.formulaire_id = f.id) as nb_employes,
+                       (SELECT MAX(fa.pourcentage_realise) FROM formulaire_avancement fa WHERE fa.formulaire_id = f.id) as avancement
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE f.type_formulaire = 'BON_TRAVAIL'
+                  AND f.statut IN ('VALIDÉ', 'EN_COURS')
+                ORDER BY f.priorite = 'URGENT' DESC, f.created_at DESC
+            """)
+            
+            return {"bons_travail": [dict(bt) for bt in bt_en_cours] if bt_en_cours else []}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération BT en cours: {e}")
+            return {"error": str(e)}
+    
+    def _get_ruptures_stock(self) -> Dict[str, Any]:
+        """Récupère les produits en rupture de stock"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            ruptures = self.db.execute_query("""
+                SELECT p.code_produit, p.nom, p.categorie, p.stock_disponible,
+                       p.stock_minimum, p.stock_reserve, p.stock_commande,
+                       p.fournisseur_principal, p.delai_approvisionnement,
+                       p.point_commande, p.unite_stock,
+                       (p.stock_minimum - p.stock_disponible) as manquant
+                FROM produits p
+                WHERE p.actif = 1 
+                  AND p.stock_disponible < p.stock_minimum
+                ORDER BY manquant DESC, p.categorie, p.nom
+            """)
+            
+            return {"ruptures": [dict(r) for r in ruptures] if ruptures else []}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération ruptures stock: {e}")
+            return {"error": str(e)}
+    
+    def _get_projets_retard(self) -> Dict[str, Any]:
+        """Récupère les projets en retard ou à risque"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            projets_retard = self.db.execute_query("""
+                SELECT p.id, p.nom_projet, p.statut, p.priorite,
+                       p.date_prevu, p.date_soumis, c.nom as client_nom,
+                       p.prix_estime, p.bd_ft_estime,
+                       julianday(p.date_prevu) - julianday('now') as jours_restants,
+                       CASE
+                           WHEN p.date_prevu < DATE('now') THEN 'En retard'
+                           WHEN julianday(p.date_prevu) - julianday('now') <= 3 THEN 'À risque'
+                           ELSE 'Dans les temps'
+                       END as statut_delai
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.statut IN ('EN COURS', 'VALIDÉ', 'PLANIFIÉ')
+                  AND p.date_prevu IS NOT NULL
+                  AND (p.date_prevu < DATE('now') 
+                       OR julianday(p.date_prevu) - julianday('now') <= 3)
+                ORDER BY p.date_prevu
+            """)
+            
+            return {"projets": [dict(p) for p in projets_retard] if projets_retard else []}
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération projets en retard: {e}")
+            return {"error": str(e)}
+    
+    def _get_dashboard_data(self) -> Dict[str, Any]:
+        """Récupère les données pour le dashboard général"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            dashboard = {}
+            
+            # Chiffre d'affaires du mois
+            ca_mois = self.db.execute_query("""
+                SELECT SUM(f.montant_total) as ca_total
+                FROM formulaires f
+                WHERE f.type_formulaire = 'FACTURE'
+                  AND f.statut = 'PAYÉ'
+                  AND strftime('%Y-%m', f.created_at) = strftime('%Y-%m', 'now')
+            """)
+            dashboard['ca_mois'] = ca_mois[0]['ca_total'] if ca_mois and ca_mois[0]['ca_total'] else 0
+            
+            # Projets actifs
+            projets_actifs = self.db.execute_query("""
+                SELECT COUNT(*) as nb_actifs,
+                       SUM(prix_estime) as valeur_totale
+                FROM projects
+                WHERE statut IN ('EN COURS', 'VALIDÉ')
+            """)
+            dashboard['projets_actifs'] = projets_actifs[0] if projets_actifs else {'nb_actifs': 0, 'valeur_totale': 0}
+            
+            # Taux occupation employés
+            occupation = self.db.execute_query("""
+                SELECT COUNT(DISTINCT e.id) as total_employes,
+                       COUNT(DISTINCT te.employee_id) as employes_actifs
+                FROM employees e
+                LEFT JOIN time_entries te ON e.id = te.employee_id 
+                    AND DATE(te.punch_in) = DATE('now')
+                    AND te.punch_out IS NULL
+                WHERE e.statut = 'ACTIF'
+            """)
+            dashboard['occupation'] = occupation[0] if occupation else {'total_employes': 0, 'employes_actifs': 0}
+            
+            # Top 5 projets par valeur
+            top_projets = self.db.execute_query("""
+                SELECT p.nom_projet, p.prix_estime, c.nom as client_nom, p.statut
+                FROM projects p
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE p.statut IN ('EN COURS', 'VALIDÉ')
+                ORDER BY p.prix_estime DESC
+                LIMIT 5
+            """)
+            dashboard['top_projets'] = [dict(p) for p in top_projets] if top_projets else []
+            
+            # Alertes critiques (résumé)
+            alertes_count = self.db.execute_query("""
+                SELECT 
+                    (SELECT COUNT(*) FROM produits WHERE actif = 1 AND stock_disponible = 0) as ruptures_totales,
+                    (SELECT COUNT(*) FROM formulaires WHERE type_formulaire = 'BON_TRAVAIL' 
+                     AND priorite = 'URGENT' AND statut NOT IN ('TERMINÉ', 'ANNULÉ')) as bt_urgents,
+                    (SELECT COUNT(*) FROM projects WHERE statut IN ('EN COURS', 'VALIDÉ') 
+                     AND date_prevu < DATE('now')) as projets_retard
+            """)
+            dashboard['alertes'] = alertes_count[0] if alertes_count else {}
+            
+            # Tendance CA (3 derniers mois)
+            tendance = self.db.execute_query("""
+                SELECT strftime('%Y-%m', created_at) as mois,
+                       SUM(montant_total) as ca
+                FROM formulaires
+                WHERE type_formulaire = 'FACTURE'
+                  AND statut = 'PAYÉ'
+                  AND created_at >= date('now', '-3 months')
+                GROUP BY mois
+                ORDER BY mois
+            """)
+            dashboard['tendance_ca'] = [dict(t) for t in tendance] if tendance else []
+            
+            return dashboard
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération dashboard: {e}")
+            return {"error": str(e)}
+    
+    def _get_factures_impayees(self) -> Dict[str, Any]:
+        """Récupère les factures impayées"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Note: Adaptation car pas de table factures dédiée
+            # On utilise formulaires avec type FACTURE ou les devis validés
+            factures = self.db.execute_query("""
+                SELECT f.numero_document, f.montant_total, f.created_at,
+                       p.nom_projet, c.nom as client_nom, c.id as client_id,
+                       julianday('now') - julianday(f.created_at) as jours_retard,
+                       CASE 
+                           WHEN julianday('now') - julianday(f.created_at) > 90 THEN '90+ jours'
+                           WHEN julianday('now') - julianday(f.created_at) > 60 THEN '60-90 jours'
+                           WHEN julianday('now') - julianday(f.created_at) > 30 THEN '30-60 jours'
+                           ELSE '0-30 jours'
+                       END as tranche_age
+                FROM formulaires f
+                LEFT JOIN projects p ON f.project_id = p.id
+                LEFT JOIN companies c ON p.client_company_id = c.id
+                WHERE f.type_formulaire IN ('ESTIMATION', 'FACTURE')
+                  AND f.statut = 'VALIDÉ'
+                  AND julianday('now') - julianday(f.created_at) > 30
+                ORDER BY jours_retard DESC
+            """)
+            
+            # Grouper par client
+            par_client = {}
+            for f in factures if factures else []:
+                f_dict = dict(f)
+                client_id = f_dict.get('client_id', 'inconnu')
+                if client_id not in par_client:
+                    par_client[client_id] = {
+                        'client_nom': f_dict.get('client_nom', 'Client inconnu'),
+                        'factures': [],
+                        'total_impaye': 0,
+                        'plus_ancienne': 999
+                    }
+                par_client[client_id]['factures'].append(f_dict)
+                par_client[client_id]['total_impaye'] += f_dict.get('montant_total', 0) or 0
+                par_client[client_id]['plus_ancienne'] = min(
+                    par_client[client_id]['plus_ancienne'], 
+                    f_dict.get('jours_retard', 0)
+                )
+            
+            return {
+                "factures": [dict(f) for f in factures] if factures else [],
+                "par_client": par_client,
+                "total_global": sum(pc['total_impaye'] for pc in par_client.values())
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération factures impayées: {e}")
+            return {"error": str(e)}
+    
+    def _get_charge_travail(self, semaine: str = None) -> Dict[str, Any]:
+        """Récupère la charge de travail pour une semaine"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Déterminer la semaine
+            if semaine:
+                # Parser la semaine fournie (format: "2025-01-20" ou "prochaine")
+                if semaine.lower() == 'prochaine':
+                    from datetime import timedelta
+                    ref_date = datetime.now() + timedelta(days=7)
+                else:
+                    try:
+                        ref_date = datetime.strptime(semaine, '%Y-%m-%d')
+                    except:
+                        ref_date = datetime.now()
+            else:
+                ref_date = datetime.now()
+            
+            # Début et fin de semaine
+            from datetime import timedelta
+            weekday = ref_date.weekday()
+            start_week = ref_date - timedelta(days=weekday)
+            end_week = start_week + timedelta(days=6)
+            
+            # Charge par employé
+            charge_employes = self.db.execute_query("""
+                SELECT e.id, e.nom, e.prenom, e.poste,
+                       COUNT(DISTINCT ba.bt_id) as nb_bons_travail,
+                       GROUP_CONCAT(DISTINCT p.nom_projet) as projets,
+                       COALESCE(SUM(fl.quantite * 
+                           CASE 
+                               WHEN fl.unite = 'heures' THEN 1
+                               WHEN fl.unite = 'jours' THEN 8
+                               ELSE 0.5
+                           END
+                       ), 0) as heures_assignees
+                FROM employees e
+                LEFT JOIN bt_assignations ba ON e.id = ba.employe_id
+                LEFT JOIN formulaires f ON ba.bt_id = f.id 
+                    AND f.statut IN ('VALIDÉ', 'EN_COURS', 'EN_PRODUCTION')
+                LEFT JOIN formulaire_lignes fl ON f.id = fl.formulaire_id
+                LEFT JOIN projects p ON f.project_id = p.id
+                WHERE e.statut = 'ACTIF'
+                GROUP BY e.id
+                ORDER BY heures_assignees DESC
+            """)
+            
+            # Charge par poste de travail
+            charge_postes = self.db.execute_query("""
+                SELECT wc.nom as poste,
+                       COUNT(DISTINCT o.id) as nb_operations,
+                       COALESCE(SUM(o.temps_estime), 0) as heures_planifiees
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                    AND o.statut IN ('PLANIFIÉ', 'EN_COURS')
+                GROUP BY wc.id
+            """)
+            
+            return {
+                "semaine_debut": start_week.strftime('%Y-%m-%d'),
+                "semaine_fin": end_week.strftime('%Y-%m-%d'),
+                "charge_employes": [dict(e) for e in charge_employes] if charge_employes else [],
+                "charge_postes": [dict(p) for p in charge_postes] if charge_postes else []
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération charge travail: {e}")
+            return {"error": str(e)}
+    
+    def _get_produits_a_commander(self) -> Dict[str, Any]:
+        """Récupère les produits à commander"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Produits sous le point de commande
+            produits = self.db.execute_query("""
+                SELECT p.*, 
+                       (p.point_commande - p.stock_disponible - p.stock_commande) as qte_suggere,
+                       (p.point_commande - p.stock_disponible - p.stock_commande) * p.prix_unitaire as cout_estime
+                FROM produits p
+                WHERE p.actif = 1
+                  AND p.stock_disponible + p.stock_commande < p.point_commande
+                  AND p.point_commande > 0
+                ORDER BY p.fournisseur_principal, p.categorie, p.nom
+            """)
+            
+            # Grouper par fournisseur
+            par_fournisseur = {}
+            for p in produits if produits else []:
+                p_dict = dict(p)
+                fourn = p_dict.get('fournisseur_principal', 'Non défini')
+                if fourn not in par_fournisseur:
+                    par_fournisseur[fourn] = {
+                        'produits': [],
+                        'nb_produits': 0,
+                        'cout_total': 0
+                    }
+                par_fournisseur[fourn]['produits'].append(p_dict)
+                par_fournisseur[fourn]['nb_produits'] += 1
+                par_fournisseur[fourn]['cout_total'] += p_dict.get('cout_estime', 0) or 0
+            
+            # Suggestions basées sur l'historique
+            historique = self.db.execute_query("""
+                SELECT p.code_produit, p.nom,
+                       AVG(ms.quantite) as conso_moyenne,
+                       MAX(ms.date_mouvement) as derniere_sortie
+                FROM produits p
+                JOIN mouvements_stock ms ON p.id = ms.produit_id
+                WHERE ms.type_mouvement = 'SORTIE'
+                  AND ms.date_mouvement >= date('now', '-3 months')
+                GROUP BY p.id
+                HAVING conso_moyenne > 0
+            """)
+            
+            return {
+                "produits": [dict(p) for p in produits] if produits else [],
+                "par_fournisseur": par_fournisseur,
+                "historique_conso": [dict(h) for h in historique] if historique else []
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération produits à commander: {e}")
+            return {"error": str(e)}
+    
+    def _get_performance_mensuelle(self, mois: str = None) -> Dict[str, Any]:
+        """Récupère les indicateurs de performance mensuels"""
+        if not self.db:
+            return {"error": "Base de données non disponible"}
+        
+        try:
+            # Déterminer le mois
+            if mois:
+                try:
+                    # Format: "2025-01" ou "janvier"
+                    if '-' in mois:
+                        mois_str = mois
+                    else:
+                        # Convertir nom de mois si nécessaire
+                        mois_str = datetime.now().strftime('%Y-%m')
+                except:
+                    mois_str = datetime.now().strftime('%Y-%m')
+            else:
+                mois_str = datetime.now().strftime('%Y-%m')
+            
+            # Rentabilité par projet
+            projets_rentabilite = self.db.execute_query("""
+                SELECT p.nom_projet, p.prix_estime as revenus,
+                       COALESCE(SUM(te.total_hours * e.salaire / 2080), 0) as cout_mo,
+                       COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux,
+                       p.statut
+                FROM projects p
+                LEFT JOIN time_entries te ON p.id = te.project_id
+                    AND strftime('%Y-%m', te.punch_in) = ?
+                LEFT JOIN employees e ON te.employee_id = e.id
+                LEFT JOIN materials m ON p.id = m.project_id
+                WHERE strftime('%Y-%m', p.created_at) <= ?
+                  AND (p.statut != 'ANNULÉ' OR strftime('%Y-%m', p.updated_at) = ?)
+                GROUP BY p.id
+                ORDER BY revenus DESC
+            """, (mois_str, mois_str, mois_str))
+            
+            # Efficacité employés
+            efficacite_employes = self.db.execute_query("""
+                SELECT e.nom, e.prenom, e.poste,
+                       COUNT(DISTINCT te.id) as nb_pointages,
+                       SUM(te.total_hours) as heures_totales,
+                       COUNT(DISTINCT DATE(te.punch_in)) as jours_travailles,
+                       COUNT(DISTINCT te.project_id) as nb_projets
+                FROM employees e
+                JOIN time_entries te ON e.id = te.employee_id
+                WHERE strftime('%Y-%m', te.punch_in) = ?
+                GROUP BY e.id
+                ORDER BY heures_totales DESC
+            """, (mois_str,))
+            
+            # Taux de respect des délais
+            respect_delais = self.db.execute_query("""
+                SELECT 
+                    COUNT(*) as total_projets,
+                    SUM(CASE WHEN p.date_prevu >= p.updated_at THEN 1 ELSE 0 END) as dans_delais,
+                    SUM(CASE WHEN p.date_prevu < p.updated_at THEN 1 ELSE 0 END) as en_retard
+                FROM projects p
+                WHERE p.statut = 'TERMINÉ'
+                  AND strftime('%Y-%m', p.updated_at) = ?
+            """, (mois_str,))
+            
+            # Comparaison mois précédent
+            mois_precedent = (datetime.strptime(mois_str + '-01', '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m')
+            
+            ca_compare = self.db.execute_query("""
+                SELECT 
+                    (SELECT SUM(montant_total) FROM formulaires 
+                     WHERE type_formulaire = 'FACTURE' AND statut = 'PAYÉ'
+                     AND strftime('%Y-%m', created_at) = ?) as ca_actuel,
+                    (SELECT SUM(montant_total) FROM formulaires 
+                     WHERE type_formulaire = 'FACTURE' AND statut = 'PAYÉ'
+                     AND strftime('%Y-%m', created_at) = ?) as ca_precedent
+            """, (mois_str, mois_precedent))
+            
+            return {
+                "mois": mois_str,
+                "projets_rentabilite": [dict(p) for p in projets_rentabilite] if projets_rentabilite else [],
+                "efficacite_employes": [dict(e) for e in efficacite_employes] if efficacite_employes else [],
+                "respect_delais": dict(respect_delais[0]) if respect_delais else {},
+                "comparaison": dict(ca_compare[0]) if ca_compare else {}
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération performance mensuelle: {e}")
+            return {"error": str(e)}
+    
     def _get_erp_statistics(self) -> Dict[str, Any]:
         """Récupère les statistiques de l'ERP"""
         if not self.db:
@@ -2067,6 +2602,50 @@ Réponds de manière professionnelle et structurée."""
                     return self._format_bt_report(report_data)
                 else:
                     return "❌ Veuillez spécifier le numéro du bon de travail (ex: `/erp rapport bt BT-2025-001`)"
+            elif query.lower() == 'alertes':
+                # Récupérer toutes les alertes importantes
+                alertes = self._get_alertes()
+                return self._format_alertes(alertes)
+            elif query.lower() in ['disponibilité', 'disponibilite', 'disponible', 'disponibles']:
+                # Récupérer les employés disponibles
+                employes_dispo = self._get_employes_disponibles()
+                return self._format_employes_disponibles(employes_dispo)
+            elif query.lower() == 'en cours':
+                # Récupérer tous les bons de travail en cours
+                bt_en_cours = self._get_bt_en_cours()
+                return self._format_bt_en_cours(bt_en_cours)
+            elif query.lower() in ['rupture', 'ruptures']:
+                # Récupérer les produits en rupture de stock
+                ruptures = self._get_ruptures_stock()
+                return self._format_ruptures_stock(ruptures)
+            elif query.lower() in ['projets retard', 'projet retard', 'retard', 'retards']:
+                # Récupérer les projets en retard
+                projets_retard = self._get_projets_retard()
+                return self._format_projets_retard(projets_retard)
+            elif query.lower() in ['dashboard', 'tableau de bord', 'vue ensemble']:
+                # Afficher le dashboard général
+                dashboard_data = self._get_dashboard_data()
+                return self._format_dashboard(dashboard_data)
+            elif query.lower() in ['impayés', 'impayes', 'factures impayées']:
+                # Récupérer les factures impayées
+                impayes = self._get_factures_impayees()
+                return self._format_impayes(impayes)
+            elif query.lower().startswith('charge'):
+                # Extraction de la semaine (optionnelle)
+                parts = query[6:].strip()  # Enlever "charge"
+                semaine = parts if parts else None
+                charge_data = self._get_charge_travail(semaine)
+                return self._format_charge_travail(charge_data)
+            elif query.lower() in ['à commander', 'a commander', 'commander', 'réappro', 'reappro']:
+                # Récupérer les produits à commander
+                a_commander = self._get_produits_a_commander()
+                return self._format_a_commander(a_commander)
+            elif query.lower().startswith('performance'):
+                # Extraction du mois (optionnel)
+                parts = query[11:].strip()  # Enlever "performance"
+                mois = parts if parts else None
+                perf_data = self._get_performance_mensuelle(mois)
+                return self._format_performance(perf_data)
             else:
                 # Recherche normale avec le terme fourni
                 results = self._search_erp_data(query)
@@ -2290,6 +2869,18 @@ Réponds de manière professionnelle et structurée."""
 **Rapports détaillés:**
 - `/erp rapport projet 25-251` - Rapport complet d'un projet avec analyse financière
 - `/erp rapport bt BT-2025-001` - Rapport détaillé d'un bon de travail
+
+**Tableaux de bord et alertes:**
+- `/erp alertes` - Toutes les alertes importantes (stocks, échéances, etc.)
+- `/erp disponibilité` - Employés disponibles actuellement
+- `/erp en cours` - Bons de travail en cours de production
+- `/erp rupture` - Produits en rupture ou stock faible
+- `/erp projets retard` - Projets en retard ou à risque
+- `/erp dashboard` - Vue d'ensemble avec KPIs principaux
+- `/erp impayés` - Factures clients en retard de paiement
+- `/erp charge [semaine]` - Charge de travail des employés
+- `/erp à commander` - Produits à réapprovisionner
+- `/erp performance [mois]` - Indicateurs de performance mensuels
 
 **Questions directes (sans commande):**
 - "Quel est l'état du projet AutoTech?"
@@ -3423,6 +4014,645 @@ L'assistant a accès à toutes vos données ERP et peut les analyser pour vous f
         # Note de fin
         lines.append("---")
         lines.append(f"*Rapport généré pour le bon de travail {bt.get('numero_document')}*")
+        
+        return "\n".join(lines)
+    
+    def _format_alertes(self, alertes: Dict) -> str:
+        """Formate les alertes du système"""
+        if 'error' in alertes:
+            return f"❌ **Erreur:** {alertes['error']}"
+        
+        lines = []
+        lines.append("## 🚨 **Alertes et notifications importantes**\n")
+        
+        total_alertes = 0
+        
+        # Stocks faibles
+        if alertes.get('stocks_faibles'):
+            nb = len(alertes['stocks_faibles'])
+            total_alertes += nb
+            lines.append(f"✨ 📦 **Stocks faibles ou en rupture** ({nb} articles)")
+            lines.append("| **Code** | **Produit** | **Stock** | **Minimum** | **Fournisseur** | **Délai** |")
+            lines.append("|----------|-------------|----------|-------------|-----------------|-----------|")
+            
+            for stock in alertes['stocks_faibles'][:10]:  # Limiter à 10
+                code = stock.get('code_produit', '')
+                nom = stock.get('nom', '')
+                dispo = stock.get('stock_disponible', 0)
+                minimum = stock.get('stock_minimum', 0)
+                fourn = stock.get('fournisseur_principal', 'N/A')
+                delai = f"{stock.get('delai_approvisionnement', 0)}j"
+                
+                # Indicateur visuel
+                if dispo == 0:
+                    emoji = "🔴"  # Rouge - rupture
+                elif dispo < minimum / 2:
+                    emoji = "🟡"  # Jaune - très bas
+                else:
+                    emoji = "🟠"  # Orange - bas
+                    
+                lines.append(f"| {emoji} {code} | {nom} | {dispo} | {minimum} | {fourn} | {delai} |")
+            lines.append("")
+        
+        # Projets avec échéance proche
+        if alertes.get('projets_echeance'):
+            nb = len(alertes['projets_echeance'])
+            total_alertes += nb
+            lines.append(f"✨ 📅 **Projets avec échéance proche** ({nb} projets)")
+            lines.append("| **Projet** | **Client** | **Date prévue** | **Statut** | **Jours restants** |")
+            lines.append("|------------|------------|----------------|------------|---------------------|")
+            
+            for projet in alertes['projets_echeance']:
+                nom = projet.get('nom_projet', '')
+                client = projet.get('client_nom', 'N/A')
+                date = projet.get('date_prevu', 'N/A')
+                statut = projet.get('statut', '')
+                jours = int((datetime.strptime(date, '%Y-%m-%d') - datetime.now()).days) if date != 'N/A' else 0
+                
+                # Indicateur visuel
+                if jours <= 1:
+                    emoji = "🔴"  # Rouge - très urgent
+                elif jours <= 3:
+                    emoji = "🟡"  # Jaune - urgent
+                else:
+                    emoji = "🟠"  # Orange - attention
+                    
+                lines.append(f"| {emoji} {nom} | {client} | {date} | {statut} | {jours}j |")
+            lines.append("")
+        
+        # Bons de travail urgents
+        if alertes.get('bt_urgents'):
+            nb = len(alertes['bt_urgents'])
+            total_alertes += nb
+            lines.append(f"✨ 🔥 **Bons de travail urgents non terminés** ({nb} BT)")
+            lines.append("| **Numéro** | **Projet** | **Statut** | **Créé le** | **Notes** |")
+            lines.append("|------------|------------|------------|-------------|-----------|")
+            
+            for bt in alertes['bt_urgents']:
+                numero = bt.get('numero_document', '')
+                projet = bt.get('nom_projet', 'N/A')
+                statut = bt.get('statut', '')
+                date = bt.get('created_at', 'N/A')[:10] if bt.get('created_at') else 'N/A'
+                notes = (bt.get('notes', '')[:30] + '...') if bt.get('notes') and len(bt.get('notes', '')) > 30 else bt.get('notes', '')
+                lines.append(f"| 🔴 {numero} | {projet} | {statut} | {date} | {notes} |")
+            lines.append("")
+        
+        # Devis à relancer
+        if alertes.get('devis_a_relancer'):
+            nb = len(alertes['devis_a_relancer'])
+            total_alertes += nb
+            lines.append(f"✨ 💰 **Devis en attente depuis plus de 15 jours** ({nb} devis)")
+            lines.append("| **Numéro** | **Client** | **Montant** | **Créé le** | **Jours** |")
+            lines.append("|------------|------------|-------------|-------------|-----------|")
+            
+            for devis in alertes['devis_a_relancer']:
+                numero = devis.get('numero_document', '')
+                client = devis.get('client_nom', 'N/A')
+                montant = f"{devis.get('montant_total', 0):,.2f} $" if devis.get('montant_total') else 'N/A'
+                date = devis.get('created_at', 'N/A')
+                jours = int((datetime.now() - datetime.strptime(date[:10], '%Y-%m-%d')).days) if date != 'N/A' else 0
+                lines.append(f"| {numero} | {client} | {montant} | {date[:10]} | {jours}j |")
+            lines.append("")
+        
+        # Résumé
+        if total_alertes == 0:
+            lines.append("🎉 **Aucune alerte à signaler - Tout est sous contrôle !**")
+        else:
+            lines.append(f"✨ 📋 **Résumé**: {total_alertes} alertes actives nécessitant votre attention")
+        
+        return "\n".join(lines)
+    
+    def _format_employes_disponibles(self, data: Dict) -> str:
+        """Formate la liste des employés disponibles"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        lines.append("## 👥 **Employés disponibles**\n")
+        
+        if data.get('employes'):
+            lines.append(f"✨ ✅ **{len(data['employes'])} employés disponibles actuellement**\n")
+            lines.append("| **Nom** | **Poste** | **Département** | **Charge** | **Dernière activité** |")
+            lines.append("|---------|-----------|-----------------|------------|---------------------|")
+            
+            for emp in data['employes']:
+                nom = f"{emp.get('prenom', '')} {emp.get('nom', '')}"
+                poste = emp.get('poste', 'N/A')
+                dept = emp.get('departement', 'N/A')
+                charge = f"{emp.get('charge_travail', 100)}%"
+                derniere = emp.get('derniere_entree', 'Aucune aujourd\'hui')
+                if derniere and derniere != 'Aucune aujourd\'hui':
+                    derniere = derniere[11:16]  # Heure seulement
+                lines.append(f"| {nom} | {poste} | {dept} | {charge} | {derniere} |")
+            lines.append("")
+            
+            # Statistiques par département
+            dept_count = {}
+            for emp in data['employes']:
+                dept = emp.get('departement', 'Autre')
+                dept_count[dept] = dept_count.get(dept, 0) + 1
+            
+            lines.append("✨ 📊 **Répartition par département**")
+            for dept, count in sorted(dept_count.items()):
+                lines.append(f"- **{dept}**: {count} employé(s)")
+        else:
+            lines.append("⚠️ **Aucun employé disponible actuellement**")
+            lines.append("Tous les employés sont en activité ou non actifs.")
+        
+        return "\n".join(lines)
+    
+    def _format_bt_en_cours(self, data: Dict) -> str:
+        """Formate la liste des bons de travail en cours"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        lines.append("## 🔧 **Bons de travail en cours**\n")
+        
+        if data.get('bons_travail'):
+            # Séparer par priorité
+            urgents = [bt for bt in data['bons_travail'] if bt.get('priorite') == 'URGENT']
+            normaux = [bt for bt in data['bons_travail'] if bt.get('priorite') != 'URGENT']
+            
+            # BT Urgents
+            if urgents:
+                lines.append(f"✨ 🔥 **Urgents** ({len(urgents)})")
+                lines.append("| **Numéro** | **Projet** | **Client** | **Employés** | **Avancement** | **Statut** |")
+                lines.append("|------------|------------|------------|--------------|----------------|------------|")
+                
+                for bt in urgents:
+                    numero = bt.get('numero_document', '')
+                    projet = bt.get('nom_projet', 'N/A')
+                    client = bt.get('client_nom', 'N/A')
+                    nb_emp = bt.get('nb_employes', 0)
+                    avancement = f"{bt.get('avancement', 0)}%" if bt.get('avancement') else '0%'
+                    statut = bt.get('statut', '')
+                    lines.append(f"| 🔴 {numero} | {projet} | {client} | {nb_emp} | {avancement} | {statut} |")
+                lines.append("")
+            
+            # BT Normaux
+            if normaux:
+                lines.append(f"✨ 🔨 **Priorité normale** ({len(normaux)})")
+                lines.append("| **Numéro** | **Projet** | **Client** | **Employés** | **Avancement** | **Créé le** |")
+                lines.append("|------------|------------|------------|--------------|----------------|-------------|")
+                
+                for bt in normaux[:15]:  # Limiter à 15
+                    numero = bt.get('numero_document', '')
+                    projet = bt.get('nom_projet', 'N/A')
+                    client = bt.get('client_nom', 'N/A')
+                    nb_emp = bt.get('nb_employes', 0)
+                    avancement = f"{bt.get('avancement', 0)}%" if bt.get('avancement') else '0%'
+                    date = bt.get('created_at', 'N/A')[:10] if bt.get('created_at') else 'N/A'
+                    lines.append(f"| {numero} | {projet} | {client} | {nb_emp} | {avancement} | {date} |")
+                lines.append("")
+            
+            # Résumé
+            lines.append(f"✨ 📋 **Total**: {len(data['bons_travail'])} bons de travail en cours")
+            if urgents:
+                lines.append(f"- 🔥 {len(urgents)} urgent(s)")
+            lines.append(f"- 🔨 {len(normaux)} normal(aux)")
+        else:
+            lines.append("🎉 **Aucun bon de travail en cours**")
+            lines.append("Tous les bons de travail sont terminés ou en attente.")
+        
+        return "\n".join(lines)
+    
+    def _format_ruptures_stock(self, data: Dict) -> str:
+        """Formate la liste des ruptures de stock"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        lines.append("## 📦 **Produits en rupture ou stock faible**\n")
+        
+        if data.get('ruptures'):
+            # Grouper par catégorie
+            par_categorie = {}
+            for r in data['ruptures']:
+                cat = r.get('categorie', 'Autre')
+                if cat not in par_categorie:
+                    par_categorie[cat] = []
+                par_categorie[cat].append(r)
+            
+            # Afficher par catégorie
+            for cat, produits in sorted(par_categorie.items()):
+                lines.append(f"✨ 📋 **{cat}** ({len(produits)} produits)")
+                lines.append("| **Code** | **Produit** | **Stock** | **Minimum** | **Manquant** | **Commandé** | **Fournisseur** |")
+                lines.append("|----------|-------------|----------|-------------|--------------|--------------|-----------------|")
+                
+                for prod in produits[:10]:  # Limiter à 10 par catégorie
+                    code = prod.get('code_produit', '')
+                    nom = prod.get('nom', '')
+                    stock = prod.get('stock_disponible', 0)
+                    minimum = prod.get('stock_minimum', 0)
+                    manquant = prod.get('manquant', 0)
+                    commande = prod.get('stock_commande', 0)
+                    fourn = prod.get('fournisseur_principal', 'N/A')
+                    
+                    # Indicateur visuel
+                    if stock == 0:
+                        emoji = "🔴"  # Rouge - rupture totale
+                    elif stock < minimum / 2:
+                        emoji = "🟡"  # Jaune - très bas
+                    else:
+                        emoji = "🟠"  # Orange - sous minimum
+                    
+                    lines.append(f"| {emoji} {code} | {nom} | {stock} | {minimum} | {abs(manquant)} | {commande} | {fourn} |")
+                lines.append("")
+            
+            # Résumé
+            total = len(data['ruptures'])
+            ruptures_totales = len([r for r in data['ruptures'] if r.get('stock_disponible', 0) == 0])
+            lines.append(f"✨ 📋 **Résumé**:")
+            lines.append(f"- Total: {total} produits sous le stock minimum")
+            lines.append(f"- Ruptures totales: {ruptures_totales} produits")
+            lines.append(f"- À commander d'urgence: {ruptures_totales + len([r for r in data['ruptures'] if r.get('stock_disponible', 0) < r.get('stock_minimum', 0) / 2])} produits")
+        else:
+            lines.append("🎉 **Excellent ! Aucune rupture de stock**")
+            lines.append("Tous les produits sont au-dessus du stock minimum.")
+        
+        return "\n".join(lines)
+    
+    def _format_projets_retard(self, data: Dict) -> str:
+        """Formate la liste des projets en retard"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        lines.append("## ⏰ **Projets en retard ou à risque**\n")
+        
+        if data.get('projets'):
+            # Séparer par statut
+            en_retard = [p for p in data['projets'] if p.get('statut_delai') == 'En retard']
+            a_risque = [p for p in data['projets'] if p.get('statut_delai') == 'À risque']
+            
+            # Projets en retard
+            if en_retard:
+                lines.append(f"✨ 🔴 **En retard** ({len(en_retard)} projets)")
+                lines.append("| **Projet** | **Client** | **Date prévue** | **Retard** | **Budget** | **Statut** |")
+                lines.append("|------------|------------|----------------|------------|------------|------------|")
+                
+                for proj in en_retard:
+                    nom = proj.get('nom_projet', '')
+                    client = proj.get('client_nom', 'N/A')
+                    date = proj.get('date_prevu', 'N/A')
+                    jours = abs(int(proj.get('jours_restants', 0)))
+                    budget = f"{proj.get('prix_estime', 0):,.0f}$" if proj.get('prix_estime') else 'N/A'
+                    statut = proj.get('statut', '')
+                    lines.append(f"| 🔴 {nom} | {client} | {date} | {jours}j | {budget} | {statut} |")
+                lines.append("")
+            
+            # Projets à risque
+            if a_risque:
+                lines.append(f"✨ 🟡 **À risque** ({len(a_risque)} projets)")
+                lines.append("| **Projet** | **Client** | **Date prévue** | **Jours restants** | **Budget** | **Statut** |")
+                lines.append("|------------|------------|----------------|---------------------|------------|------------|")
+                
+                for proj in a_risque:
+                    nom = proj.get('nom_projet', '')
+                    client = proj.get('client_nom', 'N/A')
+                    date = proj.get('date_prevu', 'N/A')
+                    jours = int(proj.get('jours_restants', 0))
+                    budget = f"{proj.get('prix_estime', 0):,.0f}$" if proj.get('prix_estime') else 'N/A'
+                    statut = proj.get('statut', '')
+                    lines.append(f"| 🟡 {nom} | {client} | {date} | {jours}j | {budget} | {statut} |")
+                lines.append("")
+            
+            # Résumé
+            lines.append("✨ 📋 **Résumé**:")
+            lines.append(f"- 🔴 {len(en_retard)} projet(s) en retard")
+            lines.append(f"- 🟡 {len(a_risque)} projet(s) à risque (3 jours ou moins)")
+            
+            # Valeur totale à risque
+            valeur_totale = sum(p.get('prix_estime', 0) for p in data['projets'] if p.get('prix_estime'))
+            if valeur_totale > 0:
+                lines.append(f"- 💰 Valeur totale à risque: {valeur_totale:,.0f} $")
+        else:
+            lines.append("🎉 **Excellent ! Tous les projets sont dans les temps**")
+            lines.append("Aucun projet en retard ou à risque.")
+        
+        return "\n".join(lines)
+    
+    def _format_dashboard(self, data: Dict) -> str:
+        """Formate le tableau de bord avec KPIs"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        lines.append("## 📊 **Tableau de bord ERP**\n")
+        
+        # KPIs principaux en cartes
+        lines.append("### 🎯 **Indicateurs clés de performance**\n")
+        
+        # Projets
+        lines.append("#### 📁 **Projets**")
+        lines.append(f"- **Total actifs**: {data.get('projets_actifs', 0)}")
+        lines.append(f"- **En retard**: 🔴 {data.get('projets_retard', 0)}")
+        lines.append(f"- **À risque**: 🟡 {data.get('projets_risque', 0)}")
+        lines.append(f"- **Valeur totale**: {data.get('valeur_projets', 0):,.0f} $")
+        lines.append("")
+        
+        # Production
+        lines.append("#### 🏭 **Production**")
+        lines.append(f"- **Bons de travail actifs**: {data.get('bt_actifs', 0)}")
+        lines.append(f"- **Employés occupés**: {data.get('employes_occupes', 0)}/{data.get('employes_total', 0)}")
+        lines.append(f"- **Postes utilisés**: {data.get('postes_occupes', 0)}/{data.get('postes_total', 0)}")
+        lines.append("")
+        
+        # Inventaire
+        lines.append("#### 📦 **Inventaire**")
+        lines.append(f"- **Articles en rupture**: 🔴 {data.get('rupture_stock', 0)}")
+        lines.append(f"- **Stock faible**: 🟡 {data.get('stock_faible', 0)}")
+        lines.append(f"- **Valeur inventaire**: {data.get('valeur_inventaire', 0):,.0f} $")
+        lines.append("")
+        
+        # Finances
+        lines.append("#### 💰 **Finances**")
+        lines.append(f"- **Factures impayées**: {data.get('factures_impayees', 0)}")
+        lines.append(f"- **Montant impayé**: {data.get('montant_impaye', 0):,.0f} $")
+        lines.append(f"- **Devis en attente**: {data.get('devis_attente', 0)}")
+        lines.append(f"- **Valeur devis**: {data.get('valeur_devis', 0):,.0f} $")
+        
+        return "\n".join(lines)
+    
+    def _format_impayes(self, data: Dict) -> str:
+        """Formate la liste des factures impayées"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        lines.append("## 💸 **Factures clients impayées**\n")
+        
+        if data.get('factures'):
+            # Statistiques
+            total_impaye = sum(f.get('montant_du', 0) for f in data['factures'])
+            nb_factures = len(data['factures'])
+            plus_ancienne = min(f.get('jours_retard', 0) for f in data['factures']) if data['factures'] else 0
+            
+            lines.append(f"### 📊 **Résumé**")
+            lines.append(f"- **Total impayé**: {total_impaye:,.2f} $")
+            lines.append(f"- **Nombre de factures**: {nb_factures}")
+            lines.append(f"- **Plus ancien retard**: {plus_ancienne} jours")
+            lines.append("")
+            
+            # Tableau des factures
+            lines.append("### 📋 **Détail des factures**")
+            lines.append("| **Facture** | **Client** | **Date** | **Échéance** | **Montant** | **Retard** | **Statut** |")
+            lines.append("|-------------|------------|----------|--------------|-------------|------------|------------|")
+            
+            for facture in sorted(data['factures'], key=lambda x: x.get('jours_retard', 0), reverse=True):
+                numero = facture.get('numero_document', '')
+                client = facture.get('client_nom', 'N/A')
+                date = facture.get('date_facture', 'N/A')
+                echeance = facture.get('date_echeance', 'N/A')
+                montant = f"{facture.get('montant_du', 0):,.2f} $"
+                retard = facture.get('jours_retard', 0)
+                
+                # Indicateur visuel selon le retard
+                if retard > 60:
+                    indicateur = "🔴"
+                elif retard > 30:
+                    indicateur = "🟠"
+                elif retard > 15:
+                    indicateur = "🟡"
+                else:
+                    indicateur = "🟢"
+                
+                lines.append(f"| {numero} | {client} | {date} | {echeance} | {montant} | {indicateur} {retard}j | EN_RETARD |")
+            
+            lines.append("")
+            
+            # Répartition par client
+            clients_group = {}
+            for f in data['factures']:
+                client = f.get('client_nom', 'N/A')
+                if client not in clients_group:
+                    clients_group[client] = {'count': 0, 'total': 0}
+                clients_group[client]['count'] += 1
+                clients_group[client]['total'] += f.get('montant_du', 0)
+            
+            lines.append("### 🏢 **Par client**")
+            lines.append("| **Client** | **Nb factures** | **Total impayé** | **%** |")
+            lines.append("|------------|-----------------|------------------|-------|")
+            
+            for client, info in sorted(clients_group.items(), key=lambda x: x[1]['total'], reverse=True):
+                pct = (info['total'] / total_impaye * 100) if total_impaye > 0 else 0
+                lines.append(f"| {client} | {info['count']} | {info['total']:,.2f} $ | {pct:.1f}% |")
+        else:
+            lines.append("✅ **Excellent ! Aucune facture impayée**")
+        
+        return "\n".join(lines)
+    
+    def _format_charge_travail(self, data: Dict) -> str:
+        """Formate la charge de travail par employé"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        debut = data.get('semaine_debut', '')
+        fin = data.get('semaine_fin', '')
+        if debut and fin:
+            semaine = f"du {debut} au {fin}"
+        else:
+            semaine = data.get('semaine', 'courante')
+        lines.append(f"## 👷 **Charge de travail - Semaine {semaine}**\n")
+        
+        if data.get('charge_employes'):
+            # Statistiques globales
+            total_heures = sum(e.get('heures_assignees', 0) for e in data['charge_employes'])
+            total_employes = len(data['charge_employes'])
+            moy_heures = total_heures / total_employes if total_employes > 0 else 0
+            
+            lines.append("### 📊 **Vue d'ensemble**")
+            lines.append(f"- **Employés assignés**: {total_employes}")
+            lines.append(f"- **Total heures planifiées**: {total_heures:.0f}h")
+            lines.append(f"- **Moyenne par employé**: {moy_heures:.1f}h")
+            lines.append("")
+            
+            # Tableau de charge
+            lines.append("### 📋 **Charge par employé**")
+            lines.append("| **Employé** | **Poste** | **Heures** | **Charge** | **BT assignés** | **Projets** | **Statut** |")
+            lines.append("|-------------|-----------|------------|------------|-----------------|-------------|------------|")
+            
+            for emp in sorted(data['charge_employes'], key=lambda x: x.get('heures_assignees', 0), reverse=True):
+                nom = f"{emp.get('prenom', '')} {emp.get('nom', '')}"
+                poste = emp.get('poste', 'N/A')
+                heures = emp.get('heures_assignees', 0)
+                
+                # Calcul du taux de charge
+                charge_pct = (heures / 40) * 100  # Base 40h/semaine
+                if charge_pct > 100:
+                    indicateur = "🔴"
+                    statut = "Surchargé"
+                elif charge_pct > 80:
+                    indicateur = "🟡"
+                    statut = "Chargé"
+                elif charge_pct > 50:
+                    indicateur = "🟢"
+                    statut = "Normal"
+                else:
+                    indicateur = "⚪"
+                    statut = "Disponible"
+                
+                nb_bt = emp.get('nb_bons_travail', 0)
+                projets_str = emp.get('projets', '')
+                projets = projets_str.split(',') if projets_str else []
+                projets_display = ', '.join(p.strip() for p in projets if p.strip()) if projets else 'N/A'
+                
+                lines.append(f"| {nom} | {poste} | {heures:.1f}h | {indicateur} {charge_pct:.0f}% | {nb_bt} | {projets_display} | {statut} |")
+            
+            lines.append("")
+            
+            # Alertes de surcharge
+            surcharges = [e for e in data['charge_employes'] if e.get('heures_assignees', 0) > 40]
+            if surcharges:
+                lines.append("### ⚠️ **Alertes de surcharge**")
+                for emp in surcharges:
+                    nom = f"{emp.get('prenom', '')} {emp.get('nom', '')}"
+                    heures = emp.get('heures_assignees', 0)
+                    surplus = heures - 40
+                    lines.append(f"- 🔴 **{nom}**: {heures:.1f}h assignées (+{surplus:.1f}h)")
+        else:
+            lines.append("ℹ️ Aucune charge de travail pour cette semaine")
+        
+        return "\n".join(lines)
+    
+    def _format_a_commander(self, data: Dict) -> str:
+        """Formate la liste des produits à commander"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        lines.append("## 🛒 **Produits à réapprovisionner**\n")
+        
+        if data.get('produits'):
+            # Séparer par urgence
+            rupture = [p for p in data['produits'] if p.get('stock_disponible', 0) <= 0]
+            critique = [p for p in data['produits'] if p.get('stock_disponible', 0) > 0 and p.get('stock_disponible', 0) < p.get('seuil_critique', 1)]
+            faible = [p for p in data['produits'] if p.get('stock_disponible', 0) >= p.get('seuil_critique', 1)]
+            
+            # Statistiques
+            lines.append("### 📊 **Résumé**")
+            lines.append(f"- 🔴 **En rupture**: {len(rupture)} produits")
+            lines.append(f"- 🟠 **Stock critique**: {len(critique)} produits")
+            lines.append(f"- 🟡 **Stock faible**: {len(faible)} produits")
+            
+            # Valeur totale à commander
+            valeur_totale = sum(p.get('qte_a_commander', 0) * p.get('prix_unitaire', 0) for p in data['produits'])
+            lines.append(f"- 💰 **Valeur totale estimée**: {valeur_totale:,.2f} $")
+            lines.append("")
+            
+            # Produits en rupture
+            if rupture:
+                lines.append("### 🔴 **En rupture de stock**")
+                lines.append("| **Code** | **Produit** | **Stock** | **À commander** | **Fournisseur** | **Prix unit.** | **Total** |")
+                lines.append("|----------|-------------|----------|-----------------|-----------------|----------------|-----------|")
+                
+                for prod in rupture:
+                    code = prod.get('code_produit', '')
+                    nom = prod.get('nom', '')
+                    stock = f"{prod.get('stock_disponible', 0)} {prod.get('unite_vente', '')}"
+                    qte = f"{prod.get('qte_a_commander', 0)} {prod.get('unite_vente', '')}"
+                    fourn = prod.get('fournisseur_principal', 'N/A')
+                    prix = f"{prod.get('prix_unitaire', 0):.2f} $"
+                    total = f"{prod.get('qte_a_commander', 0) * prod.get('prix_unitaire', 0):.2f} $"
+                    lines.append(f"| {code} | {nom} | 🔴 {stock} | {qte} | {fourn} | {prix} | {total} |")
+                lines.append("")
+            
+            # Stock critique
+            if critique:
+                lines.append("### 🟠 **Stock critique**")
+                lines.append("| **Code** | **Produit** | **Stock** | **Seuil** | **À commander** | **Fournisseur** | **Total** |")
+                lines.append("|----------|-------------|----------|-----------|-----------------|-----------------|-----------|")
+                
+                for prod in critique:
+                    code = prod.get('code_produit', '')
+                    nom = prod.get('nom', '')
+                    stock = f"{prod.get('stock_disponible', 0)}"
+                    seuil = f"{prod.get('seuil_critique', 0)}"
+                    qte = f"{prod.get('qte_a_commander', 0)} {prod.get('unite_vente', '')}"
+                    fourn = prod.get('fournisseur_principal', 'N/A')
+                    total = f"{prod.get('qte_a_commander', 0) * prod.get('prix_unitaire', 0):.2f} $"
+                    lines.append(f"| {code} | {nom} | 🟠 {stock} | {seuil} | {qte} | {fourn} | {total} |")
+                lines.append("")
+            
+            # Regroupement par fournisseur
+            fourn_group = {}
+            for p in data['produits']:
+                fourn = p.get('fournisseur_principal', 'N/A')
+                if fourn not in fourn_group:
+                    fourn_group[fourn] = {'count': 0, 'total': 0}
+                fourn_group[fourn]['count'] += 1
+                fourn_group[fourn]['total'] += p.get('qte_a_commander', 0) * p.get('prix_unitaire', 0)
+            
+            lines.append("### 🚚 **Par fournisseur**")
+            lines.append("| **Fournisseur** | **Nb produits** | **Montant total** |")
+            lines.append("|-----------------|-----------------|-------------------|")
+            
+            for fourn, info in sorted(fourn_group.items(), key=lambda x: x[1]['total'], reverse=True):
+                lines.append(f"| {fourn} | {info['count']} | {info['total']:,.2f} $ |")
+        else:
+            lines.append("✅ **Stock optimal - Aucun produit à commander**")
+        
+        return "\n".join(lines)
+    
+    def _format_performance(self, data: Dict) -> str:
+        """Formate les indicateurs de performance mensuels"""
+        if 'error' in data:
+            return f"❌ **Erreur:** {data['error']}"
+        
+        lines = []
+        mois = data.get('mois', 'en cours')
+        lines.append(f"## 📈 **Performance - {mois}**\n")
+        
+        # Production
+        lines.append("### 🏭 **Indicateurs de production**")
+        lines.append(f"- **Bons de travail complétés**: {data.get('bt_completes', 0)}")
+        lines.append(f"- **Taux de complétion**: {data.get('taux_completion', 0):.1f}%")
+        lines.append(f"- **Temps moyen par BT**: {data.get('temps_moyen_bt', 0):.1f} heures")
+        lines.append(f"- **Efficacité**: {data.get('efficacite_production', 0):.1f}%")
+        lines.append("")
+        
+        # Projets
+        lines.append("### 📁 **Performance des projets**")
+        lines.append(f"- **Projets livrés**: {data.get('projets_livres', 0)}")
+        lines.append(f"- **Projets en retard**: {data.get('projets_retard_mois', 0)}")
+        lines.append(f"- **Taux de respect des délais**: {data.get('taux_respect_delais', 0):.1f}%")
+        lines.append(f"- **Marge moyenne**: {data.get('marge_moyenne', 0):.1f}%")
+        lines.append("")
+        
+        # Finances
+        lines.append("### 💰 **Performance financière**")
+        lines.append(f"- **Chiffre d'affaires**: {data.get('chiffre_affaires', 0):,.0f} $")
+        lines.append(f"- **Coûts de production**: {data.get('couts_production', 0):,.0f} $")
+        lines.append(f"- **Profit brut**: {data.get('profit_brut', 0):,.0f} $")
+        lines.append(f"- **Taux de profit**: {data.get('taux_profit', 0):.1f}%")
+        lines.append("")
+        
+        # Top employés
+        if data.get('top_employes'):
+            lines.append("### 🏆 **Top 5 employés du mois**")
+            lines.append("| **Rang** | **Employé** | **Heures** | **BT complétés** | **Efficacité** |")
+            lines.append("|----------|-------------|------------|------------------|----------------|")
+            
+            for i, emp in enumerate(data['top_employes'][:5], 1):
+                nom = f"{emp.get('prenom', '')} {emp.get('nom', '')}"
+                heures = emp.get('heures_travaillees', 0)
+                bt = emp.get('bt_completes', 0)
+                eff = emp.get('efficacite', 0)
+                medaille = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                lines.append(f"| {medaille} | {nom} | {heures:.1f}h | {bt} | {eff:.1f}% |")
+            lines.append("")
+        
+        # Évolution vs mois précédent
+        lines.append("### 📊 **Évolution vs mois précédent**")
+        evolution_ca = data.get('evolution_ca', 0)
+        evolution_prod = data.get('evolution_production', 0)
+        evolution_eff = data.get('evolution_efficacite', 0)
+        
+        lines.append(f"- **Chiffre d'affaires**: {'+' if evolution_ca >= 0 else ''}{evolution_ca:.1f}% {'📈' if evolution_ca > 0 else '📉' if evolution_ca < 0 else '➡️'}")
+        lines.append(f"- **Production**: {'+' if evolution_prod >= 0 else ''}{evolution_prod:.1f}% {'📈' if evolution_prod > 0 else '📉' if evolution_prod < 0 else '➡️'}")
+        lines.append(f"- **Efficacité**: {'+' if evolution_eff >= 0 else ''}{evolution_eff:.1f}% {'📈' if evolution_eff > 0 else '📉' if evolution_eff < 0 else '➡️'}")
         
         return "\n".join(lines)
 
