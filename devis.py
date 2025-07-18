@@ -1714,6 +1714,58 @@ def render_devis_statistics(gestionnaire: GestionnaireDevis):
     else:
         st.info("Aucune donnée de devis disponible pour les statistiques.")
 
+def render_estimation_ia_tab():
+    """Affiche l'onglet Estimation IA avec lien vers l'application."""
+    st.subheader("🤖 Estimation IA")
+    
+    st.markdown("""
+    <style>
+    .estimation-container {
+        background: linear-gradient(135deg, rgba(0, 167, 113, 0.1) 0%, rgba(0, 103, 61, 0.1) 100%);
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        margin: 2rem 0;
+    }
+    .ia-button {
+        display: inline-block;
+        background: linear-gradient(135deg, #00A971 0%, #00673D 100%);
+        color: white !important;
+        text-decoration: none;
+        padding: 1rem 3rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 1.1rem;
+        transition: all 0.3s ease;
+        margin: 1rem 0;
+    }
+    .ia-button:hover {
+        background: linear-gradient(135deg, #00673D 0%, #004C2E 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 167, 113, 0.4);
+        color: white !important;
+        text-decoration: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 3, 1])
+    
+    with col2:
+        st.markdown('<div class="estimation-container">', unsafe_allow_html=True)
+        st.markdown("### 💡 Outil d'Estimation par Intelligence Artificielle")
+        st.info("Utilisez notre outil d'estimation avancé pour calculer automatiquement vos devis avec précision grâce à l'IA.")
+        
+        st.markdown("""
+        <div style="text-align: center; margin: 2rem 0;">
+            <a href="https://dg-ia-dw6o.onrender.com/" target="_blank" class="ia-button">
+                🚀 Ouvrir l'outil d'estimation IA
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
 def handle_devis_actions(gestionnaire: GestionnaireDevis):
     """Gestionnaire centralisé des actions pour les devis."""
     action = st.session_state.get('devis_action')
@@ -1758,7 +1810,7 @@ def show_devis_page():
     with col4:
         st.metric("En Attente", stats.get('en_attente', 0))
 
-    tab1, tab2, tab3 = st.tabs(["📋 Liste des Devis", "➕ Nouveau Devis", "📊 Statistiques"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 Liste des Devis", "➕ Nouveau Devis", "📊 Statistiques", "🤖 Estimation IA"])
     
     with tab1:
         render_devis_liste(gestionnaire)
@@ -1768,3 +1820,6 @@ def show_devis_page():
     
     with tab3:
         render_devis_statistics(gestionnaire)
+    
+    with tab4:
+        render_estimation_ia_tab()

@@ -2976,7 +2976,7 @@ def show_bt_statistics():
 
 def show_work_centers_navigation():
     """Navigation secondaire pour les postes"""
-    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
+    nav_col1, nav_col2, nav_col3, nav_col4, nav_col5 = st.columns(5)
     
     with nav_col1:
         if st.button("📋 Liste Postes", use_container_width=True,
@@ -3006,6 +3006,13 @@ def show_work_centers_navigation():
                      type="primary" if st.session_state.wc_action == 'analysis' else "secondary",
                      key="wc_nav_analysis"):
             st.session_state.wc_action = 'analysis'
+            st.rerun()
+    
+    with nav_col5:
+        if st.button("🏭 Rapports Capacité", use_container_width=True,
+                     type="primary" if st.session_state.wc_action == 'capacity' else "secondary",
+                     key="wc_nav_capacity"):
+            st.session_state.wc_action = 'capacity'
             st.rerun()
 
 def show_work_centers_list():
@@ -3631,6 +3638,462 @@ def show_delete_confirmation(poste_id):
     except Exception as e:
         st.error(f"❌ Erreur: {e}")
 
+def show_capacity_reports():
+    """Affiche les rapports de capacité détaillés par poste de travail"""
+    st.markdown("### 🏭 Rapports de Capacité de Production")
+    
+    # Sélection de la période d'analyse
+    col1, col2, col3 = st.columns([2, 2, 3])
+    with col1:
+        period_days = st.selectbox(
+            "📅 Période d'analyse",
+            options=[7, 14, 30, 60, 90],
+            format_func=lambda x: f"{x} jours",
+            index=2,  # 30 jours par défaut
+            key="capacity_period"
+        )
+    
+    with col2:
+        view_type = st.selectbox(
+            "📊 Type de vue",
+            ["Vue d'ensemble", "Par type de produit", "Goulots d'étranglement"],
+            key="capacity_view_type"
+        )
+    
+    with col3:
+        if st.button("🔄 Actualiser", key="refresh_capacity"):
+            st.rerun()
+    
+    st.markdown("---")
+    
+    try:
+        if view_type == "Vue d'ensemble":
+            show_capacity_overview(period_days)
+        elif view_type == "Par type de produit":
+            show_capacity_by_product(period_days)
+        else:  # Goulots d'étranglement
+            show_capacity_bottlenecks()
+            
+    except Exception as e:
+        st.error(f"❌ Erreur lors de la génération des rapports: {e}")
+        logger.error(f"Erreur rapports capacité: {e}")
+
+def show_capacity_overview(period_days: int):
+    """Vue d'ensemble de la capacité de tous les postes"""
+    st.markdown("#### 📊 Vue d'ensemble de la capacité")
+    
+    # Récupérer les données d'analyse
+    capacity_data = st.session_state.erp_db.get_capacity_analysis_by_work_center(period_days)
+    
+    if not capacity_data:
+        st.info("📊 Aucune donnée de capacité disponible pour la période sélectionnée.")
+        return
+    
+    # Métriques globales
+    col1, col2, col3, col4 = st.columns(4)
+    
+    total_capacity = sum(d['capacite_totale_periode'] for d in capacity_data)
+    total_used = sum(d['temps_reel'] for d in capacity_data)
+    total_available = sum(d['capacite_disponible'] for d in capacity_data)
+    avg_utilization = (total_used / total_capacity * 100) if total_capacity > 0 else 0
+    
+    with col1:
+        st.metric(
+            "💪 Capacité totale",
+            f"{total_capacity:,.0f}h",
+            help="Capacité théorique totale sur la période"
+        )
+    
+    with col2:
+        st.metric(
+            "⏱️ Temps utilisé",
+            f"{total_used:,.0f}h",
+            help="Temps réellement utilisé"
+        )
+    
+    with col3:
+        st.metric(
+            "📈 Taux d'utilisation",
+            f"{avg_utilization:.1f}%",
+            help="Pourcentage de la capacité utilisée"
+        )
+    
+    with col4:
+        st.metric(
+            "🆓 Capacité disponible",
+            f"{total_available:,.0f}h",
+            help="Capacité restante disponible"
+        )
+    
+    st.markdown("---")
+    
+    # Tableau détaillé par poste
+    st.markdown("#### 📋 Détail par poste de travail")
+    
+    # Créer un DataFrame pour affichage
+    df = pd.DataFrame(capacity_data)
+    
+    # Colonnes à afficher avec formatage
+    display_columns = {
+        'poste_nom': 'Poste',
+        'departement': 'Département',
+        'capacite_totale_periode': 'Capacité (h)',
+        'temps_reel': 'Utilisé (h)',
+        'capacite_disponible': 'Disponible (h)',
+        'taux_utilisation': 'Utilisation (%)',
+        'efficacite': 'Efficacité (%)',
+        'nb_operations': 'Nb Opérations',
+        'nb_projets': 'Nb Projets',
+        'revenus_generes': 'Revenus ($)'
+    }
+    
+    # Sélectionner et renommer les colonnes
+    df_display = df[list(display_columns.keys())].rename(columns=display_columns)
+    
+    # Appliquer le formatage conditionnel
+    def highlight_utilization(row):
+        styles = [''] * len(row)
+        util_idx = list(display_columns.values()).index('Utilisation (%)')
+        
+        if row.iloc[util_idx] > 90:
+            styles[util_idx] = 'background-color: #fee2e2; color: #991b1b'  # Rouge
+        elif row.iloc[util_idx] > 70:
+            styles[util_idx] = 'background-color: #fef3c7; color: #92400e'  # Orange
+        elif row.iloc[util_idx] > 50:
+            styles[util_idx] = 'background-color: #dbeafe; color: #1e40af'  # Bleu
+        else:
+            styles[util_idx] = 'background-color: #d1fae5; color: #065f46'  # Vert
+            
+        return styles
+    
+    # Afficher le tableau avec style
+    st.dataframe(
+        df_display.style.apply(highlight_utilization, axis=1).format({
+            'Capacité (h)': '{:.0f}',
+            'Utilisé (h)': '{:.1f}',
+            'Disponible (h)': '{:.1f}',
+            'Utilisation (%)': '{:.1f}',
+            'Efficacité (%)': '{:.1f}',
+            'Revenus ($)': '{:,.0f}'
+        }),
+        use_container_width=True,
+        height=400
+    )
+    
+    # Graphiques de visualisation
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Graphique en barres - Utilisation par poste
+        fig_util = go.Figure()
+        
+        # Trier par taux d'utilisation
+        df_sorted = df.sort_values('taux_utilisation', ascending=True)
+        
+        fig_util.add_trace(go.Bar(
+            x=df_sorted['taux_utilisation'],
+            y=df_sorted['poste_nom'],
+            orientation='h',
+            marker_color=['#ef4444' if x > 90 else '#f59e0b' if x > 70 else '#3b82f6' if x > 50 else '#10b981' 
+                         for x in df_sorted['taux_utilisation']],
+            text=[f"{x:.1f}%" for x in df_sorted['taux_utilisation']],
+            textposition='outside'
+        ))
+        
+        fig_util.update_layout(
+            title="Taux d'utilisation par poste",
+            xaxis_title="Utilisation (%)",
+            yaxis_title="",
+            height=400,
+            showlegend=False,
+            xaxis=dict(range=[0, 100])
+        )
+        
+        st.plotly_chart(fig_util, use_container_width=True)
+    
+    with col2:
+        # Graphique camembert - Répartition des revenus
+        fig_rev = px.pie(
+            df[df['revenus_generes'] > 0],
+            values='revenus_generes',
+            names='poste_nom',
+            title="Répartition des revenus par poste",
+            color_discrete_sequence=px.colors.sequential.Viridis
+        )
+        
+        fig_rev.update_traces(textposition='inside', textinfo='percent+label')
+        fig_rev.update_layout(height=400)
+        
+        st.plotly_chart(fig_rev, use_container_width=True)
+
+def show_capacity_by_product(period_days: int):
+    """Analyse de capacité par type de produit"""
+    st.markdown("#### 🏭 Capacité par type de produit")
+    
+    # Sélection du poste (optionnel)
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        postes = st.session_state.erp_db.get_all_work_centers()
+        poste_options = ["Tous les postes"] + [p['nom'] for p in postes if p['statut'] == 'ACTIF']
+        
+        selected_poste = st.selectbox(
+            "🏭 Filtrer par poste",
+            options=poste_options,
+            key="capacity_product_poste"
+        )
+    
+    # Récupérer les données
+    work_center_id = None
+    if selected_poste != "Tous les postes":
+        # Trouver l'ID du poste sélectionné
+        for p in postes:
+            if p['nom'] == selected_poste:
+                work_center_id = p['id']
+                break
+    
+    product_capacity = st.session_state.erp_db.get_product_capacity_by_work_center(work_center_id)
+    
+    if not product_capacity:
+        st.info("📊 Aucune donnée de production disponible.")
+        return
+    
+    # Organiser les données par type de produit
+    product_summary = {}
+    for item in product_capacity:
+        product_type = item['type_produit']
+        if product_type not in product_summary:
+            product_summary[product_type] = {
+                'total_projets': 0,
+                'total_temps': 0,
+                'postes': set(),
+                'materiaux': set()
+            }
+        
+        product_summary[product_type]['total_projets'] += item['nb_projets']
+        product_summary[product_type]['total_temps'] += item['temps_total']
+        product_summary[product_type]['postes'].add(item['poste_nom'])
+        product_summary[product_type]['materiaux'].update(item.get('materiaux_list', []))
+    
+    # Métriques par type de produit
+    st.markdown("##### 📊 Résumé par type de produit")
+    
+    cols = st.columns(min(len(product_summary), 4))
+    for idx, (product_type, data) in enumerate(product_summary.items()):
+        with cols[idx % 4]:
+            st.markdown(f"""
+            <div style='background: #f3f4f6; padding: 15px; border-radius: 8px; border-left: 4px solid #00A971;'>
+                <h4 style='margin: 0; color: #374151;'>{product_type}</h4>
+                <p style='margin: 5px 0; color: #6b7280;'>📋 {data['total_projets']} projets</p>
+                <p style='margin: 5px 0; color: #6b7280;'>⏱️ {data['total_temps']:.1f}h total</p>
+                <p style='margin: 5px 0; color: #6b7280;'>🏭 {len(data['postes'])} postes</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Tableau détaillé
+    st.markdown("##### 📋 Détail par poste et produit")
+    
+    df = pd.DataFrame(product_capacity)
+    
+    if selected_poste == "Tous les postes":
+        # Vue pivot par poste et produit
+        pivot_df = df.pivot_table(
+            index='poste_nom',
+            columns='type_produit',
+            values='temps_total',
+            aggfunc='sum',
+            fill_value=0
+        )
+        
+        # Ajouter les totaux
+        pivot_df['Total'] = pivot_df.sum(axis=1)
+        pivot_df = pivot_df.sort_values('Total', ascending=False)
+        
+        # Afficher avec heatmap
+        st.markdown("**Temps total (heures) par poste et type de produit**")
+        
+        fig_heatmap = px.imshow(
+            pivot_df.drop('Total', axis=1),
+            labels=dict(x="Type de produit", y="Poste de travail", color="Heures"),
+            color_continuous_scale="Viridis"
+        )
+        
+        fig_heatmap.update_layout(height=600)
+        st.plotly_chart(fig_heatmap, use_container_width=True)
+    else:
+        # Vue détaillée pour un poste spécifique
+        df_poste = df[df['poste_nom'] == selected_poste]
+        
+        if not df_poste.empty:
+            # Graphique en barres
+            fig = px.bar(
+                df_poste,
+                x='type_produit',
+                y='temps_total',
+                title=f"Répartition du temps par type de produit - {selected_poste}",
+                labels={'temps_total': 'Temps total (h)', 'type_produit': 'Type de produit'},
+                color='temps_total',
+                color_continuous_scale='Blues'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Détails des matériaux
+            st.markdown("##### 🔧 Matériaux utilisés par type de produit")
+            for _, row in df_poste.iterrows():
+                if row['materiaux_list']:
+                    st.markdown(f"**{row['type_produit']}**: {', '.join(row['materiaux_list'][:5])}")
+
+def show_capacity_bottlenecks():
+    """Analyse détaillée des goulots d'étranglement"""
+    st.markdown("#### ⚠️ Analyse des goulots d'étranglement")
+    
+    bottlenecks = st.session_state.erp_db.get_bottleneck_analysis()
+    
+    if not bottlenecks:
+        st.success("✅ Aucun goulot d'étranglement détecté ! Production fluide.")
+        return
+    
+    # Statistiques globales
+    col1, col2, col3 = st.columns(3)
+    
+    critical_count = sum(1 for b in bottlenecks if b['criticite'] == 'CRITIQUE')
+    high_count = sum(1 for b in bottlenecks if b['criticite'] == 'ÉLEVÉE')
+    total_delay = sum(b['jours_de_retard'] for b in bottlenecks)
+    
+    with col1:
+        st.metric(
+            "🚨 Goulots critiques",
+            critical_count,
+            help="Postes avec plus de 5 jours de retard"
+        )
+    
+    with col2:
+        st.metric(
+            "⚠️ Goulots élevés",
+            high_count,
+            help="Postes avec 2-5 jours de retard"
+        )
+    
+    with col3:
+        st.metric(
+            "📅 Retard total",
+            f"{total_delay:.1f} jours",
+            help="Somme des retards de tous les postes"
+        )
+    
+    st.markdown("---")
+    
+    # Visualisation des goulots
+    st.markdown("##### 🔍 Analyse détaillée des goulots")
+    
+    for bottleneck in bottlenecks:
+        # Carte colorée selon la criticité
+        st.markdown(f"""
+        <div style='background: white; padding: 20px; border-radius: 8px; 
+                    border-left: 4px solid {bottleneck['couleur']}; margin-bottom: 15px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>
+            <div style='display: flex; justify-content: space-between; align-items: center;'>
+                <div>
+                    <h4 style='margin: 0; color: #1f2937;'>{bottleneck['nom']}</h4>
+                    <p style='margin: 5px 0; color: #6b7280;'>
+                        Criticité: <span style='color: {bottleneck['couleur']}; font-weight: bold;'>
+                        {bottleneck['criticite']}</span>
+                    </p>
+                </div>
+                <div style='text-align: right;'>
+                    <p style='margin: 0; font-size: 24px; color: {bottleneck['couleur']}; font-weight: bold;'>
+                        {bottleneck['jours_de_retard']:.1f} jours
+                    </p>
+                    <p style='margin: 0; color: #9ca3af; font-size: 12px;'>de retard</p>
+                </div>
+            </div>
+            <hr style='margin: 10px 0; border: none; border-top: 1px solid #e5e7eb;'>
+            <div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;'>
+                <div>
+                    <p style='margin: 0; color: #9ca3af; font-size: 12px;'>Opérations en attente</p>
+                    <p style='margin: 0; color: #374151; font-weight: 600;'>
+                        {bottleneck['operations_en_attente']}
+                    </p>
+                </div>
+                <div>
+                    <p style='margin: 0; color: #9ca3af; font-size: 12px;'>Charge en attente</p>
+                    <p style='margin: 0; color: #374151; font-weight: 600;'>
+                        {bottleneck['charge_en_attente']:.1f}h
+                    </p>
+                </div>
+                <div>
+                    <p style='margin: 0; color: #9ca3af; font-size: 12px;'>Temps résolution estimé</p>
+                    <p style='margin: 0; color: #374151; font-weight: 600;'>
+                        {bottleneck['temps_resolution_estime']:.1f}h
+                    </p>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Graphique de synthèse
+    st.markdown("---")
+    st.markdown("##### 📊 Vue comparative des goulots")
+    
+    df_bottlenecks = pd.DataFrame(bottlenecks)
+    
+    fig = go.Figure()
+    
+    # Barres empilées pour charge en attente et en cours
+    fig.add_trace(go.Bar(
+        name='Charge en attente',
+        x=df_bottlenecks['nom'],
+        y=df_bottlenecks['charge_en_attente'],
+        marker_color='#fbbf24'
+    ))
+    
+    fig.add_trace(go.Bar(
+        name='Charge en cours',
+        x=df_bottlenecks['nom'],
+        y=df_bottlenecks['charge_en_cours'],
+        marker_color='#f59e0b'
+    ))
+    
+    # Ligne pour la capacité théorique
+    fig.add_trace(go.Scatter(
+        name='Capacité théorique/jour',
+        x=df_bottlenecks['nom'],
+        y=df_bottlenecks['capacite_theorique'],
+        mode='lines+markers',
+        line=dict(color='#00A971', width=3),
+        marker=dict(size=8)
+    ))
+    
+    fig.update_layout(
+        title="Charge vs Capacité par poste",
+        xaxis_title="Poste de travail",
+        yaxis_title="Heures",
+        barmode='stack',
+        height=500,
+        hovermode='x unified'
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Recommandations
+    st.markdown("---")
+    st.markdown("##### 💡 Recommandations pour résoudre les goulots")
+    
+    recommendations = []
+    for b in bottlenecks[:3]:  # Top 3 goulots
+        if b['criticite'] == 'CRITIQUE':
+            recommendations.append(f"🚨 **{b['nom']}**: Considérer l'ajout de ressources ou la redistribution urgente des opérations")
+        elif b['criticite'] == 'ÉLEVÉE':
+            recommendations.append(f"⚠️ **{b['nom']}**: Optimiser les processus ou augmenter temporairement la capacité")
+        else:
+            recommendations.append(f"ℹ️ **{b['nom']}**: Surveiller l'évolution et planifier des améliorations")
+    
+    for rec in recommendations:
+        st.markdown(rec)
+
 # ================== FONCTION PRINCIPALE ==================
 
 def show_production_management_page():
@@ -3742,6 +4205,9 @@ def show_production_management_page():
         
         elif wc_action == 'analysis':
             show_work_centers_analysis()
+        
+        elif wc_action == 'capacity':
+            show_capacity_reports()
     
     # Footer DG simplifié
     st.markdown("---")

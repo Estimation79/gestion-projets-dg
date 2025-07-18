@@ -4,6 +4,10 @@ from datetime import datetime, timedelta, date
 import pandas as pd
 import streamlit as st
 from typing import Dict, List, Optional, Any
+import logging
+
+# Configuration du logging
+logger = logging.getLogger(__name__)
 
 # --- Constantes ---
 TYPES_INTERACTION = ["Email", "Appel", "Réunion", "Note", "Autre"]
@@ -35,6 +39,7 @@ class GestionnaireCRM:
         Le project_manager n'est plus nécessaire ici car les devis sont gérés séparément.
         """
         self.db = db
+        self.erp_db = db  # Alias pour accès plus clair aux méthodes d'interconnexion
         self.use_sqlite = db is not None
         
         if not self.use_sqlite:
@@ -781,26 +786,44 @@ class GestionnaireCRM:
             return []
     
     def ajouter_interaction(self, data_interaction):
-        """Ajoute une nouvelle interaction en SQLite"""
+        """Ajoute une nouvelle interaction en SQLite avec liaison automatique Insightly-style"""
         if not self.use_sqlite:
             return self._ajouter_interaction_json(data_interaction)
         
         try:
             now_iso = datetime.now().isoformat()
             
-            query = '''
-                INSERT INTO interactions 
-                (contact_id, company_id, type_interaction, date_interaction, resume, details, resultat, suivi_prevu, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            '''
-            
             # Mapping des champs pour compatibilité
+            contact_id = data_interaction.get('contact_id')
             company_id = data_interaction.get('entreprise_id') or data_interaction.get('company_id')
             type_interaction = data_interaction.get('type') or data_interaction.get('type_interaction')
             
+            # 1. Trouver l'opportunité ouverte la plus récente pour ce contact/entreprise
+            opportunity_id = None
+            if contact_id or company_id:
+                opp_query = '''
+                    SELECT id FROM opportunities 
+                    WHERE (contact_id = ? OR company_id = ?) 
+                    AND statut NOT IN ('Gagné', 'Perdu')
+                    ORDER BY date_cloture_prevue DESC, created_at DESC
+                    LIMIT 1
+                '''
+                opp_result = self.db.execute_query(opp_query, (contact_id, company_id))
+                if opp_result:
+                    opportunity_id = opp_result[0]['id']
+            
+            # 2. Créer l'interaction
+            query = '''
+                INSERT INTO interactions 
+                (contact_id, company_id, opportunity_id, type_interaction, date_interaction, 
+                 resume, details, resultat, suivi_prevu, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
             interaction_id = self.db.execute_insert(query, (
-                data_interaction.get('contact_id'),
+                contact_id,
                 company_id,
+                opportunity_id,
                 type_interaction,
                 data_interaction.get('date_interaction'),
                 data_interaction.get('resume'),
@@ -809,6 +832,28 @@ class GestionnaireCRM:
                 data_interaction.get('suivi_prevu'),
                 now_iso
             ))
+            
+            if interaction_id:
+                # 3. Créer automatiquement une activité de suivi dans le calendrier
+                if data_interaction.get('suivi_prevu'):
+                    self._create_followup_activity(
+                        interaction_id, 
+                        contact_id, 
+                        company_id,
+                        opportunity_id,
+                        data_interaction.get('suivi_prevu'),
+                        data_interaction.get('resume')
+                    )
+                
+                # 4. Mettre à jour la date de dernière activité de l'opportunité
+                if opportunity_id:
+                    self._update_opportunity_last_activity(opportunity_id, now_iso)
+                
+                # 5. Créer un événement calendrier pour cette interaction
+                self._create_calendar_event_from_interaction(
+                    interaction_id,
+                    data_interaction
+                )
             
             return interaction_id
             
@@ -1112,12 +1157,37 @@ class GestionnaireCRM:
             return None
     
     def update_opportunity(self, opp_id, data):
-        """Met à jour une opportunité"""
+        """Met à jour une opportunité avec déclenchement des workflows"""
         if not self.use_sqlite:
             return False
         
         try:
-            return self.db.update_opportunity(opp_id, data)
+            # Récupérer l'opportunité actuelle pour détecter les changements
+            current_opp = self.get_opportunity_by_id(opp_id)
+            if not current_opp:
+                return False
+            
+            # Détecter si le statut a changé
+            old_status = current_opp.get('statut')
+            new_status = data.get('statut', old_status)
+            status_changed = old_status != new_status
+            
+            # Mettre à jour l'opportunité
+            success = self.db.update_opportunity(opp_id, data)
+            
+            if success and status_changed:
+                # Déclencher les workflows automatiques
+                self.create_opportunity_stage_tasks(opp_id, new_status)
+                
+                # Logger le changement
+                self._log_workflow_execution(
+                    'OPPORTUNITY',
+                    opp_id,
+                    'STATUS_CHANGED',
+                    f"Statut changé de {old_status} à {new_status}"
+                )
+            
+            return success
         except Exception as e:
             st.error(f"Erreur mise à jour opportunité: {e}")
             return False
@@ -1208,6 +1278,345 @@ class GestionnaireCRM:
         except Exception as e:
             st.error(f"Erreur récupération activité: {e}")
             return None
+    
+    # --- Méthodes helper pour automatisation Insightly-style ---
+    
+    def _create_followup_activity(self, interaction_id, contact_id, company_id, opportunity_id, date_suivi, resume):
+        """Crée automatiquement une activité de suivi après une interaction"""
+        try:
+            activity_data = {
+                'interaction_id': interaction_id,
+                'contact_id': contact_id,
+                'company_id': company_id,
+                'opportunity_id': opportunity_id,
+                'type_activite': 'Suivi',
+                'sujet': f"Suivi: {resume[:50]}...",
+                'description': f"Suivi automatique de l'interaction #{interaction_id}",
+                'date_activite': f"{date_suivi} 09:00:00",
+                'statut': 'Planifié',
+                'priorite': 'Normale',
+                'rappel': True,
+                'rappel_minutes': 15
+            }
+            
+            return self.create_crm_activity(activity_data)
+        except Exception as e:
+            logger.error(f"Erreur création activité de suivi: {e}")
+            return None
+    
+    def _update_opportunity_last_activity(self, opportunity_id, date_activity):
+        """Met à jour la date de dernière activité d'une opportunité"""
+        try:
+            query = "UPDATE opportunities SET date_derniere_activite = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            self.db.execute_update(query, (date_activity, opportunity_id))
+        except Exception as e:
+            logger.error(f"Erreur mise à jour date activité opportunité: {e}")
+    
+    def _create_calendar_event_from_interaction(self, interaction_id, interaction_data):
+        """Crée un événement calendrier à partir d'une interaction"""
+        try:
+            event_data = {
+                'interaction_id': interaction_id,
+                'titre': f"{interaction_data.get('type', 'Interaction')}: {interaction_data.get('resume', '')[:50]}",
+                'date_debut': interaction_data.get('date_interaction'),
+                'date_fin': interaction_data.get('date_interaction'),
+                'type_event': 'INTERACTION',
+                'all_day': False,
+                'couleur': self._get_interaction_color(interaction_data.get('type'))
+            }
+            
+            query = '''
+                INSERT INTO calendar_events 
+                (interaction_id, titre, date_debut, date_fin, type_event, all_day, couleur, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            '''
+            
+            self.db.execute_insert(query, (
+                event_data['interaction_id'],
+                event_data['titre'],
+                event_data['date_debut'],
+                event_data['date_fin'],
+                event_data['type_event'],
+                event_data['all_day'],
+                event_data['couleur']
+            ))
+        except Exception as e:
+            logger.error(f"Erreur création événement calendrier: {e}")
+    
+    def _get_interaction_color(self, interaction_type):
+        """Retourne une couleur pour le type d'interaction"""
+        colors = {
+            'Email': '#4B5563',
+            'Appel': '#10B981',
+            'Réunion': '#3B82F6',
+            'Note': '#F59E0B',
+            'Autre': '#9CA3AF'
+        }
+        return colors.get(interaction_type, '#9CA3AF')
+    
+    # --- Nouvelles méthodes pour Timeline View ---
+    
+    def get_unified_timeline(self, contact_id=None, company_id=None, limit=50):
+        """Récupère une timeline unifiée des interactions, activités et opportunités"""
+        try:
+            conditions = []
+            params = []
+            
+            if contact_id:
+                conditions.append("contact_id = ?")
+                params.append(contact_id)
+            if company_id:
+                conditions.append("company_id = ?")
+                params.append(company_id)
+            
+            where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            
+            # Requête union pour rassembler tous les événements
+            query = f'''
+                SELECT 
+                    'interaction' as type,
+                    id,
+                    date_interaction as date,
+                    resume as titre,
+                    details as description,
+                    type_interaction as sous_type,
+                    contact_id,
+                    company_id,
+                    opportunity_id,
+                    resultat as statut
+                FROM interactions {where_clause}
+                
+                UNION ALL
+                
+                SELECT 
+                    'activite' as type,
+                    id,
+                    date_activite as date,
+                    sujet as titre,
+                    description,
+                    type_activite as sous_type,
+                    contact_id,
+                    company_id,
+                    opportunity_id,
+                    statut
+                FROM crm_activities {where_clause}
+                
+                UNION ALL
+                
+                SELECT 
+                    'opportunite' as type,
+                    id,
+                    created_at as date,
+                    nom as titre,
+                    notes as description,
+                    statut as sous_type,
+                    contact_id,
+                    company_id,
+                    id as opportunity_id,
+                    statut
+                FROM opportunities {where_clause}
+                
+                ORDER BY date DESC
+                LIMIT ?
+            '''
+            
+            # Tripler les paramètres pour les trois parties de l'UNION
+            all_params = params * 3
+            all_params.append(limit)
+            
+            return self.db.execute_query(query, all_params)
+            
+        except Exception as e:
+            st.error(f"Erreur récupération timeline: {e}")
+            return []
+    
+    # --- Méthodes pour Workflow Automation ---
+    
+    def create_opportunity_stage_tasks(self, opportunity_id, new_stage):
+        """Crée automatiquement des tâches lors du changement d'étape d'une opportunité"""
+        try:
+            # Définir les tâches par étape
+            stage_tasks = {
+                'Qualification': [
+                    {'titre': 'Vérifier les besoins du client', 'delai_jours': 2},
+                    {'titre': 'Préparer une présentation de découverte', 'delai_jours': 5}
+                ],
+                'Proposition': [
+                    {'titre': 'Rédiger la proposition commerciale', 'delai_jours': 3},
+                    {'titre': 'Faire valider la proposition en interne', 'delai_jours': 1},
+                    {'titre': 'Envoyer la proposition au client', 'delai_jours': 5}
+                ],
+                'Négociation': [
+                    {'titre': 'Planifier une réunion de négociation', 'delai_jours': 2},
+                    {'titre': 'Préparer les arguments de négociation', 'delai_jours': 1},
+                    {'titre': 'Obtenir l\'approbation finale', 'delai_jours': 7}
+                ],
+                'Gagné': [
+                    {'titre': 'Envoyer le contrat pour signature', 'delai_jours': 1},
+                    {'titre': 'Créer le projet dans l\'ERP', 'delai_jours': 2},
+                    {'titre': 'Planifier la réunion de lancement', 'delai_jours': 5}
+                ]
+            }
+            
+            tasks = stage_tasks.get(new_stage, [])
+            
+            # Récupérer l'opportunité pour avoir les infos
+            opp = self.get_opportunity_by_id(opportunity_id)
+            if not opp:
+                return
+            
+            # Créer les tâches
+            for task_template in tasks:
+                due_date = (datetime.now() + timedelta(days=task_template['delai_jours'])).date()
+                
+                activity_data = {
+                    'opportunity_id': opportunity_id,
+                    'contact_id': opp.get('contact_id'),
+                    'company_id': opp.get('company_id'),
+                    'type_activite': 'Tâche',
+                    'sujet': task_template['titre'],
+                    'description': f"Tâche automatique pour l'étape {new_stage}",
+                    'date_activite': f"{due_date} 09:00:00",
+                    'statut': 'Planifié',
+                    'priorite': 'Haute' if new_stage == 'Négociation' else 'Normale'
+                }
+                
+                self.create_crm_activity(activity_data)
+                
+        except Exception as e:
+            logger.error(f"Erreur création tâches automatiques: {e}")
+    
+    def send_reminder_notification(self, activity_id):
+        """Simule l'envoi d'une notification de rappel par email"""
+        try:
+            activity = self.get_activity_by_id(activity_id)
+            if not activity:
+                return
+            
+            # En production, ici on enverrait un vrai email
+            # Pour la démo, on affiche juste une notification
+            st.info(f"📧 Rappel envoyé pour: {activity.get('sujet')}")
+            
+            # Marquer le rappel comme envoyé
+            self.db.execute_update(
+                "UPDATE crm_activities SET rappel_envoye = TRUE WHERE id = ?",
+                (activity_id,)
+            )
+            
+        except Exception as e:
+            logger.error(f"Erreur envoi notification: {e}")
+    
+    # --- Méthodes pour amélioration du pipeline ---
+    
+    def convert_opportunity_to_project(self, opportunity_id):
+        """Convertit une opportunité gagnée en projet"""
+        try:
+            # Récupérer l'opportunité
+            opp = self.get_opportunity_by_id(opportunity_id)
+            if not opp or opp.get('statut') != 'Gagné':
+                st.error("L'opportunité doit être au statut 'Gagné' pour être convertie")
+                return None
+            
+            # Créer le projet
+            project_data = {
+                'nom_projet': opp.get('nom'),
+                'client_company_id': opp.get('company_id'),
+                'client_contact_id': opp.get('contact_id'),
+                'description': opp.get('description'),
+                'prix_estime': opp.get('montant_estime'),
+                'statut': 'À FAIRE',
+                'priorite': 'HAUTE' if opp.get('montant_estime', 0) > 50000 else 'MOYEN',
+                'date_soumis': datetime.now().date().isoformat(),
+                'date_prevu': opp.get('date_cloture_prevue')
+            }
+            
+            # Utiliser l'ERP database pour créer le projet
+            if self.erp_db:
+                project_id = self.erp_db.create_project(project_data)
+                
+                if project_id:
+                    # Marquer l'opportunité comme convertie
+                    self.db.execute_update(
+                        "UPDATE opportunities SET projet_id = ?, converted_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (project_id, opportunity_id)
+                    )
+                    
+                    # Créer les tâches initiales du projet
+                    self._create_project_initial_tasks(project_id, opp)
+                    
+                    st.success(f"✅ Opportunité convertie en projet #{project_id}")
+                    return project_id
+            
+            return None
+            
+        except Exception as e:
+            st.error(f"Erreur conversion opportunité: {e}")
+            return None
+    
+    def _create_project_initial_tasks(self, project_id, opportunity_data):
+        """Crée les tâches initiales pour un nouveau projet"""
+        try:
+            initial_tasks = [
+                {
+                    'titre': 'Réunion de lancement avec le client',
+                    'delai_jours': 3,
+                    'priorite': 'Haute'
+                },
+                {
+                    'titre': 'Définir les jalons du projet',
+                    'delai_jours': 5,
+                    'priorite': 'Haute'
+                },
+                {
+                    'titre': 'Constituer l\'équipe projet',
+                    'delai_jours': 2,
+                    'priorite': 'Normale'
+                },
+                {
+                    'titre': 'Préparer le plan de projet détaillé',
+                    'delai_jours': 7,
+                    'priorite': 'Haute'
+                }
+            ]
+            
+            for task in initial_tasks:
+                due_date = (datetime.now() + timedelta(days=task['delai_jours'])).date()
+                
+                activity_data = {
+                    'projet_id': project_id,
+                    'contact_id': opportunity_data.get('contact_id'),
+                    'company_id': opportunity_data.get('company_id'),
+                    'type_activite': 'Tâche',
+                    'sujet': task['titre'],
+                    'description': f"Tâche initiale pour le projet #{project_id}",
+                    'date_activite': f"{due_date} 09:00:00",
+                    'statut': 'Planifié',
+                    'priorite': task['priorite']
+                }
+                
+                self.create_crm_activity(activity_data)
+                
+        except Exception as e:
+            logger.error(f"Erreur création tâches projet: {e}")
+    
+    def _log_workflow_execution(self, entity_type, entity_id, trigger_event, actions):
+        """Enregistre l'exécution d'un workflow dans les logs"""
+        try:
+            query = '''
+                INSERT INTO workflow_logs 
+                (entite_type, entite_id, trigger_event, actions_executed, status)
+                VALUES (?, ?, ?, ?, ?)
+            '''
+            
+            self.db.execute_insert(query, (
+                entity_type,
+                entity_id,
+                trigger_event,
+                actions,
+                'SUCCESS'
+            ))
+        except Exception as e:
+            logger.error(f"Erreur log workflow: {e}")
 
 # --- Fonctions d'affichage Streamlit avec adresses structurées ---
 
@@ -1672,6 +2081,22 @@ def render_crm_entreprise_details(crm_manager: GestionnaireCRM, projet_manager, 
 def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
     st.subheader("💬 Journal des Interactions (SQLite)")
     
+    # Afficher une vue unifiée si disponible
+    if crm_manager.use_sqlite and crm_manager.erp_db:
+        unified_data = crm_manager.erp_db.get_crm_unified_view()
+        if unified_data and unified_data.get('interactions_recentes'):
+            with st.expander("📊 Vue d'ensemble CRM", expanded=False):
+                col1, col2, col3, col4 = st.columns(4)
+                stats = unified_data.get('statistiques', {})
+                with col1:
+                    st.metric("Interactions (30j)", stats.get('interactions_30j', 0))
+                with col2:
+                    st.metric("Opportunités actives", stats.get('opportunites_actives', 0))
+                with col3:
+                    st.metric("Pipeline ($)", f"{stats.get('pipeline_value', 0):,.0f}")
+                with col4:
+                    st.metric("Activités planifiées", stats.get('activites_planifiees', 0))
+    
     col_create_interaction, col_search_interaction = st.columns([1, 2])
     with col_create_interaction:
         if st.button("➕ Nouvelle Interaction", key="crm_create_interaction_btn", use_container_width=True):
@@ -1692,6 +2117,7 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
         ]
 
     if filtered_interactions:
+        # Enrichir les interactions avec les données d'opportunité si disponibles
         interactions_data_display = []
         for interaction in filtered_interactions:
             contact = crm_manager.get_contact_by_id(interaction.get('contact_id'))
@@ -1699,6 +2125,13 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
             entreprise = crm_manager.get_entreprise_by_id(entreprise_id)
             nom_contact = f"{contact.get('prenom','')} {contact.get('nom_famille','')}" if contact else "N/A"
             nom_entreprise = entreprise.get('nom', 'N/A') if entreprise else "N/A"
+            
+            # Vérifier si l'interaction est liée à une opportunité
+            opportunity_name = ""
+            if crm_manager.use_sqlite and interaction.get('opportunity_id'):
+                opp = crm_manager.get_opportunity_by_id(interaction['opportunity_id'])
+                if opp:
+                    opportunity_name = f"🎯 {opp.get('nom', '')}"
             
             try:
                 date_formatted = datetime.fromisoformat(interaction.get('date_interaction', '')).strftime('%d/%m/%Y %H:%M')
@@ -1714,10 +2147,16 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
                 "Contact": nom_contact,
                 "Entreprise": nom_entreprise,
                 "Résumé": interaction.get('resume', 'N/A'),
-                "Résultat": interaction.get('resultat', 'N/A')
+                "Résultat": interaction.get('resultat', 'N/A'),
+                "Opportunité": opportunity_name
             })
         
-        st.dataframe(pd.DataFrame(interactions_data_display), use_container_width=True)
+        # Afficher le tableau avec colonnes conditionnelles
+        df = pd.DataFrame(interactions_data_display)
+        if not df['Opportunité'].str.strip().any():
+            df = df.drop(columns=['Opportunité'])
+        
+        st.dataframe(df, use_container_width=True)
 
         st.markdown("---")
         st.markdown("### 🔧 Actions sur une interaction")
@@ -1729,9 +2168,9 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
         )
 
         if selected_interaction_id_action:
-            col_act_i1, col_act_i2, col_act_i3 = st.columns(3)
+            col_act_i1, col_act_i2, col_act_i3, col_act_i4, col_act_i5 = st.columns(5)
             with col_act_i1:
-                if st.button("👁️ Voir Détails", key=f"crm_view_interaction_{selected_interaction_id_action}", use_container_width=True):
+                if st.button("👁️ Voir", key=f"crm_view_interaction_{selected_interaction_id_action}", use_container_width=True):
                     st.session_state.crm_action = "view_interaction_details"
                     st.session_state.crm_selected_id = selected_interaction_id_action
             with col_act_i2:
@@ -1739,7 +2178,18 @@ def render_crm_interactions_tab(crm_manager: GestionnaireCRM):
                     st.session_state.crm_action = "edit_interaction"
                     st.session_state.crm_selected_id = selected_interaction_id_action
             with col_act_i3:
-                if st.button("🗑️ Supprimer", key=f"crm_delete_interaction_{selected_interaction_id_action}", use_container_width=True):
+                if st.button("📅 Activité", key=f"crm_activity_interaction_{selected_interaction_id_action}", use_container_width=True):
+                    st.session_state.crm_action = "create_activity_from_interaction"
+                    st.session_state.crm_selected_interaction_id = selected_interaction_id_action
+            with col_act_i4:
+                # Vérifier si l'interaction a déjà des activités liées
+                interaction = next((i for i in filtered_interactions if i.get('id') == selected_interaction_id_action), None)
+                if interaction and interaction.get('opportunity_id'):
+                    if st.button("🎯 Opp.", key=f"crm_view_opp_interaction_{selected_interaction_id_action}", use_container_width=True):
+                        st.session_state.crm_action = "edit_opportunity"
+                        st.session_state.crm_selected_id = interaction['opportunity_id']
+            with col_act_i5:
+                if st.button("🗑️", key=f"crm_delete_interaction_{selected_interaction_id_action}", use_container_width=True):
                     st.session_state.crm_confirm_delete_interaction_id = selected_interaction_id_action
     else:
         st.info("Aucune interaction correspondante." if search_interaction_term else "Aucune interaction enregistrée.")
@@ -2249,6 +2699,314 @@ def render_crm_activity_form(crm_manager: GestionnaireCRM, activity=None):
                         st.rerun()
 
 
+def render_interaction_from_opportunity_form(crm_manager: GestionnaireCRM, opportunity_id: int):
+    """Formulaire pour créer une interaction depuis une opportunité"""
+    opportunity = crm_manager.get_opportunity_by_id(opportunity_id)
+    if not opportunity:
+        st.error("Opportunité non trouvée")
+        return
+    
+    st.subheader(f"💬 Nouvelle Interaction pour l'Opportunité: {opportunity.get('nom')}")
+    
+    with st.form("interaction_from_opp_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            type_interaction = st.selectbox(
+                "Type d'interaction *",
+                ["Email", "Appel", "Réunion", "Note", "Négociation", "Proposition"],
+                index=0
+            )
+            
+            resultat = st.selectbox(
+                "Résultat",
+                ["Positif", "Neutre", "Négatif", "En cours", "À suivre"],
+                index=0
+            )
+        
+        with col2:
+            date_interaction = st.date_input("Date *", value=datetime.now().date())
+            time_interaction = st.time_input("Heure", value=datetime.now().time())
+            
+            # Date de suivi suggérée basée sur le statut de l'opportunité
+            if opportunity.get('statut') == 'Négociation':
+                suivi_days = 3
+            elif opportunity.get('statut') in ['Qualification', 'Proposition']:
+                suivi_days = 7
+            else:
+                suivi_days = 14
+                
+            suivi_prevu = st.date_input(
+                "Suivi prévu",
+                value=date_interaction + timedelta(days=suivi_days)
+            )
+        
+        resume = st.text_input(
+            "Résumé *",
+            value=f"{type_interaction} - {opportunity.get('nom')}",
+            max_chars=100
+        )
+        
+        details = st.text_area(
+            "Détails",
+            height=150,
+            placeholder="Détails de l'interaction, points discutés, prochaines étapes..."
+        )
+        
+        col_submit, col_cancel = st.columns(2)
+        with col_submit:
+            if st.form_submit_button("💾 Enregistrer", use_container_width=True):
+                datetime_interaction = datetime.combine(date_interaction, time_interaction)
+                
+                interaction_data = {
+                    'type_interaction': type_interaction,
+                    'contact_id': opportunity.get('contact_id'),
+                    'company_id': opportunity.get('company_id'),
+                    'date_interaction': datetime_interaction.isoformat(),
+                    'resume': resume,
+                    'details': details,
+                    'resultat': resultat,
+                    'suivi_prevu': suivi_prevu.isoformat()
+                }
+                
+                interaction_id = crm_manager.erp_db.create_interaction_from_opportunity(
+                    opportunity_id, interaction_data
+                )
+                
+                if interaction_id:
+                    st.success(f"Interaction #{interaction_id} créée avec succès!")
+                    
+                    # Créer automatiquement une activité de suivi si demandé
+                    if st.session_state.get('create_followup_activity', False):
+                        activity_data = {
+                            'titre': f"Suivi: {resume}",
+                            'type_activite': 'Suivi',
+                            'date_debut': suivi_prevu.isoformat(),
+                            'statut': 'Planifié',
+                            'priorite': 'Moyenne'
+                        }
+                        crm_manager.erp_db.create_activity_from_interaction(
+                            interaction_id, activity_data
+                        )
+                    
+                    st.session_state.crm_action = None
+                    st.session_state.crm_selected_opp_id = None
+                    st.rerun()
+        
+        with col_cancel:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                st.session_state.crm_action = None
+                st.session_state.crm_selected_opp_id = None
+                st.rerun()
+        
+        # Option pour créer une activité de suivi
+        st.checkbox(
+            "📅 Créer automatiquement une activité de suivi",
+            key="create_followup_activity",
+            value=True
+        )
+
+
+def render_activity_from_opportunity_form(crm_manager: GestionnaireCRM, opportunity_id: int):
+    """Formulaire pour créer une activité depuis une opportunité"""
+    opportunity = crm_manager.get_opportunity_by_id(opportunity_id)
+    if not opportunity:
+        st.error("Opportunité non trouvée")
+        return
+    
+    st.subheader(f"📅 Nouvelle Activité pour l'Opportunité: {opportunity.get('nom')}")
+    
+    with st.form("activity_from_opp_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            titre = st.text_input(
+                "Titre *",
+                value=f"Suivi {opportunity.get('nom')}",
+                max_chars=100
+            )
+            
+            type_activite = st.selectbox(
+                "Type d'activité *",
+                ["Appel", "Réunion", "Email", "Tâche", "Suivi", "Présentation", "Négociation"],
+                index=0
+            )
+            
+            priorite = st.selectbox(
+                "Priorité",
+                ["Haute", "Moyenne", "Basse"],
+                index=1
+            )
+        
+        with col2:
+            date_debut = st.date_input("Date de début *", value=datetime.now().date())
+            time_debut = st.time_input("Heure de début", value=datetime.now().time())
+            
+            duree = st.number_input("Durée (heures)", min_value=0.5, max_value=8.0, value=1.0, step=0.5)
+            
+            statut = st.selectbox(
+                "Statut",
+                ["Planifié", "En cours", "Terminé", "Annulé"],
+                index=0
+            )
+        
+        description = st.text_area(
+            "Description",
+            height=100,
+            value=f"Activité liée à l'opportunité: {opportunity.get('nom')}\nMontant estimé: ${opportunity.get('montant_estime', 0):,.0f}\nStatut actuel: {opportunity.get('statut')}"
+        )
+        
+        # Assigner à un employé
+        assigned_to = st.selectbox(
+            "Assigné à",
+            options=[None] + [(e['id'], f"{e['prenom']} {e['nom']}") for e in crm_manager.erp_db.execute_query("SELECT id, prenom, nom FROM employees WHERE actif = 1")],
+            format_func=lambda x: "Non assigné" if x is None else x[1]
+        )
+        
+        col_submit, col_cancel = st.columns(2)
+        with col_submit:
+            if st.form_submit_button("💾 Enregistrer", use_container_width=True):
+                datetime_debut = datetime.combine(date_debut, time_debut)
+                datetime_fin = datetime_debut + timedelta(hours=duree)
+                
+                activity_data = {
+                    'titre': titre,
+                    'type_activite': type_activite,
+                    'contact_id': opportunity.get('contact_id'),
+                    'company_id': opportunity.get('company_id'),
+                    'date_debut': datetime_debut.isoformat(),
+                    'date_fin': datetime_fin.isoformat(),
+                    'description': description,
+                    'statut': statut,
+                    'priorite': priorite,
+                    'assigned_to': assigned_to[0] if assigned_to else None
+                }
+                
+                # Calculer la durée en minutes
+                duree_minutes = int(duree * 60)
+                
+                activity_id = crm_manager.erp_db.execute_insert('''
+                    INSERT INTO crm_activities
+                    (sujet, type_activite, contact_id, company_id, date_activite, duree_minutes,
+                     description, statut, priorite, assigned_to, opportunity_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    activity_data['titre'],
+                    activity_data['type_activite'],
+                    activity_data['contact_id'],
+                    activity_data['company_id'],
+                    activity_data['date_debut'],
+                    duree_minutes,
+                    activity_data['description'],
+                    activity_data['statut'],
+                    activity_data['priorite'],
+                    activity_data['assigned_to'],
+                    opportunity_id
+                ))
+                
+                if activity_id:
+                    st.success(f"Activité #{activity_id} créée avec succès!")
+                    st.session_state.crm_action = None
+                    st.session_state.crm_selected_opp_id = None
+                    st.rerun()
+        
+        with col_cancel:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                st.session_state.crm_action = None
+                st.session_state.crm_selected_opp_id = None
+                st.rerun()
+
+
+def render_activity_from_interaction_form(crm_manager: GestionnaireCRM, interaction_id: int):
+    """Formulaire pour créer une activité depuis une interaction"""
+    interaction = crm_manager.get_interaction_by_id(interaction_id)
+    if not interaction:
+        st.error("Interaction non trouvée")
+        return
+    
+    st.subheader(f"📅 Nouvelle Activité de Suivi pour l'Interaction #{interaction_id}")
+    
+    with st.form("activity_from_interaction_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            titre = st.text_input(
+                "Titre *",
+                value=f"Suivi: {interaction.get('resume', '')[:50]}",
+                max_chars=100
+            )
+            
+            type_activite = st.selectbox(
+                "Type d'activité *",
+                ["Suivi", "Appel", "Réunion", "Email", "Tâche"],
+                index=0
+            )
+            
+            priorite = st.selectbox(
+                "Priorité",
+                ["Haute", "Moyenne", "Basse"],
+                index=1 if interaction.get('resultat') == 'Positif' else 0
+            )
+        
+        with col2:
+            # Date suggérée basée sur le suivi prévu de l'interaction
+            default_date = datetime.now().date()
+            if interaction.get('suivi_prevu'):
+                try:
+                    default_date = datetime.fromisoformat(interaction['suivi_prevu']).date()
+                except:
+                    pass
+            
+            date_debut = st.date_input("Date de début *", value=default_date)
+            time_debut = st.time_input("Heure de début", value=datetime.now().time())
+            
+            duree = st.number_input("Durée (heures)", min_value=0.5, max_value=8.0, value=1.0, step=0.5)
+            
+            statut = st.selectbox(
+                "Statut",
+                ["Planifié", "En cours", "Terminé", "Annulé"],
+                index=0
+            )
+        
+        description = st.text_area(
+            "Description",
+            height=100,
+            value=f"Suivi de l'interaction du {interaction.get('date_interaction', '')}\nRésumé: {interaction.get('resume', '')}\nRésultat: {interaction.get('resultat', '')}"
+        )
+        
+        col_submit, col_cancel = st.columns(2)
+        with col_submit:
+            if st.form_submit_button("💾 Enregistrer", use_container_width=True):
+                datetime_debut = datetime.combine(date_debut, time_debut)
+                datetime_fin = datetime_debut + timedelta(hours=duree)
+                
+                activity_data = {
+                    'titre': titre,
+                    'type_activite': type_activite,
+                    'date_debut': datetime_debut.isoformat(),
+                    'date_fin': datetime_fin.isoformat(),
+                    'description': description,
+                    'statut': statut,
+                    'priorite': priorite
+                }
+                
+                activity_id = crm_manager.erp_db.create_activity_from_interaction(
+                    interaction_id, activity_data
+                )
+                
+                if activity_id:
+                    st.success(f"Activité #{activity_id} créée avec succès!")
+                    st.session_state.crm_action = None
+                    st.session_state.crm_selected_interaction_id = None
+                    st.rerun()
+        
+        with col_cancel:
+            if st.form_submit_button("❌ Annuler", use_container_width=True):
+                st.session_state.crm_action = None
+                st.session_state.crm_selected_interaction_id = None
+                st.rerun()
+
+
 def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
     """Gestionnaire centralisé des actions CRM."""
     action = st.session_state.get('crm_action')
@@ -2287,6 +3045,44 @@ def handle_crm_actions(crm_manager: GestionnaireCRM, projet_manager=None):
         render_crm_activity_form(crm_manager)
     elif action == "edit_activity" and selected_id:
         render_crm_activity_form(crm_manager, crm_manager.get_activity_by_id(selected_id))
+    
+    # Actions d'interconnexion
+    elif action == "create_interaction_from_opp":
+        opp_id = st.session_state.get('crm_selected_opp_id')
+        if opp_id:
+            render_interaction_from_opportunity_form(crm_manager, opp_id)
+    elif action == "create_activity_from_opp":
+        opp_id = st.session_state.get('crm_selected_opp_id')
+        if opp_id:
+            render_activity_from_opportunity_form(crm_manager, opp_id)
+    elif action == "create_activity_from_interaction":
+        interaction_id = st.session_state.get('crm_selected_interaction_id')
+        if interaction_id:
+            render_activity_from_interaction_form(crm_manager, interaction_id)
+
+def _format_last_activity_date(date_str):
+    """Formate la date de dernière activité pour l'affichage"""
+    if not date_str:
+        return "Aucune activité"
+    
+    try:
+        date_obj = datetime.fromisoformat(date_str)
+        days_ago = (datetime.now() - date_obj).days
+        
+        if days_ago == 0:
+            return "Aujourd'hui"
+        elif days_ago == 1:
+            return "Hier"
+        elif days_ago < 7:
+            return f"Il y a {days_ago} jours"
+        elif days_ago < 30:
+            weeks = days_ago // 7
+            return f"Il y a {weeks} semaine{'s' if weeks > 1 else ''}"
+        else:
+            return date_obj.strftime("%d/%m/%Y")
+    except:
+        return "Date invalide"
+
 
 def render_crm_pipeline_tab(crm_manager: GestionnaireCRM):
     """Affiche l'onglet Pipeline avec vue Kanban des opportunités"""
@@ -2353,23 +3149,64 @@ def render_crm_pipeline_tab(crm_manager: GestionnaireCRM):
                             <div style='margin-top: 4px; color: #9CA3AF; font-size: 12px;'>
                                 {opp.get('assigned_to_name', 'Non assigné')}
                             </div>
+                            <div style='margin-top: 4px; color: #9CA3AF; font-size: 11px;'>
+                                {_format_last_activity_date(opp.get('date_derniere_activite'))}
+                            </div>
                         </div>
                     """, unsafe_allow_html=True)
                     
                     # Boutons d'action
-                    col_edit, col_next = st.columns(2)
+                    if statut == 'Gagné':
+                        # Pour les opportunités gagnées, afficher le bouton de conversion
+                        col_edit, col_interact, col_activity, col_convert = st.columns(4)
+                    else:
+                        col_edit, col_interact, col_activity, col_next = st.columns(4)
+                    
                     with col_edit:
                         if st.button("✏️", key=f"edit_opp_{opp['id']}", help="Modifier"):
                             st.session_state.crm_action = "edit_opportunity"
                             st.session_state.crm_selected_id = opp['id']
                     
-                    with col_next:
-                        # Bouton pour passer au statut suivant
-                        if idx < len(STATUTS_OPPORTUNITE) - 1 and statut not in ['Gagné', 'Perdu']:
-                            if st.button("→", key=f"next_opp_{opp['id']}", help="Statut suivant"):
-                                next_statut = STATUTS_OPPORTUNITE[idx + 1]
-                                crm_manager.update_opportunity(opp['id'], {'statut': next_statut})
-                                st.rerun()
+                    with col_interact:
+                        if st.button("💬", key=f"interact_opp_{opp['id']}", help="Ajouter interaction"):
+                            st.session_state.crm_action = "create_interaction_from_opp"
+                            st.session_state.crm_selected_opp_id = opp['id']
+                    
+                    with col_activity:
+                        if st.button("📅", key=f"activity_opp_{opp['id']}", help="Planifier activité"):
+                            st.session_state.crm_action = "create_activity_from_opp"
+                            st.session_state.crm_selected_opp_id = opp['id']
+                    
+                    if statut == 'Gagné':
+                        with col_convert:
+                            # Bouton pour convertir en projet
+                            if not opp.get('projet_id'):
+                                if st.button("🚀", key=f"convert_opp_{opp['id']}", help="Convertir en projet"):
+                                    project_id = crm_manager.convert_opportunity_to_project(opp['id'])
+                                    if project_id:
+                                        st.success(f"✅ Opportunité convertie en projet #{project_id}")
+                                        st.rerun()
+                            else:
+                                st.caption(f"Projet #{opp['projet_id']}")
+                    else:
+                        with col_next:
+                            # Bouton pour passer au statut suivant
+                            if idx < len(STATUTS_OPPORTUNITE) - 1 and statut not in ['Gagné', 'Perdu']:
+                                if st.button("→", key=f"next_opp_{opp['id']}", help="Statut suivant"):
+                                    next_statut = STATUTS_OPPORTUNITE[idx + 1]
+                                    crm_manager.update_opportunity(opp['id'], {'statut': next_statut})
+                                    # Créer automatiquement une interaction pour le changement de statut
+                                    crm_manager.erp_db.create_interaction_from_opportunity(
+                                        opp['id'],
+                                        {
+                                            'type_interaction': 'Note',
+                                            'date_interaction': datetime.now().isoformat(),
+                                            'resume': f"Changement de statut: {statut} → {next_statut}",
+                                            'details': f"L'opportunité a progressé dans le pipeline",
+                                            'resultat': 'Positif'
+                                        }
+                                    )
+                                    st.rerun()
             
             # Message si aucune opportunité
             if not statut_opps:
@@ -2377,11 +3214,36 @@ def render_crm_pipeline_tab(crm_manager: GestionnaireCRM):
 
 
 def render_crm_calendar_tab(crm_manager: GestionnaireCRM):
-    """Affiche l'onglet Calendrier avec les activités CRM"""
+    """Affiche l'onglet Calendrier avec les activités CRM interconnectées"""
     import calendar
     from datetime import datetime, date, timedelta
     
     st.subheader("📅 Calendrier des Activités")
+    
+    # Vue d'ensemble si disponible
+    if crm_manager.use_sqlite and crm_manager.erp_db:
+        unified_data = crm_manager.erp_db.get_crm_unified_view()
+        if unified_data and unified_data.get('activites_a_venir'):
+            with st.expander("📊 Activités à venir", expanded=False):
+                for act in unified_data['activites_a_venir'][:5]:
+                    col1, col2, col3 = st.columns([3, 2, 1])
+                    with col1:
+                        icons = {
+                            'Email': '📧', 'Appel': '📞', 'Réunion': '🤝',
+                            'Tâche': '📋', 'Suivi': '🔄', 'Présentation': '📊'
+                        }
+                        icon = icons.get(act.get('type_activite', ''), '📅')
+                        st.write(f"{icon} **{act.get('titre', '')}**")
+                        if act.get('opportunity_name'):
+                            st.caption(f"🎯 {act['opportunity_name']}")
+                    with col2:
+                        try:
+                            date_str = datetime.fromisoformat(act['date_activite']).strftime('%d/%m %H:%M')
+                            st.write(date_str)
+                        except:
+                            st.write(act.get('date_activite', ''))
+                    with col3:
+                        st.write(act.get('contact_name', '') or act.get('company_name', ''))
     
     # Sélection du mois
     col1, col2, col3 = st.columns([2, 2, 1])
@@ -2414,19 +3276,43 @@ def render_crm_calendar_tab(crm_manager: GestionnaireCRM):
     else:
         last_day = date(selected_year, selected_month + 1, 1) - timedelta(days=1)
     
-    activities = crm_manager.get_crm_activities({
-        'date_debut': first_day.isoformat(),
-        'date_fin': last_day.isoformat()
-    })
+    # Récupérer les activités avec plus d'informations
+    activities = []
+    if crm_manager.use_sqlite:
+        # Requête enrichie pour obtenir les liens
+        query = '''
+            SELECT a.*, c.prenom || ' ' || c.nom_famille as contact_name,
+                   co.nom as company_name, o.nom as opportunity_name,
+                   i.resume as interaction_resume
+            FROM crm_activities a
+            LEFT JOIN contacts c ON a.contact_id = c.id
+            LEFT JOIN companies co ON a.company_id = co.id
+            LEFT JOIN opportunities o ON a.opportunity_id = o.id
+            LEFT JOIN interactions i ON a.interaction_id = i.id
+            WHERE a.date_activite BETWEEN ? AND ?
+            ORDER BY a.date_activite
+        '''
+        activities = crm_manager.db.execute_query(query, (first_day.isoformat(), last_day.isoformat()))
+    else:
+        activities = crm_manager.get_crm_activities({
+            'date_debut': first_day.isoformat(),
+            'date_fin': last_day.isoformat()
+        })
     
     # Créer un dictionnaire des activités par jour
     activities_by_day = {}
     for activity in activities:
-        activity_date = datetime.fromisoformat(activity['date_activite']).date()
-        day = activity_date.day
-        if day not in activities_by_day:
-            activities_by_day[day] = []
-        activities_by_day[day].append(activity)
+        try:
+            # Gérer les différents formats de date
+            date_field = activity.get('date_activite')
+            if date_field:
+                activity_date = datetime.fromisoformat(date_field).date()
+                day = activity_date.day
+                if day not in activities_by_day:
+                    activities_by_day[day] = []
+                activities_by_day[day].append(activity)
+        except:
+            continue
     
     # Afficher le calendrier
     cal = calendar.monthcalendar(selected_year, selected_month)
@@ -2475,6 +3361,15 @@ def render_crm_calendar_tab(crm_manager: GestionnaireCRM):
                                 'Suivi': '#14B8A6'
                             }
                             color = type_colors.get(activity['type_activite'], '#6B7280')
+                            
+                            # Ajouter des indicateurs pour les liens
+                            indicators = []
+                            if activity.get('opportunity_name'):
+                                indicators.append('🎯')
+                            if activity.get('interaction_resume'):
+                                indicators.append('💬')
+                            
+                            indicators_str = ' '.join(indicators)
                             
                             st.markdown(f"""
                                 <div style='background-color: {color}; color: white; 
@@ -2563,6 +3458,153 @@ def render_crm_calendar_tab(crm_manager: GestionnaireCRM):
         st.info("Aucune activité prévue pour ce jour")
 
 
+def render_crm_timeline_tab(crm_manager: GestionnaireCRM):
+    """Affiche la vue Timeline unifiée des interactions, activités et opportunités"""
+    st.subheader("📈 Timeline - Vue Chronologique Unifiée")
+    
+    # Filtres
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        # Sélection contact
+        contacts = crm_manager.contacts
+        contact_options = {0: "Tous les contacts"}
+        contact_options.update({c['id']: f"{c.get('prenom')} {c.get('nom_famille')}" for c in contacts})
+        
+        selected_contact = st.selectbox(
+            "Filtrer par contact",
+            options=list(contact_options.keys()),
+            format_func=lambda x: contact_options[x]
+        )
+    
+    with col2:
+        # Sélection entreprise
+        companies = crm_manager.entreprises
+        company_options = {0: "Toutes les entreprises"}
+        company_options.update({c['id']: c['nom'] for c in companies})
+        
+        selected_company = st.selectbox(
+            "Filtrer par entreprise",
+            options=list(company_options.keys()),
+            format_func=lambda x: company_options[x]
+        )
+    
+    with col3:
+        limit = st.number_input("Nombre d'éléments", min_value=10, max_value=200, value=50, step=10)
+    
+    # Récupérer les données de la timeline
+    filters = {}
+    if selected_contact > 0:
+        filters['contact_id'] = selected_contact
+    if selected_company > 0:
+        filters['company_id'] = selected_company
+    filters['limit'] = limit
+    
+    # Utiliser la méthode de l'ERPDatabase si disponible
+    if crm_manager.use_sqlite and crm_manager.erp_db:
+        timeline_data = crm_manager.erp_db.get_unified_timeline(filters)
+    else:
+        timeline_data = crm_manager.get_unified_timeline(
+            contact_id=selected_contact if selected_contact > 0 else None,
+            company_id=selected_company if selected_company > 0 else None,
+            limit=limit
+        )
+    
+    if timeline_data:
+        # Statistiques de la timeline
+        stats_col1, stats_col2, stats_col3 = st.columns(3)
+        
+        interactions_count = sum(1 for item in timeline_data if item['type'] == 'interaction')
+        activities_count = sum(1 for item in timeline_data if item['type'] == 'activite')
+        opportunities_count = sum(1 for item in timeline_data if item['type'] == 'opportunite')
+        
+        with stats_col1:
+            st.metric("Interactions", interactions_count)
+        with stats_col2:
+            st.metric("Activités", activities_count)
+        with stats_col3:
+            st.metric("Opportunités", opportunities_count)
+        
+        st.markdown("---")
+        
+        # Afficher la timeline
+        for item in timeline_data:
+            # Utiliser les métadonnées enrichies si disponibles
+            icon = item.get('icon', '📌')
+            color = item.get('color', '#6B7280')
+            
+            # Créer le conteneur pour l'élément
+            with st.container():
+                col1, col2 = st.columns([1, 5])
+                
+                with col1:
+                    # Date formatée
+                    date_display = item.get('date_formatted', item.get('date', ''))
+                    st.markdown(f"""
+                        <div style='text-align: center; color: #6B7280; font-size: 12px;'>
+                            {date_display}
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    # Contenu principal
+                    st.markdown(f"""
+                        <div style='border-left: 3px solid {color}; padding-left: 15px; margin-bottom: 15px;'>
+                            <div style='display: flex; align-items: center; gap: 10px;'>
+                                <span style='font-size: 20px;'>{icon}</span>
+                                <strong>{item.get('titre', 'Sans titre')}</strong>
+                                <span style='background-color: {color}; color: white; padding: 2px 8px; 
+                                           border-radius: 12px; font-size: 12px;'>
+                                    {item.get('sous_type', '')}
+                                </span>
+                            </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Informations supplémentaires
+                    info_parts = []
+                    if item.get('contact_name'):
+                        info_parts.append(f"👤 {item['contact_name']}")
+                    if item.get('company_name'):
+                        info_parts.append(f"🏢 {item['company_name']}")
+                    if item.get('opportunity_name') and item['type'] != 'opportunite':
+                        info_parts.append(f"🎯 {item['opportunity_name']}")
+                    
+                    if info_parts:
+                        st.markdown(f"<div style='color: #6B7280; font-size: 14px; margin-top: 5px;'>{' • '.join(info_parts)}</div>", unsafe_allow_html=True)
+                    
+                    # Description si disponible
+                    if item.get('description'):
+                        st.markdown(f"<div style='color: #4B5563; font-size: 14px; margin-top: 5px;'>{item['description'][:200]}{'...' if len(item.get('description', '')) > 200 else ''}</div>", unsafe_allow_html=True)
+                    
+                    # Statut ou résultat
+                    if item.get('statut'):
+                        status_colors = {
+                            'Planifié': '#F59E0B',
+                            'En cours': '#3B82F6',
+                            'Terminé': '#10B981',
+                            'Positif': '#10B981',
+                            'Négatif': '#EF4444',
+                            'Neutre': '#6B7280'
+                        }
+                        status_color = status_colors.get(item['statut'], '#6B7280')
+                        st.markdown(f"<div style='margin-top: 5px;'><span style='background-color: {status_color}20; color: {status_color}; padding: 2px 8px; border-radius: 4px; font-size: 12px;'>{item['statut']}</span></div>", unsafe_allow_html=True)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    # Actions rapides
+                    if item['type'] == 'interaction':
+                        if st.button("📅 Créer activité de suivi", key=f"create_activity_{item['type']}_{item['id']}"):
+                            st.session_state.crm_action = "create_activity_from_interaction"
+                            st.session_state.crm_selected_interaction_id = item['id']
+                            st.rerun()
+                    elif item['type'] == 'opportunite' and item.get('statut') == 'Gagné':
+                        if st.button("🚀 Convertir en projet", key=f"convert_opp_{item['id']}"):
+                            crm_manager.convert_opportunity_to_project(item['id'])
+                            st.rerun()
+    else:
+        st.info("Aucun élément à afficher dans la timeline")
+
+
 def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None):
     """Interface principale CRM."""
     st.title("📋 Gestion des Ventes")
@@ -2572,8 +3614,8 @@ def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None)
     else:
         st.warning("⚠️ Mode JSON (rétrocompatibilité).")
     
-    # Interface principale avec 5 onglets
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions", "📊 Pipeline", "📅 Calendrier"])
+    # Interface principale avec 6 onglets (ajout Timeline)
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["👤 Contacts", "🏢 Entreprises", "💬 Interactions", "📊 Pipeline", "📅 Calendrier", "📈 Timeline"])
     
     with tab1:
         render_crm_contacts_tab(crm_manager, projet_manager)
@@ -2585,6 +3627,8 @@ def render_crm_main_interface(crm_manager: GestionnaireCRM, projet_manager=None)
         render_crm_pipeline_tab(crm_manager)
     with tab5:
         render_crm_calendar_tab(crm_manager)
+    with tab6:
+        render_crm_timeline_tab(crm_manager)
     
     # Gestionnaire d'actions
     handle_crm_actions(crm_manager, projet_manager)

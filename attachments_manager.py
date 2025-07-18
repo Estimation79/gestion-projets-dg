@@ -1191,10 +1191,10 @@ def show_attachments_tab_in_project_modal(project):
     else:
         st.error("ID du projet non valide")
 
-print("✅ AttachmentsManager VERSION COMPLÈTE CORRIGÉE - CLÉS BOUTONS UNIQUES")
-print("📎 Fonctionnalités : Upload, Download, Aperçu, Catégorisation, Sécurité, Diagnostic")
-print("👁️ Types prévisualisables : Images, Texte, PDF, JSON, CSV, XML, Markdown")
-print("🔧 Correction : Utilisation automatique du persistent disk Render")
-print("🔑 NOUVEAU : Toutes les clés de boutons sont uniques pour éviter les conflits")
+print("AttachmentsManager VERSION COMPLETE CORRIGEE - CLES BOUTONS UNIQUES")
+print("Fonctionnalites : Upload, Download, Apercu, Categorisation, Securite, Diagnostic")
+print("Types previsualisables : Images, Texte, PDF, JSON, CSV, XML, Markdown")
+print("Correction : Utilisation automatique du persistent disk Render")
+print("NOUVEAU : Toutes les cles de boutons sont uniques pour eviter les conflits")
 print("🏥 Nouveau : Diagnostic de santé et migration automatique des fichiers")
 print("🔗 Prêt pour utilisation avec les variables d'environnement Render")

@@ -1,0 +1,1546 @@
+================================================================================
+                     MANUEL D'UTILISATION - ERP PRODUCTION DG INC.
+                              Version 1.0 - Janvier 2025
+================================================================================
+
+TABLE DES MATIÈRES
+==================
+
+1. INTRODUCTION ET PRÉSENTATION
+   1.1 À propos de l'ERP Production DG Inc.
+   1.2 Fonctionnalités principales
+   1.3 Configuration requise
+
+2. DÉMARRAGE ET CONNEXION
+   2.1 Lancement de l'application
+   2.2 Portail de connexion
+   2.3 Types d'accès
+   2.4 Authentification administrateur
+
+3. INTERFACE PRINCIPALE
+   3.1 Navigation générale
+   3.2 Tableau de bord
+   3.3 Menu latéral
+   3.4 Zones d'information
+
+4. MODULE PROJETS
+   4.1 Vue d'ensemble des projets
+   4.2 Création d'un nouveau projet
+   4.3 Gestion des projets existants
+   4.4 Vues spécialisées (Kanban, Gantt, Calendrier)
+   4.5 Gestion des opérations et sous-tâches
+
+5. MODULE CRM (GESTION CLIENTS)
+   5.1 Gestion des entreprises
+   5.2 Gestion des contacts
+   5.3 Historique des interactions
+   5.4 Pipeline commercial
+   5.5 Opportunités de vente
+
+6. MODULE INVENTAIRE
+   6.1 Vue d'ensemble de l'inventaire
+   6.2 Ajout d'articles
+   6.3 Mouvements de stock
+   6.4 Alertes et réapprovisionnement
+   6.5 Inventaire physique
+
+7. MODULE PRODUCTION
+   7.1 Bons de travail (BT)
+   7.2 Gammes de fabrication
+   7.3 Assignation des ressources
+   7.4 Suivi de production
+   7.5 Nomenclatures (BOM)
+
+8. MODULE TIMETRACKER
+   8.1 Interface employé
+   8.2 Pointage sur opérations
+   8.3 Suivi du temps
+   8.4 Mode superviseur
+   8.5 Rapports de productivité
+
+9. MODULE RESSOURCES HUMAINES
+   9.1 Gestion des employés
+   9.2 Compétences et certifications
+   9.3 Assignations aux projets
+   9.4 Analyse de charge de travail
+
+10. MODULE FOURNISSEURS
+    10.1 Gestion des fournisseurs
+    10.2 Catalogues produits
+    10.3 Demandes de prix
+    10.4 Bons d'achat
+
+11. MODULE DEVIS
+    11.1 Création de devis
+    11.2 Gestion des lignes
+    11.3 Conversion en projet
+    11.4 Suivi et validation
+
+12. ASSISTANT IA INTÉGRÉ
+    12.1 Activation de l'assistant
+    12.2 Types de questions
+    12.3 Analyses disponibles
+    12.4 Recommandations
+
+13. RAPPORTS ET ANALYSES
+    13.1 Tableaux de bord
+    13.2 Rapports standards
+    13.3 Exportation de données
+    13.4 Analyses personnalisées
+
+14. ADMINISTRATION
+    14.1 Gestion des utilisateurs
+    14.2 Paramètres système
+    14.3 Sauvegardes
+    14.4 Maintenance
+
+15. DÉPANNAGE
+    15.1 Problèmes courants
+    15.2 Messages d'erreur
+    15.3 Support technique
+
+================================================================================
+1. INTRODUCTION ET PRÉSENTATION
+================================================================================
+
+1.1 À PROPOS DE L'ERP PRODUCTION DG INC.
+-----------------------------------------
+
+L'ERP Production DG Inc. est une solution complète de gestion d'entreprise 
+conçue spécifiquement pour les entreprises manufacturières, avec un focus 
+particulier sur l'industrie métallurgique. Cette application web moderne 
+intègre tous les aspects de la gestion d'entreprise dans une interface 
+unifiée et intuitive.
+
+Développé avec les technologies les plus récentes (Python, Streamlit, SQLite), 
+l'ERP offre une expérience utilisateur fluide et des performances optimales 
+tout en restant accessible depuis n'importe quel navigateur web.
+
+1.2 FONCTIONNALITÉS PRINCIPALES
+--------------------------------
+
+• Gestion complète des projets avec vues multiples (Liste, Kanban, Gantt)
+• CRM intégré pour le suivi des clients et opportunités
+• Gestion d'inventaire avec mesures hybrides (impérial/métrique)
+• Module de production avec 61 postes de travail configurés
+• TimeTracker pour le suivi du temps en temps réel
+• Gestion des ressources humaines et compétences
+• Module fournisseurs avec catalogues et achats
+• Création et gestion de devis professionnels
+• Assistant IA Claude pour analyses et recommandations
+• Tableaux de bord et rapports personnalisables
+• Système d'authentification multi-niveaux
+
+1.3 CONFIGURATION REQUISE
+-------------------------
+
+Configuration minimale :
+• Navigateur web moderne (Chrome, Firefox, Safari, Edge)
+• Connexion internet stable
+• Résolution d'écran : 1280x720 minimum (1920x1080 recommandé)
+
+Configuration serveur :
+• Python 3.8 ou supérieur
+• 4 GB RAM minimum (8 GB recommandé)
+• 2 GB d'espace disque disponible
+• Système d'exploitation : Windows, Linux ou macOS
+
+================================================================================
+2. DÉMARRAGE ET CONNEXION
+================================================================================
+
+2.1 LANCEMENT DE L'APPLICATION
+------------------------------
+
+Pour démarrer l'application ERP :
+
+1. Ouvrez un terminal/invite de commandes
+2. Naviguez vers le dossier de l'application
+3. Lancez la commande : streamlit run app.py
+4. L'application s'ouvrira automatiquement dans votre navigateur
+5. URL par défaut : http://localhost:8501
+
+Alternative avec le fichier Run.bat (Windows) :
+1. Double-cliquez sur Run.bat dans le dossier de l'application
+2. L'application se lancera automatiquement
+
+2.2 PORTAIL DE CONNEXION
+------------------------
+
+Au lancement, vous arrivez sur le portail d'entrée principal qui présente 
+deux options :
+
+[ACCÈS EMPLOYÉ]
+• Interface simplifiée pour le pointage
+• Pas d'authentification requise
+• Accès limité au TimeTracker
+
+[ACCÈS ADMIN]
+• Interface complète de l'ERP
+• Authentification requise
+• Accès à tous les modules
+
+2.3 TYPES D'ACCÈS
+-----------------
+
+ACCÈS EMPLOYÉ :
+- Destiné aux employés de production
+- Permet uniquement le pointage sur les opérations
+- Interface épurée et simple d'utilisation
+- Pas de mot de passe requis
+
+ACCÈS ADMINISTRATEUR :
+- Destiné aux gestionnaires et administrateurs
+- Accès complet à tous les modules
+- Nécessite une authentification
+- Permissions selon le rôle
+
+2.4 AUTHENTIFICATION ADMINISTRATEUR
+-----------------------------------
+
+Comptes disponibles par défaut :
+
+Administrateur Principal :
+• Nom d'utilisateur : admin
+• Mot de passe : admin123
+• Accès : Toutes les fonctionnalités
+
+Admin DG Inc. :
+• Nom d'utilisateur : dg_admin
+• Mot de passe : dg2024!
+• Accès : Administration complète
+
+Superviseur Production :
+• Nom d'utilisateur : superviseur
+• Mot de passe : super2024
+• Accès : Gestion production et employés
+
+Direction Générale :
+• Nom d'utilisateur : direction
+• Mot de passe : direction!123
+• Accès : Vue stratégique et rapports
+
+IMPORTANT : Changez ces mots de passe par défaut lors de la première utilisation !
+
+================================================================================
+3. INTERFACE PRINCIPALE
+================================================================================
+
+3.1 NAVIGATION GÉNÉRALE
+-----------------------
+
+L'interface principale se compose de plusieurs zones :
+
+BARRE SUPÉRIEURE :
+• Logo et nom de l'application
+• Indicateur de statut de connexion
+• Heure actuelle (fuseau horaire Québec)
+
+MENU LATÉRAL (Sidebar) :
+• Navigation entre les modules
+• Informations de session
+• Bouton de déconnexion
+• Statistiques rapides
+
+ZONE PRINCIPALE :
+• Contenu du module sélectionné
+• Formulaires et tableaux
+• Graphiques et visualisations
+
+3.2 TABLEAU DE BORD
+-------------------
+
+Le tableau de bord présente une vue d'ensemble de l'activité :
+
+INDICATEURS CLÉS (KPI) :
+• Nombre de projets actifs
+• Valeur totale des projets
+• Taux d'occupation des postes
+• Alertes inventaire
+
+GRAPHIQUES :
+• Répartition des projets par statut
+• Évolution du chiffre d'affaires
+• Charge de travail par département
+• Performance des employés
+
+RACCOURCIS :
+• Créer un nouveau projet
+• Voir les urgences
+• Accéder aux rapports
+
+3.3 MENU LATÉRAL
+----------------
+
+Structure du menu principal :
+
+📊 Tableau de bord
+📋 Projets
+  └─ Liste des projets
+  └─ Kanban
+  └─ Planning Gantt
+  └─ Calendrier
+🤝 CRM & Ventes
+  └─ Entreprises
+  └─ Contacts
+  └─ Opportunités
+📦 Inventaire
+  └─ Articles
+  └─ Mouvements
+  └─ Alertes
+🏭 Production
+  └─ Bons de travail
+  └─ Opérations
+  └─ Postes de travail
+⏱️ TimeTracker
+  └─ Pointage
+  └─ Rapports
+👥 Ressources Humaines
+  └─ Employés
+  └─ Compétences
+🚚 Fournisseurs
+  └─ Liste fournisseurs
+  └─ Catalogues
+📄 Devis
+  └─ Créer devis
+  └─ Gérer devis
+🤖 Assistant IA
+⚙️ Administration
+
+3.4 ZONES D'INFORMATION
+-----------------------
+
+ZONE DE NOTIFICATIONS :
+• Alertes en temps réel
+• Messages système
+• Rappels automatiques
+
+ZONE DE STATUT :
+• Utilisateur connecté
+• Durée de session
+• Permissions actives
+
+ZONE D'AIDE :
+• Tooltips contextuels
+• Liens vers la documentation
+• Raccourcis clavier
+
+================================================================================
+4. MODULE PROJETS
+================================================================================
+
+4.1 VUE D'ENSEMBLE DES PROJETS
+------------------------------
+
+Le module Projets est le cœur de l'ERP, permettant de gérer l'ensemble 
+des projets de production de l'entreprise.
+
+ACCÈS : Menu principal > 📋 Projets
+
+VUES DISPONIBLES :
+• Liste : Vue tabulaire avec filtres
+• Kanban : Vue par colonnes de statut
+• Gantt : Planning temporel
+• Calendrier : Vue mensuelle
+• Carte : Visualisation géographique (si applicable)
+
+STATUTS DE PROJET :
+• À FAIRE : Projet planifié non démarré
+• EN COURS : Projet actif en production
+• EN PAUSE : Projet temporairement arrêté
+• TERMINÉ : Projet complété
+• ANNULÉ : Projet abandonné
+
+4.2 CRÉATION D'UN NOUVEAU PROJET
+--------------------------------
+
+Pour créer un nouveau projet :
+
+1. Cliquez sur [➕ Nouveau Projet]
+2. Remplissez le formulaire :
+
+INFORMATIONS GÉNÉRALES :
+• Nom du projet* : Titre descriptif
+• Client* : Sélection depuis le CRM
+• Description : Détails du projet
+• Type de projet : Fabrication, Assemblage, etc.
+
+DATES ET DÉLAIS :
+• Date de début prévue*
+• Date de fin prévue*
+• Priorité : Normale, Haute, Urgente
+
+INFORMATIONS FINANCIÈRES :
+• Budget estimé
+• Coût de revient prévu
+• Marge cible
+
+RESSOURCES :
+• Chef de projet
+• Équipe assignée
+• Postes de travail requis
+
+3. Cliquez sur [Créer le Projet]
+4. Le projet reçoit automatiquement un ID unique (ex: 10001)
+
+4.3 GESTION DES PROJETS EXISTANTS
+----------------------------------
+
+MODIFICATION D'UN PROJET :
+1. Trouvez le projet dans la liste
+2. Cliquez sur [✏️ Modifier]
+3. Mettez à jour les informations
+4. Sauvegardez les changements
+
+ACTIONS DISPONIBLES :
+• 📋 Créer Bon de Travail
+• 📊 Voir Statistiques
+• 📎 Ajouter Documents
+• 🔄 Changer Statut
+• 🗑️ Archiver/Supprimer
+
+SUIVI D'AVANCEMENT :
+• Pourcentage de complétion
+• Heures consommées vs prévues
+• Budget consommé vs prévu
+• Jalons et livrables
+
+4.4 VUES SPÉCIALISÉES
+---------------------
+
+VUE KANBAN :
+• Colonnes par statut
+• Glisser-déposer pour changer le statut
+• Compteurs par colonne
+• Filtres rapides
+
+VUE GANTT :
+• Barres temporelles par projet
+• Dépendances entre projets
+• Chemin critique
+• Zoom temporel (jour/semaine/mois)
+
+VUE CALENDRIER :
+• Affichage mensuel
+• Projets par date de début/fin
+• Code couleur par priorité
+• Navigation mois par mois
+
+4.5 GESTION DES OPÉRATIONS ET SOUS-TÂCHES
+------------------------------------------
+
+CRÉATION D'OPÉRATIONS :
+1. Depuis un projet, cliquez [➕ Ajouter Opération]
+2. Définissez :
+   • Description de l'opération
+   • Poste de travail
+   • Durée estimée
+   • Ressources requises
+   • Séquence/Ordre
+
+SUIVI DES OPÉRATIONS :
+• Statut : À faire, En cours, Terminé
+• Temps réel vs estimé
+• Assignation employés
+• Commentaires et notes
+
+GAMMES DE FABRICATION :
+• Séquences d'opérations types
+• Réutilisables entre projets
+• Calcul automatique des délais
+• Optimisation du routage
+
+================================================================================
+5. MODULE CRM (GESTION CLIENTS)
+================================================================================
+
+5.1 GESTION DES ENTREPRISES
+---------------------------
+
+ACCÈS : Menu principal > 🤝 CRM & Ventes > Entreprises
+
+CRÉATION D'UNE ENTREPRISE :
+1. Cliquez sur [➕ Nouvelle Entreprise]
+2. Remplissez les informations :
+
+INFORMATIONS PRINCIPALES :
+• Nom de l'entreprise*
+• Type : Client, Fournisseur, Partenaire
+• Secteur d'activité
+• Site web
+• Téléphone principal
+
+ADRESSE COMPLÈTE :
+• Adresse civique
+• Ville*
+• Province/État*
+• Code postal*
+• Pays*
+
+INFORMATIONS COMMERCIALES :
+• Numéro de client
+• Conditions de paiement
+• Limite de crédit
+• Statut : Actif, Inactif, Prospect
+
+ACTIONS SUR UNE ENTREPRISE :
+• Voir l'historique complet
+• Créer un devis
+• Voir les projets associés
+• Ajouter des contacts
+• Enregistrer une interaction
+
+5.2 GESTION DES CONTACTS
+------------------------
+
+AJOUT D'UN CONTACT :
+1. Depuis une entreprise, cliquez [➕ Ajouter Contact]
+2. Informations requises :
+   • Prénom et nom*
+   • Fonction/Titre
+   • Email*
+   • Téléphone direct
+   • Mobile
+   • Préférences de communication
+
+RÔLES DES CONTACTS :
+• Décideur principal
+• Contact technique
+• Contact commercial
+• Contact comptabilité
+
+5.3 HISTORIQUE DES INTERACTIONS
+--------------------------------
+
+TYPES D'INTERACTIONS :
+• Appel téléphonique
+• Email
+• Réunion
+• Visite sur site
+• Note interne
+
+ENREGISTREMENT :
+1. Cliquez [➕ Nouvelle Interaction]
+2. Sélectionnez le type
+3. Date et heure
+4. Participants
+5. Résumé de l'échange
+6. Prochaines actions
+
+5.4 PIPELINE COMMERCIAL
+-----------------------
+
+VUE KANBAN DES OPPORTUNITÉS :
+• Prospection
+• Qualification
+• Proposition
+• Négociation
+• Gagné
+• Perdu
+
+GESTION DES OPPORTUNITÉS :
+• Montant estimé
+• Probabilité de succès
+• Date de clôture prévue
+• Concurrent principal
+• Source de l'opportunité
+
+5.5 ANALYSES CRM
+----------------
+
+RAPPORTS DISPONIBLES :
+• Taux de conversion
+• Valeur moyenne des contrats
+• Cycle de vente moyen
+• Performance par commercial
+• Analyse de la récurrence
+
+================================================================================
+6. MODULE INVENTAIRE
+================================================================================
+
+6.1 VUE D'ENSEMBLE DE L'INVENTAIRE
+-----------------------------------
+
+ACCÈS : Menu principal > 📦 Inventaire
+
+TABLEAU DE BORD INVENTAIRE :
+• Valeur totale du stock
+• Nombre d'articles
+• Articles en rupture
+• Articles sous le minimum
+• Mouvements récents
+
+CATÉGORIES D'ARTICLES :
+• Matières premières
+• Produits semi-finis
+• Produits finis
+• Consommables
+• Outillage
+
+6.2 AJOUT D'ARTICLES
+--------------------
+
+CRÉATION D'UN NOUVEL ARTICLE :
+1. Cliquez [➕ Nouvel Article]
+2. Informations requises :
+
+IDENTIFICATION :
+• Code article* (généré automatiquement)
+• Nom/Description*
+• Catégorie*
+• Unité de mesure
+
+GESTION DES MESURES :
+• Format impérial : pieds, pouces, fractions
+• Format métrique : mètres, millimètres
+• Conversion automatique
+• Exemples : 5' 6 3/4", 1.5m, 25mm
+
+APPROVISIONNEMENT :
+• Fournisseur principal
+• Délai de livraison
+• Quantité minimale commande
+• Multiple de commande
+
+NIVEAUX DE STOCK :
+• Stock actuel
+• Stock minimum*
+• Stock maximum
+• Point de réapprovisionnement
+
+6.3 MOUVEMENTS DE STOCK
+-----------------------
+
+TYPES DE MOUVEMENTS :
+• Entrée : Réception fournisseur
+• Sortie : Consommation production
+• Transfert : Entre emplacements
+• Ajustement : Correction inventaire
+
+ENREGISTREMENT D'UN MOUVEMENT :
+1. Sélectionnez l'article
+2. Type de mouvement
+3. Quantité (avec unité)
+4. Référence document
+5. Commentaire/Raison
+
+TRAÇABILITÉ :
+• Historique complet
+• Utilisateur et horodatage
+• Document source
+• Solde avant/après
+
+6.4 ALERTES ET RÉAPPROVISIONNEMENT
+-----------------------------------
+
+TYPES D'ALERTES :
+• Stock sous le minimum
+• Stock critique
+• Date péremption proche
+• Surconsommation anormale
+
+GESTION DES ALERTES :
+• Notification automatique
+• Liste des articles à commander
+• Suggestions de quantité
+• Génération demande d'achat
+
+6.5 INVENTAIRE PHYSIQUE
+-----------------------
+
+CRÉATION D'UN INVENTAIRE :
+1. [➕ Nouvel Inventaire Physique]
+2. Sélection des articles à compter
+3. Attribution aux équipes
+4. Impression feuilles de comptage
+
+SAISIE DES COMPTAGES :
+• Par article
+• Par emplacement
+• Validation double comptage
+• Écarts automatiques
+
+VALIDATION ET AJUSTEMENTS :
+• Analyse des écarts
+• Justification requise
+• Ajustements automatiques
+• Rapport d'inventaire
+
+================================================================================
+7. MODULE PRODUCTION
+================================================================================
+
+7.1 BONS DE TRAVAIL (BT)
+------------------------
+
+ACCÈS : Menu principal > 🏭 Production > Bons de Travail
+
+CRÉATION D'UN BON DE TRAVAIL :
+1. Cliquez [➕ Nouveau Bon de Travail]
+2. Sélectionnez le projet associé
+3. Le client est auto-complété
+
+INFORMATIONS DU BT :
+• Numéro BT (généré) : BT-2024-XXXX
+• Priorité : Normale, Haute, Urgente
+• Date début prévue*
+• Date fin prévue*
+• Description des travaux
+
+AJOUT DES OPÉRATIONS :
+Pour chaque opération :
+• Poste de travail*
+• Description détaillée
+• Durée estimée (heures)
+• Employé assigné
+• Fournisseur (si sous-traitance)
+
+AJOUT DES MATÉRIAUX :
+• Sélection depuis l'inventaire
+• Quantité requise
+• Réservation automatique
+• Alternative si rupture
+
+7.2 GAMMES DE FABRICATION
+-------------------------
+
+TYPES DE PRODUITS STANDARDS :
+• Structures métalliques
+• Pièces usinées
+• Assemblages soudés
+• Tôlerie fine
+• Produits sur mesure
+
+GAMMES AUTOMATIQUES :
+Selon le type de produit :
+• Séquence d'opérations
+• Postes requis
+• Temps standards
+• Compétences nécessaires
+
+PERSONNALISATION :
+• Modifier la séquence
+• Ajouter/supprimer opérations
+• Ajuster les temps
+• Sauvegarder comme modèle
+
+7.3 ASSIGNATION DES RESSOURCES
+-------------------------------
+
+ASSIGNATION EMPLOYÉS :
+1. Par compétences disponibles
+2. Par charge de travail
+3. Par disponibilité planning
+4. Validation superviseur
+
+RÉSERVATION POSTES :
+• Vérification disponibilité
+• Blocage créneaux horaires
+• Gestion des conflits
+• Optimisation planning
+
+7.4 SUIVI DE PRODUCTION
+-----------------------
+
+TABLEAU DE BORD PRODUCTION :
+• BT en cours par priorité
+• Charge par poste de travail
+• Retards et urgences
+• Taux d'avancement global
+
+SUIVI TEMPS RÉEL :
+• Pointages TimeTracker
+• Avancement par opération
+• Alertes retards
+• Mise à jour automatique
+
+INDICATEURS :
+• OEE (Efficacité globale)
+• Taux de qualité
+• Respect des délais
+• Productivité par poste
+
+7.5 NOMENCLATURES (BOM)
+-----------------------
+
+CRÉATION D'UNE NOMENCLATURE :
+1. Depuis un projet/produit
+2. [➕ Ajouter Composant]
+3. Pour chaque composant :
+   • Article inventaire
+   • Quantité par unité
+   • Opération associée
+   • Criticité
+
+CALCULS AUTOMATIQUES :
+• Coût matières total
+• Disponibilité stock
+• Délai approvisionnement
+• Prix de revient
+
+UTILISATION :
+• Génération liste d'achat
+• Réservation matières
+• Calcul besoins nets
+• Analyse make-or-buy
+
+================================================================================
+8. MODULE TIMETRACKER
+================================================================================
+
+8.1 INTERFACE EMPLOYÉ
+--------------------
+
+ACCÈS EMPLOYÉ : Portail > Accès Employé (sans authentification)
+
+ÉCRAN PRINCIPAL :
+1. Sélection de l'employé (liste déroulante)
+2. Affichage statut actuel :
+   • Pas pointé
+   • Pointé sur : [Opération]
+   • Depuis : [Heure début]
+
+POINTAGE ENTRÉE :
+1. Sélectionner son nom
+2. Choisir l'opération/tâche
+3. Cliquer [POINTER ENTRÉE]
+4. Confirmation visuelle
+
+POINTAGE SORTIE :
+1. Le système affiche l'opération en cours
+2. Durée écoulée en temps réel
+3. Cliquer [POINTER SORTIE]
+4. Résumé : heures travaillées
+
+8.2 POINTAGE SUR OPÉRATIONS
+---------------------------
+
+SÉLECTION D'OPÉRATION :
+• Liste hiérarchique par BT/Projet
+• Recherche par numéro BT
+• Filtrage par poste de travail
+• Opérations assignées en priorité
+
+FORMAT D'AFFICHAGE :
+📋 BT: BT-2024-0001 - Chassis Automobile
+  01. Programmation CNC (2.5h)
+  02. Découpe Laser (3.0h)
+  03. Soudage Structure (8.0h)
+
+INFORMATIONS OPÉRATION :
+• Temps estimé
+• Temps déjà consommé
+• % avancement
+• Deadline
+
+8.3 SUIVI DU TEMPS
+------------------
+
+TEMPS RÉEL :
+• Chronomètre actif
+• Pause/Reprise
+• Changement d'opération
+• Multi-tâches simultanées
+
+VALIDATION :
+• Temps minimum (5 min)
+• Temps maximum (12h)
+• Alertes anomalies
+• Justification si écart
+
+8.4 MODE SUPERVISEUR
+--------------------
+
+ACCÈS : TimeTracker Admin > Mode Superviseur
+MOT DE PASSE : supervisor123
+
+FONCTIONNALITÉS :
+• Vue globale des pointages
+• Modification des entrées
+• Validation des heures
+• Rapports détaillés
+• Gestion des anomalies
+
+ACTIONS SUPERVISEUR :
+• Corriger un pointage
+• Ajouter temps oublié
+• Supprimer entrée erronée
+• Bloquer/débloquer employé
+• Exporter les données
+
+8.5 RAPPORTS DE PRODUCTIVITÉ
+-----------------------------
+
+RAPPORTS STANDARDS :
+• Heures par employé/jour
+• Heures par projet
+• Heures par poste de travail
+• Écarts prévus/réels
+• Coûts main d'œuvre
+
+ANALYSES AVANCÉES :
+• Tendances productivité
+• Comparaisons périodes
+• Top performers
+• Identification goulots
+• ROI par projet
+
+EXPORT :
+• Format CSV/Excel
+• Période personnalisée
+• Filtres multiples
+• Graphiques inclus
+
+================================================================================
+9. MODULE RESSOURCES HUMAINES
+================================================================================
+
+9.1 GESTION DES EMPLOYÉS
+------------------------
+
+ACCÈS : Menu principal > 👥 Ressources Humaines
+
+FICHE EMPLOYÉ :
+• Nom et prénom*
+• Numéro employé
+• Département/Service
+• Poste/Fonction
+• Date d'embauche
+• Statut : Actif/Inactif
+
+INFORMATIONS PROFESSIONNELLES :
+• Compétences certifiées
+• Formations suivies
+• Habilitations sécurité
+• Équipements autorisés
+• Langues parlées
+
+INFORMATIONS SALARIALES :
+• Taux horaire/Salaire annuel
+• Primes et bonus
+• Avantages sociaux
+• Historique augmentations
+
+9.2 COMPÉTENCES ET CERTIFICATIONS
+---------------------------------
+
+GESTION DES COMPÉTENCES :
+• Soudure (MIG, TIG, Arc)
+• Usinage (Tour, Fraiseuse, CNC)
+• Lecture plans
+• Conduite équipements
+• Informatique
+
+NIVEAUX :
+• Débutant
+• Intermédiaire
+• Confirmé
+• Expert
+• Formateur
+
+CERTIFICATIONS :
+• Nom certification
+• Organisme émetteur
+• Date obtention
+• Date expiration
+• Rappel renouvellement
+
+9.3 ASSIGNATIONS AUX PROJETS
+----------------------------
+
+MÉTHODES D'ASSIGNATION :
+1. Par compétences requises
+2. Par disponibilité
+3. Par historique performance
+4. Équilibrage charge
+
+TABLEAU D'ASSIGNATION :
+• Vue calendrier
+• Charge par employé
+• Conflits horaires
+• Optimisation suggérée
+
+9.4 ANALYSE DE CHARGE DE TRAVAIL
+---------------------------------
+
+INDICATEURS CHARGE :
+• Heures planifiées/capacité
+• Projets simultanés
+• Heures supplémentaires
+• Taux utilisation
+
+ALERTES :
+• Surcharge (>90%)
+• Sous-utilisation (<60%)
+• Congés à venir
+• Fins de contrat
+
+OPTIMISATION :
+• Redistribution tâches
+• Formation croisée
+• Embauche temporaire
+• Sous-traitance
+
+================================================================================
+10. MODULE FOURNISSEURS
+================================================================================
+
+10.1 GESTION DES FOURNISSEURS
+-----------------------------
+
+ACCÈS : Menu principal > 🚚 Fournisseurs
+
+CRÉATION FOURNISSEUR :
+Utilise le module CRM avec type = Fournisseur
+
+INFORMATIONS SPÉCIFIQUES :
+• Catégories de produits
+• Délais de livraison moyens
+• Conditions de paiement
+• Minimum de commande
+• Certifications qualité
+
+ÉVALUATION FOURNISSEUR :
+• Ponctualité livraisons
+• Qualité produits
+• Compétitivité prix
+• Service client
+• Score global /100
+
+10.2 CATALOGUES PRODUITS
+------------------------
+
+GESTION CATALOGUE :
+• Import liste produits
+• Prix par quantité
+• Remises volume
+• Validité prix
+• Disponibilité stock
+
+MISE À JOUR :
+• Import fichier Excel
+• Saisie manuelle
+• API fournisseur
+• Alertes changements
+
+10.3 DEMANDES DE PRIX
+---------------------
+
+CRÉATION DEMANDE PRIX :
+1. [➕ Nouvelle Demande Prix]
+2. Sélection fournisseur(s)
+3. Ajout articles :
+   • Depuis catalogue
+   • Description libre
+   • Quantité souhaitée
+   • Date besoin
+
+ENVOI :
+• Génération PDF
+• Email automatique
+• Suivi ouverture
+• Rappel automatique
+
+COMPARAISON OFFRES :
+• Tableau comparatif
+• Prix unitaire/total
+• Délais proposés
+• Conditions
+• Recommandation
+
+10.4 BONS D'ACHAT
+-----------------
+
+CRÉATION BON D'ACHAT :
+1. Depuis demande prix validée
+2. Ou création directe
+3. Numéro BA généré : BA-2024-XXXX
+
+CONTENU :
+• Articles commandés
+• Prix négociés
+• Date livraison
+• Lieu livraison
+• Conditions particulières
+
+WORKFLOW :
+• Création (Brouillon)
+• Approbation (si requis)
+• Envoi fournisseur
+• Confirmation fournisseur
+• Réception marchandise
+• Clôture
+
+RÉCEPTION :
+• Bon de réception
+• Contrôle quantité
+• Contrôle qualité
+• Mise à jour stock
+• Rapprochement facture
+
+================================================================================
+11. MODULE DEVIS
+================================================================================
+
+11.1 CRÉATION DE DEVIS
+---------------------
+
+ACCÈS : Menu principal > 📄 Devis > Nouveau Devis
+
+INFORMATIONS GÉNÉRALES :
+• Client* (sélection CRM)
+• Contact principal
+• Objet du devis*
+• Date validité (30 jours par défaut)
+• Conditions paiement
+
+NUMÉROTATION :
+• Format : DEVIS-2024-XXXX
+• Séquence automatique
+• Préfixe personnalisable
+
+11.2 GESTION DES LIGNES
+-----------------------
+
+TYPES DE LIGNES :
+• Produit catalogue
+• Prestation service
+• Ligne descriptive
+• Sous-total section
+
+AJOUT LIGNE PRODUIT :
+1. [➕ Ajouter Ligne]
+2. Recherche article
+3. Description détaillée
+4. Quantité et unité
+5. Prix unitaire
+6. Remise éventuelle
+
+CALCULS AUTOMATIQUES :
+• Montant ligne
+• Sous-totaux sections
+• Total HT
+• Taxes applicables
+• Total TTC
+
+OPTIONS AVANCÉES :
+• Variantes produit
+• Options incluses
+• Prix dégressifs
+• Regroupement lignes
+
+11.3 CONVERSION EN PROJET
+-------------------------
+
+PROCESSUS :
+1. Devis validé par client
+2. [Convertir en Projet]
+3. Création automatique :
+   • Projet avec infos devis
+   • Lien client conservé
+   • Report dates/montants
+   • Référence devis origine
+
+TRANSFERT DONNÉES :
+• Lignes → Opérations
+• Matériaux → Nomenclature
+• Planning → Gantt projet
+• Documents → Pièces jointes
+
+11.4 SUIVI ET VALIDATION
+------------------------
+
+STATUTS DEVIS :
+• Brouillon : En préparation
+• Envoyé : Transmis client
+• À l'étude : Client analyse
+• Accepté : Confirmé client
+• Refusé : Perdu
+• Expiré : Délai dépassé
+
+ACTIONS DE SUIVI :
+• Envoi email avec PDF
+• Relance automatique
+• Note de suivi
+• Modification/Version
+• Duplication rapide
+
+TABLEAU DE BORD DEVIS :
+• Devis en cours
+• Taux transformation
+• Valeur pipeline
+• Délai moyen réponse
+• Performance commerciale
+
+================================================================================
+12. ASSISTANT IA INTÉGRÉ
+================================================================================
+
+12.1 ACTIVATION DE L'ASSISTANT
+------------------------------
+
+PRÉREQUIS :
+• Clé API Claude configurée
+• Variable environnement : CLAUDE_API_KEY
+• Connexion internet active
+
+ACCÈS : Menu principal > 🤖 Assistant IA
+
+MODES DISPONIBLES :
+• Simple : Questions rapides
+• Standard : Analyses détaillées
+• Expert : Interface avancée
+
+12.2 TYPES DE QUESTIONS
+-----------------------
+
+RECHERCHE D'INFORMATIONS :
+"Montre-moi tous les projets en retard"
+"Quel est le stock de tôle 3mm ?"
+"Liste des BT urgents cette semaine"
+
+ANALYSES :
+"Analyse la productivité de l'atelier soudure"
+"Compare les devis du mois dernier"
+"Identifie les goulots de production"
+
+RECOMMANDATIONS :
+"Comment optimiser le planning de production ?"
+"Suggère des améliorations pour réduire les coûts"
+"Quelle stratégie pour améliorer les délais ?"
+
+12.3 ANALYSES DISPONIBLES
+-------------------------
+
+ANALYSES PRÉDÉFINIES :
+• Performance projets
+• Rentabilité par client
+• Utilisation ressources
+• Tendances inventaire
+• Productivité employés
+
+RAPPORTS INTELLIGENTS :
+• Résumé activité quotidien
+• Points d'attention urgents
+• Opportunités d'amélioration
+• Prévisions charge
+• Analyse écarts
+
+12.4 RECOMMANDATIONS
+--------------------
+
+TYPES DE RECOMMANDATIONS :
+• Optimisation planning
+• Réduction coûts
+• Amélioration qualité
+• Gestion stocks
+• Formation employés
+
+MISE EN ŒUVRE :
+• Plan d'action détaillé
+• Priorités identifiées
+• ROI estimé
+• Risques potentiels
+• Suivi résultats
+
+LIMITES :
+• Basé uniquement sur données ERP
+• Pas d'invention d'informations
+• Recommandations à valider
+• Contexte métier respecté
+
+================================================================================
+13. RAPPORTS ET ANALYSES
+================================================================================
+
+13.1 TABLEAUX DE BORD
+--------------------
+
+TABLEAU DE BORD PRINCIPAL :
+• Vue 360° de l'entreprise
+• KPIs temps réel
+• Graphiques interactifs
+• Drill-down possible
+
+TABLEAUX SPÉCIALISÉS :
+• Production : OEE, rendements
+• Commercial : CA, pipeline
+• RH : Effectifs, compétences
+• Finance : Marges, coûts
+• Qualité : Non-conformités
+
+PERSONNALISATION :
+• Choix des widgets
+• Périodes d'analyse
+• Filtres permanents
+• Mise en page flexible
+
+13.2 RAPPORTS STANDARDS
+-----------------------
+
+RAPPORTS DISPONIBLES :
+
+PRODUCTION :
+• Suivi des BT
+• Performance postes
+• Consommation matières
+• Temps vs estimés
+
+COMMERCIAL :
+• Ventes par période
+• Analyse clients
+• Performance devis
+• Récurrence achats
+
+INVENTAIRE :
+• Valorisation stock
+• Rotation articles
+• Ruptures fréquentes
+• Obsolescence
+
+FINANCIER :
+• Rentabilité projets
+• Analyse coûts
+• Budget vs réel
+• Cash-flow
+
+13.3 EXPORTATION DE DONNÉES
+---------------------------
+
+FORMATS D'EXPORT :
+• Excel (.xlsx)
+• CSV (.csv)
+• PDF (rapport formaté)
+• JSON (données brutes)
+
+OPTIONS D'EXPORT :
+• Période personnalisée
+• Colonnes à inclure
+• Filtres appliqués
+• Formatage conservé
+
+AUTOMATISATION :
+• Exports programmés
+• Envoi email auto
+• Dépôt serveur
+• API webhook
+
+13.4 ANALYSES PERSONNALISÉES
+----------------------------
+
+CONSTRUCTEUR DE RAPPORTS :
+• Sélection tables/champs
+• Définition filtres
+• Agrégations/calculs
+• Mise en forme
+
+SAUVEGARDE RAPPORTS :
+• Modèles réutilisables
+• Partage utilisateurs
+• Programmation exécution
+• Alertes sur seuils
+
+================================================================================
+14. ADMINISTRATION
+================================================================================
+
+14.1 GESTION DES UTILISATEURS
+-----------------------------
+
+ACCÈS : Menu > ⚙️ Administration > Utilisateurs
+REQUIS : Permissions administrateur
+
+CRÉATION UTILISATEUR :
+1. [➕ Nouvel Utilisateur]
+2. Informations requises :
+   • Nom d'utilisateur*
+   • Mot de passe*
+   • Email
+   • Rôle/Groupe
+
+GESTION PERMISSIONS :
+Par module :
+• Lecture seule
+• Création/Modification
+• Suppression
+• Administration
+
+GROUPES PRÉDÉFINIS :
+• Administrateur : Accès total
+• Gestionnaire : Gestion courante
+• Utilisateur : Opérations standard
+• Consultation : Lecture seule
+
+14.2 PARAMÈTRES SYSTÈME
+-----------------------
+
+PARAMÈTRES GÉNÉRAUX :
+• Nom entreprise
+• Logo et couleurs
+• Fuseau horaire
+• Langue interface
+• Format dates/nombres
+
+PARAMÈTRES PRODUCTION :
+• Heures ouvrables
+• Jours fériés
+• Capacité standard
+• Taux horaires défaut
+
+PARAMÈTRES FINANCIERS :
+• Devise principale
+• Taux de change
+• Conditions défaut
+• Taxes applicables
+
+14.3 SAUVEGARDES
+----------------
+
+SAUVEGARDE AUTOMATIQUE :
+• Fréquence : Quotidienne
+• Heure : 02h00 (configurable)
+• Rétention : 30 jours
+• Destination : Local + Cloud
+
+SAUVEGARDE MANUELLE :
+1. [Sauvegarder Maintenant]
+2. Choix du contenu :
+   • Base de données
+   • Documents joints
+   • Configuration
+3. Téléchargement archive
+
+RESTAURATION :
+• Depuis sauvegarde locale
+• Point de restauration
+• Test en environnement isolé
+• Validation avant application
+
+14.4 MAINTENANCE
+----------------
+
+TÂCHES DE MAINTENANCE :
+
+OPTIMISATION BASE :
+• Nettoyage données obsolètes
+• Reconstruction index
+• Analyse performances
+• Correction incohérences
+
+MISES À JOUR :
+• Vérification versions
+• Installation patches
+• Migration données
+• Tests validation
+
+MONITORING :
+• Utilisation ressources
+• Temps de réponse
+• Erreurs système
+• Audit connexions
+
+LOGS SYSTÈME :
+• Accès fichiers logs
+• Filtrage par type
+• Export pour analyse
+• Purge automatique
+
+================================================================================
+15. DÉPANNAGE
+================================================================================
+
+15.1 PROBLÈMES COURANTS
+----------------------
+
+PROBLÈME : Impossible de se connecter
+SOLUTIONS :
+• Vérifier nom utilisateur et mot de passe
+• Vérifier connexion internet
+• Vider cache navigateur
+• Essayer autre navigateur
+• Contacter administrateur
+
+PROBLÈME : Données non sauvegardées
+SOLUTIONS :
+• Vérifier tous champs obligatoires (*)
+• Vérifier format données (dates, nombres)
+• Actualiser la page
+• Vérifier permissions utilisateur
+
+PROBLÈME : Rapports vides
+SOLUTIONS :
+• Vérifier filtres appliqués
+• Vérifier période sélectionnée
+• Données existantes pour critères ?
+• Recalculer les agrégations
+
+PROBLÈME : Lenteur application
+SOLUTIONS :
+• Fermer onglets inutiles
+• Vérifier connexion internet
+• Réduire période données affichées
+• Demander optimisation base
+
+15.2 MESSAGES D'ERREUR
+---------------------
+
+"Erreur 401 - Non autorisé"
+→ Session expirée, reconnectez-vous
+
+"Erreur 403 - Accès refusé"
+→ Permissions insuffisantes pour cette action
+
+"Erreur 404 - Page non trouvée"
+→ URL incorrecte ou module non installé
+
+"Erreur 500 - Erreur serveur"
+→ Problème technique, contacter support
+
+"Timeout - Délai dépassé"
+→ Opération trop longue, réessayer
+
+"Validation Error"
+→ Données saisies incorrectes
+
+15.3 SUPPORT TECHNIQUE
+---------------------
+
+PREMIER NIVEAU :
+• Documentation intégrée
+• FAQ en ligne
+• Tutoriels vidéo
+• Forum communauté
+
+SUPPORT DIRECT :
+Email : support@erp-dg.com
+Tél : 1-800-XXX-XXXX
+Chat : Via interface admin
+
+INFORMATIONS À FOURNIR :
+• Description du problème
+• Messages d'erreur exacts
+• Étapes pour reproduire
+• Navigateur et version
+• Captures d'écran
+
+DÉLAIS DE RÉPONSE :
+• Critique (production arrêtée) : 2h
+• Urgent (impact majeur) : 4h
+• Normal (gêne mineure) : 24h
+• Bas (question/amélioration) : 48h
+
+================================================================================
+                                   FIN DU MANUEL
+================================================================================
+
+Document créé le : Janvier 2025
+Version du manuel : 1.0
+Version ERP : Production
+
+© 2025 ERP Production DG Inc. Tous droits réservés.
+
+Pour toute question ou suggestion concernant ce manuel, contactez :
+documentation@erp-dg.com
+
+================================================================================

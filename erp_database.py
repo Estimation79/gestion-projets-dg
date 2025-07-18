@@ -125,7 +125,7 @@ class ERPDatabase:
         """Vérifie et met à jour le schéma de base de données"""
         logger.info("🔧 DEBUG: check_and_upgrade_schema() appelé")
         
-        LATEST_SCHEMA_VERSION = 5  # 🎯 CHANGÉ de 4 à 5 pour forcer les migrations
+        LATEST_SCHEMA_VERSION = 6  # 🎯 CHANGÉ pour ajouter les fonctionnalités Insightly
         
         current_version = self.get_schema_version()
         logger.info(f"🔧 DEBUG: Version actuelle = {current_version}")
@@ -315,6 +315,176 @@ class ERPDatabase:
                     
                 except Exception as e:
                     logger.error(f"❌ Erreur migration v5: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+            
+            if from_version < 6:
+                logger.info("📝 Migration v6: Ajout fonctionnalités Insightly-style...")
+                try:
+                    # 1. Ajouter colonnes manquantes à interactions
+                    logger.info("🔧 Ajout colonne opportunity_id à interactions...")
+                    try:
+                        self.execute_update("ALTER TABLE interactions ADD COLUMN opportunity_id INTEGER")
+                    except Exception:
+                        pass  # Colonne existe déjà
+                    
+                    # 2. Ajouter colonnes manquantes à opportunities
+                    logger.info("🔧 Ajout colonnes manquantes à opportunities...")
+                    try:
+                        self.execute_update("ALTER TABLE opportunities ADD COLUMN date_derniere_activite DATETIME")
+                    except Exception:
+                        pass
+                    
+                    try:
+                        self.execute_update("ALTER TABLE opportunities ADD COLUMN projet_id INTEGER")
+                    except Exception:
+                        pass
+                    
+                    try:
+                        self.execute_update("ALTER TABLE opportunities ADD COLUMN converted_at DATETIME")
+                    except Exception:
+                        pass
+                    
+                    # 3. Ajouter colonnes manquantes à crm_activities
+                    logger.info("🔧 Ajout colonnes manquantes à crm_activities...")
+                    try:
+                        self.execute_update("ALTER TABLE crm_activities ADD COLUMN projet_id INTEGER")
+                    except Exception:
+                        pass
+                    
+                    try:
+                        self.execute_update("ALTER TABLE crm_activities ADD COLUMN rappel BOOLEAN DEFAULT FALSE")
+                    except Exception:
+                        pass
+                    
+                    try:
+                        self.execute_update("ALTER TABLE crm_activities ADD COLUMN rappel_envoye BOOLEAN DEFAULT FALSE")
+                    except Exception:
+                        pass
+                    
+                    # 4. Créer table calendar_events pour synchronisation bidirectionnelle
+                    logger.info("🔧 Création table calendar_events...")
+                    self.execute_update('''
+                        CREATE TABLE IF NOT EXISTS calendar_events (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            interaction_id INTEGER,
+                            activity_id INTEGER,
+                            opportunity_id INTEGER,
+                            projet_id INTEGER,
+                            titre TEXT NOT NULL,
+                            description TEXT,
+                            date_debut DATETIME NOT NULL,
+                            date_fin DATETIME NOT NULL,
+                            type_event TEXT CHECK(type_event IN 
+                                ('INTERACTION', 'ACTIVITE', 'OPPORTUNITE', 'PROJET', 'AUTRE')),
+                            all_day BOOLEAN DEFAULT FALSE,
+                            lieu TEXT,
+                            couleur TEXT,
+                            rappel_minutes INTEGER,
+                            recurrence_rule TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (interaction_id) REFERENCES interactions(id) ON DELETE CASCADE,
+                            FOREIGN KEY (activity_id) REFERENCES crm_activities(id) ON DELETE CASCADE,
+                            FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE,
+                            FOREIGN KEY (projet_id) REFERENCES projects(id) ON DELETE CASCADE
+                        )
+                    ''')
+                    
+                    # 5. Créer table workflow_rules pour automatisation
+                    logger.info("🔧 Création table workflow_rules...")
+                    self.execute_update('''
+                        CREATE TABLE IF NOT EXISTS workflow_rules (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            nom TEXT NOT NULL,
+                            description TEXT,
+                            entite_type TEXT CHECK(entite_type IN 
+                                ('OPPORTUNITY', 'INTERACTION', 'ACTIVITY', 'PROJECT')),
+                            trigger_event TEXT NOT NULL,
+                            trigger_conditions_json TEXT,
+                            actions_json TEXT NOT NULL,
+                            actif BOOLEAN DEFAULT TRUE,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
+                    
+                    # 6. Créer table workflow_logs pour traçabilité
+                    logger.info("🔧 Création table workflow_logs...")
+                    self.execute_update('''
+                        CREATE TABLE IF NOT EXISTS workflow_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            workflow_rule_id INTEGER,
+                            entite_type TEXT,
+                            entite_id INTEGER,
+                            trigger_event TEXT,
+                            actions_executed TEXT,
+                            status TEXT CHECK(status IN ('SUCCESS', 'FAILED', 'PARTIAL')),
+                            error_message TEXT,
+                            executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (workflow_rule_id) REFERENCES workflow_rules(id)
+                        )
+                    ''')
+                    
+                    # 7. Créer index pour performance
+                    logger.info("🔧 Création index pour fonctionnalités Insightly...")
+                    new_indexes = [
+                        "CREATE INDEX IF NOT EXISTS idx_interactions_opportunity ON interactions(opportunity_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_opportunities_last_activity ON opportunities(date_derniere_activite)",
+                        "CREATE INDEX IF NOT EXISTS idx_calendar_events_dates ON calendar_events(date_debut, date_fin)",
+                        "CREATE INDEX IF NOT EXISTS idx_calendar_events_interaction ON calendar_events(interaction_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_calendar_events_activity ON calendar_events(activity_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_workflow_logs_rule ON workflow_logs(workflow_rule_id)"
+                    ]
+                    
+                    for index_sql in new_indexes:
+                        try:
+                            self.execute_update(index_sql)
+                        except Exception:
+                            pass  # Index existe peut-être déjà
+                    
+                    # 8. Insérer règles workflow par défaut
+                    logger.info("🔧 Insertion règles workflow par défaut...")
+                    default_workflows = [
+                        {
+                            'nom': 'Auto-tâches changement étape opportunité',
+                            'description': 'Crée automatiquement des tâches lors du changement d\'étape',
+                            'entite_type': 'OPPORTUNITY',
+                            'trigger_event': 'STATUS_CHANGED',
+                            'trigger_conditions_json': '{}',
+                            'actions_json': '{"action": "CREATE_STAGE_TASKS"}'
+                        },
+                        {
+                            'nom': 'Suivi automatique après interaction',
+                            'description': 'Crée une activité de suivi après chaque interaction',
+                            'entite_type': 'INTERACTION',
+                            'trigger_event': 'CREATED',
+                            'trigger_conditions_json': '{"has_followup_date": true}',
+                            'actions_json': '{"action": "CREATE_FOLLOWUP_ACTIVITY"}'
+                        }
+                    ]
+                    
+                    for workflow in default_workflows:
+                        try:
+                            self.execute_update('''
+                                INSERT OR IGNORE INTO workflow_rules 
+                                (nom, description, entite_type, trigger_event, trigger_conditions_json, actions_json)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', (
+                                workflow['nom'],
+                                workflow['description'],
+                                workflow['entite_type'],
+                                workflow['trigger_event'],
+                                workflow['trigger_conditions_json'],
+                                workflow['actions_json']
+                            ))
+                        except Exception as e:
+                            logger.error(f"Erreur insertion workflow: {e}")
+                    
+                    logger.info("✅ Migration v6 terminée - Fonctionnalités Insightly ajoutées")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Erreur migration v6: {e}")
                     import traceback
                     logger.error(f"Traceback: {traceback.format_exc()}")
             
@@ -650,6 +820,7 @@ class ERPDatabase:
                     opportunity_id INTEGER,
                     contact_id INTEGER,
                     company_id INTEGER,
+                    interaction_id INTEGER,
                     type_activite TEXT CHECK(type_activite IN 
                         ('Email', 'Appel', 'Réunion', 'Tâche', 'Note', 'Visite', 'Présentation', 'Suivi')),
                     sujet TEXT NOT NULL,
@@ -1475,6 +1646,21 @@ class ERPDatabase:
     
     def _apply_automatic_fixes(self, cursor):
         """Applique automatiquement toutes les corrections nécessaires - ÉTAPE 2 AMÉLIORÉE + OPERATIONS↔BT"""
+        
+        # Ajouter les colonnes manquantes dans crm_activities si nécessaire
+        try:
+            cursor.execute("PRAGMA table_info(crm_activities)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'interaction_id' not in columns:
+                cursor.execute("ALTER TABLE crm_activities ADD COLUMN interaction_id INTEGER")
+                logger.info("✅ Colonne interaction_id ajoutée à crm_activities")
+                
+            if 'opportunity_id' not in columns:
+                cursor.execute("ALTER TABLE crm_activities ADD COLUMN opportunity_id INTEGER")
+                logger.info("✅ Colonne opportunity_id ajoutée à crm_activities")
+        except Exception as e:
+            logger.debug(f"Vérification colonnes crm_activities: {e}")
         try:
             # Vérifier les colonnes existantes dans projects
             cursor.execute("PRAGMA table_info(projects)")
@@ -4411,6 +4597,77 @@ class ERPDatabase:
         except Exception as e:
             logger.error(f"Erreur calcul stats pipeline: {e}")
             return {}
+    
+    def create_project(self, data: Dict) -> Optional[int]:
+        """Crée un nouveau projet dans la base de données"""
+        try:
+            query = '''
+                INSERT INTO projects
+                (nom_projet, client_company_id, client_contact_id, po_client,
+                 statut, priorite, tache, date_soumis, date_prevu,
+                 bd_ft_estime, prix_estime, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            project_id = self.execute_insert(query, (
+                data.get('nom_projet'),
+                data.get('client_company_id'),
+                data.get('client_contact_id'),
+                data.get('po_client'),
+                data.get('statut', 'À FAIRE'),
+                data.get('priorite', 'MOYEN'),
+                data.get('tache'),
+                data.get('date_soumis'),
+                data.get('date_prevu'),
+                data.get('bd_ft_estime', 0.0),
+                data.get('prix_estime', 0.0),
+                data.get('description')
+            ))
+            
+            logger.info(f"Projet créé avec l'ID: {project_id}")
+            return project_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création projet: {e}")
+            return None
+    
+    def create_interaction_from_opportunity(self, opportunity_id: int, interaction_data: Dict) -> Optional[int]:
+        """Crée une interaction liée à une opportunité"""
+        try:
+            # Récupérer les infos de l'opportunité
+            opp = self.execute_query(
+                "SELECT contact_id, company_id FROM opportunities WHERE id = ?",
+                (opportunity_id,)
+            )
+            if not opp:
+                return None
+            
+            opp = opp[0]
+            
+            query = '''
+                INSERT INTO interactions
+                (contact_id, company_id, opportunity_id, type_interaction,
+                 date_interaction, resume, details, resultat, suivi_prevu)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            interaction_id = self.execute_insert(query, (
+                opp['contact_id'],
+                opp['company_id'],
+                opportunity_id,
+                interaction_data.get('type_interaction'),
+                interaction_data.get('date_interaction'),
+                interaction_data.get('resume'),
+                interaction_data.get('details'),
+                interaction_data.get('resultat'),
+                interaction_data.get('suivi_prevu')
+            ))
+            
+            return interaction_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création interaction depuis opportunité: {e}")
+            return None
 
     # =========================================================================
     # MÉTHODES INVENTAIRE ET MOUVEMENTS DE STOCK
@@ -4755,6 +5012,439 @@ class ERPDatabase:
     # =========================================================================
     # MÉTHODES D'ANALYSE ET REPORTING
     # =========================================================================
+    
+    # =========================================================================
+    # MÉTHODES D'INTERCONNEXION CRM (INTERACTIONS - PIPELINE - CALENDRIER)
+    # =========================================================================
+    
+    def create_interaction_from_opportunity(self, opportunity_id: int, interaction_data: Dict) -> Optional[int]:
+        """Crée une interaction liée à une opportunité du pipeline"""
+        try:
+            # Récupérer l'opportunité
+            opp = self.execute_query("SELECT * FROM opportunities WHERE id = ?", (opportunity_id,))
+            if not opp:
+                return None
+            opp = opp[0]
+            
+            # Créer l'interaction avec le lien vers l'opportunité
+            query = '''
+                INSERT INTO interactions 
+                (type_interaction, contact_id, company_id, date_interaction, resume, 
+                 details, resultat, suivi_prevu, opportunity_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            interaction_id = self.execute_insert(query, (
+                interaction_data.get('type_interaction'),
+                interaction_data.get('contact_id', opp['contact_id']),
+                interaction_data.get('company_id', opp['company_id']),
+                interaction_data.get('date_interaction'),
+                interaction_data.get('resume'),
+                interaction_data.get('details'),
+                interaction_data.get('resultat'),
+                interaction_data.get('suivi_prevu'),
+                opportunity_id
+            ))
+            
+            return interaction_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création interaction depuis opportunité: {e}")
+            return None
+    
+    def create_activity_from_interaction(self, interaction_id: int, activity_data: Dict) -> Optional[int]:
+        """Crée une activité calendrier à partir d'une interaction"""
+        try:
+            # Récupérer l'interaction
+            inter = self.execute_query("SELECT * FROM interactions WHERE id = ?", (interaction_id,))
+            if not inter:
+                return None
+            inter = inter[0]
+            
+            # Créer l'activité
+            query = '''
+                INSERT INTO crm_activities
+                (sujet, type_activite, contact_id, company_id, date_activite, duree_minutes,
+                 description, statut, priorite, assigned_to, interaction_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            # Calculer la durée en minutes si date_fin est fournie
+            duree_minutes = 60  # Par défaut 1 heure
+            if activity_data.get('date_fin') and activity_data.get('date_debut'):
+                try:
+                    debut = datetime.fromisoformat(activity_data['date_debut'])
+                    fin = datetime.fromisoformat(activity_data['date_fin'])
+                    duree_minutes = int((fin - debut).total_seconds() / 60)
+                except:
+                    pass
+            
+            activity_id = self.execute_insert(query, (
+                activity_data.get('titre', f"Suivi {inter['resume'][:50]}"),
+                activity_data.get('type_activite', 'Suivi'),
+                inter['contact_id'],
+                inter['company_id'],
+                activity_data.get('date_debut', inter['suivi_prevu']),
+                duree_minutes,
+                activity_data.get('description', f"Suivi de l'interaction #{interaction_id}: {inter['resume']}"),
+                activity_data.get('statut', 'Planifié'),
+                activity_data.get('priorite', 'Normale'),
+                activity_data.get('assigned_to'),
+                interaction_id
+            ))
+            
+            return activity_id
+            
+        except Exception as e:
+            logger.error(f"Erreur création activité depuis interaction: {e}")
+            return None
+    
+    def link_opportunity_to_activity(self, opportunity_id: int, activity_id: int) -> bool:
+        """Lie une opportunité à une activité calendrier"""
+        try:
+            # Vérifier si la colonne opportunity_id existe dans crm_activities
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA table_info(crm_activities)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'opportunity_id' not in columns:
+                # Ajouter la colonne si elle n'existe pas
+                self.execute_update("ALTER TABLE crm_activities ADD COLUMN opportunity_id INTEGER")
+            
+            # Mettre à jour l'activité
+            affected = self.execute_update(
+                "UPDATE crm_activities SET opportunity_id = ? WHERE id = ?",
+                (opportunity_id, activity_id)
+            )
+            
+            return affected > 0
+            
+        except Exception as e:
+            logger.error(f"Erreur liaison opportunité-activité: {e}")
+            return False
+    
+    def get_interactions_by_opportunity(self, opportunity_id: int) -> List[Dict]:
+        """Récupère toutes les interactions liées à une opportunité"""
+        try:
+            # Vérifier si la colonne opportunity_id existe
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA table_info(interactions)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'opportunity_id' not in columns:
+                # Ajouter la colonne si elle n'existe pas
+                self.execute_update("ALTER TABLE interactions ADD COLUMN opportunity_id INTEGER")
+            
+            query = '''
+                SELECT i.*, c.prenom || ' ' || c.nom_famille as contact_name,
+                       co.nom as company_name
+                FROM interactions i
+                LEFT JOIN contacts c ON i.contact_id = c.id
+                LEFT JOIN companies co ON i.company_id = co.id
+                WHERE i.opportunity_id = ?
+                ORDER BY i.date_interaction DESC
+            '''
+            
+            return self.execute_query(query, (opportunity_id,))
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération interactions par opportunité: {e}")
+            return []
+    
+    def get_activities_by_opportunity(self, opportunity_id: int) -> List[Dict]:
+        """Récupère toutes les activités liées à une opportunité"""
+        try:
+            query = '''
+                SELECT a.*, c.prenom || ' ' || c.nom_famille as contact_name,
+                       co.nom as company_name, e.prenom || ' ' || e.nom as assigned_to_name
+                FROM crm_activities a
+                LEFT JOIN contacts c ON a.contact_id = c.id
+                LEFT JOIN companies co ON a.company_id = co.id
+                LEFT JOIN employees e ON a.assigned_to = e.id
+                WHERE a.opportunity_id = ?
+                ORDER BY a.date_debut DESC
+            '''
+            
+            return self.execute_query(query, (opportunity_id,))
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération activités par opportunité: {e}")
+            return []
+    
+    def get_crm_unified_view(self, filters: Dict = None) -> Dict[str, Any]:
+        """Vue unifiée des données CRM (interactions, opportunités, activités)"""
+        try:
+            result = {
+                'interactions_recentes': [],
+                'opportunites_actives': [],
+                'activites_a_venir': [],
+                'statistiques': {}
+            }
+            
+            # Interactions récentes
+            query_inter = '''
+                SELECT i.*, c.prenom || ' ' || c.nom_famille as contact_name,
+                       co.nom as company_name, o.nom as opportunity_name
+                FROM interactions i
+                LEFT JOIN contacts c ON i.contact_id = c.id
+                LEFT JOIN companies co ON i.company_id = co.id
+                LEFT JOIN opportunities o ON i.opportunity_id = o.id
+                ORDER BY i.date_interaction DESC
+                LIMIT 10
+            '''
+            result['interactions_recentes'] = self.execute_query(query_inter)
+            
+            # Opportunités actives
+            query_opp = '''
+                SELECT o.*, c.nom as company_name,
+                       COUNT(DISTINCT i.id) as nb_interactions,
+                       COUNT(DISTINCT a.id) as nb_activites
+                FROM opportunities o
+                LEFT JOIN companies c ON o.company_id = c.id
+                LEFT JOIN interactions i ON i.opportunity_id = o.id
+                LEFT JOIN crm_activities a ON a.opportunity_id = o.id
+                WHERE o.statut NOT IN ('Gagné', 'Perdu')
+                GROUP BY o.id
+                ORDER BY o.montant_estime DESC
+                LIMIT 10
+            '''
+            result['opportunites_actives'] = self.execute_query(query_opp)
+            
+            # Activités à venir
+            query_act = '''
+                SELECT a.*, c.prenom || ' ' || c.nom_famille as contact_name,
+                       co.nom as company_name, o.nom as opportunity_name
+                FROM crm_activities a
+                LEFT JOIN contacts c ON a.contact_id = c.id
+                LEFT JOIN companies co ON a.company_id = co.id
+                LEFT JOIN opportunities o ON a.opportunity_id = o.id
+                WHERE a.date_activite >= date('now')
+                  AND a.statut = 'Planifié'
+                ORDER BY a.date_activite ASC
+                LIMIT 10
+            '''
+            result['activites_a_venir'] = self.execute_query(query_act)
+            
+            # Statistiques
+            stats_query = '''
+                SELECT 
+                    (SELECT COUNT(*) FROM interactions WHERE date_interaction >= date('now', '-30 days')) as interactions_30j,
+                    (SELECT COUNT(*) FROM opportunities WHERE statut NOT IN ('Gagné', 'Perdu')) as opportunites_actives,
+                    (SELECT SUM(montant_estime) FROM opportunities WHERE statut NOT IN ('Gagné', 'Perdu')) as pipeline_value,
+                    (SELECT COUNT(*) FROM crm_activities WHERE date_activite >= date('now') AND statut = 'Planifié') as activites_planifiees
+            '''
+            stats = self.execute_query(stats_query)
+            if stats:
+                result['statistiques'] = stats[0]
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erreur vue unifiée CRM: {e}")
+            return {'interactions_recentes': [], 'opportunites_actives': [], 'activites_a_venir': [], 'statistiques': {}}
+    
+    def get_unified_timeline(self, filters: Dict = None) -> List[Dict[str, Any]]:
+        """Récupère la timeline unifiée avec tous les événements CRM"""
+        try:
+            # Paramètres de filtre
+            contact_filter = ""
+            company_filter = ""
+            params = []
+            
+            if filters:
+                if filters.get('contact_id'):
+                    contact_filter = " AND i.contact_id = ?"
+                    params.append(filters['contact_id'])
+                if filters.get('company_id'):
+                    company_filter = " AND i.company_id = ?"
+                    params.append(filters['company_id'])
+            
+            # Requête unifiée pour tous les types d'événements
+            query = f"""
+                -- Interactions
+                SELECT 
+                    'interaction' as type,
+                    i.id,
+                    i.date_interaction as date,
+                    i.type_interaction as sous_type,
+                    i.resume as titre,
+                    i.details as description,
+                    i.contact_id,
+                    i.company_id,
+                    i.opportunity_id,
+                    i.resultat,
+                    c.prenom || ' ' || c.nom_famille as contact_name,
+                    co.nom as company_name,
+                    o.nom as opportunity_name,
+                    NULL as statut,
+                    NULL as priorite
+                FROM interactions i
+                LEFT JOIN contacts c ON i.contact_id = c.id
+                LEFT JOIN companies co ON i.company_id = co.id
+                LEFT JOIN opportunities o ON i.opportunity_id = o.id
+                WHERE 1=1 {contact_filter} {company_filter}
+                
+                UNION ALL
+                
+                -- Activités CRM
+                SELECT 
+                    'activite' as type,
+                    a.id,
+                    a.date_activite as date,
+                    a.type_activite as sous_type,
+                    a.sujet as titre,
+                    a.description,
+                    a.contact_id,
+                    a.company_id,
+                    a.opportunity_id,
+                    NULL as resultat,
+                    c.prenom || ' ' || c.nom_famille as contact_name,
+                    co.nom as company_name,
+                    o.nom as opportunity_name,
+                    a.statut,
+                    a.priorite
+                FROM crm_activities a
+                LEFT JOIN contacts c ON a.contact_id = c.id
+                LEFT JOIN companies co ON a.company_id = co.id
+                LEFT JOIN opportunities o ON a.opportunity_id = o.id
+                WHERE 1=1 {contact_filter.replace('i.', 'a.')} {company_filter.replace('i.', 'a.')}
+                
+                UNION ALL
+                
+                -- Opportunités (création et changements de statut majeurs)
+                SELECT 
+                    'opportunite' as type,
+                    o.id,
+                    o.created_at as date,
+                    o.statut as sous_type,
+                    o.nom as titre,
+                    o.notes as description,
+                    o.contact_id,
+                    o.company_id,
+                    o.id as opportunity_id,
+                    NULL as resultat,
+                    c.prenom || ' ' || c.nom_famille as contact_name,
+                    co.nom as company_name,
+                    o.nom as opportunity_name,
+                    o.statut,
+                    CASE 
+                        WHEN o.montant_estime > 100000 THEN 'Haute'
+                        WHEN o.montant_estime > 50000 THEN 'Normale'
+                        ELSE 'Basse'
+                    END as priorite
+                FROM opportunities o
+                LEFT JOIN contacts c ON o.contact_id = c.id
+                LEFT JOIN companies co ON o.company_id = co.id
+                WHERE o.statut IN ('Prospection', 'Gagné', 'Perdu')
+                {contact_filter.replace('i.', 'o.')} {company_filter.replace('i.', 'o.')}
+                
+                ORDER BY date DESC
+                LIMIT ?
+            """
+            
+            # Ajouter la limite
+            limit = filters.get('limit', 50) if filters else 50
+            params_final = params * 3  # Pour les 3 parties de la requête UNION
+            params_final.append(limit)
+            
+            timeline = self.execute_query(query, tuple(params_final))
+            
+            # Enrichir les données avec des métadonnées supplémentaires
+            for item in timeline:
+                # Ajouter des icônes et couleurs selon le type
+                if item['type'] == 'interaction':
+                    type_icons = {
+                        'Email': '📧', 'Appel': '📞', 'Réunion': '🤝',
+                        'Note': '📝', 'Autre': '💬'
+                    }
+                    item['icon'] = type_icons.get(item['sous_type'], '💬')
+                    item['color'] = self._get_interaction_color(item['sous_type'])
+                elif item['type'] == 'activite':
+                    type_icons = {
+                        'Email': '📧', 'Appel': '📞', 'Réunion': '🤝',
+                        'Tâche': '📋', 'Suivi': '🔄', 'Présentation': '📊'
+                    }
+                    item['icon'] = type_icons.get(item['sous_type'], '📅')
+                    item['color'] = '#3B82F6'  # Bleu pour les activités
+                elif item['type'] == 'opportunite':
+                    status_icons = {
+                        'Prospection': '🎯', 'Gagné': '🏆', 'Perdu': '❌'
+                    }
+                    item['icon'] = status_icons.get(item['sous_type'], '💼')
+                    # Couleurs des statuts d'opportunité
+                    couleurs_statuts = {
+                        "Prospection": "#9CA3AF",
+                        "Qualification": "#3B82F6", 
+                        "Proposition": "#F59E0B",
+                        "Négociation": "#8B5CF6",
+                        "Gagné": "#10B981",
+                        "Perdu": "#EF4444"
+                    }
+                    item['color'] = couleurs_statuts.get(item['sous_type'], '#6B7280')
+                
+                # Formater la date
+                if item['date']:
+                    item['date_formatted'] = self._format_last_activity_date(item['date'])
+            
+            return timeline
+            
+        except Exception as e:
+            logger.error(f"Erreur récupération timeline: {e}")
+            return []
+    
+    def _get_interaction_color(self, type_interaction: str) -> str:
+        """Retourne la couleur associée au type d'interaction"""
+        colors = {
+            'Email': '#6B7280',
+            'Appel': '#3B82F6', 
+            'Réunion': '#8B5CF6',
+            'Note': '#10B981',
+            'Autre': '#F59E0B'
+        }
+        return colors.get(type_interaction, '#6B7280')
+    
+    def _format_last_activity_date(self, date_str: str) -> str:
+        """Formate une date pour l'affichage relatif"""
+        try:
+            from datetime import datetime
+            
+            # Parser la date
+            if isinstance(date_str, str):
+                # Essayer différents formats
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S']:
+                    try:
+                        activity_date = datetime.strptime(date_str.split('.')[0], fmt)
+                        break
+                    except:
+                        continue
+                else:
+                    return date_str
+            else:
+                activity_date = date_str
+            
+            now = datetime.now()
+            diff = now - activity_date
+            
+            if diff.days == 0:
+                if diff.seconds < 3600:
+                    minutes = diff.seconds // 60
+                    return f"Il y a {minutes} min" if minutes > 1 else "À l'instant"
+                else:
+                    hours = diff.seconds // 3600
+                    return f"Il y a {hours}h"
+            elif diff.days == 1:
+                return "Hier"
+            elif diff.days < 7:
+                return f"Il y a {diff.days} jours"
+            elif diff.days < 30:
+                weeks = diff.days // 7
+                return f"Il y a {weeks} semaine{'s' if weeks > 1 else ''}"
+            else:
+                return activity_date.strftime('%d/%m/%Y')
+                
+        except Exception as e:
+            logger.debug(f"Erreur formatage date: {e}")
+            return str(date_str)
     
     def get_dashboard_metrics(self) -> Dict[str, Any]:
         """Retourne les métriques principales pour le dashboard unifié"""
@@ -5164,217 +5854,483 @@ class ERPDatabase:
             logger.error(f"Erreur génération rapport mensuel: {e}")
             return {}
 
-# === AMÉLIORATIONS D'INTÉGRATION KANBAN ↔ ERP_DATABASE ===
-
-# 1. Méthodes à ajouter dans erp_database.py (classe ERPDatabase)
-
-def get_projets_for_kanban(self) -> List[Dict]:
-    """Récupère les projets formatés pour le Kanban avec toutes les jointures nécessaires"""
-    try:
-        query = '''
-            SELECT p.*, 
-                   c.nom as client_company_nom,
-                   c.secteur as client_secteur,
-                   COUNT(DISTINCT o.id) as nb_operations,
-                   COUNT(DISTINCT m.id) as nb_materiaux,
-                   COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux_estime
-            FROM projects p
-            LEFT JOIN companies c ON p.client_company_id = c.id
-            LEFT JOIN operations o ON p.id = o.project_id
-            LEFT JOIN materials m ON p.id = m.project_id
-            GROUP BY p.id
-            ORDER BY 
-                CASE p.priorite 
-                    WHEN 'ÉLEVÉ' THEN 1
-                    WHEN 'MOYEN' THEN 2
-                    WHEN 'BAS' THEN 3
-                    ELSE 4
-                END,
-                p.date_prevu ASC
-        '''
-        rows = self.execute_query(query)
-        return [dict(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Erreur récupération projets pour kanban: {e}")
-        return []
-
-def update_project_status_for_kanban(self, project_id: int, new_status: str, employee_id: int = None) -> bool:
-    """Met à jour le statut d'un projet avec traçabilité (pour drag & drop kanban)"""
-    try:
-        # Récupérer l'ancien statut
-        old_status_result = self.execute_query("SELECT statut FROM projects WHERE id = ?", (project_id,))
-        if not old_status_result:
-            return False
+        # === AMÉLIORATIONS D'INTÉGRATION KANBAN ↔ ERP_DATABASE ===
         
-        old_status = old_status_result[0]['statut']
-        
-        # Mettre à jour le statut
-        affected = self.execute_update(
-            "UPDATE projects SET statut = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (new_status, project_id)
-        )
-        
-        if affected > 0:
-            # Enregistrer dans l'historique si c'est un projet avec BT
-            bt_result = self.execute_query(
-                "SELECT id FROM formulaires WHERE project_id = ? AND type_formulaire = 'BON_TRAVAIL'",
-                (project_id,)
-            )
-            
-            if bt_result and employee_id:
-                for bt in bt_result:
-                    self.execute_insert(
-                        """INSERT INTO formulaire_validations 
-                           (formulaire_id, employee_id, type_validation, ancien_statut, nouveau_statut, commentaires)
-                           VALUES (?, ?, 'CHANGEMENT_STATUT_PROJET', ?, ?, ?)""",
-                        (bt['id'], employee_id, old_status, new_status, f"Projet déplacé via Kanban: {old_status} → {new_status}")
+        def get_projets_for_kanban(self) -> List[Dict]:
+            """Récupère les projets formatés pour le Kanban avec toutes les jointures nécessaires"""
+            try:
+                query = '''
+                    SELECT p.*, 
+                           c.nom as client_company_nom,
+                           c.secteur as client_secteur,
+                           COUNT(DISTINCT o.id) as nb_operations,
+                           COUNT(DISTINCT m.id) as nb_materiaux,
+                           COALESCE(SUM(m.quantite * m.prix_unitaire), 0) as cout_materiaux_estime
+                    FROM projects p
+                    LEFT JOIN companies c ON p.client_company_id = c.id
+                    LEFT JOIN operations o ON p.id = o.project_id
+                    LEFT JOIN materials m ON p.id = m.project_id
+                    GROUP BY p.id
+                    ORDER BY 
+                        CASE p.priorite 
+                            WHEN 'ÉLEVÉ' THEN 1
+                            WHEN 'MOYEN' THEN 2
+                            WHEN 'BAS' THEN 3
+                            ELSE 4
+                        END,
+                        p.date_prevu ASC
+                '''
+                rows = self.execute_query(query)
+                return [dict(row) for row in rows]
+            except Exception as e:
+                logger.error(f"Erreur récupération projets pour kanban: {e}")
+                return []
+    
+        def update_project_status_for_kanban(self, project_id: int, new_status: str, employee_id: int = None) -> bool:
+            """Met à jour le statut d'un projet avec traçabilité (pour drag & drop kanban)"""
+            try:
+                # Récupérer l'ancien statut
+                old_status_result = self.execute_query("SELECT statut FROM projects WHERE id = ?", (project_id,))
+                if not old_status_result:
+                    return False
+                
+                old_status = old_status_result[0]['statut']
+                
+                # Mettre à jour le statut
+                affected = self.execute_update(
+                    "UPDATE projects SET statut = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (new_status, project_id)
+                )
+                
+                if affected > 0:
+                    # Enregistrer dans l'historique si c'est un projet avec BT
+                    bt_result = self.execute_query(
+                        "SELECT id FROM formulaires WHERE project_id = ? AND type_formulaire = 'BON_TRAVAIL'",
+                        (project_id,)
                     )
+                    
+                    if bt_result and employee_id:
+                        for bt in bt_result:
+                            self.execute_insert(
+                                """INSERT INTO formulaire_validations 
+                                   (formulaire_id, employee_id, type_validation, ancien_statut, nouveau_statut, commentaires)
+                                   VALUES (?, ?, 'CHANGEMENT_STATUT_PROJET', ?, ?, ?)""",
+                                (bt['id'], employee_id, old_status, new_status, f"Projet déplacé via Kanban: {old_status} → {new_status}")
+                            )
+                    
+                    logger.info(f"✅ Statut projet #{project_id} mis à jour: {old_status} → {new_status}")
+                    return True
+                
+                return False
+                
+            except Exception as e:
+                logger.error(f"Erreur mise à jour statut projet kanban: {e}")
+                return False
+    
+        def get_kanban_statistics(self) -> Dict[str, Any]:
+            """Statistiques spécialisées pour les vues Kanban"""
+            try:
+                stats = {
+                    'projets': {
+                        'par_statut': {},
+                        'par_priorite': {},
+                        'total': 0,
+                        'ca_total': 0.0
+                    },
+                    'bts': {
+                        'par_poste': {},
+                        'par_statut': {},
+                        'total_assignes': 0
+                    },
+                    'operations': {
+                        'par_poste': {},
+                        'par_statut': {},
+                        'charge_totale': 0.0
+                    }
+                }
+                
+                # Statistiques projets
+                projets_stats = self.execute_query('''
+                    SELECT statut, priorite, COUNT(*) as count, SUM(prix_estime) as ca
+                    FROM projects
+                    GROUP BY statut, priorite
+                ''')
+                
+                for row in projets_stats:
+                    statut, priorite = row['statut'], row['priorite']
+                    count, ca = row['count'], row['ca'] or 0
+                    
+                    if statut not in stats['projets']['par_statut']:
+                        stats['projets']['par_statut'][statut] = 0
+                    stats['projets']['par_statut'][statut] += count
+                    
+                    if priorite not in stats['projets']['par_priorite']:
+                        stats['projets']['par_priorite'][priorite] = 0
+                    stats['projets']['par_priorite'][priorite] += count
+                    
+                    stats['projets']['total'] += count
+                    stats['projets']['ca_total'] += ca
+                
+                # Statistiques BTs par postes
+                bt_postes_stats = self.execute_query('''
+                    SELECT wc.nom as poste_nom, f.statut, COUNT(*) as count
+                    FROM formulaires f
+                    JOIN operations o ON f.id = o.formulaire_bt_id
+                    JOIN work_centers wc ON o.work_center_id = wc.id
+                    WHERE f.type_formulaire = 'BON_TRAVAIL'
+                    GROUP BY wc.nom, f.statut
+                ''')
+                
+                for row in bt_postes_stats:
+                    poste, statut, count = row['poste_nom'], row['statut'], row['count']
+                    
+                    if poste not in stats['bts']['par_poste']:
+                        stats['bts']['par_poste'][poste] = 0
+                    stats['bts']['par_poste'][poste] += count
+                    
+                    if statut not in stats['bts']['par_statut']:
+                        stats['bts']['par_statut'][statut] = 0
+                    stats['bts']['par_statut'][statut] += count
+                
+                # Statistiques opérations
+                ops_stats = self.execute_query('''
+                    SELECT wc.nom as poste_nom, o.statut, COUNT(*) as count, SUM(o.temps_estime) as temps_total
+                    FROM operations o
+                    JOIN work_centers wc ON o.work_center_id = wc.id
+                    GROUP BY wc.nom, o.statut
+                ''')
+                
+                for row in ops_stats:
+                    poste, statut = row['poste_nom'], row['statut']
+                    count, temps = row['count'], row['temps_total'] or 0
+                    
+                    if poste not in stats['operations']['par_poste']:
+                        stats['operations']['par_poste'][poste] = {'count': 0, 'temps': 0.0}
+                    stats['operations']['par_poste'][poste]['count'] += count
+                    stats['operations']['par_poste'][poste]['temps'] += temps
+                    
+                    if statut not in stats['operations']['par_statut']:
+                        stats['operations']['par_statut'][statut] = 0
+                    stats['operations']['par_statut'][statut] += count
+                    
+                    stats['operations']['charge_totale'] += temps
+                
+                return stats
+                
+            except Exception as e:
+                logger.error(f"Erreur statistiques kanban: {e}")
+                return {}
+    
+        # === NOUVELLES MÉTHODES POUR ANALYSE DE CAPACITÉ ===
+    
+    def get_capacity_analysis_by_work_center(self, period_days: int = 30) -> List[Dict[str, Any]]:
+        """
+        Analyse détaillée de la capacité par poste de travail
+        Retourne la capacité théorique vs utilisée, par produit si applicable
+        """
+        try:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=period_days)
             
-            logger.info(f"✅ Statut projet #{project_id} mis à jour: {old_status} → {new_status}")
-            return True
+            query = """
+                SELECT 
+                    wc.id,
+                    wc.nom as poste_nom,
+                    wc.departement,
+                    wc.type_operation,
+                    wc.capacite_theorique,
+                    wc.taux_horaire,
+                    wc.statut,
+                    COUNT(DISTINCT o.id) as nb_operations,
+                    COUNT(DISTINCT o.project_id) as nb_projets,
+                    COALESCE(SUM(o.temps_estime), 0) as temps_planifie,
+                    COALESCE(SUM(te.total_hours), 0) as temps_reel,
+                    COUNT(DISTINCT te.employee_id) as nb_employes,
+                    COUNT(DISTINCT DATE(te.punch_in)) as jours_actifs
+                FROM work_centers wc
+                LEFT JOIN operations o ON wc.id = o.work_center_id
+                    AND o.created_at >= ?
+                LEFT JOIN time_entries te ON o.id = te.operation_id
+                    AND te.punch_in >= ?
+                GROUP BY wc.id
+                ORDER BY wc.departement, wc.nom
+            """
+            
+            results = self.execute_query(query, (start_date, start_date))
+            
+            capacity_data = []
+            for row in results:
+                data = dict(row)
+                
+                # Calcul de la capacité disponible sur la période
+                capacite_jour = data['capacite_theorique']
+                jours_ouvrables = period_days * 5 / 7  # Approximation jours ouvrables
+                capacite_totale = capacite_jour * jours_ouvrables
+                
+                # Calcul du taux d'utilisation
+                taux_utilisation = (data['temps_reel'] / capacite_totale * 100) if capacite_totale > 0 else 0
+                
+                # Calcul de l'efficacité (temps réel vs temps planifié)
+                efficacite = (data['temps_planifie'] / data['temps_reel'] * 100) if data['temps_reel'] > 0 else 0
+                
+                data.update({
+                    'capacite_totale_periode': round(capacite_totale, 2),
+                    'capacite_disponible': round(capacite_totale - data['temps_reel'], 2),
+                    'taux_utilisation': round(taux_utilisation, 2),
+                    'efficacite': round(efficacite, 2),
+                    'productivite_journaliere': round(data['temps_reel'] / data['jours_actifs'], 2) if data['jours_actifs'] > 0 else 0,
+                    'revenus_generes': round(data['temps_reel'] * data['taux_horaire'], 2)
+                })
+                
+                capacity_data.append(data)
+            
+            return capacity_data
+            
+        except Exception as e:
+            logger.error(f"Erreur analyse capacité: {e}")
+            return []
+    
+    def get_product_capacity_by_work_center(self, work_center_id: int = None) -> List[Dict[str, Any]]:
+        """
+        Analyse de la capacité de production par type de produit pour chaque poste
+        """
+        try:
+            base_query = """
+                SELECT 
+                    wc.id as work_center_id,
+                    wc.nom as poste_nom,
+                    p.id as project_id,
+                    p.nom_projet,
+                    p.client_nom_cache as client,
+                    o.description as operation_description,
+                    o.temps_estime,
+                    o.statut as operation_statut,
+                    COUNT(DISTINCT m.id) as nb_materiaux,
+                    GROUP_CONCAT(DISTINCT m.nom_materiel) as materiaux_list
+                FROM work_centers wc
+                INNER JOIN operations o ON wc.id = o.work_center_id
+                INNER JOIN projects p ON o.project_id = p.id
+                LEFT JOIN materials m ON p.id = m.project_id
+                WHERE wc.statut = 'ACTIF'
+            """
+            
+            params = []
+            if work_center_id:
+                base_query += " AND wc.id = ?"
+                params.append(work_center_id)
+            
+            base_query += """
+                GROUP BY wc.id, p.id, o.id
+                ORDER BY wc.nom, p.nom_projet
+            """
+            
+            results = self.execute_query(base_query, params)
+            
+            # Organiser par poste et calculer les capacités
+            capacity_by_product = {}
+            for row in results:
+                wc_id = row['work_center_id']
+                if wc_id not in capacity_by_product:
+                    capacity_by_product[wc_id] = {
+                        'poste_nom': row['poste_nom'],
+                        'produits': {}
+                    }
+                
+                # Extraire le type de produit depuis le nom du projet ou la description
+                product_type = self._extract_product_type(row['nom_projet'], row['operation_description'])
+                
+                if product_type not in capacity_by_product[wc_id]['produits']:
+                    capacity_by_product[wc_id]['produits'][product_type] = {
+                        'nb_projets': 0,
+                        'temps_total': 0,
+                        'materiaux_utilises': set(),
+                        'operations': []
+                    }
+                
+                capacity_by_product[wc_id]['produits'][product_type]['nb_projets'] += 1
+                capacity_by_product[wc_id]['produits'][product_type]['temps_total'] += row['temps_estime'] or 0
+                
+                if row['materiaux_list']:
+                    for mat in row['materiaux_list'].split(','):
+                        capacity_by_product[wc_id]['produits'][product_type]['materiaux_utilises'].add(mat.strip())
+                
+                capacity_by_product[wc_id]['produits'][product_type]['operations'].append({
+                    'projet': row['nom_projet'],
+                    'client': row['client'],
+                    'temps': row['temps_estime'],
+                    'statut': row['operation_statut']
+                })
+            
+            # Convertir en liste pour retour
+            result_list = []
+            for wc_id, wc_data in capacity_by_product.items():
+                for product_type, product_data in wc_data['produits'].items():
+                    result_list.append({
+                        'work_center_id': wc_id,
+                        'poste_nom': wc_data['poste_nom'],
+                        'type_produit': product_type,
+                        'nb_projets': product_data['nb_projets'],
+                        'temps_total': round(product_data['temps_total'], 2),
+                        'temps_moyen': round(product_data['temps_total'] / product_data['nb_projets'], 2) if product_data['nb_projets'] > 0 else 0,
+                        'materiaux_uniques': len(product_data['materiaux_utilises']),
+                        'materiaux_list': list(product_data['materiaux_utilises'])[:5]  # Top 5 matériaux
+                    })
+            
+            return sorted(result_list, key=lambda x: (x['poste_nom'], -x['temps_total']))
+            
+        except Exception as e:
+            logger.error(f"Erreur analyse capacité produit: {e}")
+            return []
+    
+    def _extract_product_type(self, project_name: str, operation_desc: str) -> str:
+        """
+        Extrait le type de produit depuis le nom du projet ou la description
+        """
+        # Logique simple d'extraction - à adapter selon vos conventions
+        combined_text = f"{project_name} {operation_desc}".lower()
         
-        return False
-        
-    except Exception as e:
-        logger.error(f"Erreur mise à jour statut projet kanban: {e}")
-        return False
-
-def get_kanban_statistics(self) -> Dict[str, Any]:
-    """Statistiques spécialisées pour les vues Kanban"""
-    try:
-        stats = {
-            'projets': {
-                'par_statut': {},
-                'par_priorite': {},
-                'total': 0,
-                'ca_total': 0.0
-            },
-            'bts': {
-                'par_poste': {},
-                'par_statut': {},
-                'total_assignes': 0
-            },
-            'operations': {
-                'par_poste': {},
-                'par_statut': {},
-                'charge_totale': 0.0
-            }
+        # Dictionnaire de mots-clés pour identifier les types de produits
+        product_keywords = {
+            'Structure métallique': ['structure', 'charpente', 'poutre', 'colonne'],
+            'Tôlerie': ['tôle', 'pliage', 'découpe laser', 'perforation'],
+            'Soudure': ['soudure', 'soudage', 'assemblage soudé'],
+            'Usinage': ['usinage', 'fraisage', 'tournage', 'perçage'],
+            'Finition': ['peinture', 'galvanisation', 'polissage', 'finition'],
+            'Assemblage': ['assemblage', 'montage', 'kit'],
+            'Prototype': ['prototype', 'test', 'développement'],
+            'Série': ['série', 'production', 'lot']
         }
         
-        # Statistiques projets
-        projets_stats = self.execute_query('''
-            SELECT statut, priorite, COUNT(*) as count, SUM(prix_estime) as ca
-            FROM projects
-            GROUP BY statut, priorite
-        ''')
+        for product_type, keywords in product_keywords.items():
+            if any(keyword in combined_text for keyword in keywords):
+                return product_type
         
-        for row in projets_stats:
-            statut, priorite = row['statut'], row['priorite']
-            count, ca = row['count'], row['ca'] or 0
+        return 'Autre'
+    
+    def get_bottleneck_analysis(self) -> List[Dict[str, Any]]:
+        """
+        Identifie les goulots d'étranglement dans la production
+        """
+        try:
+            query = """
+                WITH work_center_load AS (
+                    SELECT 
+                        wc.id,
+                        wc.nom,
+                        wc.capacite_theorique,
+                        COUNT(DISTINCT o.id) as operations_en_attente,
+                        COALESCE(SUM(CASE WHEN o.statut IN ('EN_ATTENTE', 'PLANIFIE') THEN o.temps_estime ELSE 0 END), 0) as charge_en_attente,
+                        COALESCE(SUM(CASE WHEN o.statut = 'EN_COURS' THEN o.temps_estime ELSE 0 END), 0) as charge_en_cours
+                    FROM work_centers wc
+                    LEFT JOIN operations o ON wc.id = o.work_center_id
+                    WHERE wc.statut = 'ACTIF'
+                    GROUP BY wc.id
+                )
+                SELECT 
+                    *,
+                    (charge_en_attente + charge_en_cours) as charge_totale,
+                    CASE 
+                        WHEN capacite_theorique > 0 
+                        THEN ((charge_en_attente + charge_en_cours) / capacite_theorique) 
+                        ELSE 0 
+                    END as jours_de_retard
+                FROM work_center_load
+                WHERE (charge_en_attente + charge_en_cours) > 0
+                ORDER BY jours_de_retard DESC
+            """
             
-            if statut not in stats['projets']['par_statut']:
-                stats['projets']['par_statut'][statut] = 0
-            stats['projets']['par_statut'][statut] += count
+            results = self.execute_query(query)
             
-            if priorite not in stats['projets']['par_priorite']:
-                stats['projets']['par_priorite'][priorite] = 0
-            stats['projets']['par_priorite'][priorite] += count
+            bottlenecks = []
+            for row in results:
+                data = dict(row)
+                
+                # Classification du niveau de criticité
+                jours_retard = data['jours_de_retard']
+                if jours_retard > 5:
+                    criticite = 'CRITIQUE'
+                    couleur = '#ef4444'
+                elif jours_retard > 2:
+                    criticite = 'ÉLEVÉE'
+                    couleur = '#f59e0b'
+                elif jours_retard > 1:
+                    criticite = 'MODÉRÉE'
+                    couleur = '#3b82f6'
+                else:
+                    criticite = 'FAIBLE'
+                    couleur = '#10b981'
+                
+                data.update({
+                    'criticite': criticite,
+                    'couleur': couleur,
+                    'temps_resolution_estime': round(jours_retard * 8, 1)  # En heures
+                })
+                
+                bottlenecks.append(data)
             
-            stats['projets']['total'] += count
-            stats['projets']['ca_total'] += ca
-        
-        # Statistiques BTs par postes
-        bt_postes_stats = self.execute_query('''
-            SELECT wc.nom as poste_nom, f.statut, COUNT(*) as count
-            FROM formulaires f
-            JOIN operations o ON f.id = o.formulaire_bt_id
-            JOIN work_centers wc ON o.work_center_id = wc.id
-            WHERE f.type_formulaire = 'BON_TRAVAIL'
-            GROUP BY wc.nom, f.statut
-        ''')
-        
-        for row in bt_postes_stats:
-            poste, statut, count = row['poste_nom'], row['statut'], row['count']
+            return bottlenecks
             
-            if poste not in stats['bts']['par_poste']:
-                stats['bts']['par_poste'][poste] = 0
-            stats['bts']['par_poste'][poste] += count
+        except Exception as e:
+            logger.error(f"Erreur analyse goulots: {e}")
+            return []
+    
+    def reassign_operation_to_work_center(self, operation_id: int, new_work_center_name: str, employee_id: int = None) -> bool:
+        """Réassigne une opération à un nouveau poste de travail (pour drag & drop kanban)"""
+        try:
+            # Trouver le nouveau work_center_id
+            wc_result = self.execute_query(
+                "SELECT id FROM work_centers WHERE nom = ? AND statut = 'ACTIF'",
+                (new_work_center_name,)
+            )
             
-            if statut not in stats['bts']['par_statut']:
-                stats['bts']['par_statut'][statut] = 0
-            stats['bts']['par_statut'][statut] += count
-        
-        # Statistiques opérations
-        ops_stats = self.execute_query('''
-            SELECT wc.nom as poste_nom, o.statut, COUNT(*) as count, SUM(o.temps_estime) as temps_total
-            FROM operations o
-            JOIN work_centers wc ON o.work_center_id = wc.id
-            GROUP BY wc.nom, o.statut
-        ''')
-        
-        for row in ops_stats:
-            poste, statut = row['poste_nom'], row['statut']
-            count, temps = row['count'], row['temps_total'] or 0
+            if not wc_result:
+                logger.error(f"Poste de travail '{new_work_center_name}' non trouvé ou inactif")
+                return False
             
-            if poste not in stats['operations']['par_poste']:
-                stats['operations']['par_poste'][poste] = {'count': 0, 'temps': 0.0}
-            stats['operations']['par_poste'][poste]['count'] += count
-            stats['operations']['par_poste'][poste]['temps'] += temps
+            new_wc_id = wc_result[0]['id']
             
-            if statut not in stats['operations']['par_statut']:
-                stats['operations']['par_statut'][statut] = 0
-            stats['operations']['par_statut'][statut] += count
+            # Récupérer l'ancienne assignation
+            old_assignment = self.execute_query(
+                "SELECT work_center_id, poste_travail FROM operations WHERE id = ?",
+                (operation_id,)
+            )
             
-            stats['operations']['charge_totale'] += temps
-        
-        return stats
-        
-    except Exception as e:
-        logger.error(f"Erreur statistiques kanban: {e}")
-        return {}
-
-def reassign_operation_to_work_center(self, operation_id: int, new_work_center_name: str, employee_id: int = None) -> bool:
-    """Réassigne une opération à un nouveau poste de travail (pour drag & drop kanban)"""
-    try:
-        # Trouver le nouveau work_center_id
-        wc_result = self.execute_query(
-            "SELECT id FROM work_centers WHERE nom = ? AND statut = 'ACTIF'",
-            (new_work_center_name,)
-        )
-        
-        if not wc_result:
-            logger.error(f"Poste de travail '{new_work_center_name}' non trouvé ou inactif")
+            if not old_assignment:
+                return False
+            
+            old_poste = old_assignment[0]['poste_travail']
+            
+            # Mettre à jour l'opération
+            affected = self.execute_update(
+                "UPDATE operations SET work_center_id = ?, poste_travail = ? WHERE id = ?",
+                (new_wc_id, new_work_center_name, operation_id)
+            )
+            
+            if affected > 0:
+                logger.info(f"✅ Opération #{operation_id} réassignée: {old_poste} → {new_work_center_name}")
+                return True
+            
             return False
-        
-        new_wc_id = wc_result[0]['id']
-        
-        # Récupérer l'ancienne assignation
-        old_assignment = self.execute_query(
-            "SELECT work_center_id, poste_travail FROM operations WHERE id = ?",
-            (operation_id,)
-        )
-        
-        if not old_assignment:
+            
+        except Exception as e:
+            logger.error(f"Erreur réassignation opération kanban: {e}")
             return False
-        
-        old_poste = old_assignment[0]['poste_travail']
-        
-        # Mettre à jour l'opération
-        affected = self.execute_update(
-            "UPDATE operations SET work_center_id = ?, poste_travail = ? WHERE id = ?",
-            (new_wc_id, new_work_center_name, operation_id)
-        )
-        
-        if affected > 0:
-            logger.info(f"✅ Opération #{operation_id} réassignée: {old_poste} → {new_work_center_name}")
-            return True
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"Erreur réassignation opération kanban: {e}")
-        return False
-
+    
+    def get_all_work_centers(self) -> List[Dict[str, Any]]:
+        """Récupère tous les postes de travail"""
+        try:
+            query = """
+                SELECT id, nom, departement, type_operation, capacite_theorique, 
+                       taux_horaire, statut, description, created_at
+                FROM work_centers
+                ORDER BY departement, nom
+            """
+            results = self.execute_query(query)
+            return [dict(row) for row in results]
+        except Exception as e:
+            logger.error(f"Erreur récupération postes: {e}")
+            return []
+    
 def show_kanban_unified_improved():
     """Version améliorée du Kanban utilisant uniquement erp_db"""
     if 'erp_db' not in st.session_state:
